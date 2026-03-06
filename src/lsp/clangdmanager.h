@@ -18,6 +18,8 @@ public:
     void start(const QString &workspaceRoot, const QStringList &args = {});
     void stop();
 
+    LspTransport *transport() const { return m_transport; }
+
 signals:
     void serverReady();
     void serverStopped();

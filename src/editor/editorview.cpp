@@ -2,12 +2,15 @@
 
 #include <QCheckBox>
 #include <QHBoxLayout>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QPainter>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTextBlock>
+#include <QTextCharFormat>
 #include <QToolButton>
 
 // ── LineNumberArea ──────────────────────────────────────────────────────────
@@ -304,21 +307,50 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
     QPainter painter(m_lineNumberArea);
     painter.fillRect(event->rect(), QColor(26, 26, 26));
 
+    // Build a fast lookup: line → worst severity
+    QHash<int, DiagSeverity> lineToSeverity;
+    for (const DiagnosticMark &d : std::as_const(m_diagMarks)) {
+        if (!lineToSeverity.contains(d.line) ||
+            static_cast<int>(d.severity) <
+            static_cast<int>(lineToSeverity[d.line]))
+        {
+            lineToSeverity[d.line] = d.severity;
+        }
+    }
+
     QTextBlock block = firstVisibleBlock();
     int blockNumber = block.blockNumber();
-    int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
+    int top    = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
     int bottom = top + qRound(blockBoundingRect(block).height());
+    const int lineH = fontMetrics().height();
 
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
+            // Line number
             const QString number = QString::number(blockNumber + 1);
             painter.setPen(QColor(140, 140, 140));
             painter.drawText(0, top, m_lineNumberArea->width() - 6,
-                             fontMetrics().height(), Qt::AlignRight, number);
+                             lineH, Qt::AlignRight, number);
+
+            // Diagnostic dot (4 px wide, vertically centered)
+            if (lineToSeverity.contains(blockNumber)) {
+                const DiagSeverity sev = lineToSeverity[blockNumber];
+                QColor dot;
+                switch (sev) {
+                case DiagSeverity::Error:   dot = QColor(0xF4, 0x47, 0x47); break;
+                case DiagSeverity::Warning: dot = QColor(0xFF, 0xCC, 0x00); break;
+                default:                    dot = QColor(0x75, 0xBF, 0xFF); break;
+                }
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(dot);
+                const int dotSize = 5;
+                painter.drawEllipse(2, top + (lineH - dotSize) / 2,
+                                    dotSize, dotSize);
+            }
         }
 
         block = block.next();
-        top = bottom;
+        top    = bottom;
         bottom = top + qRound(blockBoundingRect(block).height());
         ++blockNumber;
     }
@@ -360,4 +392,125 @@ void EditorView::repositionFindBar()
     const int barW = qMin(m_findBar->sizeHint().width(), vp.width());
     const int barH = m_findBar->sizeHint().height();
     m_findBar->setGeometry(vp.right() - barW, vp.top(), barW, barH);
+}
+
+// ── LSP: Diagnostics ──────────────────────────────────────────────────────────
+
+void EditorView::setDiagnostics(const QJsonArray &lspDiagnostics)
+{
+    m_diagMarks.clear();
+    for (const QJsonValue &v : lspDiagnostics) {
+        const QJsonObject d = v.toObject();
+        const QJsonObject range = d["range"].toObject();
+        const QJsonObject start = range["start"].toObject();
+        const QJsonObject end   = range["end"].toObject();
+
+        DiagnosticMark mark;
+        mark.line      = start["line"].toInt();
+        mark.startChar = start["character"].toInt();
+        mark.endChar   = end["character"].toInt();
+        mark.severity  = static_cast<DiagSeverity>(d["severity"].toInt(1));
+        mark.message   = d["message"].toString();
+        m_diagMarks.append(mark);
+    }
+    refreshDiagnosticSelections();
+    m_lineNumberArea->update();
+}
+
+void EditorView::refreshDiagnosticSelections()
+{
+    // Keep current-line highlight, then add diagnostic underlines on top
+    QList<QTextEdit::ExtraSelection> selections;
+
+    // Current line highlight (copy from highlightCurrentLine)
+    {
+        QTextEdit::ExtraSelection sel;
+        sel.format.setBackground(QColor(36, 36, 36));
+        sel.format.setProperty(QTextFormat::FullWidthSelection, true);
+        sel.cursor = textCursor();
+        sel.cursor.clearSelection();
+        selections.append(sel);
+    }
+
+    // Diagnostic underlines
+    for (const DiagnosticMark &mark : std::as_const(m_diagMarks)) {
+        QTextBlock block = document()->findBlockByNumber(mark.line);
+        if (!block.isValid()) continue;
+
+        const int blockStart = block.position();
+        const int startPos   = blockStart + qMin(mark.startChar, block.length() - 1);
+        int       endPos     = blockStart + qMin(mark.endChar,   block.length() - 1);
+        if (endPos <= startPos) endPos = startPos + 1;
+
+        QTextEdit::ExtraSelection sel;
+
+        QColor waveColor;
+        switch (mark.severity) {
+        case DiagSeverity::Error:   waveColor = QColor(0xF4, 0x47, 0x47); break;
+        case DiagSeverity::Warning: waveColor = QColor(0xFF, 0xCC, 0x00); break;
+        default:                    waveColor = QColor(0x75, 0xBF, 0xFF); break;
+        }
+
+        sel.format.setUnderlineStyle(QTextCharFormat::SpellCheckUnderline);
+        sel.format.setUnderlineColor(waveColor);
+        sel.format.setToolTip(mark.message);
+
+        sel.cursor = textCursor();
+        sel.cursor.setPosition(startPos);
+        sel.cursor.setPosition(endPos, QTextCursor::KeepAnchor);
+        selections.append(sel);
+    }
+
+    setExtraSelections(selections);
+}
+
+// ── LSP: Format / apply text edits ───────────────────────────────────────────
+
+void EditorView::applyTextEdits(const QJsonArray &edits)
+{
+    if (edits.isEmpty()) return;
+
+    // Collect and sort edits bottom-to-top so earlier positions aren't shifted
+    struct Edit {
+        int     startLine, startChar, endLine, endChar;
+        QString newText;
+    };
+    QVector<Edit> sorted;
+    for (const QJsonValue &v : edits) {
+        const QJsonObject obj   = v.toObject();
+        const QJsonObject range = obj["range"].toObject();
+        const QJsonObject start = range["start"].toObject();
+        const QJsonObject end_  = range["end"].toObject();
+        Edit e;
+        e.startLine = start["line"].toInt();
+        e.startChar = start["character"].toInt();
+        e.endLine   = end_["line"].toInt();
+        e.endChar   = end_["character"].toInt();
+        e.newText   = obj["newText"].toString();
+        sorted.append(e);
+    }
+    // Sort descending so we apply from bottom
+    std::sort(sorted.begin(), sorted.end(), [](const Edit &a, const Edit &b) {
+        if (a.startLine != b.startLine) return a.startLine > b.startLine;
+        return a.startChar > b.startChar;
+    });
+
+    QTextCursor cur = textCursor();
+    cur.beginEditBlock();
+    for (const Edit &e : std::as_const(sorted)) {
+        QTextBlock startBlock = document()->findBlockByNumber(e.startLine);
+        QTextBlock endBlock   = document()->findBlockByNumber(e.endLine);
+        if (!startBlock.isValid() || !endBlock.isValid()) continue;
+
+        const int startPos = startBlock.position() +
+                             qMin(e.startChar, startBlock.length() - 1);
+        const int endPos   = endBlock.position() +
+                             qMin(e.endChar,   endBlock.length() - 1);
+
+        cur.setPosition(startPos);
+        cur.setPosition(endPos, QTextCursor::KeepAnchor);
+        cur.insertText(e.newText);
+    }
+    cur.endEditBlock();
+    setTextCursor(cur);
 }

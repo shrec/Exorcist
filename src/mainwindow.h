@@ -20,6 +20,8 @@ class SearchService;
 class SearchPanel;
 class AgentOrchestrator;
 class AgentChatPanel;
+class ClangdManager;
+class LspClient;
 
 class MainWindow : public QMainWindow
 {
@@ -69,5 +71,11 @@ private:
     SearchService    *m_searchService;
     AgentOrchestrator *m_agentOrchestrator;
     AgentChatPanel   *m_chatPanel;
+    ClangdManager    *m_clangd;
+    LspClient        *m_lspClient;
+    QString           m_currentFolder;
     QMetaObject::Connection m_cursorConn;   // tracks current editor cursor signal
+
+    void onLspInitialized();
+    void createLspBridge(EditorView *editor, const QString &path);
 };

@@ -29,6 +29,9 @@
 #include "core/qtfilesystem.h"
 #include "search/searchpanel.h"
 #include "search/searchservice.h"
+#include "lsp/clangdmanager.h"
+#include "lsp/lspclient.h"
+#include "lsp/lspeditorbridge.h"
 
 #include <QCloseEvent>
 #include <QSettings>
@@ -48,13 +51,24 @@ MainWindow::MainWindow(QWidget *parent)
       m_backgroundLabel(nullptr),
       m_searchService(nullptr),
       m_agentOrchestrator(nullptr),
-      m_chatPanel(nullptr)
+      m_chatPanel(nullptr),
+      m_clangd(nullptr),
+      m_lspClient(nullptr)
 {
     setWindowTitle(tr("Exorcist"));
 
     // Services that dock widgets depend on must exist before setupUi().
     m_searchService     = new SearchService(this);
     m_agentOrchestrator = new AgentOrchestrator(this);
+
+    // LSP — create before setupUi so openFile() can create bridges immediately.
+    m_clangd    = new ClangdManager(this);
+    m_lspClient = new LspClient(m_clangd->transport(), this);
+    connect(m_clangd, &ClangdManager::serverReady, this, [this]() {
+        m_lspClient->initialize(m_currentFolder);
+    });
+    connect(m_lspClient, &LspClient::initialized,
+            this, &MainWindow::onLspInitialized);
 
     setupUi();
     setupMenus();
@@ -321,6 +335,7 @@ void MainWindow::openFile(const QString &path)
     LargeFileLoader::applyToEditor(editor, path, kLargeFileThreshold);
     editor->setProperty("filePath", path);
     SyntaxHighlighter::create(path, editor->document());
+    createLspBridge(editor, path);
 
     const QString title = QFileInfo(path).fileName();
     int index = m_tabs->addTab(editor, title);
@@ -347,6 +362,9 @@ void MainWindow::openFolder(const QString &path)
     m_searchPanel->setRootPath(folder);
     setWindowTitle(tr("Exorcist — %1").arg(QDir(folder).dirName()));
     statusBar()->showMessage(tr("Opened: %1").arg(folder), 4000);
+
+    m_currentFolder = folder;
+    m_clangd->start(folder);
 }
 
 void MainWindow::saveCurrentTab()
@@ -479,6 +497,28 @@ void MainWindow::closeEvent(QCloseEvent *event)
 EditorView *MainWindow::currentEditor() const
 {
     return qobject_cast<EditorView *>(m_tabs->currentWidget());
+}
+
+// ── LSP ───────────────────────────────────────────────────────────────────────
+
+void MainWindow::createLspBridge(EditorView *editor, const QString &path)
+{
+    // Bridge is parented to the editor — auto-deleted when the tab is closed.
+    new LspEditorBridge(editor, m_lspClient, path, editor);
+}
+
+void MainWindow::onLspInitialized()
+{
+    // Open bridges for any tabs that were already open before LSP was ready.
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        auto *editor = qobject_cast<EditorView *>(m_tabs->widget(i));
+        if (!editor) continue;
+        const QString path = editor->property("filePath").toString();
+        if (path.isEmpty()) continue;
+        // Avoid double-bridging (bridge already exists as a child of editor)
+        if (editor->findChild<LspEditorBridge *>()) continue;
+        createLspBridge(editor, path);
+    }
 }
 
 void MainWindow::loadPlugins()

@@ -28,6 +28,12 @@ add_executable(exorcist WIN32
     lsp/processlsptransport.h
     lsp/clangdmanager.cpp
     lsp/clangdmanager.h
+    lsp/lspclient.cpp
+    lsp/lspclient.h
+    lsp/completionpopup.cpp
+    lsp/completionpopup.h
+    lsp/lspeditorbridge.cpp
+    lsp/lspeditorbridge.h
     agent/iagentplugin.h
     agent/agentorchestrator.cpp
     agent/agentorchestrator.h
