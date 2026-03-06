@@ -10,3 +10,5 @@
 *.sdf
 *.VC.db
 *.VC.opendb
+/build-llvm/
+/build*/
