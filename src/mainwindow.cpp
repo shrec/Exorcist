@@ -504,7 +504,33 @@ EditorView *MainWindow::currentEditor() const
 void MainWindow::createLspBridge(EditorView *editor, const QString &path)
 {
     // Bridge is parented to the editor — auto-deleted when the tab is closed.
-    new LspEditorBridge(editor, m_lspClient, path, editor);
+    auto *bridge = new LspEditorBridge(editor, m_lspClient, path, editor);
+    connect(bridge, &LspEditorBridge::navigateToLocation,
+            this,   &MainWindow::navigateToLocation);
+}
+
+void MainWindow::navigateToLocation(const QString &path, int line, int character)
+{
+    openFile(path);   // opens or switches to the existing tab
+
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        auto *editor = qobject_cast<EditorView *>(m_tabs->widget(i));
+        if (!editor || editor->property("filePath").toString() != path)
+            continue;
+
+        m_tabs->setCurrentIndex(i);
+
+        const QTextBlock block = editor->document()->findBlockByNumber(line);
+        if (block.isValid()) {
+            QTextCursor cur(block);
+            cur.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor,
+                             qMin(character, block.length() - 1));
+            editor->setTextCursor(cur);
+            editor->centerCursor();
+        }
+        editor->setFocus();
+        break;
+    }
 }
 
 void MainWindow::onLspInitialized()

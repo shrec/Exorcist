@@ -47,6 +47,7 @@ private slots:
                                const QJsonObject &result);
     void onDiagnosticsPublished(const QString &uri, const QJsonArray &diags);
     void onFormattingResult(const QString &uri, const QJsonArray &edits);
+    void onDefinitionResult(const QString &uri, const QJsonArray &locations);
     void onCompletionAccepted(const QString &insertText,
                               const QString &filterText);
 
@@ -60,8 +61,14 @@ private:
     QString          m_filePath;
     QString          m_uri;
     QString          m_languageId;
-    int              m_version = 1;
+    int              m_version            = 1;
+    int              m_formatReqVersion   = 0; // version at last format request
     QTimer          *m_changeTimer;
     CompletionPopup *m_completion;
     QString          m_completionPrefix; // word typed since last completion
+
+signals:
+    // Emitted when the LSP server returns a definition location.
+    // MainWindow connects this to navigate to the target file:line.
+    void navigateToLocation(const QString &filePath, int line, int character);
 };

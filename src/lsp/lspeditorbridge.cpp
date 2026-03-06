@@ -7,6 +7,7 @@
 #include <QTextCursor>
 #include <QTimer>
 #include <QToolTip>
+#include <QUrl>
 
 #include "../editor/editorview.h"
 #include "completionpopup.h"
@@ -46,6 +47,8 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
             this, &LspEditorBridge::onDiagnosticsPublished);
     connect(m_client, &LspClient::formattingResult,
             this, &LspEditorBridge::onFormattingResult);
+    connect(m_client, &LspClient::definitionResult,
+            this, &LspEditorBridge::onDefinitionResult);
 
     // Completion popup
     connect(m_completion, &CompletionPopup::itemAccepted,
@@ -58,6 +61,17 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
     connect(completeAction, &QAction::triggered,
             this, &LspEditorBridge::triggerCompletion);
     editor->addAction(completeAction);
+
+    // F12 → go to definition
+    auto *gotoDefAction = new QAction(editor);
+    gotoDefAction->setShortcut(QKeySequence(Qt::Key_F12));
+    gotoDefAction->setShortcutContext(Qt::WidgetShortcut);
+    connect(gotoDefAction, &QAction::triggered, this, [this]() {
+        const QTextCursor cur = m_editor->textCursor();
+        m_client->requestDefinition(m_uri, cur.blockNumber(),
+                                    cur.positionInBlock());
+    });
+    editor->addAction(gotoDefAction);
 
     // Ctrl+Shift+F → format document
     auto *formatAction = new QAction(editor);
@@ -218,7 +232,32 @@ void LspEditorBridge::onFormattingResult(const QString &uri,
                                          const QJsonArray &edits)
 {
     if (uri != m_uri || edits.isEmpty()) return;
+    // Discard stale result: user typed more since we sent the request.
+    if (m_version != m_formatReqVersion) return;
     m_editor->applyTextEdits(edits);
+}
+
+void LspEditorBridge::onDefinitionResult(const QString &uri,
+                                         const QJsonArray &locations)
+{
+    if (uri != m_uri || locations.isEmpty()) return;
+
+    const QJsonObject loc = locations[0].toObject();
+
+    // LSP allows both Location {uri, range} and LocationLink {targetUri, targetSelectionRange}
+    const QString targetUri = loc.contains("targetUri")
+        ? loc["targetUri"].toString()
+        : loc["uri"].toString();
+    const QJsonObject range = loc.contains("targetSelectionRange")
+        ? loc["targetSelectionRange"].toObject()
+        : loc["range"].toObject();
+
+    const QString filePath = QUrl(targetUri).toLocalFile();
+    if (filePath.isEmpty()) return;
+
+    const int line = range["start"].toObject()["line"].toInt();
+    const int col  = range["start"].toObject()["character"].toInt();
+    emit navigateToLocation(filePath, line, col);
 }
 
 void LspEditorBridge::onCompletionAccepted(const QString &insertText,
@@ -242,5 +281,6 @@ void LspEditorBridge::onCompletionAccepted(const QString &insertText,
 void LspEditorBridge::formatDocument()
 {
     sendDidChange();
+    m_formatReqVersion = m_version; // snapshot version; discard result if user types more
     m_client->requestFormatting(m_uri);
 }

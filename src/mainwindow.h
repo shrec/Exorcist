@@ -78,4 +78,5 @@ private:
 
     void onLspInitialized();
     void createLspBridge(EditorView *editor, const QString &path);
+    void navigateToLocation(const QString &path, int line, int character);
 };
