@@ -24,6 +24,7 @@ class ClangdManager;
 class LspClient;
 class ReferencesPanel;
 class SymbolOutlinePanel;
+class TerminalWidget;
 
 class MainWindow : public QMainWindow
 {
@@ -77,6 +78,7 @@ private:
     AgentChatPanel   *m_chatPanel;
     ReferencesPanel  *m_referencesPanel;
     SymbolOutlinePanel *m_symbolPanel;
+    TerminalWidget   *m_terminal;
     ClangdManager    *m_clangd;
     LspClient        *m_lspClient;
     QString           m_currentFolder;

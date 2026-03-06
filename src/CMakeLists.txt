@@ -38,6 +38,14 @@ add_executable(exorcist WIN32
     lsp/referencespanel.h
     editor/symboloutlinepanel.cpp
     editor/symboloutlinepanel.h
+    terminal/terminalscreen.cpp
+    terminal/terminalscreen.h
+    terminal/ptybackend.cpp
+    terminal/ptybackend.h
+    terminal/terminalview.cpp
+    terminal/terminalview.h
+    terminal/terminalwidget.cpp
+    terminal/terminalwidget.h
     agent/iagentplugin.h
     agent/agentorchestrator.cpp
     agent/agentorchestrator.h

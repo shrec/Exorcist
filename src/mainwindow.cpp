@@ -12,7 +12,6 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QCoreApplication>
-#include <QPlainTextEdit>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QToolBar>
@@ -34,6 +33,7 @@
 #include "lsp/lspeditorbridge.h"
 #include "lsp/referencespanel.h"
 #include "editor/symboloutlinepanel.h"
+#include "terminal/terminalwidget.h"
 
 #include <QCloseEvent>
 #include <QJsonObject>
@@ -60,6 +60,7 @@ MainWindow::MainWindow(QWidget *parent)
       m_symbolPanel(nullptr),
       m_referencesDock(nullptr),
       m_symbolDock(nullptr),
+      m_terminal(nullptr),
       m_clangd(nullptr),
       m_lspClient(nullptr)
 {
@@ -173,6 +174,15 @@ void MainWindow::setupMenus()
         a->setChecked(true);
     }
 
+    // ── Build shortcut (Ctrl+Shift+B) ─────────────────────────────────────
+    auto *buildAct = new QAction(tr("&Build"), this);
+    buildAct->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B));
+    connect(buildAct, &QAction::triggered, this, [this]() {
+        m_terminalDock->raise();
+        m_terminal->sendCommand(QStringLiteral("cmake --build build-llvm"));
+    });
+    addAction(buildAct);
+
     connect(cmdPaletteAction, &QAction::triggered, this, &MainWindow::showCommandPalette);
     connect(filePaletteAction, &QAction::triggered, this, &MainWindow::showFilePalette);
 
@@ -276,10 +286,11 @@ void MainWindow::createDockWidgets()
     m_projectDock->raise();   // project visible by default
 
     // ── Terminal ──────────────────────────────────────────────────────────
+    m_terminal     = new TerminalWidget(this);
     m_terminalDock = new QDockWidget(tr("Terminal"), this);
     m_terminalDock->setObjectName("TerminalDock");
     m_terminalDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
-    m_terminalDock->setWidget(new QPlainTextEdit(tr("Terminal — not yet wired"), m_terminalDock));
+    m_terminalDock->setWidget(m_terminal);
     addDockWidget(Qt::BottomDockWidgetArea, m_terminalDock);
 
     // ── AI ────────────────────────────────────────────────────────────────
@@ -434,6 +445,7 @@ void MainWindow::openFolder(const QString &path)
     statusBar()->showMessage(tr("Opened: %1").arg(folder), 4000);
 
     m_currentFolder = folder;
+    m_terminal->setWorkingDirectory(folder);
     m_clangd->start(folder);
 }
 
