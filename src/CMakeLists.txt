@@ -4,6 +4,9 @@ add_executable(exorcist WIN32
     mainwindow.h
     editor/editorview.cpp
     editor/editorview.h
+    editor/largefileloader.cpp
+    editor/largefileloader.h
+    editor/textbuffer.h
     resources.qrc
     aiinterface.h
     plugininterface.h

@@ -47,3 +47,9 @@ See `docs/architecture.md`.
 
 ## Manifesto
 See `docs/manifesto.md`.
+
+## Search Framework
+See `docs/search_framework.md`.
+
+## LSP Lifecycle
+See `docs/lsp_lifecycle.md`.

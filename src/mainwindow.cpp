@@ -17,6 +17,7 @@
 #include <QTreeView>
 
 #include "editor/editorview.h"
+#include "editor/largefileloader.h"
 #include "pluginmanager.h"
 #include "serviceregistry.h"
 #include "core/qtfilesystem.h"
@@ -157,20 +158,22 @@ void MainWindow::openFile(const QString &path)
         }
     }
 
-    QString error;
-    const QString content = m_fileSystem->readTextFile(path, &error);
-    if (content.isEmpty() && !m_fileSystem->exists(path)) {
+    auto *editor = new EditorView();
+    constexpr qint64 kLargeFileThreshold = 10 * 1024 * 1024;
+    LargeFileLoader::applyToEditor(editor, path, kLargeFileThreshold);
+
+    if (editor->toPlainText().isEmpty() && !m_fileSystem->exists(path)) {
         statusBar()->showMessage(tr("Failed to open %1").arg(path));
+        delete editor;
         return;
     }
-
-    auto *editor = new EditorView();
-    editor->setPlainText(content);
-    editor->setProperty("filePath", path);
 
     const QString title = QFileInfo(path).fileName();
     int index = m_tabs->addTab(editor, title);
     m_tabs->setCurrentIndex(index);
+    if (editor->property("isPartial").toBool()) {
+        statusBar()->showMessage(tr("Large file preview loaded (read-only)"));
+    }
 }
 
 void MainWindow::saveCurrentTab()
