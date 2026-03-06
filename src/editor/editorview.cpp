@@ -263,7 +263,12 @@ int EditorView::lineNumberAreaWidth() const
 
 void EditorView::updateLineNumberAreaWidth(int)
 {
-    setViewportMargins(lineNumberAreaWidth(), 0, 0, 0);
+    const int w = lineNumberAreaWidth();
+    setViewportMargins(w, 0, 0, 0);
+    // setViewportMargins shrinks the viewport but does NOT trigger resizeEvent on
+    // the editor, so the LineNumberArea overlay must be repositioned explicitly.
+    const QRect cr = contentsRect();
+    m_lineNumberArea->setGeometry(cr.left(), cr.top(), w, cr.height());
 }
 
 void EditorView::updateLineNumberArea(const QRect &rect, int dy)
