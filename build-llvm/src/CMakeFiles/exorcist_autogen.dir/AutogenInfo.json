@@ -1,0 +1,177 @@
+{
+	"AUTOGEN_COMMAND_LINE_LENGTH_MAX" : 32000,
+	"BUILD_DIR" : "D:/Dev/Exorcist/build-llvm/src/exorcist_autogen",
+	"CMAKE_BINARY_DIR" : "D:/Dev/Exorcist/build-llvm",
+	"CMAKE_CURRENT_BINARY_DIR" : "D:/Dev/Exorcist/build-llvm/src",
+	"CMAKE_CURRENT_SOURCE_DIR" : "D:/Dev/Exorcist/src",
+	"CMAKE_EXECUTABLE" : "C:/Program Files/CMake/bin/cmake.exe",
+	"CMAKE_LIST_FILES" : 
+	[
+		"D:/Dev/Exorcist/src/CMakeLists.txt",
+		"D:/Dev/Exorcist/src/resources.qrc"
+	],
+	"CMAKE_SOURCE_DIR" : "D:/Dev/Exorcist",
+	"CROSS_CONFIG" : false,
+	"DEP_FILE" : "D:/Dev/Exorcist/build-llvm/src/exorcist_autogen/deps",
+	"DEP_FILE_RULE_NAME" : "exorcist_autogen/timestamp",
+	"HEADERS" : 
+	[
+		[
+			"D:/Dev/Exorcist/src/aiinterface.h",
+			"Mu",
+			"EWIEGA46WW/moc_aiinterface.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/core/ifilesystem.h",
+			"Mu",
+			"TAC5DWH4SE/moc_ifilesystem.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/core/inetwork.h",
+			"Mu",
+			"TAC5DWH4SE/moc_inetwork.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/core/iprocess.h",
+			"Mu",
+			"TAC5DWH4SE/moc_iprocess.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/core/iterminal.h",
+			"Mu",
+			"TAC5DWH4SE/moc_iterminal.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/core/nullnetwork.h",
+			"Mu",
+			"TAC5DWH4SE/moc_nullnetwork.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/core/qtfilesystem.h",
+			"Mu",
+			"TAC5DWH4SE/moc_qtfilesystem.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/core/qtprocess.h",
+			"Mu",
+			"TAC5DWH4SE/moc_qtprocess.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/core/qtterminal.h",
+			"Mu",
+			"TAC5DWH4SE/moc_qtterminal.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/mainwindow.h",
+			"Mu",
+			"EWIEGA46WW/moc_mainwindow.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/plugininterface.h",
+			"Mu",
+			"EWIEGA46WW/moc_plugininterface.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/pluginmanager.h",
+			"Mu",
+			"EWIEGA46WW/moc_pluginmanager.cpp",
+			null
+		],
+		[
+			"D:/Dev/Exorcist/src/serviceregistry.h",
+			"Mu",
+			"EWIEGA46WW/moc_serviceregistry.cpp",
+			null
+		]
+	],
+	"HEADER_EXTENSIONS" : [ "h", "hh", "h++", "hm", "hpp", "hxx", "in", "txx" ],
+	"INCLUDE_DIR" : "D:/Dev/Exorcist/build-llvm/src/exorcist_autogen/include",
+	"MOC_COMPILATION_FILE" : "D:/Dev/Exorcist/build-llvm/src/exorcist_autogen/mocs_compilation.cpp",
+	"MOC_DEFINITIONS" : 
+	[
+		"QT_CORE_LIB",
+		"QT_GUI_LIB",
+		"QT_WIDGETS_LIB",
+		"UNICODE",
+		"WIN32",
+		"WIN64",
+		"WINVER=0x0A00",
+		"_ENABLE_EXTENDED_ALIGNED_STORAGE",
+		"_UNICODE",
+		"_WIN32_WINNT=0x0A00",
+		"_WIN64"
+	],
+	"MOC_DEPEND_FILTERS" : 
+	[
+		[
+			"Q_PLUGIN_METADATA",
+			"[\n][ \t]*Q_PLUGIN_METADATA[ \t]*\\([^\\)]*FILE[ \t]*\"([^\"]+)\""
+		]
+	],
+	"MOC_INCLUDES" : 
+	[
+		"C:/Qt/6.10.1/llvm-mingw_64/include/QtWidgets",
+		"C:/Qt/6.10.1/llvm-mingw_64/include",
+		"C:/Qt/6.10.1/llvm-mingw_64/include/QtCore",
+		"C:/Qt/6.10.1/llvm-mingw_64/mkspecs/win32-clang-g++",
+		"C:/Qt/6.10.1/llvm-mingw_64/include/QtGui",
+		"C:/Qt/Tools/llvm-mingw1706_64/include/c++/v1",
+		"C:/Qt/Tools/llvm-mingw1706_64/lib/clang/17/include",
+		"C:/Qt/Tools/llvm-mingw1706_64/include"
+	],
+	"MOC_MACRO_NAMES" : 
+	[
+		"Q_OBJECT",
+		"Q_GADGET",
+		"Q_NAMESPACE",
+		"Q_NAMESPACE_EXPORT",
+		"Q_GADGET_EXPORT",
+		"Q_ENUM_NS"
+	],
+	"MOC_OPTIONS" : [],
+	"MOC_PATH_PREFIX" : false,
+	"MOC_PREDEFS_CMD" : 
+	[
+		"C:/Qt/Tools/llvm-mingw1706_64/bin/clang++.exe",
+		"-std=gnu++17",
+		"-dM",
+		"-E",
+		"-c",
+		"C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeCXXCompilerABI.cpp"
+	],
+	"MOC_PREDEFS_FILE" : "D:/Dev/Exorcist/build-llvm/src/exorcist_autogen/moc_predefs.h",
+	"MOC_RELAXED_MODE" : false,
+	"MOC_SKIP" : [],
+	"MULTI_CONFIG" : false,
+	"PARALLEL" : 8,
+	"PARSE_CACHE_FILE" : "D:/Dev/Exorcist/build-llvm/src/CMakeFiles/exorcist_autogen.dir/ParseCache.txt",
+	"QT_MOC_EXECUTABLE" : "C:/Qt/6.10.1/llvm-mingw_64/bin/moc.exe",
+	"QT_UIC_EXECUTABLE" : "",
+	"QT_VERSION_MAJOR" : 6,
+	"QT_VERSION_MINOR" : 10,
+	"SETTINGS_FILE" : "D:/Dev/Exorcist/build-llvm/src/CMakeFiles/exorcist_autogen.dir/AutogenUsed.txt",
+	"SOURCES" : 
+	[
+		[ "D:/Dev/Exorcist/src/core/nullnetwork.cpp", "Mu", null ],
+		[ "D:/Dev/Exorcist/src/core/qtfilesystem.cpp", "Mu", null ],
+		[ "D:/Dev/Exorcist/src/core/qtprocess.cpp", "Mu", null ],
+		[ "D:/Dev/Exorcist/src/core/qtterminal.cpp", "Mu", null ],
+		[ "D:/Dev/Exorcist/src/main.cpp", "Mu", null ],
+		[ "D:/Dev/Exorcist/src/mainwindow.cpp", "Mu", null ],
+		[ "D:/Dev/Exorcist/src/pluginmanager.cpp", "Mu", null ],
+		[ "D:/Dev/Exorcist/src/serviceregistry.cpp", "Mu", null ]
+	],
+	"USE_BETTER_GRAPH" : true,
+	"VERBOSITY" : 0
+}

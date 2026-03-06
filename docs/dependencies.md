@@ -8,6 +8,7 @@ for optional acceleration; nothing is bundled yet.
 - rapidfuzz (MIT): fuzzy search for quick open and command palette.
 - nlohmann/json (MIT): lightweight JSON parsing for settings.
 - sqlite (Public Domain): workspace indexing and metadata caching.
+- libssh2 (BSD-style): SSH connections for remote builds.
 
 ## Candidates (review license before use)
 - libgit2 (GPLv2 with linking exception): Git integration.

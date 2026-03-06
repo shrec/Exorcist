@@ -9,6 +9,20 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
+    },
+    {
+      "name": "llvm-clang",
+      "displayName": "LLVM Clang + Qt (llvm-mingw)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-llvm",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "C:/Qt/Tools/llvm-mingw1706_64/bin/clang.exe",
+        "CMAKE_CXX_COMPILER": "C:/Qt/Tools/llvm-mingw1706_64/bin/clang++.exe",
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.10.1/llvm-mingw_64",
+        "CMAKE_MAKE_PROGRAM": "C:/Program Files/JetBrains/CLion 2025.3.2/bin/ninja/win/x64/ninja.exe",
+        "CMAKE_RC_COMPILER": "C:/Qt/Tools/llvm-mingw1706_64/bin/llvm-windres.exe"
+      }
     }
   ]
 }

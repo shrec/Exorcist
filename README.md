@@ -22,6 +22,10 @@ cmake -S . -B build
 cmake --build build
 ```
 
+## Theme and Language
+- Default theme: dark (Fusion palette).
+- Translations: place `.qm` files in `translations/` and set `EXORCIST_LANG` if needed.
+
 ## Roadmap (high level)
 - Core UI shell (main window, editor, panels)
 - Project tree + file operations
@@ -34,3 +38,12 @@ MIT. See `LICENSE`.
 
 ## Dependencies
 See `docs/dependencies.md` for optional library notes.
+
+## Roadmap
+See `docs/roadmap.md`.
+
+## Architecture
+See `docs/architecture.md`.
+
+## Manifesto
+See `docs/manifesto.md`.

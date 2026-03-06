@@ -20,6 +20,7 @@ cmake --build build
 - Keep headers minimal and compile times low
 - Avoid heavy dependencies unless justified
 - Document non-obvious logic with short comments
+- Use RAII everywhere; for non-Qt ownership use smart pointers. For Qt objects, prefer QObject parent/child ownership.
 
 ## Pull Requests
 - Keep changes focused
