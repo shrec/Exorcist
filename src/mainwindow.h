@@ -22,6 +22,8 @@ class AgentOrchestrator;
 class AgentChatPanel;
 class ClangdManager;
 class LspClient;
+class ReferencesPanel;
+class SymbolOutlinePanel;
 
 class MainWindow : public QMainWindow
 {
@@ -60,6 +62,8 @@ private:
     QDockWidget *m_searchDock;
     QDockWidget *m_terminalDock;
     QDockWidget *m_aiDock;
+    QDockWidget *m_referencesDock;
+    QDockWidget *m_symbolDock;
 
     QLabel *m_posLabel;
     QLabel *m_encodingLabel;
@@ -71,6 +75,8 @@ private:
     SearchService    *m_searchService;
     AgentOrchestrator *m_agentOrchestrator;
     AgentChatPanel   *m_chatPanel;
+    ReferencesPanel  *m_referencesPanel;
+    SymbolOutlinePanel *m_symbolPanel;
     ClangdManager    *m_clangd;
     LspClient        *m_lspClient;
     QString           m_currentFolder;
@@ -79,4 +85,5 @@ private:
     void onLspInitialized();
     void createLspBridge(EditorView *editor, const QString &path);
     void navigateToLocation(const QString &path, int line, int character);
+    void applyWorkspaceEdit(const QJsonObject &workspaceEdit);
 };

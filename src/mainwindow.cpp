@@ -32,8 +32,12 @@
 #include "lsp/clangdmanager.h"
 #include "lsp/lspclient.h"
 #include "lsp/lspeditorbridge.h"
+#include "lsp/referencespanel.h"
+#include "editor/symboloutlinepanel.h"
 
 #include <QCloseEvent>
+#include <QJsonObject>
+#include <QUrl>
 #include <QSettings>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -52,6 +56,10 @@ MainWindow::MainWindow(QWidget *parent)
       m_searchService(nullptr),
       m_agentOrchestrator(nullptr),
       m_chatPanel(nullptr),
+      m_referencesPanel(nullptr),
+      m_symbolPanel(nullptr),
+      m_referencesDock(nullptr),
+      m_symbolDock(nullptr),
       m_clangd(nullptr),
       m_lspClient(nullptr)
 {
@@ -155,9 +163,12 @@ void MainWindow::setupMenus()
     QAction *toggleSearchAction    = viewMenu->addAction(tr("&Search panel"));
     QAction *toggleTerminalAction  = viewMenu->addAction(tr("&Terminal panel"));
     QAction *toggleAiAction        = viewMenu->addAction(tr("&AI panel"));
+    QAction *toggleOutlineAction   = viewMenu->addAction(tr("&Outline panel"));
+    QAction *toggleRefsAction      = viewMenu->addAction(tr("&References panel"));
 
     for (QAction *a : {toggleProjectAction, toggleSearchAction,
-                       toggleTerminalAction, toggleAiAction}) {
+                       toggleTerminalAction, toggleAiAction,
+                       toggleOutlineAction,  toggleRefsAction}) {
         a->setCheckable(true);
         a->setChecked(true);
     }
@@ -179,15 +190,25 @@ void MainWindow::setupMenus()
     connect(toggleAiAction,       &QAction::toggled, this, [this](bool on) {
         m_aiDock->setVisible(on);
     });
+    connect(toggleOutlineAction,  &QAction::toggled, this, [this](bool on) {
+        m_symbolDock->setVisible(on);
+    });
+    connect(toggleRefsAction,     &QAction::toggled, this, [this](bool on) {
+        m_referencesDock->setVisible(on);
+    });
     // Sync checkbox state when user closes a dock via its own X button.
-    connect(m_projectDock,  &QDockWidget::visibilityChanged,
+    connect(m_projectDock,    &QDockWidget::visibilityChanged,
             toggleProjectAction,  &QAction::setChecked);
-    connect(m_searchDock,   &QDockWidget::visibilityChanged,
+    connect(m_searchDock,     &QDockWidget::visibilityChanged,
             toggleSearchAction,   &QAction::setChecked);
-    connect(m_terminalDock, &QDockWidget::visibilityChanged,
+    connect(m_terminalDock,   &QDockWidget::visibilityChanged,
             toggleTerminalAction, &QAction::setChecked);
-    connect(m_aiDock,       &QDockWidget::visibilityChanged,
+    connect(m_aiDock,         &QDockWidget::visibilityChanged,
             toggleAiAction,       &QAction::setChecked);
+    connect(m_symbolDock,     &QDockWidget::visibilityChanged,
+            toggleOutlineAction,  &QAction::setChecked);
+    connect(m_referencesDock, &QDockWidget::visibilityChanged,
+            toggleRefsAction,     &QAction::setChecked);
 }
 
 void MainWindow::setupToolBar()
@@ -268,6 +289,44 @@ void MainWindow::createDockWidgets()
     m_chatPanel = new AgentChatPanel(m_agentOrchestrator, m_aiDock);
     m_aiDock->setWidget(m_chatPanel);
     addDockWidget(Qt::RightDockWidgetArea, m_aiDock);
+
+    // ── Symbol outline ────────────────────────────────────────────────────
+    m_symbolPanel = new SymbolOutlinePanel(this);
+    m_symbolDock  = new QDockWidget(tr("Outline"), this);
+    m_symbolDock->setObjectName("OutlineDock");
+    m_symbolDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_symbolDock->setWidget(m_symbolPanel);
+    addDockWidget(Qt::LeftDockWidgetArea, m_symbolDock);
+    tabifyDockWidget(m_searchDock, m_symbolDock);
+    m_projectDock->raise();   // project still visible by default
+
+    connect(m_symbolPanel, &SymbolOutlinePanel::symbolActivated,
+            this, [this](int line, int col) {
+        auto *editor = currentEditor();
+        if (!editor) return;
+        const QTextBlock block = editor->document()->findBlockByNumber(line);
+        if (block.isValid()) {
+            QTextCursor cur(block);
+            cur.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor,
+                             qMin(col, block.length() - 1));
+            editor->setTextCursor(cur);
+            editor->centerCursor();
+        }
+        editor->setFocus();
+    });
+
+    // ── References ────────────────────────────────────────────────────────
+    m_referencesPanel = new ReferencesPanel(this);
+    m_referencesDock  = new QDockWidget(tr("References"), this);
+    m_referencesDock->setObjectName("ReferencesDock");
+    m_referencesDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
+    m_referencesDock->setWidget(m_referencesPanel);
+    addDockWidget(Qt::BottomDockWidgetArea, m_referencesDock);
+    tabifyDockWidget(m_terminalDock, m_referencesDock);
+    m_terminalDock->raise();  // terminal visible by default
+
+    connect(m_referencesPanel, &ReferencesPanel::referenceActivated,
+            this, &MainWindow::navigateToLocation);
 }
 
 // ── Tabs / editor ────────────────────────────────────────────────────────────
@@ -282,7 +341,18 @@ void MainWindow::openNewTab()
 
 void MainWindow::onTabChanged(int /*index*/)
 {
-    updateEditorStatus(currentEditor());
+    EditorView *editor = currentEditor();
+    updateEditorStatus(editor);
+
+    if (editor) {
+        auto *bridge = editor->findChild<LspEditorBridge *>();
+        if (bridge)
+            bridge->requestSymbols();
+        else
+            m_symbolPanel->clear();
+    } else {
+        m_symbolPanel->clear();
+    }
 }
 
 void MainWindow::updateEditorStatus(EditorView *editor)
@@ -505,8 +575,24 @@ void MainWindow::createLspBridge(EditorView *editor, const QString &path)
 {
     // Bridge is parented to the editor — auto-deleted when the tab is closed.
     auto *bridge = new LspEditorBridge(editor, m_lspClient, path, editor);
+
     connect(bridge, &LspEditorBridge::navigateToLocation,
             this,   &MainWindow::navigateToLocation);
+
+    connect(bridge, &LspEditorBridge::referencesFound,
+            this, [this](const QString &symbol, const QJsonArray &locations) {
+        m_referencesPanel->showReferences(symbol, locations);
+        m_referencesDock->raise();
+    });
+
+    connect(bridge, &LspEditorBridge::workspaceEditReady,
+            this, &MainWindow::applyWorkspaceEdit);
+
+    connect(bridge, &LspEditorBridge::symbolsUpdated,
+            this, [this, editor](const QString &/*uri*/, const QJsonArray &symbols) {
+        if (m_tabs->currentWidget() == editor)
+            m_symbolPanel->setSymbols(symbols);
+    });
 }
 
 void MainWindow::navigateToLocation(const QString &path, int line, int character)
@@ -544,6 +630,32 @@ void MainWindow::onLspInitialized()
         // Avoid double-bridging (bridge already exists as a child of editor)
         if (editor->findChild<LspEditorBridge *>()) continue;
         createLspBridge(editor, path);
+    }
+}
+
+void MainWindow::applyWorkspaceEdit(const QJsonObject &workspaceEdit)
+{
+    auto applyEdits = [this](const QString &filePath, const QJsonArray &edits) {
+        if (filePath.isEmpty() || edits.isEmpty()) return;
+        openFile(filePath);
+        for (int i = 0; i < m_tabs->count(); ++i) {
+            auto *editor = qobject_cast<EditorView *>(m_tabs->widget(i));
+            if (!editor || editor->property("filePath").toString() != filePath) continue;
+            editor->applyTextEdits(edits);
+            break;
+        }
+    };
+
+    if (workspaceEdit.contains("changes")) {
+        const QJsonObject changes = workspaceEdit["changes"].toObject();
+        for (auto it = changes.begin(); it != changes.end(); ++it)
+            applyEdits(QUrl(it.key()).toLocalFile(), it.value().toArray());
+    } else if (workspaceEdit.contains("documentChanges")) {
+        for (const QJsonValue &v : workspaceEdit["documentChanges"].toArray()) {
+            const QJsonObject dc = v.toObject();
+            const QString uri = dc["textDocument"].toObject()["uri"].toString();
+            applyEdits(QUrl(uri).toLocalFile(), dc["edits"].toArray());
+        }
     }
 }
 

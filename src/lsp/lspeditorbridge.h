@@ -36,6 +36,9 @@ public:
     // Trigger format document programmatically (also bound to Ctrl+Shift+F)
     void formatDocument();
 
+    // Trigger a document-symbol request (called by MainWindow on tab switch)
+    void requestSymbols();
+
 private slots:
     void onDocumentChanged();
     void onCursorPositionChanged();
@@ -48,8 +51,12 @@ private slots:
     void onDiagnosticsPublished(const QString &uri, const QJsonArray &diags);
     void onFormattingResult(const QString &uri, const QJsonArray &edits);
     void onDefinitionResult(const QString &uri, const QJsonArray &locations);
+    void onReferencesResult(const QString &uri, const QJsonArray &locations);
+    void onRenameResult(const QString &uri, const QJsonObject &workspaceEdit);
+    void onDocumentSymbolsResult(const QString &uri, const QJsonArray &symbols);
     void onCompletionAccepted(const QString &insertText,
                               const QString &filterText);
+    void sendDocumentSymbols();
 
 private:
     void sendDidChange();
@@ -62,13 +69,15 @@ private:
     QString          m_uri;
     QString          m_languageId;
     int              m_version            = 1;
-    int              m_formatReqVersion   = 0; // version at last format request
+    int              m_formatReqVersion   = 0;
     QTimer          *m_changeTimer;
+    QTimer          *m_symbolTimer;       // debounced 1s for documentSymbol
     CompletionPopup *m_completion;
-    QString          m_completionPrefix; // word typed since last completion
+    QString          m_completionPrefix;
 
 signals:
-    // Emitted when the LSP server returns a definition location.
-    // MainWindow connects this to navigate to the target file:line.
     void navigateToLocation(const QString &filePath, int line, int character);
+    void referencesFound(const QString &symbol, const QJsonArray &locations);
+    void workspaceEditReady(const QJsonObject &workspaceEdit);
+    void symbolsUpdated(const QString &uri, const QJsonArray &symbols);
 };

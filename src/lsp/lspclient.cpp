@@ -97,6 +97,11 @@ void LspClient::initialize(const QString &workspaceRoot)
     textDocumentCaps["formatting"] = QJsonObject{};
     textDocumentCaps["rangeFormatting"] = QJsonObject{};
     textDocumentCaps["definition"] = QJsonObject{{"linkSupport", false}};
+    textDocumentCaps["references"] = QJsonObject{};
+    textDocumentCaps["rename"]     = QJsonObject{{"prepareSupport", false}};
+    textDocumentCaps["documentSymbol"] = QJsonObject{
+        {"hierarchicalDocumentSymbolSupport", true},
+    };
 
     QJsonObject params{
         {"processId",  static_cast<int>(QCoreApplication::applicationPid())},
@@ -230,6 +235,39 @@ void LspClient::requestRangeFormatting(const QString &uri,
     m_pending[id] = {"textDocument/rangeFormatting", uri, 0, 0};
 }
 
+void LspClient::requestReferences(const QString &uri, int line, int character,
+                                   bool includeDeclaration)
+{
+    if (!m_initialized) return;
+    const int id = sendRequest("textDocument/references", QJsonObject{
+        {"textDocument", QJsonObject{{"uri", uri}}},
+        {"position",     QJsonObject{{"line", line}, {"character", character}}},
+        {"context",      QJsonObject{{"includeDeclaration", includeDeclaration}}},
+    });
+    m_pending[id] = {"textDocument/references", uri, line, character};
+}
+
+void LspClient::requestRename(const QString &uri, int line, int character,
+                               const QString &newName)
+{
+    if (!m_initialized) return;
+    const int id = sendRequest("textDocument/rename", QJsonObject{
+        {"textDocument", QJsonObject{{"uri", uri}}},
+        {"position",     QJsonObject{{"line", line}, {"character", character}}},
+        {"newName",      newName},
+    });
+    m_pending[id] = {"textDocument/rename", uri, line, character};
+}
+
+void LspClient::requestDocumentSymbols(const QString &uri)
+{
+    if (!m_initialized) return;
+    const int id = sendRequest("textDocument/documentSymbol", QJsonObject{
+        {"textDocument", QJsonObject{{"uri", uri}}},
+    });
+    m_pending[id] = {"textDocument/documentSymbol", uri, 0, 0};
+}
+
 // ── Message dispatch ──────────────────────────────────────────────────────────
 
 void LspClient::onMessageReceived(const LspMessage &msg)
@@ -316,6 +354,16 @@ void LspClient::handleResponse(int id, const QJsonValue &result,
             locations = QJsonArray{result.toObject()};
         }
         emit definitionResult(req.uri, locations);
+    }
+    else if (req.method == "textDocument/references") {
+        emit referencesResult(req.uri, result.toArray());
+    }
+    else if (req.method == "textDocument/rename") {
+        if (result.isObject())
+            emit renameResult(req.uri, result.toObject());
+    }
+    else if (req.method == "textDocument/documentSymbol") {
+        emit documentSymbolsResult(req.uri, result.toArray());
     }
 }
 

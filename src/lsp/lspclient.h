@@ -54,6 +54,12 @@ public:
                                 int endLine,   int endChar,
                                 int tabSize = 4, bool insertSpaces = true);
 
+    void requestReferences(const QString &uri, int line, int character,
+                           bool includeDeclaration = true);
+    void requestRename(const QString &uri, int line, int character,
+                       const QString &newName);
+    void requestDocumentSymbols(const QString &uri);
+
     // ── Helpers ───────────────────────────────────────────────────────────
     // Convert a local file path to a LSP URI: file:///C:/...
     static QString pathToUri(const QString &path);
@@ -72,6 +78,9 @@ signals:
                              const QJsonObject &result);
     void formattingResult(const QString &uri, const QJsonArray &textEdits);
     void definitionResult(const QString &uri, const QJsonArray &locations);
+    void referencesResult(const QString &uri, const QJsonArray &locations);
+    void renameResult(const QString &uri, const QJsonObject &workspaceEdit);
+    void documentSymbolsResult(const QString &uri, const QJsonArray &symbols);
 
     // Push notifications from the server (no request needed)
     void diagnosticsPublished(const QString &uri, const QJsonArray &diagnostics);

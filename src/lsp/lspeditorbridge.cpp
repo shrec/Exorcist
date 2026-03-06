@@ -1,8 +1,10 @@
 #include "lspeditorbridge.h"
 
 #include <QAction>
+#include <QInputDialog>
 #include <QJsonObject>
 #include <QKeySequence>
+#include <QLineEdit>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTimer>
@@ -23,12 +25,18 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
       m_languageId(LspClient::languageIdForPath(filePath)),
       m_version(1),
       m_changeTimer(new QTimer(this)),
+      m_symbolTimer(new QTimer(this)),
       m_completion(new CompletionPopup(editor))
 {
     // Debounce: fire didChange 300 ms after the last keystroke
     m_changeTimer->setSingleShot(true);
     m_changeTimer->setInterval(300);
     connect(m_changeTimer, &QTimer::timeout, this, &LspEditorBridge::sendDidChange);
+
+    // Symbol outline: re-request 1 s after the last change
+    m_symbolTimer->setSingleShot(true);
+    m_symbolTimer->setInterval(1000);
+    connect(m_symbolTimer, &QTimer::timeout, this, &LspEditorBridge::sendDocumentSymbols);
 
     // Editor signals
     connect(m_editor->document(), &QTextDocument::contentsChanged,
@@ -49,6 +57,12 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
             this, &LspEditorBridge::onFormattingResult);
     connect(m_client, &LspClient::definitionResult,
             this, &LspEditorBridge::onDefinitionResult);
+    connect(m_client, &LspClient::referencesResult,
+            this, &LspEditorBridge::onReferencesResult);
+    connect(m_client, &LspClient::renameResult,
+            this, &LspEditorBridge::onRenameResult);
+    connect(m_client, &LspClient::documentSymbolsResult,
+            this, &LspEditorBridge::onDocumentSymbolsResult);
 
     // Completion popup
     connect(m_completion, &CompletionPopup::itemAccepted,
@@ -73,6 +87,40 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
     });
     editor->addAction(gotoDefAction);
 
+    // Shift+F12 → find all references
+    auto *refsAction = new QAction(editor);
+    refsAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F12));
+    refsAction->setShortcutContext(Qt::WidgetShortcut);
+    connect(refsAction, &QAction::triggered, this, [this]() {
+        const QTextCursor cur = m_editor->textCursor();
+        m_client->requestReferences(m_uri, cur.blockNumber(),
+                                    cur.positionInBlock());
+    });
+    editor->addAction(refsAction);
+
+    // F2 → rename symbol
+    auto *renameAction = new QAction(editor);
+    renameAction->setShortcut(QKeySequence(Qt::Key_F2));
+    renameAction->setShortcutContext(Qt::WidgetShortcut);
+    connect(renameAction, &QAction::triggered, this, [this]() {
+        QTextCursor word = m_editor->textCursor();
+        word.select(QTextCursor::WordUnderCursor);
+        const QString current = word.selectedText();
+        if (current.isEmpty()) return;
+
+        bool ok = false;
+        const QString newName = QInputDialog::getText(
+            m_editor, tr("Rename Symbol"),
+            tr("New name for \"%1\":").arg(current),
+            QLineEdit::Normal, current, &ok);
+        if (!ok || newName.isEmpty() || newName == current) return;
+
+        const QTextCursor cur = m_editor->textCursor();
+        m_client->requestRename(m_uri, cur.blockNumber(),
+                                cur.positionInBlock(), newName);
+    });
+    editor->addAction(renameAction);
+
     // Ctrl+Shift+F → format document
     auto *formatAction = new QAction(editor);
     formatAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F));
@@ -81,15 +129,16 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
             this, &LspEditorBridge::formatDocument);
     editor->addAction(formatAction);
 
-    // Send initial open notification
+    // Send initial open notification, then request symbols
     if (m_client->isInitialized()) {
         m_client->didOpen(m_uri, m_languageId,
                           m_editor->toPlainText(), m_version);
+        QTimer::singleShot(500, this, &LspEditorBridge::sendDocumentSymbols);
     } else {
-        // Wait for initialization, then open
         connect(m_client, &LspClient::initialized, this, [this]() {
             m_client->didOpen(m_uri, m_languageId,
                               m_editor->toPlainText(), m_version);
+            QTimer::singleShot(500, this, &LspEditorBridge::sendDocumentSymbols);
         }, Qt::SingleShotConnection);
     }
 }
@@ -105,6 +154,7 @@ LspEditorBridge::~LspEditorBridge()
 void LspEditorBridge::onDocumentChanged()
 {
     m_changeTimer->start();  // restart debounce
+    m_symbolTimer->start();  // restart symbol outline refresh
 
     // Check last typed character to decide on triggers
     if (m_completion->isVisible()) {
@@ -276,11 +326,45 @@ void LspEditorBridge::onCompletionAccepted(const QString &insertText,
     m_editor->setTextCursor(cur);
 }
 
+void LspEditorBridge::onReferencesResult(const QString &uri,
+                                         const QJsonArray &locations)
+{
+    if (uri != m_uri) return;
+    QTextCursor word = m_editor->textCursor();
+    word.select(QTextCursor::WordUnderCursor);
+    emit referencesFound(word.selectedText(), locations);
+}
+
+void LspEditorBridge::onRenameResult(const QString &uri,
+                                     const QJsonObject &workspaceEdit)
+{
+    if (uri != m_uri) return;
+    emit workspaceEditReady(workspaceEdit);
+}
+
+void LspEditorBridge::onDocumentSymbolsResult(const QString &uri,
+                                              const QJsonArray &symbols)
+{
+    if (uri != m_uri) return;
+    emit symbolsUpdated(m_uri, symbols);
+}
+
 // ── Public ────────────────────────────────────────────────────────────────────
 
 void LspEditorBridge::formatDocument()
 {
     sendDidChange();
-    m_formatReqVersion = m_version; // snapshot version; discard result if user types more
+    m_formatReqVersion = m_version;
     m_client->requestFormatting(m_uri);
+}
+
+void LspEditorBridge::requestSymbols()
+{
+    if (m_client->isInitialized())
+        m_client->requestDocumentSymbols(m_uri);
+}
+
+void LspEditorBridge::sendDocumentSymbols()
+{
+    m_client->requestDocumentSymbols(m_uri);
 }

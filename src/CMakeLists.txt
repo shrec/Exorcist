@@ -34,6 +34,10 @@ add_executable(exorcist WIN32
     lsp/completionpopup.h
     lsp/lspeditorbridge.cpp
     lsp/lspeditorbridge.h
+    lsp/referencespanel.cpp
+    lsp/referencespanel.h
+    editor/symboloutlinepanel.cpp
+    editor/symboloutlinepanel.h
     agent/iagentplugin.h
     agent/agentorchestrator.cpp
     agent/agentorchestrator.h
