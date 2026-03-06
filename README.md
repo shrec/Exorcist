@@ -53,3 +53,6 @@ See `docs/search_framework.md`.
 
 ## LSP Lifecycle
 See `docs/lsp_lifecycle.md`.
+
+## Recommendations
+See `docs/recommendations.md`.

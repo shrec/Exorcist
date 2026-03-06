@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QPluginLoader>
 #include <QFileInfo>
+#include <stdexcept>
 
 PluginManager::PluginManager(QObject *parent)
     : QObject(parent)
@@ -51,16 +52,25 @@ int PluginManager::loadPluginsFrom(const QString &path)
 
 void PluginManager::initializeAll(QObject *services)
 {
-    for (const LoadedPlugin &plugin : m_loaded) {
-        plugin.instance->initialize(services);
+    for (const LoadedPlugin &lp : m_loaded) {
+        try {
+            lp.instance->initialize(services);
+        } catch (const std::exception &e) {
+            m_errors << QString("Plugin init failed: %1").arg(e.what());
+        } catch (...) {
+            m_errors << QString("Plugin init failed with unknown exception");
+        }
     }
 }
 
 void PluginManager::shutdownAll()
 {
-    for (const LoadedPlugin &plugin : m_loaded) {
-        plugin.instance->shutdown();
-        plugin.loader->unload();
+    for (const LoadedPlugin &lp : m_loaded) {
+        try {
+            lp.instance->shutdown();
+        } catch (...) {
+        }
+        lp.loader->unload();
     }
     m_loaded.clear();
 }

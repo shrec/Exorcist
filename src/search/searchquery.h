@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QMetaType>
 
 enum class SearchMode
 {
@@ -15,3 +16,5 @@ struct SearchQuery
     bool caseSensitive = false;
     bool wholeWord = false;
 };
+
+Q_DECLARE_METATYPE(SearchQuery)

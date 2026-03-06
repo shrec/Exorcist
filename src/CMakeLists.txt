@@ -6,8 +6,39 @@ add_executable(exorcist WIN32
     editor/editorview.h
     editor/largefileloader.cpp
     editor/largefileloader.h
+    editor/syntaxhighlighter.cpp
+    editor/syntaxhighlighter.h
     editor/textbuffer.h
+    editor/piecetablebuffer.cpp
+    editor/piecetablebuffer.h
+    search/searchquery.h
+    search/searchmatch.h
+    search/searchindex.cpp
+    search/searchindex.h
+    search/searchpanel.cpp
+    search/searchpanel.h
+    search/searchworker.cpp
+    search/searchworker.h
+    search/searchservice.cpp
+    search/searchservice.h
+    lsp/lspmessage.h
+    lsp/lsptransport.cpp
+    lsp/lsptransport.h
+    lsp/processlsptransport.cpp
+    lsp/processlsptransport.h
+    lsp/clangdmanager.cpp
+    lsp/clangdmanager.h
+    agent/iagentplugin.h
+    agent/agentorchestrator.cpp
+    agent/agentorchestrator.h
+    agent/agentchatpanel.cpp
+    agent/agentchatpanel.h
+    commandpalette.cpp
+    commandpalette.h
+    logger.cpp
+    logger.h
     resources.qrc
+    exorcist.rc
     aiinterface.h
     plugininterface.h
     pluginmanager.cpp

@@ -6,6 +6,7 @@
 #include <QStyleFactory>
 #include <QTranslator>
 
+#include "logger.h"
 #include "mainwindow.h"
 
 namespace
@@ -54,12 +55,17 @@ void loadTranslator(QApplication &app)
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    Logger::install();
+    qInfo() << "Exorcist starting";
+
     app.setWindowIcon(QIcon(":/icons/icon.png"));
     applyDarkTheme(app);
     loadTranslator(app);
 
     MainWindow window;
-    window.show();
+    window.showMaximized();
 
-    return app.exec();
+    const int ret = app.exec();
+    Logger::uninstall();
+    return ret;
 }
