@@ -1,0 +1,12 @@
+/build/
+/out/
+/.cache/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+*.user
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
