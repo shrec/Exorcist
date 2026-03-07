@@ -79,20 +79,22 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
       m_contextStrip(new QLabel(this)),
       m_input(new QPlainTextEdit(this))
 {
-    // ── Panel-wide dark theme ──────────────────────────────────────────────
+    // ── Panel-wide dark theme (VS Code–aligned) ──────────────────────────
     setStyleSheet(
         "AgentChatPanel { background: #1e1e1e; }"
-        "QTextBrowser   { background: #1e1e1e; border: none; color: #cccccc; }"
+        "QTextBrowser   { background: #1e1e1e; border: none; color: #cccccc;"
+        "                 selection-background-color: #264f78; }"
         "QLineEdit {"
-        "  background: #2d2d2d; border: 1px solid #3c3c3c; border-radius: 4px;"
-        "  color: #cccccc; padding: 6px 10px; font-size: 13px; }"
+        "  background: #252526; border: 1px solid #3e3e42; border-radius: 2px;"
+        "  color: #cccccc; padding: 4px 8px; font-size: 13px; }"
         "QLineEdit:focus { border-color: #007acc; }"
         "QToolButton {"
         "  background: transparent; border: none; color: #9d9d9d;"
-        "  padding: 4px 8px; border-radius: 3px; font-size: 13px; }"
-        "QToolButton:hover { background: #2d2d2d; color: #cccccc; }"
+        "  padding: 4px 6px; border-radius: 2px; font-size: 13px; }"
+        "QToolButton:hover { background: #2a2d2e; color: #cccccc; }"
         "QToolButton#sendBtn {"
-        "  background: #0e639c; color: white; padding: 6px 14px; border-radius: 4px; }"
+        "  background: #0e639c; color: white; padding: 4px 10px; border-radius: 2px;"
+        "  font-size: 14px; }"
         "QToolButton#sendBtn:hover  { background: #1177bb; }"
         "QToolButton#sendBtn:disabled { background: #2a2a2a; color: #4a4a4a; }"
         "QToolButton#cancelBtn { color: #9d9d9d; font-size: 14px; }"
@@ -101,11 +103,11 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
         "QToolButton#historyBtn {"
         "  color: #858585; font-size: 13px; padding: 2px 6px; }"
         "QToolButton#keepBtn {"
-        "  background: #0e639c; color: white; padding: 3px 10px; border-radius: 3px;"
+        "  background: #0e639c; color: white; padding: 3px 10px; border-radius: 2px;"
         "  font-size: 12px; }"
         "QToolButton#keepBtn:hover { background: #1177bb; }"
         "QToolButton#undoBtn {"
-        "  background: #3a3d41; color: #cccccc; padding: 3px 10px; border-radius: 3px;"
+        "  background: #3a3d41; color: #cccccc; padding: 3px 10px; border-radius: 2px;"
         "  font-size: 12px; }"
         "QToolButton#undoBtn:hover { background: #4a4d51; }"
         "QComboBox {"
@@ -115,18 +117,21 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
         "QComboBox::drop-down { border: none; width: 12px; }"
         "QComboBox::down-arrow { border: none; }"
         "QComboBox QAbstractItemView {"
-        "  background: #252526; color: #cccccc; border: 1px solid #454545;"
+        "  background: #252526; color: #cccccc; border: 1px solid #3e3e42;"
         "  selection-background-color: #094771; outline: none; }"
         "QListWidget {"
-        "  background: #252526; border: 1px solid #454545; color: #cccccc; }"
+        "  background: #252526; border: 1px solid #3e3e42; color: #cccccc; }"
         "QListWidget::item { padding: 5px 10px; font-size: 12px; }"
         "QListWidget::item:hover, QListWidget::item:selected { background: #094771; }"
-        "QScrollBar:vertical { background: #1e1e1e; width: 6px; border: none; }"
-        "QScrollBar::handle:vertical { background: #424242; border-radius: 3px; min-height: 20px; }"
+        "QScrollBar:vertical { background: transparent; width: 8px; border: none; }"
+        "QScrollBar::handle:vertical {"
+        "  background: #424242; border-radius: 4px; min-height: 20px; }"
+        "QScrollBar::handle:vertical:hover { background: #4f4f4f; }"
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+        "QScrollBar:horizontal { height: 0; }"
         "QPlainTextEdit {"
-        "  background: #2d2d2d; border: 1px solid #3c3c3c; border-radius: 4px;"
-        "  color: #cccccc; font-size: 13px; padding: 4px 8px; }"
+        "  background: #252526; border: 1px solid #3e3e42; border-radius: 2px;"
+        "  color: #cccccc; font-size: 13px; padding: 2px 2px 2px 6px; }"
         "QPlainTextEdit:focus { border-color: #007acc; }");
 
     // ── Provider tab bar (top) ────────────────────────────────────────────
@@ -140,62 +145,98 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     m_history->setReadOnly(true);
     m_history->setFrameShape(QFrame::NoFrame);
     m_history->document()->setDefaultStyleSheet(
+        /* ── Base ────────────────────────────────────────────────────── */
         "body  { color:#cccccc; font-family:'Segoe UI',Arial,sans-serif; font-size:13px;"
-        "        line-height:1.6; margin:0; padding:10px 14px; }"
-        ".msg  { margin: 10px 0; }"
-        ".who  { font-size:11px; font-weight:600; letter-spacing:0.4px; margin-bottom:4px; }"
-        ".you  { color:#9cdcfe; }"
-        ".ai   { color:#858585; }"
+        "        line-height:1.5; margin:0; padding:0; }"
+
+        /* ── Message row (table-based: avatar | content) ─────────── */
+        ".msg-table { margin:0; padding:0; border:none; border-spacing:0; width:100%; }"
+        ".avatar-cell { width:28px; vertical-align:top; padding:8px 0 4px 10px; }"
+        ".avatar { width:24px; height:24px; border-radius:12px; color:#ffffff;"
+        "          font-size:13px; font-weight:600; text-align:center;"
+        "          line-height:24px; }"
+        ".avatar-user { background:#0e639c; }"
+        ".avatar-ai   { background:#5a4fcf; }"
+        ".content-cell { vertical-align:top; padding:6px 16px 4px 8px; }"
+
+        /* ── Name / timestamp row ────────────────────────────────── */
+        ".who  { font-size:12px; font-weight:600; margin-bottom:2px; }"
+        ".you  { color:#569cd6; }"
+        ".ai   { color:#b5bec9; }"
         ".body { color:#d4d4d4; }"
-        ".sys  { color:#7a7a7a; font-size:12px; font-style:italic; padding:1px 0 1px 10px;"
-        "        border-left:2px solid #3c3c3c; margin:3px 0; }"
-        ".err  { color:#f14c4c; font-size:12px; padding:4px 8px 4px 10px;"
-        "        border-left:2px solid #f14c4c; margin:4px 0; }"
-        "pre   { background:#252526; padding:12px 14px; border-radius:4px;"
-        "        font-family:'Cascadia Code',Consolas,monospace; font-size:12px;"
-        "        border-left:3px solid #0e639c; margin:8px 0; white-space:pre-wrap; }"
-        "code  { color:#ce9178; font-family:'Cascadia Code',Consolas,monospace; font-size:12px; }"
-        "a     { color:#4daafc; text-decoration:none; }"
-        ".code-header { background:#2d2d30; border-radius:4px 4px 0 0; padding:4px 12px;"
-        "              margin:8px 0 0 0; font-size:11px; color:#858585; }"
-        ".code-lang { color:#9cdcfe; font-weight:600; }"
+        ".timestamp { color:#4a4a4a; font-size:10px; margin-left:6px; font-weight:normal; }"
+
+        /* ── System / error messages ─────────────────────────────── */
+        ".sys  { color:#858585; font-size:12px; font-style:italic; padding:2px 0 2px 42px;"
+        "        margin:1px 0; }"
+        ".err  { color:#f14c4c; font-size:12px; padding:6px 10px 6px 42px;"
+        "        border-left:2px solid #f14c4c; margin:4px 10px 4px 38px;"
+        "        background:rgba(241,76,76,0.06); }"
+
+        /* ── Code blocks ─────────────────────────────────────────── */
+        "pre   { background:#1e1e1e; padding:10px 12px; border-radius:2px;"
+        "        font-family:'Cascadia Code','Fira Code',Consolas,monospace; font-size:12px;"
+        "        border-left:3px solid #0e639c; margin:6px 0; white-space:pre-wrap; }"
+        "code  { color:#ce9178; font-family:'Cascadia Code','Fira Code',Consolas,monospace;"
+        "        font-size:12px; }"
+        ".code-header { background:#2d2d30; border-radius:2px 2px 0 0; padding:4px 10px;"
+        "              margin:6px 0 0 0; font-size:11px; color:#858585; }"
+        ".code-lang { color:#569cd6; font-weight:600; }"
         ".code-header-actions { float:right; }"
-        ".code-header-actions a { color:#4daafc; font-size:11px; }"
-        ".code-actions { color:#8a8a8a; font-size:11px; margin:-2px 0 10px 0; }"
-        ".code-actions a { color:#4daafc; }"
-        "hr    { border:none; border-top:1px solid #3c3c3c; margin:10px 0; }"
+        ".code-header-actions a { color:#569cd6; font-size:11px; margin-left:8px; }"
+        ".code-actions { color:#6a6a6a; font-size:11px; margin:0 0 8px 0; }"
+        ".code-actions a { color:#569cd6; margin-right:10px; }"
+
+        /* ── Links ───────────────────────────────────────────────── */
+        "a     { color:#569cd6; text-decoration:none; }"
+
+        /* ── Horizontal rule ─────────────────────────────────────── */
+        "hr    { border:none; border-top:1px solid #2d2d2d; margin:8px 10px; }"
+
+        /* ── Blockquotes ─────────────────────────────────────────── */
         "blockquote { border-left:3px solid #007acc; padding:4px 12px; margin:6px 0;"
-        "             color:#b0b0b0; background:#252526; }"
-        "table { border-collapse:collapse; margin:8px 0; width:100%; }"
-        "th    { background:#2d2d30; color:#9cdcfe; padding:6px 10px; text-align:left;"
-        "        font-size:12px; border-bottom:2px solid #3c3c3c; }"
-        "td    { padding:5px 10px; font-size:12px; border-bottom:1px solid #333337; }"
-        "s     { color:#6a6a6a; }"
+        "             color:#b0b0b0; background:#1a1a1a; }"
+
+        /* ── Tables ──────────────────────────────────────────────── */
+        "table.data { border-collapse:collapse; margin:6px 0; width:100%; }"
+        "th    { background:#252526; color:#569cd6; padding:5px 10px; text-align:left;"
+        "        font-size:12px; border-bottom:1px solid #3e3e42; }"
+        "td    { padding:4px 10px; font-size:12px; border-bottom:1px solid #2d2d2d; }"
+
+        /* ── Lists ───────────────────────────────────────────────── */
         "ol    { padding-left:24px; margin:4px 0; }"
         "ul    { padding-left:20px; margin:4px 0; }"
         "li    { margin:2px 0; }"
-        ".feedback { margin:4px 0 6px 0; font-size:12px; }"
-        ".feedback a { color:#6a6a6a; text-decoration:none; padding:2px 6px; }"
-        ".feedback a:hover { color:#cccccc; }"
-        ".msg-actions { margin:2px 0 0 0; font-size:11px; }"
-        ".msg-actions a { color:#6a6a6a; text-decoration:none; padding:2px 5px; }"
-        ".msg-actions a:hover { color:#cccccc; }"
-        ".timestamp { color:#4e4e4e; font-size:10px; margin-left:6px; font-weight:normal; }"
-        ".ref-pill { background:#2d2d30; color:#4daafc; padding:1px 6px; border-radius:3px;"
+        "s     { color:#6a6a6a; }"
+
+        /* ── Message actions (Retry / Edit / Copy) ───────────────── */
+        ".msg-actions { margin:4px 0 0 0; font-size:11px; }"
+        ".msg-actions a { color:#6a6a6a; text-decoration:none; padding:1px 4px;"
+        "                  border-radius:2px; }"
+
+        /* ── Feedback row (thumbs up/down, copy) ─────────────────── */
+        ".feedback { margin:4px 0 2px 0; font-size:11px; }"
+        ".feedback a { color:#6a6a6a; text-decoration:none; padding:1px 5px;"
+        "              border-radius:2px; }"
+
+        /* ── Reference pills ─────────────────────────────────────── */
+        ".ref-pill { background:#2d2d30; color:#569cd6; padding:1px 6px; border-radius:2px;"
         "            font-size:12px; text-decoration:none; }"
-        ".ref-pill:hover { background:#094771; }"
-        ".tool-call { background:#252526; border-radius:3px; padding:5px 10px 5px 10px;"
-        "             margin:3px 0; font-size:12px; border-left:3px solid #3c3c3c; }"
+
+        /* ── Tool call blocks ────────────────────────────────────── */
+        ".tool-call { background:#1e1e1e; border-radius:2px; padding:5px 10px;"
+        "             margin:3px 0; font-size:12px; border-left:3px solid #3e3e42; }"
         ".tool-run  { border-left-color:#007acc; color:#9d9d9d; }"
         ".tool-ok   { border-left-color:#4ec9b0; color:#9d9d9d; }"
         ".tool-fail { border-left-color:#f14c4c; color:#f14c4c; }"
         ".tool-name { color:#cccccc; font-weight:600; }"
+        ".tool-detail { color:#6a6a6a; font-size:11px; margin-top:2px; }"
+
+        /* ── Thinking blocks ─────────────────────────────────────── */
         ".thinking-block { background:#1a1a2e; border-left:3px solid #5a4fcf;"
-        "                   padding:6px 10px; margin:4px 0; border-radius:3px;"
+        "                   padding:6px 10px; margin:4px 0; border-radius:2px;"
         "                   font-size:12px; color:#9d9dbd; }"
-        ".thinking-summary { color:#7a7a9e; font-size:11px; cursor:pointer; }"
-        ".tool-detail { color:#6a6a6a; font-size:11px; margin-top:2px; white-space:nowrap;"
-        "               overflow:hidden; text-overflow:ellipsis; max-width:95%; }");
+        ".thinking-summary { color:#7a7a9e; font-size:11px; }");
 
     // ── Changes bar ───────────────────────────────────────────────────────
     m_changesLabel->setStyleSheet("color:#cccccc; font-size:12px;");
@@ -210,7 +251,7 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     changesLayout->addWidget(m_changesLabel, 1);
     changesLayout->addWidget(m_keepBtn);
     changesLayout->addWidget(m_undoBtn);
-    m_changesBar->setStyleSheet("background:#1a2433; border-top:1px solid #3c3c3c;");
+    m_changesBar->setStyleSheet("background:#1a2433; border-top:1px solid #2d2d2d;");
     m_changesBar->hide();
 
     // ── Working indicator bar ─────────────────────────────────────────────
@@ -222,12 +263,40 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
         m_workingDots = (m_workingDots + 1) % 4;
         m_workingLabel->setText(tr("Working") + QString(m_workingDots, '.'));
     });
-    m_workingLabel->setStyleSheet("color:#9d9d9d; font-size:12px; font-style:italic;");
-    auto *wbl = new QHBoxLayout(m_workingBar);
-    wbl->setContentsMargins(10, 3, 10, 3);
-    wbl->addWidget(m_workingLabel);
-    wbl->addStretch();
-    m_workingBar->setStyleSheet("background:#1e1e1e; border-top:1px solid #2d2d2d;");
+    m_workingLabel->setStyleSheet("color:#858585; font-size:11px; font-style:italic;");
+
+    auto *progressTrack = new QWidget(m_workingBar);
+    progressTrack->setFixedHeight(2);
+    progressTrack->setStyleSheet("background:#2d2d2d;");
+
+    auto *progressThumb = new QWidget(progressTrack);
+    progressThumb->setFixedHeight(2);
+    progressThumb->setStyleSheet("background:#007acc; border-radius:1px;");
+    progressThumb->setGeometry(0, 0, 80, 2);
+
+    // Shimmer animation for progress bar
+    auto *shimmerTimer = new QTimer(m_workingBar);
+    shimmerTimer->setObjectName(QStringLiteral("shimmer"));
+    shimmerTimer->setInterval(30);
+    connect(shimmerTimer, &QTimer::timeout, this, [progressThumb, progressTrack]() {
+        const int trackW = progressTrack->width();
+        if (trackW <= 0) return;
+        int x = progressThumb->x() + 3;
+        if (x > trackW) x = -80;
+        progressThumb->move(x, 0);
+        progressThumb->setFixedWidth(qMin(80, trackW));
+    });
+
+    auto *wbl = new QVBoxLayout(m_workingBar);
+    wbl->setContentsMargins(0, 0, 0, 0);
+    wbl->setSpacing(0);
+    wbl->addWidget(progressTrack);
+    auto *labelRow = new QHBoxLayout;
+    labelRow->setContentsMargins(42, 3, 10, 3);
+    labelRow->addWidget(m_workingLabel);
+    labelRow->addStretch();
+    wbl->addLayout(labelRow);
+    m_workingBar->setStyleSheet("background:#1e1e1e;");
     m_workingBar->hide();
 
     // ── Attachment chips bar ──────────────────────────────────────────────
@@ -240,17 +309,17 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     m_attachBar->hide();
 
     // ── Input row ─────────────────────────────────────────────────────────
-    m_input->setPlaceholderText(tr("Describe what to build next…  (Enter)"));
-    m_input->setMinimumHeight(80);
-    m_input->setMaximumHeight(200);
+    m_input->setPlaceholderText(tr("Ask Copilot or type / for commands"));
+    m_input->setMinimumHeight(60);
+    m_input->setMaximumHeight(180);
     m_input->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     m_input->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_input->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_input->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     // Auto-resize as text grows
     connect(m_input->document(), &QTextDocument::contentsChanged, this, [this]() {
-        const int docH = int(m_input->document()->size().height()) + 16;
-        m_input->setFixedHeight(qBound(80, docH, 200));
+        const int docH = int(m_input->document()->size().height()) + 12;
+        m_input->setFixedHeight(qBound(60, docH, 180));
     });
     m_input->installEventFilter(this);  // intercept Enter key
     setAcceptDrops(true);               // enable file/image drop onto panel
@@ -285,8 +354,8 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     inputBtns->addWidget(m_cancelBtn);
 
     auto *inputRow = new QHBoxLayout;
-    inputRow->setContentsMargins(8, 6, 8, 6);
-    inputRow->setSpacing(6);
+    inputRow->setContentsMargins(6, 4, 6, 4);
+    inputRow->setSpacing(4);
     inputRow->addWidget(m_attachBtn);
     inputRow->addWidget(m_input, 1);
     inputRow->addLayout(inputBtns);
@@ -302,10 +371,11 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     auto *modeContainer = new QWidget(this);
     modeContainer->setObjectName("modeContainer");
     modeContainer->setStyleSheet(
-        "QWidget#modeContainer { background:#2d2d2d; border:1px solid #3c3c3c; border-radius:5px; }");
+        "QWidget#modeContainer { background:#252526; border:1px solid #3e3e42;"
+        "  border-radius:4px; }");
     auto *modeLayout = new QHBoxLayout(modeContainer);
-    modeLayout->setContentsMargins(2, 2, 2, 2);
-    modeLayout->setSpacing(1);
+    modeLayout->setContentsMargins(1, 1, 1, 1);
+    modeLayout->setSpacing(0);
     modeLayout->addWidget(m_askBtn);
     modeLayout->addWidget(m_editBtn);
     modeLayout->addWidget(m_agentBtn);
@@ -381,17 +451,17 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     m_ctxBtn->setToolTip(tr("Context window usage"));
     m_ctxBtn->setStyleSheet(
         "QToolButton#ctxBtn { color:#858585; font-size:11px; font-family:monospace;"
-        "  padding:2px 5px; background:transparent; border:none; border-radius:3px; }"
-        "QToolButton#ctxBtn:hover { background:#2d2d2d; color:#cccccc; }"
-        "QToolButton#ctxBtn:checked { background:#2d2d2d; color:#cccccc; }");
+        "  padding:2px 5px; background:transparent; border:none; border-radius:2px; }"
+        "QToolButton#ctxBtn:hover { background:#2a2d2e; color:#cccccc; }"
+        "QToolButton#ctxBtn:checked { background:#2a2d2e; color:#cccccc; }");
     m_ctxBtn->setCheckable(true);
     connect(m_ctxBtn, &QToolButton::toggled, this, [this](bool on) {
         if (on) showContextPopup(); else hideContextPopup();
     });
 
     auto *bottomBar = new QHBoxLayout;
-    bottomBar->setContentsMargins(8, 5, 8, 8);
-    bottomBar->setSpacing(6);
+    bottomBar->setContentsMargins(6, 4, 6, 6);
+    bottomBar->setSpacing(4);
     bottomBar->addWidget(modeContainer);
     bottomBar->addWidget(m_modelCombo, 1);
     bottomBar->addWidget(m_ctxBtn);
@@ -400,9 +470,9 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
 
     // ── Context info strip ────────────────────────────────────────────────
     m_contextStrip->setStyleSheet(
-        "color:#4e4e4e; font-size:11px; padding:2px 10px; background:#1e1e1e;");
+        "color:#858585; font-size:11px; padding:1px 10px; background:#1e1e1e;");
     m_contextStrip->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    m_contextStrip->setFixedHeight(18);
+    m_contextStrip->setFixedHeight(16);
     m_contextStrip->hide();
 
     // ── Separators ────────────────────────────────────────────────────────
@@ -410,7 +480,7 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
         auto *s = new QFrame(this);
         s->setFrameShape(QFrame::HLine);
         s->setFixedHeight(1);
-        s->setStyleSheet("color:#3c3c3c; background:#3c3c3c; border:none;");
+        s->setStyleSheet("color:#2d2d2d; background:#2d2d2d; border:none;");
         return s;
     };
 
@@ -738,7 +808,7 @@ void AgentChatPanel::refreshProviderList()
         tab->setEnabled(false);
         tab->setStyleSheet(
             "QToolButton { color:#555555; border:none; border-bottom:2px solid transparent;"
-            " background:transparent; padding:0 16px; height:35px; font-size:13px; border-radius:0; }");
+            " background:transparent; padding:0 14px; height:35px; font-size:12px; border-radius:0; }");
         m_providerTabLayout->addWidget(tab);
         m_providerTabs.append(tab);
         appendMessage("system", tr("No AI providers registered. "
@@ -794,12 +864,12 @@ void AgentChatPanel::setProviderTabActive(const QString &id)
         if (active) {
             m_providerTabs[i]->setStyleSheet(
                 "QToolButton { color:#e8e8e8; border:none; border-bottom:2px solid #007acc;"
-                " background:transparent; padding:0 16px; height:35px; font-size:13px; border-radius:0; }");
+                " background:transparent; padding:0 14px; height:35px; font-size:12px; border-radius:0; }");
         } else {
             m_providerTabs[i]->setStyleSheet(
-                "QToolButton { color:#888888; border:none; border-bottom:2px solid transparent;"
-                " background:transparent; padding:0 16px; height:35px; font-size:13px; border-radius:0; }"
-                "QToolButton:hover { color:#cccccc; background:#2d2d2d; }");
+                "QToolButton { color:#858585; border:none; border-bottom:2px solid transparent;"
+                " background:transparent; padding:0 14px; height:35px; font-size:12px; border-radius:0; }"
+                "QToolButton:hover { color:#cccccc; background:#2a2d2e; }");
         }
     }
 }
@@ -810,12 +880,12 @@ void AgentChatPanel::setModeButtonActive(int mode)
     const auto style = [](bool active) -> QString {
         if (active)
             return QStringLiteral(
-                "QToolButton { background:#094771; color:#e8e8e8; border:none;"
-                " padding:3px 12px; font-size:12px; border-radius:4px; }");
+                "QToolButton { background:#007acc; color:#ffffff; border:none;"
+                " padding:2px 10px; font-size:12px; border-radius:3px; }");
         return QStringLiteral(
-            "QToolButton { background:transparent; color:#888888; border:none;"
-            " padding:3px 12px; font-size:12px; border-radius:4px; }"
-            "QToolButton:hover { color:#cccccc; background:#3a3a3a; }");
+            "QToolButton { background:transparent; color:#858585; border:none;"
+            " padding:2px 10px; font-size:12px; border-radius:3px; }"
+            "QToolButton:hover { color:#cccccc; background:#2a2d2e; }");
     };
     m_askBtn->setStyleSheet(style(mode == 0));
     m_editBtn->setStyleSheet(style(mode == 1));
@@ -938,9 +1008,9 @@ void AgentChatPanel::onSend()
     QString attachHtml;
     for (const auto &att : std::as_const(m_attachments)) {
         attachHtml += QStringLiteral(
-            "<div style='display:inline-block;background:#3a3d41;border-radius:3px;"
-            "padding:2px 7px;margin:2px 2px 0 0;font-size:11px;color:#cccccc;'>" 
-            "&#128206; %1</div>").arg(att.name.toHtmlEscaped());
+            "<div style='display:inline-block;background:#252526;border:1px solid #3e3e42;"
+            "border-radius:3px;padding:2px 7px;margin:2px 2px 0 0;font-size:11px;"
+            "color:#cccccc;'>&#128206; %1</div>").arg(att.name.toHtmlEscaped());
     }
     appendMessage("user", raw.toHtmlEscaped()
                   + (attachHtml.isEmpty() ? QString() : QStringLiteral("<br>") + attachHtml));
@@ -1460,26 +1530,34 @@ void AgentChatPanel::appendMessage(const QString &role, const QString &html)
     if (role == QLatin1String("user")) {
         const int userIdx = m_userMsgCount++;
         m_history->append(
-            QStringLiteral("<div class='msg'>"
-                           "<div class='who you'>You <span class='timestamp'>%3</span></div>"
-                           "<div class='body'>%1</div>"
-                           "<div class='msg-actions'>"
-                           "<a href='retry://%2' title='Retry'>&#8635; Retry</a>"
-                           "<a href='edit://%2' title='Edit'>&#9998; Edit</a>"
-                           "</div>"
-                           "</div>").arg(html).arg(userIdx).arg(ts));
+            QStringLiteral(
+                "<table class='msg-table'><tr>"
+                "<td class='avatar-cell'>"
+                "<div class='avatar avatar-user'>U</div></td>"
+                "<td class='content-cell'>"
+                "<div class='who you'>You <span class='timestamp'>%3</span></div>"
+                "<div class='body'>%1</div>"
+                "<div class='msg-actions'>"
+                "<a href='retry://%2' title='Retry'>&#8635; Retry</a> &nbsp;"
+                "<a href='edit://%2' title='Edit'>&#9998; Edit</a>"
+                "</div>"
+                "</td></tr></table>").arg(html).arg(userIdx).arg(ts));
     } else if (role == QLatin1String("ai")) {
         const int msgIdx = m_messageCount++;
         m_history->append(
-            QStringLiteral("<div class='msg'>"
-                           "<div class='who ai'>Copilot <span class='timestamp'>%3</span></div>"
-                           "<div class='body'>%1</div>"
-                           "<div class='feedback'>"
-                           "<a href='feedback://%2/up' title='Helpful'>&#128077;</a>"
-                           "<a href='feedback://%2/down' title='Not helpful'>&#128078;</a>"
-                           "<a href='copyresp://%2' title='Copy response' style='margin-left:8px;'>&#128203; Copy</a>"
-                           "</div>"
-                           "</div>").arg(html).arg(msgIdx).arg(ts));
+            QStringLiteral(
+                "<table class='msg-table'><tr>"
+                "<td class='avatar-cell'>"
+                "<div class='avatar avatar-ai'>&#10022;</div></td>"
+                "<td class='content-cell'>"
+                "<div class='who ai'>Copilot <span class='timestamp'>%3</span></div>"
+                "<div class='body'>%1</div>"
+                "<div class='feedback'>"
+                "<a href='feedback://%2/up' title='Helpful'>&#128077;</a> "
+                "<a href='feedback://%2/down' title='Not helpful'>&#128078;</a>"
+                " &nbsp;<a href='copyresp://%2' title='Copy response'>&#128203; Copy</a>"
+                "</div>"
+                "</td></tr></table>").arg(html).arg(msgIdx).arg(ts));
     } else if (role == QLatin1String("error")) {
         m_history->append(
             QStringLiteral("<div class='err'>%1</div>").arg(html));
@@ -1499,12 +1577,15 @@ void AgentChatPanel::updateStreamingContent()
         .replace(QStringLiteral("\n"), QStringLiteral("<br>"));
 
     const QString streamHtml = QStringLiteral(
-        "<div class='msg'>"
+        "<table class='msg-table'><tr>"
+        "<td class='avatar-cell'>"
+        "<div class='avatar avatar-ai'>&#10022;</div></td>"
+        "<td class='content-cell'>"
         "<div class='who ai'>Copilot</div>"
         "<div class='body'>"
         "<span style='color:#d4d4d4;white-space:pre-wrap;'>%1</span>"
         "<span style='color:#007acc;'>&#9607;</span>"
-        "</div></div>").arg(safeText);
+        "</div></td></tr></table>").arg(safeText);
 
     // Guard: if anchor exceeds document length (shouldn't happen but be safe)
     const int docLen = m_history->document()->characterCount();
@@ -1529,10 +1610,13 @@ void AgentChatPanel::finalizeStreamingBubble(const QString &/*markdownText*/,
     if (m_streamStarted) {
         // Replace the accumulated streaming placeholder with final rendered HTML
         const QString finalHtml = QStringLiteral(
-            "<div class='msg'>"
+            "<table class='msg-table'><tr>"
+            "<td class='avatar-cell'>"
+            "<div class='avatar avatar-ai'>&#10022;</div></td>"
+            "<td class='content-cell'>"
             "<div class='who ai'>Copilot</div>"
             "<div class='body'>%1</div>"
-            "</div>").arg(renderedHtml);
+            "</td></tr></table>").arg(renderedHtml);
 
         QTextCursor c(m_history->document());
         c.setPosition(m_streamAnchorPos, QTextCursor::MoveAnchor);
@@ -1556,19 +1640,49 @@ void AgentChatPanel::showEmptyState()
 {
     m_history->setHtml(
         QStringLiteral(
-            "<div style='text-align:center; margin-top:60px;'>"
-            "<div style='font-size:28px; color:#3c3c3c; margin-bottom:8px;'>&#9672;</div>"
-            "<div style='font-size:16px; font-weight:600; color:#cccccc;'>Exorcist IDE</div>"
-            "<div style='font-size:12px; color:#858585; margin:4px 0 20px 0;'>"
-            "Ask anything, or try a suggestion below</div>"
-            "<div style='color:#4daafc; font-size:12px; margin:6px 0;'>"
-            "<a href='suggest://explain'>Explain this code</a></div>"
-            "<div style='color:#4daafc; font-size:12px; margin:6px 0;'>"
-            "<a href='suggest://fix'>Find and fix bugs</a></div>"
-            "<div style='color:#4daafc; font-size:12px; margin:6px 0;'>"
-            "<a href='suggest://test'>Generate unit tests</a></div>"
-            "<div style='color:#4daafc; font-size:12px; margin:6px 0;'>"
-            "<a href='suggest://review'>Review this code</a></div>"
+            "<div style='text-align:center; padding-top:48px;'>"
+
+            /* Copilot sparkle icon — large */
+            "<div style='font-size:36px; color:#5a4fcf; margin-bottom:12px;'>&#10022;</div>"
+
+            /* Title */
+            "<div style='font-size:15px; font-weight:600; color:#cccccc;'>Copilot</div>"
+            "<div style='font-size:12px; color:#858585; margin:6px 0 28px 0;'>"
+            "Ask anything or pick a suggestion to get started</div>"
+
+            /* Suggestion pills — stacked, link-colored, VS Code style */
+            "<div style='margin:0 auto; text-align:center;'>"
+            "<div style='margin:5px 0;'>"
+            "<a href='suggest://explain' style='color:#569cd6; font-size:12px;"
+            "   text-decoration:none; background:#252526; padding:5px 14px;"
+            "   border:1px solid #3e3e42; border-radius:14px;'>"
+            "/explain &mdash; Explain selected code</a></div>"
+
+            "<div style='margin:5px 0;'>"
+            "<a href='suggest://fix' style='color:#569cd6; font-size:12px;"
+            "   text-decoration:none; background:#252526; padding:5px 14px;"
+            "   border:1px solid #3e3e42; border-radius:14px;'>"
+            "/fix &mdash; Find and fix bugs</a></div>"
+
+            "<div style='margin:5px 0;'>"
+            "<a href='suggest://test' style='color:#569cd6; font-size:12px;"
+            "   text-decoration:none; background:#252526; padding:5px 14px;"
+            "   border:1px solid #3e3e42; border-radius:14px;'>"
+            "/test &mdash; Generate unit tests</a></div>"
+
+            "<div style='margin:5px 0;'>"
+            "<a href='suggest://review' style='color:#569cd6; font-size:12px;"
+            "   text-decoration:none; background:#252526; padding:5px 14px;"
+            "   border:1px solid #3e3e42; border-radius:14px;'>"
+            "/review &mdash; Code review</a></div>"
+
+            "<div style='margin:5px 0;'>"
+            "<a href='suggest://doc' style='color:#569cd6; font-size:12px;"
+            "   text-decoration:none; background:#252526; padding:5px 14px;"
+            "   border:1px solid #3e3e42; border-radius:14px;'>"
+            "/doc &mdash; Add documentation</a></div>"
+            "</div>"
+
             "</div>"));
 }
 void AgentChatPanel::showSessionHistory()
@@ -1584,7 +1698,7 @@ void AgentChatPanel::showSessionHistory()
 
     auto *menu = new QMenu(this);
     menu->setStyleSheet(
-        "QMenu { background:#252526; color:#cccccc; border:1px solid #3c3c3c; }"
+        "QMenu { background:#252526; color:#cccccc; border:1px solid #3e3e42; }"
         "QMenu::item { padding:6px 16px; font-size:12px; }"
         "QMenu::item:selected { background:#094771; }");
 
@@ -1593,8 +1707,8 @@ void AgentChatPanel::showSessionHistory()
     auto *searchEdit = new QLineEdit(searchWidget);
     searchEdit->setPlaceholderText(tr("Search sessions…"));
     searchEdit->setStyleSheet(
-        "QLineEdit { background:#1e1e1e; color:#dcdcdc; border:1px solid #3c3c3c;"
-        "  border-radius:3px; padding:4px 6px; font-size:12px; }");
+        "QLineEdit { background:#1e1e1e; color:#dcdcdc; border:1px solid #3e3e42;"
+        "  border-radius:2px; padding:4px 6px; font-size:12px; }");
     auto *searchLayout = new QHBoxLayout(searchWidget);
     searchLayout->setContentsMargins(8, 4, 8, 4);
     searchLayout->addWidget(searchEdit);
@@ -1833,16 +1947,16 @@ void AgentChatPanel::showContextPopup()
     m_ctxPopup->setFrameShape(QFrame::StyledPanel);
     m_ctxPopup->setStyleSheet(
         "QFrame#ctxPopup {"
-        "  background:#252526; border:1px solid #3c3c3c; border-radius:5px; }"
+        "  background:#252526; border:1px solid #3e3e42; border-radius:4px; }"
         "QLabel { color:#cccccc; background:transparent; }"
         "QLabel.section { color:#cccccc; font-weight:600; font-size:12px; padding-top:6px; }"
         "QLabel.row-key  { color:#9d9d9d; font-size:12px; padding-left:8px; }"
         "QLabel.row-val  { color:#858585; font-size:12px; }"
         "QProgressBar {"
-        "  background:#333337; border:none; border-radius:2px; height:4px; }"
+        "  background:#2d2d2d; border:none; border-radius:2px; height:4px; }"
         "QProgressBar::chunk { background:#007acc; border-radius:2px; }"
         "QPushButton {"
-        "  background:#0e639c; color:white; border:none; border-radius:3px;"
+        "  background:#0e639c; color:white; border:none; border-radius:2px;"
         "  padding:4px 12px; font-size:12px; }"
         "QPushButton:hover { background:#1177bb; }");
 
@@ -2130,11 +2244,17 @@ void AgentChatPanel::showWorkingIndicator(const QString &label)
     m_workingLabel->setText(label.isEmpty() ? tr("Working") : label);
     m_workingBar->show();
     m_workingTimer->start();
+    // Start shimmer animation
+    if (auto *shimmer = m_workingBar->findChild<QTimer *>(QStringLiteral("shimmer")))
+        shimmer->start();
 }
 
 void AgentChatPanel::hideWorkingIndicator()
 {
     m_workingTimer->stop();
+    // Stop shimmer animation
+    if (auto *shimmer = m_workingBar->findChild<QTimer *>(QStringLiteral("shimmer")))
+        shimmer->stop();
     m_workingBar->hide();
 }
 
@@ -2182,7 +2302,7 @@ void AgentChatPanel::addAttachment(const QString &path)
     }
 
     chip->setStyleSheet(
-        "background:#3a3d41; border-radius:4px; padding:0;");
+        "background:#252526; border:1px solid #3e3e42; border-radius:3px; padding:0;");
     auto *hl = new QHBoxLayout(chip);
     hl->setContentsMargins(6, 2, 4, 2);
     hl->setSpacing(4);
