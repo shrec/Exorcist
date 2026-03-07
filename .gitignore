@@ -12,3 +12,21 @@
 *.VC.opendb
 /build-llvm/
 /build*/
+
+# Temporary build/run logs
+*.log
+/b.txt
+/b_*.txt
+/bo*.txt
+/be*.txt
+/bld_*.txt
+/build_*.txt
+/run_*.txt
+/run?_*.txt
+/crash_*.txt
+
+# Claude / AI assistant cache
+.claude/
+
+# Research repositories (local reference only, not committed)
+/ReserchRepos/

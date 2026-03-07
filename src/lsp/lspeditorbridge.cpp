@@ -121,6 +121,22 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
     });
     editor->addAction(renameAction);
 
+    // Context menu signals from EditorView
+    connect(m_editor, &EditorView::goToDefinitionRequested, this, [this]() {
+        const QTextCursor cur = m_editor->textCursor();
+        m_client->requestDefinition(m_uri, cur.blockNumber(),
+                                    cur.positionInBlock());
+    });
+    connect(m_editor, &EditorView::findReferencesRequested, this, [this]() {
+        const QTextCursor cur = m_editor->textCursor();
+        m_client->requestReferences(m_uri, cur.blockNumber(),
+                                    cur.positionInBlock());
+    });
+    connect(m_editor, &EditorView::renameSymbolRequested, renameAction,
+            &QAction::trigger);
+    connect(m_editor, &EditorView::formatDocumentRequested,
+            this, &LspEditorBridge::formatDocument);
+
     // Ctrl+Shift+F → format document
     auto *formatAction = new QAction(editor);
     formatAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F));

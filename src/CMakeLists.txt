@@ -4,6 +4,16 @@ add_executable(exorcist WIN32
     mainwindow.h
     editor/editorview.cpp
     editor/editorview.h
+    editor/diffviewerpanel.cpp
+    editor/diffviewerpanel.h
+    editor/breadcrumbbar.cpp
+    editor/breadcrumbbar.h
+    editor/minimapwidget.cpp
+    editor/minimapwidget.h
+    editor/inlinecompletionengine.cpp
+    editor/inlinecompletionengine.h
+    editor/nexteditengine.cpp
+    editor/nexteditengine.h
     editor/largefileloader.cpp
     editor/largefileloader.h
     editor/syntaxhighlighter.cpp
@@ -21,6 +31,10 @@ add_executable(exorcist WIN32
     search/searchworker.h
     search/searchservice.cpp
     search/searchservice.h
+    search/workspaceindexer.cpp
+    search/workspaceindexer.h
+    search/symbolindex.cpp
+    search/symbolindex.h
     lsp/lspmessage.h
     lsp/lsptransport.cpp
     lsp/lsptransport.h
@@ -36,6 +50,15 @@ add_executable(exorcist WIN32
     lsp/lspeditorbridge.h
     lsp/referencespanel.cpp
     lsp/referencespanel.h
+    project/projecttypes.h
+    project/projectmanager.cpp
+    project/projectmanager.h
+    project/solutiontreemodel.cpp
+    project/solutiontreemodel.h
+    git/gitservice.cpp
+    git/gitservice.h
+    git/gitpanel.cpp
+    git/gitpanel.h
     editor/symboloutlinepanel.cpp
     editor/symboloutlinepanel.h
     terminal/terminalscreen.cpp
@@ -46,11 +69,60 @@ add_executable(exorcist WIN32
     terminal/terminalview.h
     terminal/terminalwidget.cpp
     terminal/terminalwidget.h
+    terminal/terminalpanel.cpp
+    terminal/terminalpanel.h
     agent/iagentplugin.h
     agent/agentorchestrator.cpp
     agent/agentorchestrator.h
     agent/agentchatpanel.cpp
     agent/agentchatpanel.h
+    agent/agentcontroller.cpp
+    agent/agentcontroller.h
+    agent/agentmodes.h
+    agent/agentsession.h
+    agent/contextbuilder.cpp
+    agent/contextbuilder.h
+    agent/icontextprovider.h
+    agent/itool.h
+    agent/promptvariables.cpp
+    agent/promptvariables.h
+    agent/sessionstore.cpp
+    agent/sessionstore.h
+    agent/modelpickerdialog.cpp
+    agent/modelpickerdialog.h
+    agent/tools/filesystemtools.h
+    agent/tools/searchworkspacetool.h
+    agent/tools/semanticsearchtool.h
+    agent/tools/runcommandtool.h
+    agent/tools/applypatchtool.h
+    agent/tools/idetools.h
+    agent/tools/moretools.h
+    agent/tools/advancedtools.h
+    agent/tools/memorytool.h
+    agent/markdownrenderer.cpp
+    agent/markdownrenderer.h
+    agent/promptfileloader.h
+    agent/quickchatdialog.cpp
+    agent/quickchatdialog.h
+    agent/requestlogpanel.cpp
+    agent/requestlogpanel.h
+    agent/trajectorypanel.cpp
+    agent/trajectorypanel.h
+    agent/customprovider.cpp
+    agent/customprovider.h
+    agent/settingspanel.cpp
+    agent/settingspanel.h
+    agent/memorybrowserpanel.cpp
+    agent/memorybrowserpanel.h
+    agent/inlinechat/inlinechatwidget.cpp
+    agent/inlinechat/inlinechatwidget.h
+    mcp/mcpclient.cpp
+    mcp/mcpclient.h
+    mcp/mcptooladapter.h
+    mcp/mcppanel.cpp
+    mcp/mcppanel.h
+    ui/notificationtoast.cpp
+    ui/notificationtoast.h
     commandpalette.cpp
     commandpalette.h
     logger.cpp
@@ -63,6 +135,8 @@ add_executable(exorcist WIN32
     pluginmanager.h
     serviceregistry.cpp
     serviceregistry.h
+    thememanager.cpp
+    thememanager.h
     core/ifilesystem.h
     core/iprocess.h
     core/iterminal.h
@@ -75,9 +149,71 @@ add_executable(exorcist WIN32
     core/qtterminal.h
     core/nullnetwork.cpp
     core/nullnetwork.h
+    build/outputpanel.cpp
+    build/outputpanel.h
+    editor/filewatchservice.cpp
+    editor/filewatchservice.h
+    agent/contextpruner.cpp
+    agent/contextpruner.h
+    agent/autocompactor.cpp
+    agent/autocompactor.h
+    agent/testscaffold.cpp
+    agent/testscaffold.h
+    agent/authmanager.cpp
+    agent/authmanager.h
+    agent/tools/websearchtool.h
+    editor/renamesuggestionwidget.cpp
+    editor/renamesuggestionwidget.h
+    agent/securekeystorage.cpp
+    agent/securekeystorage.h
+    agent/promptfilemanager.h
+    editor/mergeconflictresolver.h
+    editor/inlinereviewwidget.cpp
+    editor/inlinereviewwidget.h
+    agent/modelregistry.h
+    agent/oauthmanager.h
+    agent/domainfilter.h
+    git/commitmessagegenerator.h
+    editor/multichunkeditor.h
+    editor/languagecompletionconfig.h
+    agent/contexteditor.cpp
+    agent/contexteditor.h
+    agent/trajectoryrecorder.h
+    agent/featureflags.h
+    agent/notebookstubs.h
+    agent/reviewmanager.h
+    agent/testgenerator.h
+    agent/authstatusindicator.h
+    agent/promptfilepicker.h
+    agent/chatthemeadapter.h
+    agent/apikeymanagerwidget.h
+    agent/networkmonitor.h
+    agent/telemetrymanager.h
+    agent/citationmanager.h
+    mcp/mcpservermanager.h
+    search/workspacechunkindex.h
+    agent/modelconfigwidget.h
+    agent/contextinspector.h
+    agent/toolcalltrace.h
+    agent/trajectoryreplaywidget.h
+    agent/promptarchiveexporter.h
+    agent/memoryfileeditor.h
+    agent/backgroundcompactor.h
+    agent/errorstatewidget.h
+    agent/setuptestswizard.h
+    agent/renameintegration.h
+    agent/accessibilityhelper.h
+    agent/tooltogglemanager.h
+    agent/contextscopeconfig.h
+    search/embeddingindex.h
+    search/gitignorefilter.h
+    search/regexsearchengine.h
+    agent/tools/notebooktools.h
+    agent/tools/githubmcptools.h
 )
 
-target_link_libraries(exorcist PRIVATE Qt6::Widgets)
+target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network)
+target_include_directories(exorcist PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(EXORCIST_USE_LLVM)
     target_include_directories(exorcist PRIVATE ${LLVM_INCLUDE_DIRS})

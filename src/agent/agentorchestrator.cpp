@@ -117,18 +117,26 @@ void AgentOrchestrator::wireProvider(IAgentProvider *p)
 {
     connect(p, &IAgentProvider::responseDelta,
             this, &AgentOrchestrator::responseDelta);
+    connect(p, &IAgentProvider::thinkingDelta,
+            this, &AgentOrchestrator::thinkingDelta);
     connect(p, &IAgentProvider::responseFinished,
             this, &AgentOrchestrator::responseFinished);
     connect(p, &IAgentProvider::responseError,
             this, &AgentOrchestrator::responseError);
+    connect(p, &IAgentProvider::modelsChanged,
+            this, &AgentOrchestrator::modelsChanged);
 }
 
 void AgentOrchestrator::unwireProvider(IAgentProvider *p)
 {
     disconnect(p, &IAgentProvider::responseDelta,
                this, &AgentOrchestrator::responseDelta);
+    disconnect(p, &IAgentProvider::thinkingDelta,
+               this, &AgentOrchestrator::thinkingDelta);
     disconnect(p, &IAgentProvider::responseFinished,
                this, &AgentOrchestrator::responseFinished);
     disconnect(p, &IAgentProvider::responseError,
                this, &AgentOrchestrator::responseError);
+    disconnect(p, &IAgentProvider::modelsChanged,
+               this, &AgentOrchestrator::modelsChanged);
 }

@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QFontDatabase>
+#include <QFontInfo>
 #include <QFontMetrics>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -12,14 +13,22 @@
 #include <QTimer>
 #include <QWheelEvent>
 
+static constexpr QRgb kTermSelectionBg = 0xFF264F78;
+static constexpr QRgb kTermSelectionFg = 0xFFFFFFFF;
+
 TerminalView::TerminalView(TerminalScreen *screen, QWidget *parent)
     : QAbstractScrollArea(parent),
       m_screen(screen),
       m_blinkTimer(new QTimer(this))
 {
-    // Fixed monospace font
-    m_font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    // Monospace font for terminal — Cascadia Mono > Consolas > system fixed
+    m_font = QFont(QStringLiteral("Cascadia Mono"), 10);
+    if (!QFontInfo(m_font).fixedPitch())
+        m_font = QFont(QStringLiteral("Consolas"), 10);
+    if (!QFontInfo(m_font).fixedPitch())
+        m_font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     m_font.setPointSize(10);
+    m_font.setStyleStrategy(QFont::PreferAntialias);
     m_fontBold = m_font;
     m_fontBold.setBold(true);
 
@@ -33,6 +42,7 @@ TerminalView::TerminalView(TerminalScreen *screen, QWidget *parent)
     viewport()->setCursor(Qt::IBeamCursor);
     setFocusPolicy(Qt::StrongFocus);
     viewport()->setFocusProxy(this);
+    setContextMenuPolicy(Qt::NoContextMenu);
 
     m_blinkTimer->setInterval(530);
     connect(m_blinkTimer, &QTimer::timeout, this, &TerminalView::blinkCursor);
@@ -99,13 +109,16 @@ void TerminalView::paintEvent(QPaintEvent * /*event*/)
         const int yPx       = vr * m_cellH;
         if (yPx >= vpH) break;
 
-        const int screenRow = (scrolled + vr) - sbLines;
+        const int absRow    = scrolled + vr;
+        const int screenRow = absRow - sbLines;
 
-        // ── Pass 1: background rectangles (only non-default) ──────────────
+        // ── Pass 1: background rectangles ─────────────────────────────────
         for (int c = 0; c < cols; ++c) {
             const TermCell cell = m_screen->cellAt(c, screenRow);
-            const QRgb bg = cell.rev ? cell.fg : cell.bg;
-            if (bg != kTermDefaultBg)
+            QRgb bg = cell.rev ? cell.fg : cell.bg;
+            const bool sel = isCellSelected(c, absRow);
+            if (sel) bg = kTermSelectionBg;
+            if (bg != kTermDefaultBg || sel)
                 p.fillRect(c * m_cellW, yPx, m_cellW, m_cellH, QColor(bg));
         }
 
@@ -114,7 +127,8 @@ void TerminalView::paintEvent(QPaintEvent * /*event*/)
             const TermCell cell = m_screen->cellAt(c, screenRow);
             if (cell.cp <= U' ') continue;
 
-            const QRgb fg = cell.rev ? cell.bg : cell.fg;
+            QRgb fg = cell.rev ? cell.bg : cell.fg;
+            if (isCellSelected(c, absRow)) fg = kTermSelectionFg;
 
             // Set font only when attributes change (minor optimisation)
             if (cell.bold || cell.ul) {
@@ -177,16 +191,18 @@ void TerminalView::keyPressEvent(QKeyEvent *event)
     const bool ctrl  = event->modifiers() & Qt::ControlModifier;
     const bool shift = event->modifiers() & Qt::ShiftModifier;
 
-    // Ctrl+Shift+C → copy (if selection exists, else ignore)
+    // Ctrl+Shift+C → copy selection
     if (ctrl && shift && event->key() == Qt::Key_C) {
-        // TODO: implement text selection copy
+        const QString text = selectedText();
+        if (!text.isEmpty())
+            QApplication::clipboard()->setText(text);
         return;
     }
     // Ctrl+Shift+V → paste
     if (ctrl && shift && event->key() == Qt::Key_V) {
         const QString text = QApplication::clipboard()->text();
         if (!text.isEmpty())
-            emit inputData(text.toLocal8Bit());
+            emit inputData(text.toUtf8());
         return;
     }
 
@@ -238,7 +254,7 @@ void TerminalView::keyPressEvent(QKeyEvent *event)
     case Qt::Key_F12:  seq = "\x1B[24~"; break;
     default:
         if (!event->text().isEmpty())
-            seq = event->text().toLocal8Bit();
+            seq = event->text().toUtf8();
         break;
     }
 
@@ -256,9 +272,17 @@ void TerminalView::keyPressEvent(QKeyEvent *event)
 void TerminalView::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
-        m_selStart = pixelToCell(event->pos());
-        m_selEnd   = m_selStart;
+        const int col    = qBound(0, event->pos().x() / m_cellW, m_screen->cols() - 1);
+        const int absRow = event->pos().y() / m_cellH + verticalScrollBar()->value();
+        m_selStart  = {col, absRow};
+        m_selEnd    = m_selStart;
         m_selecting = true;
+        viewport()->update();
+    } else if (event->button() == Qt::RightButton) {
+        // PuTTY-style: right-click → paste
+        const QString text = QApplication::clipboard()->text();
+        if (!text.isEmpty())
+            emit inputData(text.toUtf8());
     }
     setFocus();
 }
@@ -266,15 +290,22 @@ void TerminalView::mousePressEvent(QMouseEvent *event)
 void TerminalView::mouseMoveEvent(QMouseEvent *event)
 {
     if (m_selecting) {
-        m_selEnd = pixelToCell(event->pos());
+        const int col    = qBound(0, event->pos().x() / m_cellW, m_screen->cols() - 1);
+        const int absRow = event->pos().y() / m_cellH + verticalScrollBar()->value();
+        m_selEnd = {col, absRow};
         viewport()->update();
     }
 }
 
 void TerminalView::mouseReleaseEvent(QMouseEvent *event)
 {
-    Q_UNUSED(event)
-    m_selecting = false;
+    if (event->button() == Qt::LeftButton && m_selecting) {
+        m_selecting = false;
+        // PuTTY-style: auto-copy selection to clipboard on release
+        const QString text = selectedText();
+        if (!text.isEmpty())
+            QApplication::clipboard()->setText(text);
+    }
 }
 
 void TerminalView::wheelEvent(QWheelEvent *event)
@@ -307,4 +338,55 @@ void TerminalView::focusOutEvent(QFocusEvent * /*event*/)
 QPoint TerminalView::pixelToCell(const QPoint &pos) const
 {
     return {pos.x() / m_cellW, pos.y() / m_cellH};
+}
+
+bool TerminalView::isCellSelected(int col, int absRow) const
+{
+    if (m_selStart == m_selEnd) return false;
+    QPoint s = m_selStart, e = m_selEnd;
+    if (s.y() > e.y() || (s.y() == e.y() && s.x() > e.x())) {
+        s = m_selEnd;
+        e = m_selStart;
+    }
+    if (absRow < s.y() || absRow > e.y()) return false;
+    if (absRow == s.y() && absRow == e.y())
+        return col >= s.x() && col <= e.x();
+    if (absRow == s.y()) return col >= s.x();
+    if (absRow == e.y()) return col <= e.x();
+    return true;
+}
+
+QString TerminalView::selectedText() const
+{
+    if (m_selStart == m_selEnd) return {};
+    QPoint s = m_selStart, e = m_selEnd;
+    if (s.y() > e.y() || (s.y() == e.y() && s.x() > e.x())) {
+        s = m_selEnd;
+        e = m_selStart;
+    }
+
+    const int sbLines = m_screen->scrollbackLines();
+    const int cols    = m_screen->cols();
+    QString result;
+
+    for (int absRow = s.y(); absRow <= e.y(); ++absRow) {
+        const int screenRow = absRow - sbLines;
+        const int cStart = (absRow == s.y()) ? s.x() : 0;
+        const int cEnd   = (absRow == e.y()) ? e.x() : cols - 1;
+
+        QString line;
+        for (int c = cStart; c <= cEnd; ++c) {
+            const TermCell cell = m_screen->cellAt(c, screenRow);
+            if (cell.cp > U' ')
+                line += QString::fromUcs4(&cell.cp, 1);
+            else
+                line += QLatin1Char(' ');
+        }
+        // Trim trailing spaces
+        while (line.endsWith(QLatin1Char(' ')))
+            line.chop(1);
+        if (absRow > s.y()) result += QLatin1Char('\n');
+        result += line;
+    }
+    return result;
 }

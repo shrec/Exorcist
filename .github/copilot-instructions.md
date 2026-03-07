@@ -19,7 +19,7 @@ See [docs/plugin_api.md](docs/plugin_api.md) for plugin development and [docs/ai
 - **Interfaces**: PascalCase with `I` prefix (`IFileSystem`, `IPlugin`).
 - **Member variables**: `m_` prefix (`m_fileModel`, `m_services`).
 - **Header guards**: `#pragma once` — no `#ifndef` guards.
-- **Ownership**: `std::unique_ptr` for non-Qt objects; Qt parent/child for QObjects.
+- **Ownership (STRICT)**: Raw `new`/`delete` is **forbidden**. Use `std::unique_ptr` or `std::shared_ptr` for non-Qt objects; Qt parent/child ownership for QObjects. Every heap allocation must have a clear, automatic owner. No manual memory management — no dangling pointers, no leaks, no ambiguous ownership. The only acceptable `new` is when constructing a `QObject` with an explicit parent (e.g., `new QLabel(parent)`), because Qt's parent/child tree guarantees cleanup.
 - **Includes**: Minimal in headers; prefer forward declarations. Group: Qt headers → std headers → project headers.
 - **Error reporting**: Output `QString *error` parameters for fallible operations (see `IFileSystem`).
 - **User-facing strings**: Wrap in `tr()` for translation support.

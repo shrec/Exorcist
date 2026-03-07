@@ -49,6 +49,7 @@ public:
     QPoint   cursorPos()     const { return m_cur; }
     bool     cursorVisible() const { return m_curVis; }
     QString  title()         const { return m_title; }
+    QString  recentText(int maxLines) const;
 
 signals:
     void damaged();

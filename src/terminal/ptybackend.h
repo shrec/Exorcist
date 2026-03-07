@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <memory>
 
 class QThread;
 class QProcess;
@@ -27,7 +28,7 @@ public:
     ~PtyBackend() override;
 
     bool start(const QString &program, const QStringList &args,
-               const QString &workDir);
+               const QString &workDir, int cols = 80, int rows = 24);
     void write(const QByteArray &data);
     void resize(int cols, int rows);
     void terminate();
@@ -40,11 +41,11 @@ signals:
 private:
     void cleanup();
 
-    QThread  *m_readerThread = nullptr;
-    QProcess *m_fallback     = nullptr;
+    std::unique_ptr<QThread> m_readerThread;
+    std::unique_ptr<QProcess> m_fallback;
     bool      m_running      = false;
 
-#ifdef _WIN32
+#if defined(Q_OS_WIN)
     void *m_hPc      = nullptr;  // HPCON  – ConPTY handle
     void *m_hProcess = nullptr;  // HANDLE – child process
     void *m_hPipeIn  = nullptr;  // HANDLE – write end → child stdin

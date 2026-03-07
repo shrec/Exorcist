@@ -1,8 +1,11 @@
 #pragma once
 
+#include <QJsonObject>
 #include <QList>
+#include <QMap>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 // ── Intent ────────────────────────────────────────────────────────────────────
 
@@ -16,6 +19,7 @@ enum class AgentIntent
     SuggestCommitMessage,
     TerminalAssist,
     CreateFile,
+    CodeReview,
 };
 
 // ── Capabilities ──────────────────────────────────────────────────────────────
@@ -28,17 +32,92 @@ enum class AgentCapability
     ToolCalling      = 1 << 3,
     CodeEdit         = 1 << 4,
     TestGeneration   = 1 << 5,
+    Vision           = 1 << 6,
+    Thinking         = 1 << 7,
 };
 Q_DECLARE_FLAGS(AgentCapabilities, AgentCapability)
 Q_DECLARE_OPERATORS_FOR_FLAGS(AgentCapabilities)
+
+// ── Model metadata ────────────────────────────────────────────────────────────
+// Mirrors IModelAPIResponse from the Copilot Chat extension source.
+
+struct ModelCapabilities
+{
+    QString type;       // "chat", "completion", "embeddings"
+    QString family;     // e.g. "gpt-4o", "claude-sonnet-4"
+    bool    streaming        = true;
+    bool    toolCalls        = false;
+    bool    vision           = false;
+    bool    thinking         = false;
+    bool    adaptiveThinking = false;
+    int     maxPromptTokens       = 0;
+    int     maxOutputTokens       = 0;
+    int     maxContextWindowTokens = 0;
+};
+
+struct ModelBilling
+{
+    bool    isPremium  = false;
+    double  multiplier = 1.0;
+};
+
+struct ModelInfo
+{
+    QString           id;           // "gpt-4o", "claude-sonnet-4-20250514"
+    QString           name;         // "GPT-4o", "Claude Sonnet 4"
+    QString           vendor;       // "GitHub", "Anthropic"
+    QString           version;
+    bool              modelPickerEnabled = true;
+    bool              isChatDefault      = false;
+    bool              isChatFallback     = false;
+    bool              isPreview          = false;
+    ModelCapabilities capabilities;
+    ModelBilling      billing;
+    QStringList       supportedEndpoints; // "/chat/completions", "/responses"
+};
+
+// ── Tool calling ──────────────────────────────────────────────────────────────
+
+struct ToolParameter
+{
+    QString     name;
+    QString     type;        // "string", "number", "boolean", "object", "array"
+    QString     description;
+    bool        required = false;
+};
+
+struct ToolDefinition
+{
+    QString               name;        // e.g. "read_file"
+    QString               description;
+    QList<ToolParameter>  parameters;
+};
+
+struct ToolCall
+{
+    QString id;        // server-assigned ID for this invocation
+    QString name;      // tool name
+    QString arguments; // JSON string of arguments
+};
+
+struct ToolResult
+{
+    QString toolCallId;
+    QString content;   // result text
+    bool    isError = false;
+};
 
 // ── Context types ─────────────────────────────────────────────────────────────
 
 struct AgentMessage
 {
-    enum class Role { System, User, Assistant };
+    enum class Role { System, User, Assistant, Tool };
     Role    role;
     QString content;
+    // For tool call results
+    QString toolCallId;
+    // Tool calls made by the assistant
+    QList<ToolCall> toolCalls;
 };
 
 struct AgentDiagnostic
@@ -55,6 +134,7 @@ struct AgentRequest
 {
     QString              requestId;
     AgentIntent          intent = AgentIntent::Chat;
+    bool                 agentMode = false; // true = agent can read/edit files
     QString              userPrompt;
 
     // Editor context
@@ -71,6 +151,12 @@ struct AgentRequest
 
     // Diagnostics visible in the editor
     QList<AgentDiagnostic> diagnostics;
+
+    // Tool definitions available in this request
+    QList<ToolDefinition>  tools;
+
+    // Thinking / reasoning effort for thinking models ("low", "medium", "high")
+    QString reasoningEffort;
 };
 
 // ── Response types ────────────────────────────────────────────────────────────
@@ -87,7 +173,9 @@ struct AgentResponse
 {
     QString                  requestId;
     QString                  text;
+    QString                  thinkingContent; // reasoning/thinking text (for thinking models)
     QList<AgentProposedEdit> proposedEdits;
+    QList<ToolCall>          toolCalls; // tool calls requested by the model
 };
 
 struct AgentError
@@ -118,6 +206,14 @@ public:
     virtual AgentCapabilities capabilities() const = 0;
     virtual bool              isAvailable()  const = 0;
 
+    // Model selection
+    virtual QStringList       availableModels() const = 0;
+    virtual QString           currentModel()    const = 0;
+    virtual void              setModel(const QString &model) = 0;
+    // Full model metadata (empty if provider doesn't support it)
+    virtual QList<ModelInfo>  modelInfoList() const { return {}; }
+    virtual ModelInfo         currentModelInfo() const { return {}; }
+
     virtual void initialize() = 0;
     virtual void shutdown()   = 0;
 
@@ -129,12 +225,16 @@ public:
 signals:
     // Streaming chunk (empty if provider doesn't stream).
     void responseDelta(const QString &requestId, const QString &textChunk);
+    // Streaming thinking/reasoning chunk (for thinking models).
+    void thinkingDelta(const QString &requestId, const QString &textChunk);
     // Final response (always emitted on success, even after streaming).
     void responseFinished(const QString &requestId, const AgentResponse &response);
     // Emitted on failure.
     void responseError(const QString &requestId, const AgentError &error);
     // Provider became available / unavailable (auth expired, config changed, etc.)
     void availabilityChanged(bool available);
+    // Available models list changed (after fetching from server)
+    void modelsChanged();
 };
 
 #define EXORCIST_AGENT_IID "org.exorcist.IAgentProvider/2.0"

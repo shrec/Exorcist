@@ -1,11 +1,14 @@
 #include "editorview.h"
+#include "minimapwidget.h"
 
 #include <QCheckBox>
+#include <QContextMenuEvent>
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPainter>
 #include <QPushButton>
 #include <QScrollBar>
@@ -208,6 +211,16 @@ EditorView::EditorView(QWidget *parent)
 
     updateLineNumberAreaWidth(0);
     highlightCurrentLine();
+
+    // Minimap
+    m_minimap = new MinimapWidget(this, this);
+}
+
+void EditorView::setMinimapVisible(bool visible)
+{
+    m_minimapVisible = visible;
+    if (m_minimap)
+        m_minimap->setVisible(visible);
 }
 
 void EditorView::setLargeFilePreview(const QString &text, bool isPartial)
@@ -257,7 +270,12 @@ int EditorView::lineNumberAreaWidth() const
         ++digits;
     }
 
-    const int space = 3 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+    int space = 3 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+
+    // Extra width for blame annotations
+    if (m_showBlame && !m_blameData.isEmpty())
+        space += fontMetrics().horizontalAdvance(QLatin1String("author12 abc12345 "));
+
     return space;
 }
 
@@ -292,6 +310,12 @@ void EditorView::resizeEvent(QResizeEvent *event)
     m_lineNumberArea->setGeometry(QRect(cr.left(), cr.top(),
                                         lineNumberAreaWidth(), cr.height()));
     repositionFindBar();
+
+    // Position minimap on right edge
+    if (m_minimap && m_minimap->isVisible()) {
+        const int mw = m_minimap->width();
+        m_minimap->setGeometry(cr.right() - mw, cr.top(), mw, cr.height());
+    }
 }
 
 void EditorView::keyPressEvent(QKeyEvent *event)
@@ -304,6 +328,72 @@ void EditorView::keyPressEvent(QKeyEvent *event)
         hideFindBar();
         return;
     }
+
+    // Ctrl+I — inline AI chat
+    if (event->key() == Qt::Key_I && event->modifiers() == Qt::ControlModifier) {
+        const QString sel = textCursor().selectedText();
+        emit inlineChatRequested(sel, m_languageId);
+        event->accept();
+        return;
+    }
+
+    // ── Ghost text handling ───────────────────────────────────────────────
+    if (hasGhostText()) {
+        if (event->key() == Qt::Key_Tab && event->modifiers() == Qt::NoModifier) {
+            acceptGhostText();
+            event->accept();
+            return;
+        }
+        if (event->key() == Qt::Key_Right && event->modifiers() == Qt::ControlModifier) {
+            acceptGhostTextWord();
+            event->accept();
+            return;
+        }
+        if (event->key() == Qt::Key_Escape) {
+            clearGhostText();
+            event->accept();
+            return;
+        }
+        // Any printable key or other editing key dismisses ghost text
+        clearGhostText();
+    }
+
+    // Alt+\ — manual completion trigger
+    if (event->key() == Qt::Key_Backslash && event->modifiers() == Qt::AltModifier) {
+        emit manualCompletionRequested();
+        event->accept();
+        return;
+    }
+
+    // F12 — Go to Definition
+    if (event->key() == Qt::Key_F12 && event->modifiers() == Qt::NoModifier) {
+        emit goToDefinitionRequested();
+        event->accept();
+        return;
+    }
+
+    // Shift+F12 — Find All References
+    if (event->key() == Qt::Key_F12 && event->modifiers() == Qt::ShiftModifier) {
+        emit findReferencesRequested();
+        event->accept();
+        return;
+    }
+
+    // F2 — Rename Symbol
+    if (event->key() == Qt::Key_F2 && event->modifiers() == Qt::NoModifier) {
+        emit renameSymbolRequested();
+        event->accept();
+        return;
+    }
+
+    // Ctrl+Shift+F — Format Document
+    if (event->key() == Qt::Key_F &&
+        event->modifiers() == (Qt::ControlModifier | Qt::ShiftModifier)) {
+        emit formatDocumentRequested();
+        event->accept();
+        return;
+    }
+
     QPlainTextEdit::keyPressEvent(event);
 }
 
@@ -321,6 +411,13 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
         {
             lineToSeverity[d.line] = d.severity;
         }
+    }
+
+    // Build a fast lookup: line → diff type
+    QHash<int, DiffType> lineToDiff;
+    for (const DiffRange &dr : std::as_const(m_diffRanges)) {
+        for (int i = 0; i < dr.lineCount; ++i)
+            lineToDiff[dr.startLine + i] = dr.type;
     }
 
     QTextBlock block = firstVisibleBlock();
@@ -351,6 +448,44 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
                 const int dotSize = 5;
                 painter.drawEllipse(2, top + (lineH - dotSize) / 2,
                                     dotSize, dotSize);
+            }
+
+            // NES arrow indicator (→ pointing right, yellow-green)
+            if (blockNumber == m_nesLine) {
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(QColor(0x4E, 0xC9, 0xB0));  // teal/green
+                const int arrowH = 8;
+                const int arrowW = 6;
+                const int ax = m_lineNumberArea->width() - arrowW - 2;
+                const int ay = top + (lineH - arrowH) / 2;
+                QPolygon arrow;
+                arrow << QPoint(ax, ay)
+                      << QPoint(ax + arrowW, ay + arrowH / 2)
+                      << QPoint(ax, ay + arrowH);
+                painter.drawPolygon(arrow);
+            }
+
+            // Inline diff gutter bar (2px colored bar on left edge)
+            if (lineToDiff.contains(blockNumber)) {
+                QColor barColor;
+                switch (lineToDiff[blockNumber]) {
+                case DiffType::Added:    barColor = QColor(0x50, 0xC8, 0x78); break;
+                case DiffType::Modified: barColor = QColor(0x00, 0x7A, 0xCC); break;
+                case DiffType::Deleted:  barColor = QColor(0xF4, 0x47, 0x47); break;
+                }
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(barColor);
+                painter.drawRect(0, top, 2, bottom - top);
+            }
+
+            // Blame annotation (author + short hash left of line number)
+            const int lineNum1 = blockNumber + 1;
+            if (m_showBlame && m_blameData.contains(lineNum1)) {
+                const auto &bi = m_blameData[lineNum1];
+                const QString blameTxt = bi.author.left(10) + QLatin1Char(' ') + bi.hash.left(8);
+                painter.setPen(QColor(90, 90, 90));
+                painter.drawText(8, top, m_lineNumberArea->width() - 14,
+                                 lineH, Qt::AlignLeft, blameTxt);
             }
         }
 
@@ -466,7 +601,140 @@ void EditorView::refreshDiagnosticSelections()
         selections.append(sel);
     }
 
+    // Review annotations (yellow-tinted background with tooltip)
+    selections.append(m_reviewSelections);
+
     setExtraSelections(selections);
+}
+
+// ── Inline review annotations ────────────────────────────────────────────────
+
+void EditorView::setReviewAnnotations(const QList<ReviewAnnotation> &annotations)
+{
+    m_reviewAnnotations = annotations;
+    m_reviewSelections.clear();
+
+    for (const ReviewAnnotation &ann : annotations) {
+        QTextBlock block = document()->findBlockByNumber(ann.line - 1);
+        if (!block.isValid()) continue;
+
+        QTextEdit::ExtraSelection sel;
+        sel.format.setBackground(QColor(50, 50, 20, 60));
+        sel.format.setProperty(QTextFormat::FullWidthSelection, true);
+        sel.format.setToolTip(ann.comment);
+        sel.cursor = QTextCursor(block);
+        sel.cursor.clearSelection();
+        m_reviewSelections.append(sel);
+    }
+
+    refreshDiagnosticSelections();
+}
+
+void EditorView::clearReviewAnnotations()
+{
+    m_reviewAnnotations.clear();
+    m_reviewSelections.clear();
+    m_currentReviewIdx = -1;
+    refreshDiagnosticSelections();
+}
+
+void EditorView::nextReviewAnnotation()
+{
+    if (m_reviewAnnotations.isEmpty()) return;
+    m_currentReviewIdx = (m_currentReviewIdx + 1) % m_reviewAnnotations.size();
+    const auto &ann = m_reviewAnnotations[m_currentReviewIdx];
+    QTextBlock block = document()->findBlockByNumber(ann.line - 1);
+    if (block.isValid()) {
+        QTextCursor cur(block);
+        setTextCursor(cur);
+        centerCursor();
+    }
+}
+
+void EditorView::prevReviewAnnotation()
+{
+    if (m_reviewAnnotations.isEmpty()) return;
+    m_currentReviewIdx = (m_currentReviewIdx - 1 + m_reviewAnnotations.size())
+                         % m_reviewAnnotations.size();
+    const auto &ann = m_reviewAnnotations[m_currentReviewIdx];
+    QTextBlock block = document()->findBlockByNumber(ann.line - 1);
+    if (block.isValid()) {
+        QTextCursor cur(block);
+        setTextCursor(cur);
+        centerCursor();
+    }
+}
+
+void EditorView::applyReviewAnnotation(int index)
+{
+    if (index < 0 || index >= m_reviewAnnotations.size()) return;
+    const auto ann = m_reviewAnnotations[index];
+    emit reviewAnnotationApplied(ann.line, ann.comment);
+    m_reviewAnnotations.removeAt(index);
+    if (m_currentReviewIdx >= m_reviewAnnotations.size())
+        m_currentReviewIdx = m_reviewAnnotations.isEmpty() ? -1 : 0;
+    setReviewAnnotations(m_reviewAnnotations); // rebuild selections
+}
+
+void EditorView::discardReviewAnnotation(int index)
+{
+    if (index < 0 || index >= m_reviewAnnotations.size()) return;
+    const auto ann = m_reviewAnnotations[index];
+    emit reviewAnnotationDiscarded(ann.line, ann.comment);
+    m_reviewAnnotations.removeAt(index);
+    if (m_currentReviewIdx >= m_reviewAnnotations.size())
+        m_currentReviewIdx = m_reviewAnnotations.isEmpty() ? -1 : 0;
+    setReviewAnnotations(m_reviewAnnotations); // rebuild selections
+}
+
+// ── Next Edit Suggestion (NES) gutter arrow ──────────────────────────────────
+
+void EditorView::setNesLine(int line)
+{
+    m_nesLine = line;
+    m_lineNumberArea->update();
+}
+
+void EditorView::clearNesLine()
+{
+    if (m_nesLine >= 0) {
+        m_nesLine = -1;
+        m_lineNumberArea->update();
+    }
+}
+
+void EditorView::setDiffRanges(const QList<DiffRange> &ranges)
+{
+    m_diffRanges = ranges;
+    m_lineNumberArea->update();
+}
+
+void EditorView::clearDiffRanges()
+{
+    m_diffRanges.clear();
+    m_lineNumberArea->update();
+}
+
+void EditorView::setBlameData(const QHash<int, BlameInfo> &blameByLine)
+{
+    m_blameData = blameByLine;
+    updateLineNumberAreaWidth(0);
+    m_lineNumberArea->update();
+}
+
+void EditorView::clearBlameData()
+{
+    m_blameData.clear();
+    m_showBlame = false;
+    updateLineNumberAreaWidth(0);
+    m_lineNumberArea->update();
+}
+
+void EditorView::setBlameVisible(bool visible)
+{
+    m_showBlame = visible;
+    updateLineNumberAreaWidth(0);
+    m_lineNumberArea->update();
 }
 
 // ── LSP: Format / apply text edits ───────────────────────────────────────────
@@ -518,4 +786,230 @@ void EditorView::applyTextEdits(const QJsonArray &edits)
     }
     cur.endEditBlock();
     setTextCursor(cur);
+}
+
+// ── Ghost text (inline completion) ───────────────────────────────────────────
+
+void EditorView::setGhostText(const QString &text)
+{
+    if (text.isEmpty())
+        return;
+
+    m_ghostText   = text;
+    m_ghostBlock  = textCursor().blockNumber();
+    m_ghostColumn = textCursor().columnNumber();
+    viewport()->update();
+}
+
+void EditorView::clearGhostText()
+{
+    if (m_ghostText.isEmpty())
+        return;
+
+    m_ghostText.clear();
+    m_ghostBlock  = -1;
+    m_ghostColumn = -1;
+    viewport()->update();
+    emit ghostTextDismissed();
+}
+
+void EditorView::acceptGhostText()
+{
+    if (m_ghostText.isEmpty())
+        return;
+
+    const QString text = m_ghostText;
+    m_ghostText.clear();
+    m_ghostBlock  = -1;
+    m_ghostColumn = -1;
+
+    QTextCursor cur = textCursor();
+    cur.insertText(text);
+    setTextCursor(cur);
+    viewport()->update();
+    emit ghostTextAccepted();
+}
+
+void EditorView::acceptGhostTextWord()
+{
+    if (m_ghostText.isEmpty())
+        return;
+
+    // Find the end of the first word in the ghost text
+    int pos = 0;
+    const int len = m_ghostText.length();
+
+    // Skip leading whitespace
+    while (pos < len && m_ghostText[pos].isSpace())
+        ++pos;
+    // Advance through the word
+    while (pos < len && !m_ghostText[pos].isSpace())
+        ++pos;
+
+    if (pos == 0)
+        pos = 1; // accept at least one character
+
+    const QString word = m_ghostText.left(pos);
+    m_ghostText = m_ghostText.mid(pos);
+
+    QTextCursor cur = textCursor();
+    cur.insertText(word);
+    setTextCursor(cur);
+
+    if (m_ghostText.isEmpty()) {
+        m_ghostBlock  = -1;
+        m_ghostColumn = -1;
+        viewport()->update();
+        emit ghostTextAccepted();
+    } else {
+        // Update ghost position to new cursor
+        m_ghostBlock  = textCursor().blockNumber();
+        m_ghostColumn = textCursor().columnNumber();
+        viewport()->update();
+        emit ghostTextPartiallyAccepted();
+    }
+}
+
+void EditorView::acceptNextWord()
+{
+    acceptGhostTextWord();
+}
+
+void EditorView::paintEvent(QPaintEvent *event)
+{
+    // Draw the normal editor content first
+    QPlainTextEdit::paintEvent(event);
+
+    if (m_ghostText.isEmpty() || m_ghostBlock < 0)
+        return;
+
+    // Find the block where the ghost should be drawn
+    QTextBlock block = document()->findBlockByNumber(m_ghostBlock);
+    if (!block.isValid())
+        return;
+
+    QPainter painter(viewport());
+    painter.setRenderHint(QPainter::Antialiasing, false);
+
+    // Use the editor font at lower opacity for ghost text
+    QFont ghostFont = font();
+    painter.setFont(ghostFont);
+    painter.setPen(QColor(128, 128, 128, 140));
+
+    const QFontMetrics fm(ghostFont);
+
+    // Split ghost text into lines for multi-line completions
+    const QStringList ghostLines = m_ghostText.split(QLatin1Char('\n'));
+
+    // First line: drawn after the cursor position on the same line
+    const QRectF blockGeo = blockBoundingGeometry(block).translated(contentOffset());
+
+    // Calculate the x position at the cursor column
+    const QString lineText = block.text().left(m_ghostColumn);
+    const int xOffset = fm.horizontalAdvance(lineText);
+
+    // Draw first ghost line inline after the cursor
+    if (!ghostLines.isEmpty()) {
+        const qreal y = blockGeo.top() + fm.ascent();
+        painter.drawText(QPointF(xOffset, y), ghostLines.first());
+    }
+
+    // Draw subsequent ghost lines below
+    const int lineH = fm.height();
+    for (int i = 1; i < ghostLines.size(); ++i) {
+        const qreal y = blockGeo.top() + fm.ascent() + lineH * i;
+        if (y > viewport()->height())
+            break;
+        painter.drawText(QPointF(0, y), ghostLines[i]);
+    }
+}
+
+// ── Context menu ──────────────────────────────────────────────────────────────
+
+void EditorView::contextMenuEvent(QContextMenuEvent *event)
+{
+    QMenu *menu = createStandardContextMenu();
+
+    menu->addSeparator();
+
+    // Go to Definition (F12)
+    QAction *gotoDef = menu->addAction(tr("Go to Definition\tF12"));
+    connect(gotoDef, &QAction::triggered, this, &EditorView::goToDefinitionRequested);
+
+    // Find All References (Shift+F12)
+    QAction *findRefs = menu->addAction(tr("Find All References\tShift+F12"));
+    connect(findRefs, &QAction::triggered, this, &EditorView::findReferencesRequested);
+
+    // Rename Symbol (F2)
+    QAction *rename = menu->addAction(tr("Rename Symbol\tF2"));
+    connect(rename, &QAction::triggered, this, &EditorView::renameSymbolRequested);
+
+    menu->addSeparator();
+
+    // Format Document (Ctrl+Shift+F)
+    QAction *format = menu->addAction(tr("Format Document\tCtrl+Shift+F"));
+    connect(format, &QAction::triggered, this, &EditorView::formatDocumentRequested);
+
+    // Find / Replace (Ctrl+F)
+    QAction *findReplace = menu->addAction(tr("Find / Replace\tCtrl+F"));
+    connect(findReplace, &QAction::triggered, this, &EditorView::showFindBar);
+
+    // Open #include file
+    const QString includePath = includePathUnderCursor();
+    if (!includePath.isEmpty()) {
+        menu->addSeparator();
+        QAction *openInclude = menu->addAction(tr("Open \"%1\"").arg(includePath));
+        connect(openInclude, &QAction::triggered, this, [this, includePath]() {
+            emit openIncludeRequested(includePath);
+        });
+    }
+
+    // AI-powered actions
+    {
+        menu->addSeparator();
+        QMenu *aiMenu = menu->addMenu(tr("Copilot"));
+        const QString sel = textCursor().selectedText();
+        const QString fp  = property("filePath").toString();
+        const QString lang = property("languageId").toString();
+
+        QAction *explainAct = aiMenu->addAction(tr("Explain This"));
+        connect(explainAct, &QAction::triggered, this, [this, sel, fp, lang]() {
+            emit aiExplainRequested(sel, fp, lang);
+        });
+
+        QAction *reviewAct = aiMenu->addAction(tr("Review This"));
+        connect(reviewAct, &QAction::triggered, this, [this, sel, fp, lang]() {
+            emit aiReviewRequested(sel, fp, lang);
+        });
+
+        QAction *fixAct = aiMenu->addAction(tr("Fix This"));
+        connect(fixAct, &QAction::triggered, this, [this, sel, fp, lang]() {
+            emit aiFixRequested(sel, fp, lang);
+        });
+
+        QAction *testAct = aiMenu->addAction(tr("Generate Tests"));
+        connect(testAct, &QAction::triggered, this, [this, sel, fp, lang]() {
+            emit aiTestRequested(sel, fp, lang);
+        });
+
+        QAction *docAct = aiMenu->addAction(tr("Add Documentation"));
+        connect(docAct, &QAction::triggered, this, [this, sel, fp, lang]() {
+            emit aiDocRequested(sel, fp, lang);
+        });
+    }
+
+    menu->exec(event->globalPos());
+    delete menu;
+}
+
+QString EditorView::includePathUnderCursor() const
+{
+    static const QRegularExpression includeRx(
+        QStringLiteral("^\\s*#\\s*include\\s*[<\"]([^>\"]+)[>\"]"));
+
+    const QString lineText = textCursor().block().text();
+    const QRegularExpressionMatch match = includeRx.match(lineText);
+    if (match.hasMatch())
+        return match.captured(1);
+    return {};
 }

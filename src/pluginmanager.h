@@ -19,6 +19,7 @@ public:
 
     const QStringList &errors() const;
     QVector<IPlugin *> plugins() const;
+    QVector<QObject *> pluginObjects() const;
 
 private:
     struct LoadedPlugin {

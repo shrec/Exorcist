@@ -90,6 +90,40 @@ TermCell TerminalScreen::cellAt(int col, int row) const
     }
 }
 
+QString TerminalScreen::recentText(int maxLines) const
+{
+    if (maxLines <= 0)
+        return {};
+
+    auto rowToText = [this](const Row &row) {
+        QString line;
+        line.reserve(row.size());
+        for (int c = 0; c < m_cols && c < row.size(); ++c) {
+            const char32_t cp = row[c].cp;
+            if (cp == U'\0') {
+                line += QLatin1Char(' ');
+            } else {
+                line += QString::fromUcs4(&cp, 1);
+            }
+        }
+        while (line.endsWith(QLatin1Char(' ')))
+            line.chop(1);
+        return line;
+    };
+
+    QStringList all;
+    all.reserve(m_sb.size() + m_rows);
+    for (const auto &row : m_sb)
+        all.append(rowToText(row));
+
+    const auto &grid = m_altOn ? m_alt : m_pri;
+    for (int r = 0; r < m_rows && r < grid.size(); ++r)
+        all.append(rowToText(grid[r]));
+
+    const int start = qMax(0, all.size() - maxLines);
+    return all.mid(start).join(QLatin1Char('\n')).trimmed();
+}
+
 void TerminalScreen::feed(const QByteArray &data)
 {
     for (unsigned char c : data)
@@ -119,6 +153,13 @@ void TerminalScreen::eat(unsigned char c)
         m_priv   = false;
         m_pars.clear();
         m_pbuf.clear();
+        return;
+    }
+
+    // BEL terminates an OSC string (most common terminator for OSC)
+    if (c == 0x07 && m_st == St::Osc) {
+        oscExecute();
+        m_st = St::Normal;
         return;
     }
 

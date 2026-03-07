@@ -42,8 +42,10 @@ private slots:
     void blinkCursor();
 
 private:
-    void  updateScrollbar();
-    QPoint pixelToCell(const QPoint &pos) const;
+    void    updateScrollbar();
+    QPoint  pixelToCell(const QPoint &pos) const;
+    bool    isCellSelected(int col, int absRow) const;
+    QString selectedText() const;
 
     TerminalScreen *m_screen;
     QFont  m_font;

@@ -11,7 +11,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     message(FATAL_ERROR "Exorcist requires a 64-bit toolchain.")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
 
 option(EXORCIST_USE_LLVM "Enable LLVM integration stubs" OFF)
 option(EXORCIST_DEPLOY_QT "Run windeployqt after build on Windows" ON)
@@ -20,3 +20,4 @@ if(EXORCIST_USE_LLVM)
 endif()
 
 add_subdirectory(src)
+add_subdirectory(plugins)

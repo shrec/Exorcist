@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QCoreApplication>
+#include <QFont>
 #include <QIcon>
 #include <QLocale>
 #include <QPalette>
@@ -55,10 +56,13 @@ void loadTranslator(QApplication &app)
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    app.setOrganizationName(QStringLiteral("Exorcist"));
+    app.setApplicationName(QStringLiteral("Exorcist"));
     Logger::install();
     qInfo() << "Exorcist starting";
 
     app.setWindowIcon(QIcon(":/icons/icon.png"));
+    app.setFont(QFont(QStringLiteral("Segoe UI"), 10));
     applyDarkTheme(app);
     loadTranslator(app);
 

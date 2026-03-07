@@ -1,6 +1,7 @@
 #include "syntaxhighlighter.h"
 
 #include <QFileInfo>
+#include <memory>
 
 // ── Colours (VS Code dark theme palette) ────────────────────────────────────
 
@@ -1110,6 +1111,305 @@ static void buildQmake(QVector<SyntaxHighlighter::Rule> &rules)
     addRule(rules, R"(#[^\n]*)", clr::comment_);
 }
 
+// ── CSS / SCSS / LESS ────────────────────────────────────────────────────────
+
+static void buildCss(QVector<SyntaxHighlighter::Rule> &rules,
+                     QRegularExpression &blockStart,
+                     QRegularExpression &blockEnd,
+                     QTextCharFormat &blockFmt)
+{
+    // At-rules
+    addRule(rules, R"(@[a-zA-Z-]+)", clr::keyword);
+
+    // Selectors – class, ID, pseudo
+    addRule(rules, R"(\.[a-zA-Z_][\w-]*)", clr::type_);
+    addRule(rules, R"(#[a-zA-Z_][\w-]*)", clr::function_);
+    addRule(rules, R"(:{1,2}[a-zA-Z-]+)", clr::special_);
+
+    // Properties
+    addRule(rules, R"([a-zA-Z-]+\s*(?=:))", clr::special_);
+
+    // Strings
+    addRule(rules, R"("(?:\\.|[^"\\])*")", clr::string_);
+    addRule(rules, R"('(?:\\.|[^'\\])*')", clr::string_);
+
+    // Numbers with units
+    addRule(rules, R"(\b\d+(\.\d+)?(px|em|rem|%|vh|vw|pt|cm|mm|in|s|ms|deg|rad|fr)?\b)", clr::number_);
+
+    // Hex colors
+    addRule(rules, R"(#[0-9a-fA-F]{3,8}\b)", clr::number_);
+
+    // !important
+    addRule(rules, R"(!important\b)", clr::keyword);
+
+    // SCSS variables and Sass/LESS variables
+    addRule(rules, R"(\$[a-zA-Z_][\w-]*)", clr::special_);
+    addRule(rules, R"(@[a-zA-Z_][\w-]*)", clr::special_);
+
+    // Functions
+    addRule(rules, R"(\b[a-zA-Z-]+\s*(?=\())", clr::function_);
+
+    // Comments
+    addRule(rules, R"(//[^\n]*)", clr::comment_);
+
+    // Block comments
+    blockStart = QRegularExpression(R"(/\*)");
+    blockEnd   = QRegularExpression(R"(\*/)");
+    blockFmt   = clr::comment_;
+}
+
+// ── Perl ─────────────────────────────────────────────────────────────────────
+
+static void buildPerl(QVector<SyntaxHighlighter::Rule> &rules)
+{
+    addKeywords(rules,
+                {"my", "our", "local", "use", "require", "package", "sub",
+                 "if", "elsif", "else", "unless", "while", "until", "for",
+                 "foreach", "do", "last", "next", "redo", "return",
+                 "die", "warn", "print", "say", "chomp", "chop",
+                 "push", "pop", "shift", "unshift", "splice",
+                 "grep", "map", "sort", "reverse", "join", "split",
+                 "open", "close", "read", "write", "seek", "tell",
+                 "defined", "undef", "ref", "bless", "tie",
+                 "eval", "BEGIN", "END", "AUTOLOAD", "DESTROY",
+                 "eq", "ne", "lt", "gt", "le", "ge", "cmp", "not", "and", "or"},
+                clr::keyword);
+
+    // Variables
+    addRule(rules, R"([\$@%]\w+)", clr::special_);
+
+    // Strings
+    addRule(rules, R"("(?:\\.|[^"\\])*")", clr::string_);
+    addRule(rules, R"('(?:\\.|[^'\\])*')", clr::string_);
+
+    // Regex
+    addRule(rules, R"(/(?:\\/|[^/\n])*/[gimsxpe]*)", clr::preproc_);
+
+    // Numbers
+    addRule(rules, R"(\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)", clr::number_);
+    addRule(rules, R"(\b0[xX][0-9a-fA-F]+\b)", clr::number_);
+
+    // Functions
+    addRule(rules, R"(\b[a-zA-Z_]\w*\s*(?=\())", clr::function_);
+
+    // Comments
+    addRule(rules, R"(#[^\n]*)", clr::comment_);
+}
+
+// ── R ────────────────────────────────────────────────────────────────────────
+
+static void buildR(QVector<SyntaxHighlighter::Rule> &rules)
+{
+    addKeywords(rules,
+                {"if", "else", "repeat", "while", "for", "in", "next",
+                 "break", "return", "function", "library", "require",
+                 "source", "TRUE", "FALSE", "NULL", "NA", "NA_integer_",
+                 "NA_real_", "NA_complex_", "NA_character_", "Inf", "NaN",
+                 "switch", "tryCatch", "stop", "warning", "message"},
+                clr::keyword);
+
+    // Assignment operators
+    addRule(rules, R"(<-|->|<<-|->>)", clr::keyword);
+
+    // Strings
+    addRule(rules, R"("(?:\\.|[^"\\])*")", clr::string_);
+    addRule(rules, R"('(?:\\.|[^'\\])*')", clr::string_);
+
+    // Numbers
+    addRule(rules, R"(\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?L?\b)", clr::number_);
+    addRule(rules, R"(\b0[xX][0-9a-fA-F]+L?\b)", clr::number_);
+
+    // Functions
+    addRule(rules, R"(\b[a-zA-Z_.]\w*\s*(?=\())", clr::function_);
+
+    // Comments
+    addRule(rules, R"(#[^\n]*)", clr::comment_);
+}
+
+// ── Haskell ──────────────────────────────────────────────────────────────────
+
+static void buildHaskell(QVector<SyntaxHighlighter::Rule> &rules,
+                         QRegularExpression &blockStart,
+                         QRegularExpression &blockEnd,
+                         QTextCharFormat &blockFmt)
+{
+    addKeywords(rules,
+                {"module", "import", "qualified", "as", "hiding", "where",
+                 "data", "type", "newtype", "class", "instance", "deriving",
+                 "if", "then", "else", "case", "of", "let", "in", "do",
+                 "return", "forall", "infixl", "infixr", "infix",
+                 "True", "False", "Nothing", "Just", "Left", "Right",
+                 "otherwise"},
+                clr::keyword);
+
+    // Type names (start with uppercase)
+    addRule(rules, R"(\b[A-Z][a-zA-Z0-9_']*)", clr::type_);
+
+    // Strings / Chars
+    addRule(rules, R"("(?:\\.|[^"\\])*")", clr::string_);
+    addRule(rules, R"('(?:\\.|[^'\\])')", clr::string_);
+
+    // Numbers
+    addRule(rules, R"(\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)", clr::number_);
+    addRule(rules, R"(\b0[xX][0-9a-fA-F]+\b)", clr::number_);
+    addRule(rules, R"(\b0[oO][0-7]+\b)", clr::number_);
+
+    // Operators
+    addRule(rules, R"(->|<-|=>|::|\.\.|\\)", clr::keyword);
+
+    // Comments
+    addRule(rules, R"(--[^\n]*)", clr::comment_);
+
+    blockStart = QRegularExpression(R"(\{-)");
+    blockEnd   = QRegularExpression(R"(-\})");
+    blockFmt   = clr::comment_;
+}
+
+// ── Elixir ───────────────────────────────────────────────────────────────────
+
+static void buildElixir(QVector<SyntaxHighlighter::Rule> &rules)
+{
+    addKeywords(rules,
+                {"def", "defp", "defmodule", "defprotocol", "defimpl",
+                 "defmacro", "defmacrop", "defguard", "defguardp",
+                 "defstruct", "defexception", "defdelegate",
+                 "do", "end", "if", "else", "unless", "cond", "case",
+                 "when", "with", "for", "receive", "after", "try",
+                 "catch", "rescue", "raise", "throw", "import", "use",
+                 "alias", "require", "fn", "in", "not", "and", "or",
+                 "true", "false", "nil", "quote", "unquote", "super"},
+                clr::keyword);
+
+    // Module names
+    addRule(rules, R"(\b[A-Z][a-zA-Z0-9_.]*)", clr::type_);
+
+    // Atoms
+    addRule(rules, R"(:[a-zA-Z_]\w*)", clr::special_);
+
+    // Strings
+    addRule(rules, R"("(?:\\.|[^"\\])*")", clr::string_);
+    addRule(rules, R"('(?:\\.|[^'\\])*')", clr::string_);
+
+    // Sigils
+    addRule(rules, R"(~[rRswWcC]\{[^}]*\})", clr::preproc_);
+    addRule(rules, R"(~[rRswWcC]\([^)]*\))", clr::preproc_);
+    addRule(rules, R"(~[rRswWcC]\"[^"]*\")", clr::preproc_);
+
+    // Numbers
+    addRule(rules, R"(\b\d+(?:_\d+)*(?:\.\d+(?:_\d+)*)?(?:[eE][+-]?\d+)?\b)", clr::number_);
+    addRule(rules, R"(\b0[xX][0-9a-fA-F_]+\b)", clr::number_);
+    addRule(rules, R"(\b0[bB][01_]+\b)", clr::number_);
+    addRule(rules, R"(\b0[oO][0-7_]+\b)", clr::number_);
+
+    // Module attributes / decorators
+    addRule(rules, R"(@[a-zA-Z_]\w*)", clr::preproc_);
+
+    // Functions
+    addRule(rules, R"(\b[a-z_]\w*[!?]?\s*(?=\())", clr::function_);
+
+    // Pipe operator
+    addRule(rules, R"(\|>)", clr::keyword);
+
+    // Comments
+    addRule(rules, R"(#[^\n]*)", clr::comment_);
+}
+
+// ── Zig ──────────────────────────────────────────────────────────────────────
+
+static void buildZig(QVector<SyntaxHighlighter::Rule> &rules,
+                     QRegularExpression &blockStart,
+                     QRegularExpression &blockEnd,
+                     QTextCharFormat &blockFmt)
+{
+    addKeywords(rules,
+                {"align", "allowzero", "and", "anytype", "asm", "async",
+                 "await", "break", "catch", "comptime", "const", "continue",
+                 "defer", "else", "enum", "errdefer", "error", "export",
+                 "extern", "fn", "for", "if", "inline", "noalias",
+                 "nosuspend", "opaque", "or", "orelse", "packed",
+                 "pub", "resume", "return", "struct", "suspend", "switch",
+                 "test", "threadlocal", "try", "union", "unreachable",
+                 "usingnamespace", "var", "volatile", "while",
+                 "true", "false", "null", "undefined"},
+                clr::keyword);
+
+    // Types
+    addKeywords(rules,
+                {"i8", "i16", "i32", "i64", "i128", "isize",
+                 "u8", "u16", "u32", "u64", "u128", "usize",
+                 "f16", "f32", "f64", "f128", "bool", "void",
+                 "anyerror", "anyframe", "comptime_int", "comptime_float",
+                 "type", "noreturn"},
+                clr::type_);
+
+    // Built-in functions
+    addRule(rules, R"(@[a-zA-Z_]\w*)", clr::preproc_);
+
+    // Strings
+    addRule(rules, R"("(?:\\.|[^"\\])*")", clr::string_);
+
+    // Numbers
+    addRule(rules, R"(\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)", clr::number_);
+    addRule(rules, R"(\b0[xX][0-9a-fA-F_]+\b)", clr::number_);
+    addRule(rules, R"(\b0[bB][01_]+\b)", clr::number_);
+    addRule(rules, R"(\b0[oO][0-7_]+\b)", clr::number_);
+
+    // Functions
+    addRule(rules, R"(\b[a-zA-Z_]\w*\s*(?=\())", clr::function_);
+
+    // Comments
+    addRule(rules, R"(//[^\n]*)", clr::comment_);
+
+    // Zig has no block comments, but keep the signature for consistency
+    Q_UNUSED(blockStart);
+    Q_UNUSED(blockEnd);
+    Q_UNUSED(blockFmt);
+}
+
+// ── Protobuf ─────────────────────────────────────────────────────────────────
+
+static void buildProtobuf(QVector<SyntaxHighlighter::Rule> &rules,
+                          QRegularExpression &blockStart,
+                          QRegularExpression &blockEnd,
+                          QTextCharFormat &blockFmt)
+{
+    addKeywords(rules,
+                {"syntax", "package", "import", "option", "message", "enum",
+                 "service", "rpc", "returns", "stream", "oneof", "map",
+                 "reserved", "extensions", "extend", "optional", "required",
+                 "repeated", "public", "weak", "true", "false", "to", "max"},
+                clr::keyword);
+
+    // Types
+    addKeywords(rules,
+                {"double", "float", "int32", "int64", "uint32", "uint64",
+                 "sint32", "sint64", "fixed32", "fixed64",
+                 "sfixed32", "sfixed64", "bool", "string", "bytes",
+                 "google", "protobuf", "Any", "Timestamp", "Duration"},
+                clr::type_);
+
+    // Message/Enum names (PascalCase)
+    addRule(rules, R"(\b[A-Z][a-zA-Z0-9_]*)", clr::type_);
+
+    // Strings
+    addRule(rules, R"("(?:\\.|[^"\\])*")", clr::string_);
+    addRule(rules, R"('(?:\\.|[^'\\])*')", clr::string_);
+
+    // Numbers
+    addRule(rules, R"(\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)", clr::number_);
+    addRule(rules, R"(\b0[xX][0-9a-fA-F]+\b)", clr::number_);
+
+    // Field numbers
+    addRule(rules, R"(=\s*\d+)", clr::number_);
+
+    // Comments
+    addRule(rules, R"(//[^\n]*)", clr::comment_);
+
+    blockStart = QRegularExpression(R"(/\*)");
+    blockEnd   = QRegularExpression(R"(\*/)");
+    blockFmt   = clr::comment_;
+}
+
 // ── SyntaxHighlighter ────────────────────────────────────────────────────────
 
 SyntaxHighlighter::SyntaxHighlighter(QTextDocument *doc)
@@ -1288,6 +1588,37 @@ SyntaxHighlighter *SyntaxHighlighter::create(const QString &filePath, QTextDocum
     else if (ext == "tf" || ext == "tfvars" || ext == "hcl")
     {
         buildTerraform(h->m_rules, h->m_blockCommentStart, h->m_blockCommentEnd, h->m_blockCommentFmt);
+        h->m_hasBlockComments = true;
+    }
+    else if (ext == "css" || ext == "scss" || ext == "sass" || ext == "less")
+    {
+        buildCss(h->m_rules, h->m_blockCommentStart, h->m_blockCommentEnd, h->m_blockCommentFmt);
+        h->m_hasBlockComments = true;
+    }
+    else if (ext == "pl" || ext == "pm" || ext == "t" || ext == "pod")
+    {
+        buildPerl(h->m_rules);
+    }
+    else if (ext == "r" || ext == "rmd")
+    {
+        buildR(h->m_rules);
+    }
+    else if (ext == "hs" || ext == "lhs")
+    {
+        buildHaskell(h->m_rules, h->m_blockCommentStart, h->m_blockCommentEnd, h->m_blockCommentFmt);
+        h->m_hasBlockComments = true;
+    }
+    else if (ext == "ex" || ext == "exs" || ext == "heex" || ext == "leex")
+    {
+        buildElixir(h->m_rules);
+    }
+    else if (ext == "zig" || ext == "zon")
+    {
+        buildZig(h->m_rules, h->m_blockCommentStart, h->m_blockCommentEnd, h->m_blockCommentFmt);
+    }
+    else if (ext == "proto" || ext == "proto3")
+    {
+        buildProtobuf(h->m_rules, h->m_blockCommentStart, h->m_blockCommentEnd, h->m_blockCommentFmt);
         h->m_hasBlockComments = true;
     }
     else

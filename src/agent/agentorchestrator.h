@@ -46,13 +46,16 @@ public:
 signals:
     // Forwarded from the active provider:
     void responseDelta(const QString &requestId, const QString &textChunk);
+    void thinkingDelta(const QString &requestId, const QString &textChunk);
     void responseFinished(const QString &requestId, const AgentResponse &response);
     void responseError(const QString &requestId, const AgentError &error);
+    void modelsChanged();
 
     // Meta events:
     void activeProviderChanged(const QString &providerId);
     void providerRegistered(const QString &providerId);
     void providerRemoved(const QString &providerId);
+    void providerAvailabilityChanged(bool available);
 
 private:
     void wireProvider(IAgentProvider *p);

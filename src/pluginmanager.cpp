@@ -89,3 +89,12 @@ QVector<IPlugin *> PluginManager::plugins() const
     }
     return result;
 }
+
+QVector<QObject *> PluginManager::pluginObjects() const
+{
+    QVector<QObject *> result;
+    result.reserve(m_loaded.size());
+    for (const LoadedPlugin &lp : m_loaded)
+        result.push_back(lp.loader->instance());
+    return result;
+}

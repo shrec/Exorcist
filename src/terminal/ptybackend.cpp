@@ -2,11 +2,12 @@
 
 #include <QProcess>
 #include <QThread>
+#include <memory>
 
 // ═════════════════════════════════════════════════════════════════════════════
 // WINDOWS — ConPTY implementation
 // ═════════════════════════════════════════════════════════════════════════════
-#ifdef _WIN32
+#if defined(Q_OS_WIN)
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -80,7 +81,7 @@ PtyBackend::~PtyBackend()
 }
 
 bool PtyBackend::start(const QString &program, const QStringList &args,
-                       const QString &workDir)
+                       const QString &workDir, int cols, int rows)
 {
     if (m_running) terminate();
 
@@ -95,7 +96,7 @@ bool PtyBackend::start(const QString &program, const QStringList &args,
             { CloseHandle(hInR); CloseHandle(hInW);                     return false; }
 
         // ── Create ConPTY ─────────────────────────────────────────────────
-        COORD size = {80, 24};
+        COORD size = {(SHORT)qBound(1, cols, 999), (SHORT)qBound(1, rows, 999)};
         HPCON hPc  = nullptr;
         if (FAILED(gCreatePC(size, hInR, hOutW, 0, &hPc))) {
             CloseHandle(hInR);  CloseHandle(hInW);
@@ -152,27 +153,27 @@ bool PtyBackend::start(const QString &program, const QStringList &args,
         m_hPipeIn  = hInW;
         m_hPipeOut = hOutR;
 
-        auto *reader    = new WinPtyReader();
+        auto reader = std::make_unique<WinPtyReader>();
         reader->pipe    = (HANDLE)m_hPipeOut;
         reader->backend = this;
-        m_readerThread  = reader;
         reader->start();
+        m_readerThread = std::move(reader);
 
         m_running = true;
         return true;
     }
 
     // ── QProcess fallback (no PTY) ────────────────────────────────────────
-    m_fallback = new QProcess(this);
+    m_fallback = std::make_unique<QProcess>();
     m_fallback->setProgram(program);
     m_fallback->setArguments(args);
     if (!workDir.isEmpty()) m_fallback->setWorkingDirectory(workDir);
     m_fallback->setProcessChannelMode(QProcess::MergedChannels);
 
-    connect(m_fallback, &QProcess::readyReadStandardOutput, this, [this]() {
+    connect(m_fallback.get(), &QProcess::readyReadStandardOutput, this, [this]() {
         emit dataReceived(m_fallback->readAllStandardOutput());
     });
-    connect(m_fallback,
+    connect(m_fallback.get(),
             QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) {
         m_running = false;
@@ -187,7 +188,18 @@ bool PtyBackend::start(const QString &program, const QStringList &args,
 void PtyBackend::write(const QByteArray &data)
 {
     if (!m_running) return;
-    if (m_fallback) { m_fallback->write(data); return; }
+    if (m_fallback) {
+        // QProcess on Windows cannot translate \x03 into CTRL_C_EVENT.
+        // Terminate the child process as the closest equivalent.
+        if (data.contains('\x03')) {
+            m_fallback->terminate();
+            if (!m_fallback->waitForFinished(2000))
+                m_fallback->kill();
+            return;
+        }
+        m_fallback->write(data);
+        return;
+    }
     if (m_hPipeIn) {
         DWORD written = 0;
         WriteFile((HANDLE)m_hPipeIn, data.constData(), (DWORD)data.size(),
@@ -211,16 +223,14 @@ void PtyBackend::terminate()
     if (m_fallback) {
         m_fallback->terminate();
         m_fallback->waitForFinished(3000);
-        m_fallback->deleteLater();
-        m_fallback = nullptr;
+        m_fallback.reset();
     }
     if (m_hProcess) {
         TerminateProcess((HANDLE)m_hProcess, 1);
     }
     if (m_readerThread) {
         m_readerThread->wait(3000);
-        delete m_readerThread;
-        m_readerThread = nullptr;
+        m_readerThread.reset();
     }
 }
 
@@ -295,12 +305,13 @@ PtyBackend::~PtyBackend()
 }
 
 bool PtyBackend::start(const QString &program, const QStringList &args,
-                       const QString &workDir)
+                       const QString &workDir, int cols, int rows)
 {
     if (m_running) terminate();
 
     struct winsize ws = {};
-    ws.ws_col = 80; ws.ws_row = 24;
+    ws.ws_col = (unsigned short)qBound(1, cols, 999);
+    ws.ws_row = (unsigned short)qBound(1, rows, 999);
 
     int master = -1, slave = -1;
     if (openpty(&master, &slave, nullptr, nullptr, &ws) < 0)
@@ -340,12 +351,12 @@ bool PtyBackend::start(const QString &program, const QStringList &args,
     m_masterFd = master;
     m_childPid = pid;
 
-    auto *reader    = new PosixPtyReader();
+    auto reader = std::make_unique<PosixPtyReader>();
     reader->masterFd = master;
     reader->childPid = pid;
     reader->backend  = this;
-    m_readerThread   = reader;
     reader->start();
+    m_readerThread = std::move(reader);
 
     m_running = true;
     return true;
@@ -381,8 +392,7 @@ void PtyBackend::terminate()
     }
     if (m_readerThread) {
         m_readerThread->wait(3000);
-        delete m_readerThread;
-        m_readerThread = nullptr;
+        m_readerThread.reset();
     }
 }
 
@@ -391,4 +401,4 @@ void PtyBackend::cleanup()
     // All handles closed in terminate()
 }
 
-#endif  // !_WIN32
+#endif  // !Q_OS_WIN
