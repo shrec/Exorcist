@@ -30,6 +30,8 @@ DockTitleBar::DockTitleBar(DockArea *area, QWidget *parent)
 
     m_titleLabel = new QLabel(this);
     m_titleLabel->setObjectName(QStringLiteral("exdock-title-label"));
+    m_titleLabel->setTextFormat(Qt::PlainText);
+    m_titleLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     lay->addWidget(m_titleLabel, 1);
 
     m_pinBtn  = makeTitleBtn(QStringLiteral("\U0001F4CC"), tr("Pin / Unpin"), this);

@@ -1,6 +1,8 @@
 #include "DockSplitter.h"
 
+#include <QGuiApplication>
 #include <QResizeEvent>
+#include <QScreen>
 #include <QShowEvent>
 #include <algorithm>
 #include <numeric>
@@ -11,7 +13,13 @@ DockSplitter::DockSplitter(Qt::Orientation orient, QWidget *parent)
     : QSplitter(orient, parent)
 {
     setChildrenCollapsible(false);
-    setHandleWidth(2);
+
+    // DPI-aware handle width: 2px at 96 DPI, scales proportionally
+    int hw = 2;
+    if (auto *screen = QGuiApplication::primaryScreen())
+        hw = qMax(2, static_cast<int>(2.0 * screen->logicalDotsPerInch() / 96.0));
+    setHandleWidth(hw);
+
     setObjectName(QStringLiteral("exdock-splitter"));
 
     // Allow the splitter itself to shrink to its children's minimums
@@ -110,18 +118,53 @@ bool DockSplitter::removeChild(QWidget *child)
     if (idx < m_minSizes.size())
         m_minSizes.removeAt(idx);
 
-    // If this splitter has only one child left, promote it
+    // If this splitter has only one child left, promote it to the parent.
+    // Skip promotion for root/center splitters (owned by DockManager).
     if (count() == 1) {
         auto *remaining = widget(0);
         auto *parentSplitter = qobject_cast<DockSplitter *>(parentWidget());
         if (parentSplitter) {
             const int myIdx = parentSplitter->indexOf(this);
+
+            // Transfer tracking values for remaining child
+            int stretchVal = m_stretchFactors.value(0, 1);
+            int minVal     = m_minSizes.value(0, 100);
+
             remaining->setParent(nullptr);
             parentSplitter->insertWidget(myIdx, remaining);
             remaining->show();
             parentSplitter->setCollapsible(myIdx, false);
+
+            // Update parent's tracking at the promoted position
+            int promotedIdx = parentSplitter->indexOf(remaining);
+            parentSplitter->setChildStretchFactor(promotedIdx, stretchVal);
+            parentSplitter->setChildMinimumSize(promotedIdx, minVal);
+
             setParent(nullptr);
             deleteLater();
+
+            // Cascade: if parent now has only one child, it should
+            // also simplify. Use deleteLater so 'this' is fully gone.
+            if (parentSplitter->count() == 1) {
+                QMetaObject::invokeMethod(parentSplitter, [parentSplitter]() {
+                    auto *pp = qobject_cast<DockSplitter *>(parentSplitter->parentWidget());
+                    if (pp && parentSplitter->count() == 1) {
+                        auto *last = parentSplitter->widget(0);
+                        const int pIdx = pp->indexOf(parentSplitter);
+                        int sf = parentSplitter->m_stretchFactors.value(0, 1);
+                        int ms = parentSplitter->m_minSizes.value(0, 100);
+                        last->setParent(nullptr);
+                        pp->insertWidget(pIdx, last);
+                        last->show();
+                        pp->setCollapsible(pIdx, false);
+                        int idx = pp->indexOf(last);
+                        pp->setChildStretchFactor(idx, sf);
+                        pp->setChildMinimumSize(idx, ms);
+                        parentSplitter->setParent(nullptr);
+                        parentSplitter->deleteLater();
+                    }
+                }, Qt::QueuedConnection);
+            }
         }
     }
 

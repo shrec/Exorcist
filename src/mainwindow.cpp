@@ -1132,9 +1132,12 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     connect(toggleRemoteAction, &QAction::toggled, this, dockToggle(m_remoteDock));
 
     // Sync View-menu checkbox with dock state changes.
+    // Use QSignalBlocker to prevent setChecked from firing toggled,
+    // which would re-enter showDock/closeDock via dockToggle.
     auto syncAction = [](QAction *action, exdock::ExDockWidget *dock) {
         QObject::connect(dock, &exdock::ExDockWidget::stateChanged,
                          action, [action](exdock::DockState s) {
+            QSignalBlocker blocker(action);
             action->setChecked(s == exdock::DockState::Docked);
         });
     };

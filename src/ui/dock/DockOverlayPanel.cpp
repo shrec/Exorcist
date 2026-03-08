@@ -67,6 +67,8 @@ void DockOverlayPanel::showForDock(ExDockWidget *dock, SideBarArea side,
 
     auto *titleLabel = new QLabel(dock->title(), titleBar);
     titleLabel->setObjectName(QStringLiteral("exdock-overlay-title"));
+    titleLabel->setTextFormat(Qt::PlainText);
+    titleLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     titleLay->addWidget(titleLabel, 1);
 
     // Pin button — restore to docked layout
