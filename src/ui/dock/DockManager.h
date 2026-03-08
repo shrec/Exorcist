@@ -16,6 +16,7 @@ class DockArea;
 class DockSplitter;
 class DockSideBar;
 class DockOverlayPanel;
+class DockDropOverlay;
 
 /// DockManager is the top-level orchestrator for the Exorcist
 /// custom docking system.
@@ -142,6 +143,11 @@ private:
     void setupSideBars();
     DockArea *createDockArea(SideBarArea side);
 
+    // Drag-and-drop
+    void startDrag(ExDockWidget *dock, const QPoint &globalPos);
+    void finishDrag(const QPoint &globalPos);
+    void cancelDrag();
+
     struct DockEntry {
         ExDockWidget *dock          = nullptr;
         SideBarArea   preferredSide = SideBarArea::Left;
@@ -167,6 +173,10 @@ private:
 
     // DockAreas by side (for initial placement)
     QHash<SideBarArea, DockArea *>  m_sideAreas;
+
+    // Drag-and-drop state
+    DockDropOverlay                *m_dropOverlay = nullptr;
+    ExDockWidget                   *m_dragDock    = nullptr;
 };
 
 } // namespace exdock

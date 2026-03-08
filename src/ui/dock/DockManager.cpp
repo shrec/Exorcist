@@ -1,5 +1,6 @@
 #include "DockManager.h"
 #include "DockArea.h"
+#include "DockDropOverlay.h"
 #include "DockOverlayPanel.h"
 #include "DockSideBar.h"
 #include "DockSideTab.h"
@@ -8,8 +9,10 @@
 
 #include <QApplication>
 #include <QJsonArray>
+#include <QKeyEvent>
 #include <QMainWindow>
 #include <QMenuBar>
+#include <QMouseEvent>
 #include <QStatusBar>
 #include <QToolBar>
 
@@ -41,6 +44,9 @@ DockManager::DockManager(QMainWindow *mainWindow, QObject *parent)
             this, &DockManager::onOverlayCloseRequested);
     connect(m_overlay, &DockOverlayPanel::overlayHidden,
             this, &DockManager::onOverlayHidden);
+
+    // Drop overlay for drag-and-drop
+    m_dropOverlay = new DockDropOverlay(m_rootSplitter);
 
     // Track main window resize to reposition sidebars
     mainWindow->installEventFilter(this);
@@ -148,33 +154,43 @@ void DockManager::applyDockStyleSheet()
         "}"
 
         /* ── DockTabBar (QTabBar in dock areas) ─────────────── */
-        "DockTabBar {"
+        "QTabBar#exdock-tabbar {"
         "  background: %2;"
         "  border: none;"
         "  qproperty-drawBase: false;"
         "}"
-        "DockTabBar::tab {"
+        "QTabBar#exdock-tabbar::tab {"
         "  background: %8;"
         "  color: %5;"
-        "  padding: 4px 12px;"
+        "  padding: 5px 14px 5px 10px;"
         "  border: none;"
         "  border-bottom: 2px solid transparent;"
-        "  margin-right: 1px;"
-        "  min-width: 60px;"
+        "  margin-right: 0px;"
+        "  min-width: 50px;"
+        "  max-height: 18px;"
         "}"
-        "DockTabBar::tab:selected {"
+        "QTabBar#exdock-tabbar::tab:selected {"
         "  background: %1;"
         "  color: %4;"
         "  border-bottom: 2px solid %9;"
         "}"
-        "DockTabBar::tab:hover:!selected {"
+        "QTabBar#exdock-tabbar::tab:hover:!selected {"
         "  background: %6;"
         "  color: %4;"
         "}"
-        "DockTabBar::close-button {"
+        "QTabBar#exdock-tabbar::close-button {"
         "  image: none;"
-        "  subcontrol-position: right;"
-        "  padding: 2px;"
+        "  border: none;"
+        "  background: transparent;"
+        "  width: 0px;"
+        "  height: 0px;"
+        "  padding: 0px;"
+        "  margin: 0px;"
+        "}"
+        "QTabBar#exdock-tabbar::close-button:hover {"
+        "  image: none;"
+        "  width: 0px;"
+        "  height: 0px;"
         "}"
 
         /* ── Overlay panel ──────────────────────────────────── */
@@ -194,10 +210,10 @@ void DockManager::applyDockStyleSheet()
         "}"
 
         /* ── Splitter handles ───────────────────────────────── */
-        "DockSplitter::handle {"
+        "QSplitter#exdock-splitter::handle {"
         "  background: %3;"
         "}"
-        "DockSplitter::handle:hover {"
+        "QSplitter#exdock-splitter::handle:hover {"
         "  background: %9;"
         "}"
     ).arg(
@@ -469,7 +485,107 @@ bool DockManager::eventFilter(QObject *watched, QEvent *event)
     if (watched == m_mainWindow && event->type() == QEvent::Resize) {
         repositionSideBars();
     }
+
+    // Track mouse during drag-and-drop
+    if (m_dragDock) {
+        if (event->type() == QEvent::MouseMove) {
+            auto *me = static_cast<QMouseEvent *>(event);
+            m_dropOverlay->updateDropZone(me->globalPosition().toPoint());
+        }
+        if (event->type() == QEvent::MouseButtonRelease) {
+            auto *me = static_cast<QMouseEvent *>(event);
+            finishDrag(me->globalPosition().toPoint());
+            return true;  // consume the release
+        }
+        if (event->type() == QEvent::KeyPress) {
+            auto *ke = static_cast<QKeyEvent *>(event);
+            if (ke->key() == Qt::Key_Escape) {
+                cancelDrag();
+                return true;
+            }
+        }
+    }
+
     return QObject::eventFilter(watched, event);
+}
+
+// ── Drag-and-drop ────────────────────────────────────────────────────────────
+
+void DockManager::startDrag(ExDockWidget *dock, const QPoint & /*globalPos*/)
+{
+    if (m_dragDock) return;  // already dragging
+    m_dragDock = dock;
+
+    // Install event filter on the application to capture ALL mouse events
+    qApp->installEventFilter(this);
+
+    // Show drop overlay
+    m_dropOverlay->showOverlay();
+
+    // Change cursor to indicate drag
+    QApplication::setOverrideCursor(Qt::DragMoveCursor);
+}
+
+void DockManager::finishDrag(const QPoint &globalPos)
+{
+    if (!m_dragDock) return;
+
+    const SideBarArea dropZone = m_dropOverlay->updateDropZone(globalPos);
+
+    m_dropOverlay->hideOverlay();
+    QApplication::restoreOverrideCursor();
+    qApp->removeEventFilter(this);
+    // Re-install on mainWindow for resize tracking
+    m_mainWindow->installEventFilter(this);
+
+    ExDockWidget *dock = m_dragDock;
+    m_dragDock = nullptr;
+
+    if (dropZone == SideBarArea::None)
+        return;  // dropped outside valid zone — no change
+
+    // Move the dock widget to the new side
+    // First: find current state
+    auto it = m_docks.find(dock->dockId());
+    if (it == m_docks.end()) return;
+
+    const SideBarArea oldSide = it->preferredSide;
+    if (dropZone == oldSide && it->state == DockState::Docked)
+        return;  // same side, no-op
+
+    // Remove from current location
+    if (it->state == DockState::Docked) {
+        auto *area = dock->dockArea();
+        if (area)
+            area->removeDockWidget(dock);
+    } else if (it->state == DockState::AutoHidden) {
+        // Remove sidebar tab
+        DockSideBar *bar = sideBar(oldSide);
+        if (bar) bar->removeTab(dock);
+        if (m_overlay && m_overlay->activeDock() == dock)
+            m_overlay->forceHideOverlay();
+    }
+
+    // Update preferred side
+    it->preferredSide = dropZone;
+
+    // Pin to new side
+    auto *newArea = createDockArea(dropZone);
+    newArea->addDockWidget(dock);
+    it->state = DockState::Docked;
+
+    emit dockPinned(dock);
+}
+
+void DockManager::cancelDrag()
+{
+    if (!m_dragDock) return;
+
+    m_dropOverlay->hideOverlay();
+    QApplication::restoreOverrideCursor();
+    qApp->removeEventFilter(this);
+    m_mainWindow->installEventFilter(this);
+    m_dragDock = nullptr;
 }
 
 // ── Layout helpers ───────────────────────────────────────────────────────────
@@ -567,6 +683,19 @@ DockArea *DockManager::createDockArea(SideBarArea side)
             parentSplitter->removeChild(emptyArea);
 
         emptyArea->deleteLater();
+    });
+
+    // Drag-and-drop: connect drag signals for dock relocation
+    connect(area, &DockArea::titleDragStarted,
+            this, [this, area](const QPoint &globalPos) {
+        auto *dock = area->currentDockWidget();
+        if (dock)
+            startDrag(dock, globalPos);
+    });
+    connect(area, &DockArea::tabDragStarted,
+            this, [this](ExDockWidget *dock, const QPoint &globalPos) {
+        if (dock)
+            startDrag(dock, globalPos);
     });
 
     // VS-style layout:

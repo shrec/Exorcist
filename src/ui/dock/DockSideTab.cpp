@@ -17,12 +17,14 @@ DockSideTab::DockSideTab(ExDockWidget *dock, SideBarArea area,
     setCursor(Qt::PointingHandCursor);
     setObjectName(QStringLiteral("exdock-side-tab"));
     setAttribute(Qt::WA_OpaquePaintEvent, true);
+    setAttribute(Qt::WA_Hover, true);  // reliable hover paint updates
+    setMouseTracking(true);
 
     const bool vertical = (area == SideBarArea::Left || area == SideBarArea::Right);
     if (vertical)
-        setFixedWidth(22);
+        setFixedWidth(34);
     else
-        setFixedHeight(22);
+        setFixedHeight(34);
 
     // Track title changes
     connect(dock, &ExDockWidget::titleChanged,
@@ -32,12 +34,12 @@ DockSideTab::DockSideTab(ExDockWidget *dock, SideBarArea area,
 QSize DockSideTab::sizeHint() const
 {
     const QFontMetrics fm(font());
-    const int textLen = fm.horizontalAdvance(text()) + 16;
+    const int textLen = fm.horizontalAdvance(text()) + 28;
     const bool vertical = (m_area == SideBarArea::Left ||
                            m_area == SideBarArea::Right);
     if (vertical)
-        return {22, textLen};
-    return {textLen, 22};
+        return {34, textLen};
+    return {textLen, 34};
 }
 
 void DockSideTab::paintEvent(QPaintEvent *)
@@ -52,13 +54,37 @@ void DockSideTab::paintEvent(QPaintEvent *)
     const QColor window = palette().color(QPalette::Window);
     const bool isDark = window.lightnessF() < 0.5;
 
-    // Background: transparent normally, subtle highlight on hover/active
+    // Background: transparent normally, prominent highlight on hover/active
     if (checked) {
-        p.fillRect(rect(), isDark ? window.lighter(130) : window.darker(108));
+        p.fillRect(rect(), isDark ? window.lighter(140) : window.darker(112));
     } else if (hovered) {
-        p.fillRect(rect(), isDark ? window.lighter(140) : window.darker(110));
+        // Obvious hover highlight — user must see this is interactive
+        p.fillRect(rect(), isDark ? window.lighter(160) : window.darker(115));
     } else {
         p.fillRect(rect(), window);
+    }
+
+    // Hover accent border — thin accent stripe appears on hover to signal interactivity
+    if (hovered && !checked) {
+        const QColor accent = palette().color(QPalette::Highlight);
+        p.setPen(Qt::NoPen);
+        p.setBrush(accent);
+        switch (m_area) {
+        case SideBarArea::Left:
+            p.drawRect(0, 0, 2, height());
+            break;
+        case SideBarArea::Right:
+            p.drawRect(width() - 2, 0, 2, height());
+            break;
+        case SideBarArea::Top:
+            p.drawRect(0, 0, width(), 2);
+            break;
+        case SideBarArea::Bottom:
+            p.drawRect(0, height() - 2, width(), 2);
+            break;
+        default:
+            break;
+        }
     }
 
     // Active indicator — VS-style accent stripe (2px)
@@ -84,13 +110,17 @@ void DockSideTab::paintEvent(QPaintEvent *)
         }
     }
 
-    // Text — white when active, dim when inactive
-    const QColor textColor = (checked || hovered)
-        ? palette().color(QPalette::WindowText)
-        : palette().color(QPalette::PlaceholderText);
+    // Text — bright when active/hovered, clearly visible when inactive
+    QColor textColor;
+    if (checked || hovered) {
+        textColor = palette().color(QPalette::WindowText);  // #dcdcdc
+    } else {
+        // Much brighter than PlaceholderText — VS uses ~#cccccc for sidebar text
+        textColor = isDark ? QColor(200, 200, 200) : QColor(60, 60, 60);
+    }
     p.setPen(textColor);
     QFont f = font();
-    f.setPointSize(9);
+    f.setPointSize(10);
     p.setFont(f);
 
     const bool vertical = (m_area == SideBarArea::Left ||
@@ -104,12 +134,26 @@ void DockSideTab::paintEvent(QPaintEvent *)
             p.translate(width(), 0);
             p.rotate(90);
         }
-        p.drawText(QRect(4, 0, height() - 8, width()),
+        // In rotated coords: x = along text direction, y = across tab width
+        // Add horizontal padding (6px each side) so text doesn't sit on the edge
+        p.drawText(QRect(10, 6, height() - 20, width() - 12),
                    Qt::AlignCenter, text());
         p.restore();
     } else {
-        p.drawText(rect(), Qt::AlignCenter, text());
+        p.drawText(rect().adjusted(8, 0, -8, 0), Qt::AlignCenter, text());
     }
+}
+
+void DockSideTab::enterEvent(QEnterEvent *event)
+{
+    QToolButton::enterEvent(event);
+    update();  // force repaint for hover effect
+}
+
+void DockSideTab::leaveEvent(QEvent *event)
+{
+    QToolButton::leaveEvent(event);
+    update();  // force repaint to clear hover effect
 }
 
 } // namespace exdock

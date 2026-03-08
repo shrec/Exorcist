@@ -14,13 +14,13 @@ DockSideBar::DockSideBar(SideBarArea area, QWidget *parent)
     const bool vertical = (area == SideBarArea::Left || area == SideBarArea::Right);
     if (vertical) {
         m_layout = new QVBoxLayout(this);
-        setFixedWidth(22);
+        setFixedWidth(34);
     } else {
         m_layout = new QHBoxLayout(this);
-        setFixedHeight(22);
+        setFixedHeight(34);
     }
-    m_layout->setContentsMargins(0, 0, 0, 0);
-    m_layout->setSpacing(1);
+    m_layout->setContentsMargins(0, 4, 0, 0);
+    m_layout->setSpacing(4);
     m_layout->addStretch();
 
     setObjectName(QStringLiteral("exdock-sidebar-%1")

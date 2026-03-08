@@ -199,6 +199,8 @@ add_executable(exorcist WIN32
     ui/dock/DockSideBar.cpp
     ui/dock/DockOverlayPanel.h
     ui/dock/DockOverlayPanel.cpp
+    ui/dock/DockDropOverlay.h
+    ui/dock/DockDropOverlay.cpp
     ui/dock/DockManager.h
     ui/dock/DockManager.cpp
     ui/dock/IToolBarService.h

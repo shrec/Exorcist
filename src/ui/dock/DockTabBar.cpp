@@ -10,12 +10,15 @@ namespace exdock {
 DockTabBar::DockTabBar(DockArea *area, QWidget *parent)
     : QTabBar(parent), m_area(area)
 {
+    setObjectName(QStringLiteral("exdock-tabbar"));
     setMovable(true);
-    setTabsClosable(true);
+    setTabsClosable(false);  // VS-style: close via title bar or context menu
     setExpanding(false);
     setElideMode(Qt::ElideRight);
     setUsesScrollButtons(true);
     setDocumentMode(true);
+    setDrawBase(false);
+    setAttribute(Qt::WA_Hover, true);
 
     connect(this, &QTabBar::tabCloseRequested,
             this, [this](int idx) { emit tabCloseRequested(idx); });
