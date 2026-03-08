@@ -1,0 +1,199 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'   # v1.0.0, v0.3.1-beta, etc.
+
+permissions:
+  contents: write   # required to upload assets to GitHub Release
+
+env:
+  QT_VERSION: '6.7.3'
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  #  Windows – MSVC x64  →  .zip
+  # ─────────────────────────────────────────────────────────────
+  release-windows:
+    name: Windows (MSVC x64)
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt ${{ env.QT_VERSION }}
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2019_64
+          cache: true
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build build-release --parallel
+
+      # windeployqt already ran as a post-build step (EXORCIST_DEPLOY_QT=ON).
+      # Collect the exe + all DLLs + plugins into a zip.
+      - name: Package
+        shell: pwsh
+        run: |
+          $ver  = "${{ github.ref_name }}"
+          $name = "Exorcist-$ver-windows-x64"
+          $src  = "build-release\src"
+
+          New-Item -ItemType Directory -Force -Path "dist\$name" | Out-Null
+
+          # Copy everything windeployqt placed next to the exe
+          Copy-Item "$src\*" "dist\$name\" -Recurse -Exclude "*.obj","*.pdb","CMake*","Makefile*"
+
+          Compress-Archive -Path "dist\$name" -DestinationPath "$name.zip"
+          Write-Output "artifact=$name.zip" >> $env:GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Exorcist-${{ github.ref_name }}-windows-x64.zip
+
+  # ─────────────────────────────────────────────────────────────
+  #  Linux – GCC x86_64  →  AppImage
+  # ─────────────────────────────────────────────────────────────
+  release-linux:
+    name: Linux (x86_64 AppImage)
+    runs-on: ubuntu-22.04    # 22.04 for better glibc compatibility
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build libgl1-mesa-dev \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 \
+            libfuse2  # required to run AppImage tools
+
+      - name: Install Qt ${{ env.QT_VERSION }}
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          cache: true
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build build-release --parallel
+
+      - name: Download linuxdeploy + Qt plugin
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage
+
+      - name: Create .desktop file
+        run: |
+          mkdir -p resources
+          cat > resources/exorcist.desktop << 'EOF'
+          [Desktop Entry]
+          Name=Exorcist
+          Exec=exorcist
+          Icon=exorcist
+          Type=Application
+          Categories=Development;TextEditor;IDE;
+          Comment=Fast native code editor
+          EOF
+
+      - name: Build AppImage
+        env:
+          QMAKE: ${{ env.QT_ROOT_DIR }}/bin/qmake
+          OUTPUT: Exorcist-${{ github.ref_name }}-linux-x86_64.AppImage
+        run: |
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --executable build-release/src/exorcist \
+            --desktop-file resources/exorcist.desktop \
+            --plugin qt \
+            --output appimage
+
+      - name: Upload artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Exorcist-${{ github.ref_name }}-linux-x86_64.AppImage
+
+  # ─────────────────────────────────────────────────────────────
+  #  macOS – Apple Silicon (arm64)  →  .dmg
+  #  Also runs on Intel via Rosetta 2.
+  # ─────────────────────────────────────────────────────────────
+  release-macos:
+    name: macOS (arm64 DMG)
+    runs-on: macos-14   # Apple Silicon runner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt ${{ env.QT_VERSION }}
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: mac
+          target: desktop
+          arch: clang_64
+          cache: true
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build build-release --parallel
+
+      - name: Create .app bundle
+        run: |
+          VER="${{ github.ref_name }}"
+          APP="Exorcist.app"
+
+          mkdir -p "$APP/Contents/MacOS"
+          mkdir -p "$APP/Contents/Resources"
+
+          cp build-release/src/exorcist "$APP/Contents/MacOS/Exorcist"
+
+          cat > "$APP/Contents/Info.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>      <string>Exorcist</string>
+            <key>CFBundleIdentifier</key>      <string>io.github.shrec.exorcist</string>
+            <key>CFBundleName</key>            <string>Exorcist</string>
+            <key>CFBundleVersion</key>         <string>${VER}</string>
+            <key>CFBundleShortVersionString</key><string>${VER}</string>
+            <key>CFBundlePackageType</key>     <string>APPL</string>
+            <key>NSHighResolutionCapable</key>  <true/>
+            <key>LSMinimumSystemVersion</key>  <string>12.0</string>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Deploy Qt frameworks (macdeployqt)
+        run: |
+          macdeployqt Exorcist.app -dmg
+          mv Exorcist.dmg "Exorcist-${{ github.ref_name }}-macos-arm64.dmg"
+
+      - name: Upload artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Exorcist-${{ github.ref_name }}-macos-arm64.dmg

@@ -13,6 +13,17 @@
       }
     },
     {
+      "name": "release",
+      "displayName": "Release (distribution build)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "EXORCIST_DEPLOY_QT": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "OFF"
+      }
+    },
+    {
       "name": "default",
       "displayName": "Default",
       "generator": "Ninja",
