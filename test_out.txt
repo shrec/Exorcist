@@ -1,0 +1,13 @@
+********* Start testing of TestThemeManager *********
+Config: Using QtTest library 6.10.1, Qt 6.10.1 (x86_64-little_endian-llp64 shared (dynamic) release build; by Clang 17.0.3 (https://github.com/llvm/llvm-project.git 888437e1b60011b8a375dd30928ec925b448da57)), windows 10
+PASS   : TestThemeManager::initTestCase()
+PASS   : TestThemeManager::defaultThemeIsDark()
+PASS   : TestThemeManager::toggleSwitchesTheme()
+PASS   : TestThemeManager::loadCustomThemeFromJson()
+PASS   : TestThemeManager::customThemeInvalidJson()
+PASS   : TestThemeManager::customThemeNonexistentFile()
+PASS   : TestThemeManager::setCustomWithoutLoadReturnsEarly()
+PASS   : TestThemeManager::themeChangedSignal()
+PASS   : TestThemeManager::cleanupTestCase()
+Totals: 9 passed, 0 failed, 0 skipped, 0 blacklisted, 6ms
+********* Finished testing of TestThemeManager *********

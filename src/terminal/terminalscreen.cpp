@@ -131,6 +131,41 @@ void TerminalScreen::feed(const QByteArray &data)
     emit damaged();
 }
 
+QString TerminalScreen::recentOutput(int lines) const
+{
+    if (lines <= 0)
+        return {};
+
+    auto rowToText = [](const Row &row) -> QString {
+        QString out;
+        out.reserve(row.size());
+        for (const TermCell &c : row) {
+            const char32_t cp = c.cp ? c.cp : U' ';
+            if (cp <= 0x7F)
+                out.append(QChar(static_cast<ushort>(cp)));
+            else
+                out.append(QChar::fromUcs4(cp));
+        }
+        int end = out.size();
+        while (end > 0 && out[end - 1].isSpace())
+            --end;
+        out.truncate(end);
+        return out;
+    };
+
+    const auto &grid = m_altOn ? m_alt : m_pri;
+    QStringList out;
+
+    for (const Row &r : m_sb)
+        out.append(rowToText(r));
+    for (const Row &r : grid)
+        out.append(rowToText(r));
+
+    if (out.size() > lines)
+        out = out.mid(out.size() - lines);
+    return out.join(QLatin1Char('\n'));
+}
+
 // ── VT parser state machine ───────────────────────────────────────────────────
 
 void TerminalScreen::eat(unsigned char c)

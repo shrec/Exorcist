@@ -1,5 +1,6 @@
 #include "editorview.h"
 #include "minimapwidget.h"
+#include "piecetablebuffer.h"
 
 #include <QCheckBox>
 #include <QContextMenuEvent>
@@ -193,7 +194,8 @@ EditorView::EditorView(QWidget *parent)
       m_lineNumberArea(new LineNumberArea(this)),
       m_findBar(new FindBar(this)),
       m_isLargeFilePreview(false),
-      m_isLoadingChunk(false)
+      m_isLoadingChunk(false),
+      m_buffer(std::make_unique<PieceTableBuffer>())
 {
     setLineWrapMode(QPlainTextEdit::NoWrap);
     setTabStopDistance(4 * fontMetrics().horizontalAdvance(' '));
@@ -209,12 +211,32 @@ EditorView::EditorView(QWidget *parent)
     connect(verticalScrollBar(), &QScrollBar::valueChanged,
             this, &EditorView::handleScroll);
 
+    // Sync PieceTableBuffer on every document edit
+    connect(document(), &QTextDocument::contentsChange,
+            this, [this](int pos, int removed, int added) {
+                if (m_bufferSyncing)
+                    return;
+                m_bufferSyncing = true;
+                if (removed > 0)
+                    m_buffer->remove(pos, removed);
+                if (added > 0) {
+                    // Extract the newly-added text from the document
+                    QTextCursor cur(document());
+                    cur.setPosition(pos);
+                    cur.setPosition(pos + added, QTextCursor::KeepAnchor);
+                    m_buffer->insert(pos, cur.selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n')));
+                }
+                m_bufferSyncing = false;
+            });
+
     updateLineNumberAreaWidth(0);
     highlightCurrentLine();
 
     // Minimap
     m_minimap = new MinimapWidget(this, this);
 }
+
+EditorView::~EditorView() = default;
 
 void EditorView::setMinimapVisible(bool visible)
 {
@@ -225,7 +247,11 @@ void EditorView::setMinimapVisible(bool visible)
 
 void EditorView::setLargeFilePreview(const QString &text, bool isPartial)
 {
+    // Reset the shadow buffer BEFORE setPlainText, which fires contentsChange
+    m_buffer = std::make_unique<PieceTableBuffer>(text);
+    m_bufferSyncing = true;  // suppress the contentsChange handler
     setPlainText(text);
+    m_bufferSyncing = false;
     m_isLargeFilePreview = isPartial;
     setReadOnly(isPartial);
     m_isLoadingChunk = false;
@@ -269,8 +295,12 @@ int EditorView::lineNumberAreaWidth() const
         max /= 10;
         ++digits;
     }
+    // Minimum 3 digits so the gutter never gets too narrow
+    digits = qMax(digits, 3);
 
-    int space = 3 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+    const int charW = fontMetrics().horizontalAdvance(QLatin1Char('9'));
+    // 10px left margin (diagnostic dots / diff bars) + 8px right padding
+    int space = 10 + charW * digits + 8;
 
     // Extra width for blame annotations
     if (m_showBlame && !m_blameData.isEmpty())
@@ -431,7 +461,7 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
             // Line number
             const QString number = QString::number(blockNumber + 1);
             painter.setPen(QColor(140, 140, 140));
-            painter.drawText(0, top, m_lineNumberArea->width() - 6,
+            painter.drawText(10, top, m_lineNumberArea->width() - 18,
                              lineH, Qt::AlignRight, number);
 
             // Diagnostic dot (4 px wide, vertically centered)
@@ -1012,4 +1042,21 @@ QString EditorView::includePathUnderCursor() const
     if (match.hasMatch())
         return match.captured(1);
     return {};
+}
+
+// ── PieceTableBuffer shadow buffer ──────────────────────────────────────────
+
+PieceTableBuffer *EditorView::buffer() const
+{
+    return m_buffer.get();
+}
+
+QString EditorView::bufferText() const
+{
+    return m_buffer->text();
+}
+
+QString EditorView::bufferSlice(int start, int length) const
+{
+    return m_buffer->slice(start, length);
 }

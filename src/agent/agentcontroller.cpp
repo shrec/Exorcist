@@ -3,6 +3,7 @@
 #include "itool.h"
 #include "promptfileloader.h"
 #include "sessionstore.h"
+#include "toolapprovalservice.h"
 
 #include <QDir>
 #include <QDirIterator>
@@ -36,7 +37,11 @@ AgentController::AgentController(AgentOrchestrator *orchestrator,
             this, &AgentController::onResponseError);
 }
 
-AgentController::~AgentController() = default;
+AgentController::~AgentController()
+{
+    if (m_store && m_session)
+        m_store->recordSessionEnd(m_session->id());
+}
 
 // ── Session management ────────────────────────────────────────────────────────
 
@@ -44,6 +49,9 @@ void AgentController::newSession(bool agentMode)
 {
     if (m_busy)
         cancel();
+
+    if (m_store && m_session)
+        m_store->recordSessionEnd(m_session->id());
 
     m_session = std::make_unique<AgentSession>();
     m_session->setAgentMode(agentMode);
@@ -56,10 +64,12 @@ void AgentController::newSession(bool agentMode)
     }
 
     if (m_store) {
-        m_store->startSession(m_session->id(),
-                              m_session->providerId(),
-                              m_session->model(),
-                              m_session->agentMode());
+        const QString mode = agentMode
+            ? (m_maxPermission == AgentToolPermission::SafeMutate
+                ? QStringLiteral("Edit")
+                : QStringLiteral("Agent"))
+            : QStringLiteral("Ask");
+        m_store->recordSessionStart(m_session->id(), m_session->model(), mode);
     }
 }
 
@@ -79,7 +89,8 @@ void AgentController::sendMessage(const QString &userMessage,
                                   const QString &activeFilePath,
                                   const QString &selectedText,
                                   const QString &languageId,
-                                  AgentIntent intent)
+                                  AgentIntent intent,
+                                  const QList<Attachment> &attachments)
 {
     if (m_busy) {
         qCWarning(lcCtrl) << "sendMessage called while busy, ignoring";
@@ -94,10 +105,11 @@ void AgentController::sendMessage(const QString &userMessage,
     m_selectedText   = selectedText;
     m_languageId     = languageId;
     m_pendingIntent  = intent;
+    m_attachments    = attachments;
 
     m_session->beginTurn(userMessage);
     if (m_store)
-        m_store->appendUserMessage(m_session->id(), userMessage);
+        m_store->recordUserMessage(m_session->id(), userMessage);
 
     m_busy = true;
     m_currentStepCount = 0;
@@ -148,11 +160,21 @@ void AgentController::sendModelRequest()
     req.selectedText        = m_selectedText;
     req.languageId          = m_languageId;
     req.conversationHistory = m_session->messages();
-    if (!m_systemPrompt.trimmed().isEmpty()) {
-        AgentMessage systemMsg;
-        systemMsg.role = AgentMessage::Role::System;
-        systemMsg.content = m_systemPrompt;
-        req.conversationHistory.prepend(systemMsg);
+    req.attachments         = m_attachments;
+    if (!m_systemPrompt.trimmed().isEmpty() && m_session->turnCount() == 1) {
+        bool hasSystem = false;
+        for (const auto &msg : req.conversationHistory) {
+            if (msg.role == AgentMessage::Role::System) {
+                hasSystem = true;
+                break;
+            }
+        }
+        if (!hasSystem) {
+            AgentMessage systemMsg;
+            systemMsg.role = AgentMessage::Role::System;
+            systemMsg.content = m_systemPrompt;
+            req.conversationHistory.prepend(systemMsg);
+        }
     }
 
     // Inject intent-specific custom instructions
@@ -348,7 +370,7 @@ void AgentController::onResponseFinished(const QString &requestId,
     QList<PatchProposal> patches = extractPatches(responseText);
 
     if (m_store)
-        m_store->appendAssistantMessage(m_session->id(), responseText);
+        m_store->recordAssistantMessage(m_session->id(), responseText);
 
     AgentStep finalStep;
     finalStep.type      = AgentStep::Type::FinalAnswer;
@@ -377,8 +399,6 @@ void AgentController::onResponseError(const QString &requestId,
     emit stepCompleted(errorStep);
 
     m_busy = false;
-    if (m_store && m_session)
-        m_store->appendError(m_session->id(), error.message);
     emit turnError(error.message);
 }
 
@@ -408,9 +428,23 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls)
             ITool *tool = m_toolRegistry->tool(toolCalls[i].name);
             if (tool) {
                 const ToolSpec &spec = tool->spec();
-                if (static_cast<int>(spec.permission) >
+
+                if (m_approvalService) {
+                    // ── Centralised approval via ToolApprovalService ───────
+                    const QString desc = tr("Tool '%1' wants to execute a potentially "
+                                           "dangerous operation.").arg(toolCalls[i].name);
+                    auto decision = m_approvalService->evaluate(
+                        toolCalls[i].name, spec.permission, work[i].args, desc);
+                    if (decision == ToolApprovalService::Decision::Deny) {
+                        work[i].denied = true;
+                        work[i].result = {false, {}, {},
+                            tr("Permission denied: tool '%1' requires elevated permissions.")
+                                .arg(toolCalls[i].name)};
+                    }
+                } else if (static_cast<int>(spec.permission) >
                     static_cast<int>(m_maxPermission)
                     && !m_alwaysAllowedTools.contains(toolCalls[i].name)) {
+                    // ── Legacy built-in approval path ─────────────────────
                     ToolApproval approval = ToolApproval::Deny;
                     if (m_confirmFn) {
                         const QString desc = tr("Tool '%1' wants to execute a potentially "
@@ -472,10 +506,9 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls)
         emit toolCallFinished(w.tc.name, w.result);
 
         if (m_store) {
-            m_store->appendToolCall(m_session->id(),
-                                    w.tc.name, w.args,
-                                    w.result.ok ? w.result.textContent : w.result.error,
-                                    w.result.ok);
+            m_store->recordToolCall(m_session->id(), w.tc.name, w.args,
+                                    w.result.ok,
+                                    w.result.ok ? w.result.textContent : w.result.error);
         }
 
         m_currentStepCount++;

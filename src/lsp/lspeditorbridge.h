@@ -2,12 +2,14 @@
 
 #include <QJsonArray>
 #include <QObject>
+#include <QPoint>
 #include <QString>
 
 class QTimer;
 class EditorView;
 class LspClient;
 class CompletionPopup;
+class HoverTooltipWidget;
 
 // ── LspEditorBridge ───────────────────────────────────────────────────────────
 //
@@ -38,6 +40,9 @@ public:
 
     // Trigger a document-symbol request (called by MainWindow on tab switch)
     void requestSymbols();
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
 private slots:
     void onDocumentChanged();
@@ -72,7 +77,12 @@ private:
     int              m_formatReqVersion   = 0;
     QTimer          *m_changeTimer;
     QTimer          *m_symbolTimer;       // debounced 1s for documentSymbol
+    QTimer          *m_hoverTimer;        // debounced 500ms for hover
     CompletionPopup *m_completion;
+    HoverTooltipWidget *m_hoverTooltip;
+    QPoint           m_hoverGlobalPos;    // mouse position when hover was requested
+    int              m_hoverLine = -1;
+    int              m_hoverCol  = -1;
     QString          m_completionPrefix;
 
 signals:

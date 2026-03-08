@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 
 #include <QAction>
+#include <QDialog>
 #include <QDirIterator>
 #include <QDockWidget>
 #include <QDir>
@@ -33,9 +34,12 @@
 #include "editor/inlinecompletionengine.h"
 #include "editor/nexteditengine.h"
 #include "agent/agentorchestrator.h"
-#include "agent/agentchatpanel.h"
+#include "agent/agentproviderregistry.h"
+#include "agent/agentrequestrouter.h"
+#include "agent/chat/chatpanelwidget.h"
 #include "agent/agentcontroller.h"
 #include "agent/agentmodes.h"
+#include "agent/agentplatformbootstrap.h"
 #include "agent/contextbuilder.h"
 #include "agent/quickchatdialog.h"
 #include "agent/inlinechat/inlinechatwidget.h"
@@ -55,17 +59,22 @@
 #include "agent/tools/memorytool.h"
 #include "agent/requestlogpanel.h"
 #include "agent/trajectorypanel.h"
-#include "agent/customprovider.h"
+
 #include "mcp/mcpclient.h"
 #include "mcp/mcppanel.h"
 #include "mcp/mcptooladapter.h"
 #include "thememanager.h"
 #include "editor/diffviewerpanel.h"
+#include "editor/proposededitpanel.h"
 #include "editor/breadcrumbbar.h"
 #include "agent/settingspanel.h"
 #include "agent/memorybrowserpanel.h"
 #include "agent/iagentplugin.h"
 #include "ui/notificationtoast.h"
+#include "ui/settingsdialog.h"
+#include "ui/keymapmanager.h"
+#include "ui/keymapdialog.h"
+#include "ui/dockautohidemanager.h"
 #include "pluginmanager.h"
 #include "serviceregistry.h"
 #include "core/qtfilesystem.h"
@@ -85,6 +94,7 @@
 #include "git/gitservice.h"
 #include "git/gitpanel.h"
 #include "build/outputpanel.h"
+#include "build/runlaunchpanel.h"
 #include "editor/filewatchservice.h"
 #include "agent/contextpruner.h"
 #include "agent/autocompactor.h"
@@ -140,8 +150,38 @@
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QUrl>
 #include <QSettings>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <psapi.h>
+#endif
+
+namespace {
+// Returns the current process RSS (working set) in MB, or -1 on unsupported.
+double currentMemoryMB()
+{
+#ifdef Q_OS_WIN
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
+        return static_cast<double>(pmc.WorkingSetSize) / (1024.0 * 1024.0);
+#elif defined(Q_OS_UNIX)
+    QFile statm(QStringLiteral("/proc/self/statm"));
+    if (statm.open(QIODevice::ReadOnly)) {
+        const QByteArray data = statm.readAll();
+        const QList<QByteArray> parts = data.split(' ');
+        if (parts.size() >= 2) {
+            // Second field is RSS in pages
+            long pages = parts[1].toLong();
+            return static_cast<double>(pages) * sysconf(_SC_PAGESIZE) / (1024.0 * 1024.0);
+        }
+    }
+#endif
+    return -1.0;
+}
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent),
@@ -200,44 +240,101 @@ MainWindow::MainWindow(QWidget *parent)
     setupToolBar();
     setupStatusBar();
 
+    // ── Keymap Manager ────────────────────────────────────────────────────
+    m_keymapManager = new KeymapManager(this);
+    // Auto-register all actions that have shortcuts
+    for (QAction *action : actions()) {
+        if (!action->shortcut().isEmpty()) {
+            QString id = action->text().remove(QLatin1Char('&')).trimmed();
+            if (!id.isEmpty())
+                m_keymapManager->registerAction(id, action, action->shortcut());
+        }
+    }
+    // Also register menu actions
+    for (QAction *menuAction : menuBar()->actions()) {
+        if (auto *menu = menuAction->menu()) {
+            for (QAction *action : menu->actions()) {
+                if (!action->shortcut().isEmpty()) {
+                    QString id = action->text().remove(QLatin1Char('&')).trimmed();
+                    if (!id.isEmpty() && !m_keymapManager->actionIds().contains(id))
+                        m_keymapManager->registerAction(id, action, action->shortcut());
+                }
+            }
+        }
+    }
+    m_keymapManager->load();  // Apply saved overrides
+
     m_services = std::make_unique<ServiceRegistry>();
     m_services->registerService("mainwindow", this);
     m_services->registerService("agentOrchestrator", m_agentOrchestrator);
     m_fileSystem = std::make_unique<QtFileSystem>();
 
-    // ── Agent core (tool registry, context builder, controller) ───────────
-    m_toolRegistry = new ToolRegistry(this);
-    m_services->registerService("toolRegistry", m_toolRegistry);
-
-    m_contextBuilder = new ContextBuilder(this);
-    m_contextBuilder->setFileSystem(m_fileSystem.get());
-    m_contextBuilder->setOpenFilesGetter([this]() {
-        QStringList paths;
-        for (int i = 0; i < m_tabs->count(); ++i) {
-            auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
-            const QString fp = ed ? ed->property("filePath").toString() : QString();
-            if (!fp.isEmpty())
-                paths.append(fp);
+    // ── Agent core bootstrap ──────────────────────────────────────────────
+    m_agentPlatform = new AgentPlatformBootstrap(
+        m_agentOrchestrator, m_services.get(), m_fileSystem.get(), this);
+    m_agentPlatform->initialize({
+        [this]() {
+            QStringList paths;
+            for (int i = 0; i < m_tabs->count(); ++i) {
+                auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+                const QString fp = ed ? ed->property("filePath").toString() : QString();
+                if (!fp.isEmpty()) {
+                    paths.append(fp);
+                }
+            }
+            return paths;
+        },
+        [this]() -> QString {
+            if (!m_gitService || !m_gitService->isGitRepo()) return {};
+            QString result = QStringLiteral("Branch: %1\n").arg(m_gitService->currentBranch());
+            const auto statuses = m_gitService->fileStatuses();
+            for (auto it = statuses.begin(); it != statuses.end(); ++it) {
+                result += QStringLiteral("  %1 %2\n").arg(it.value(), it.key());
+            }
+            return result;
+        },
+        [this]() -> QString {
+            if (!m_terminal) return {};
+            return m_terminal->recentOutput(80);
+        },
+        [this]() -> QList<AgentDiagnostic> {
+            auto *ed = currentEditor();
+            if (!ed) return {};
+            QList<AgentDiagnostic> result;
+            const QString path = ed->property("filePath").toString();
+            for (const DiagnosticMark &d : ed->diagnosticMarks()) {
+                AgentDiagnostic ag;
+                ag.filePath = path;
+                ag.line = d.line;
+                ag.column = d.startChar;
+                ag.message = d.message;
+                ag.severity = (d.severity == DiagSeverity::Error)
+                    ? AgentDiagnostic::Severity::Error
+                    : (d.severity == DiagSeverity::Warning)
+                        ? AgentDiagnostic::Severity::Warning
+                        : AgentDiagnostic::Severity::Info;
+                result.append(ag);
+            }
+            return result;
+        },
+        [this]() -> QHash<QString, QString> {
+            if (!m_gitService || !m_gitService->isGitRepo()) return {};
+            return m_gitService->fileStatuses();
+        },
+        [this](const QString &filePath) -> QString {
+            if (!m_gitService || !m_gitService->isGitRepo()) return {};
+            return m_gitService->diff(filePath);
         }
-        return paths;
     });
-    m_contextBuilder->setGitStatusGetter([this]() -> QString {
-        if (!m_gitService || !m_gitService->isGitRepo()) return {};
-        QString result = QStringLiteral("Branch: %1\n").arg(m_gitService->currentBranch());
-        const auto statuses = m_gitService->fileStatuses();
-        for (auto it = statuses.begin(); it != statuses.end(); ++it)
-            result += QStringLiteral("  %1 %2\n").arg(it.value(), it.key());
-        return result;
-    });
-    m_contextBuilder->setTerminalOutputGetter([this]() -> QString {
-        if (!m_terminal) return {};
-        return m_terminal->recentOutput(80);
-    });
+    m_agentPlatform->registerCoreTools(m_currentFolder);
+    m_toolRegistry = m_agentPlatform->toolRegistry();
+    m_contextBuilder = m_agentPlatform->contextBuilder();
+    m_agentController = m_agentPlatform->agentController();
+    m_sessionStore = m_agentPlatform->sessionStore();
 
-    m_agentController = new AgentController(
-        m_agentOrchestrator, m_toolRegistry, m_contextBuilder, this);
-    m_sessionStore = new SessionStore(this);
-    m_agentController->setSessionStore(m_sessionStore);
+    // Wire the orchestrator facade to delegate to the new platform services
+    m_agentOrchestrator->setRegistry(m_agentPlatform->providerRegistry());
+    m_agentOrchestrator->setRouter(m_agentPlatform->requestRouter());
 
     // Wire AI status indicator
     connect(m_agentController, &AgentController::turnStarted,
@@ -310,10 +407,11 @@ MainWindow::MainWindow(QWidget *parent)
     if (m_chatPanel) {
         m_chatPanel->setAgentController(m_agentController);
         m_chatPanel->setSessionStore(m_sessionStore);
+        m_chatPanel->setChatSessionService(m_agentPlatform->chatSessionService());
         m_chatPanel->setContextBuilder(m_contextBuilder);
 
         // Wire review annotations → apply to active editor
-        connect(m_chatPanel, &AgentChatPanel::reviewAnnotationsReady,
+        connect(m_chatPanel, &ChatPanelWidget::reviewAnnotationsReady,
                 this, [this](const QString &filePath,
                              const QList<QPair<int, QString>> &annotations) {
             // Find open editor tab for the file
@@ -332,9 +430,26 @@ MainWindow::MainWindow(QWidget *parent)
         });
 
         // Wire test scaffold → open file
-        connect(m_chatPanel, &AgentChatPanel::openFileRequested,
+        connect(m_chatPanel, &ChatPanelWidget::openFileRequested,
                 this, [this](const QString &filePath) {
             openFile(filePath);
+        });
+
+        // Wire gear icon → settings dialog
+        connect(m_chatPanel, &ChatPanelWidget::settingsRequested,
+                this, [this]() {
+            if (!m_settingsDialog) {
+                m_settingsDialog = new QDialog(this);
+                m_settingsDialog->setWindowTitle(tr("AI Settings"));
+                m_settingsDialog->setMinimumSize(420, 480);
+                auto *lay = new QVBoxLayout(m_settingsDialog);
+                lay->setContentsMargins(0, 0, 0, 0);
+                m_settingsPanel->setParent(m_settingsDialog);
+                lay->addWidget(m_settingsPanel);
+            }
+            m_settingsDialog->show();
+            m_settingsDialog->raise();
+            m_settingsDialog->activateWindow();
         });
     }
 
@@ -462,8 +577,6 @@ MainWindow::MainWindow(QWidget *parent)
         });
     }
 
-    loadPlugins();
-
     connect(m_gitService, &GitService::statusRefreshed,
             m_treeModel, &SolutionTreeModel::refreshGitOverlays);
     connect(m_gitService, &GitService::statusRefreshed, this, [this] {
@@ -473,8 +586,38 @@ MainWindow::MainWindow(QWidget *parent)
         m_branchLabel->setText(branch.isEmpty() ? QString() : QString(" ") + branch);
     });
 
+    // Restore window geometry immediately (cheap, needed before show).
+    {
+        QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+        const QByteArray geometry = s.value(QStringLiteral("geometry")).toByteArray();
+        if (!geometry.isEmpty())
+            restoreGeometry(geometry);
+    }
+
     statusBar()->showMessage(tr("Ready"), 3000);
-    loadSettings();
+}
+
+void MainWindow::deferredInit()
+{
+    loadPlugins();
+
+    // Restore dock layout after all widgets and plugins are created.
+    {
+        QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+        const QByteArray winState = s.value(QStringLiteral("windowState")).toByteArray();
+        if (!winState.isEmpty())
+            restoreState(winState);
+    }
+
+    // Restore which docks are auto-hidden (unpinned to sidebars).
+    if (m_dockAutoHide)
+        m_dockAutoHide->restoreState();
+
+    // Re-open last folder (deferred to avoid blocking first paint).
+    QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+    const QString lastFolder = s.value(QStringLiteral("lastFolder")).toString();
+    if (!lastFolder.isEmpty() && QDir(lastFolder).exists())
+        openFolder(lastFolder);
 }
 
 // ── UI setup ────────────────────────────────────────────────────────────────
@@ -534,6 +677,12 @@ void MainWindow::setupMenus()
     solutionMenu->addSeparator();
     QAction *addProjectAction = solutionMenu->addAction(tr("Add Folder to Solution..."));
     QAction *saveSolutionAction = solutionMenu->addAction(tr("Save Solution"));
+    solutionMenu->addSeparator();
+    QAction *closeSolutionAction = solutionMenu->addAction(tr("Close Solution"));
+
+    QAction *closeFolderAction = fileMenu->addAction(tr("Close Folder"));
+
+    fileMenu->addSeparator();
 
     QAction *quitAction = fileMenu->addAction(tr("&Quit"));
     quitAction->setShortcut(QKeySequence::Quit);
@@ -551,7 +700,129 @@ void MainWindow::setupMenus()
     connect(saveSolutionAction, &QAction::triggered, this, [this]() {
         m_projectManager->saveSolution();
     });
+    connect(closeSolutionAction, &QAction::triggered, this, [this]() {
+        m_projectManager->closeSolution();
+        m_currentFolder.clear();
+        m_clangd->stop();
+        m_gitService->setWorkingDirectory({});
+        m_searchPanel->setRootPath({});
+        m_terminal->setWorkingDirectory({});
+        setWindowTitle(tr("Exorcist"));
+        statusBar()->showMessage(tr("Solution closed"), 3000);
+    });
+    connect(closeFolderAction, &QAction::triggered, this, [this]() {
+        m_projectManager->closeSolution();
+        m_currentFolder.clear();
+        m_clangd->stop();
+        m_gitService->setWorkingDirectory({});
+        m_searchPanel->setRootPath({});
+        m_terminal->setWorkingDirectory({});
+        if (m_fileWatcher) m_fileWatcher->unwatchAll();
+        setWindowTitle(tr("Exorcist"));
+        statusBar()->showMessage(tr("Folder closed"), 3000);
+    });
     connect(quitAction, &QAction::triggered, this, &MainWindow::close);
+
+    // ── Edit ──────────────────────────────────────────────────────────────
+    QMenu *editMenu = menuBar()->addMenu(tr("&Edit"));
+
+    QAction *undoAction = editMenu->addAction(tr("&Undo"));
+    undoAction->setShortcut(QKeySequence::Undo);
+    connect(undoAction, &QAction::triggered, this, [this]() {
+        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+            e->undo();
+    });
+
+    QAction *redoAction = editMenu->addAction(tr("&Redo"));
+    redoAction->setShortcut(QKeySequence::Redo);
+    connect(redoAction, &QAction::triggered, this, [this]() {
+        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+            e->redo();
+    });
+
+    editMenu->addSeparator();
+
+    QAction *cutAction = editMenu->addAction(tr("Cu&t"));
+    cutAction->setShortcut(QKeySequence::Cut);
+    connect(cutAction, &QAction::triggered, this, [this]() {
+        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+            e->cut();
+    });
+
+    QAction *copyAction = editMenu->addAction(tr("&Copy"));
+    copyAction->setShortcut(QKeySequence::Copy);
+    connect(copyAction, &QAction::triggered, this, [this]() {
+        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+            e->copy();
+    });
+
+    QAction *pasteAction = editMenu->addAction(tr("&Paste"));
+    pasteAction->setShortcut(QKeySequence::Paste);
+    connect(pasteAction, &QAction::triggered, this, [this]() {
+        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+            e->paste();
+    });
+
+    editMenu->addSeparator();
+
+    QAction *selectAllAction = editMenu->addAction(tr("Select &All"));
+    selectAllAction->setShortcut(QKeySequence::SelectAll);
+    connect(selectAllAction, &QAction::triggered, this, [this]() {
+        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+            e->selectAll();
+    });
+
+    editMenu->addSeparator();
+
+    QAction *findAction = editMenu->addAction(tr("&Find..."));
+    findAction->setShortcut(QKeySequence::Find);
+    connect(findAction, &QAction::triggered, this, [this]() {
+        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+            e->showFindBar();
+    });
+
+    QAction *findReplAction = editMenu->addAction(tr("Find && &Replace..."));
+    findReplAction->setShortcut(QKeySequence::Replace);
+    connect(findReplAction, &QAction::triggered, this, [this]() {
+        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+            e->showFindBar();
+    });
+
+    editMenu->addSeparator();
+
+    QAction *prefsAction = editMenu->addAction(tr("&Preferences..."));
+    prefsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Comma));
+    connect(prefsAction, &QAction::triggered, this, [this]() {
+        SettingsDialog dlg(m_themeManager, this);
+        connect(&dlg, &SettingsDialog::settingsApplied, this, [this]() {
+            // Apply editor settings to all open tabs
+            QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+            s.beginGroup(QStringLiteral("editor"));
+            const QFont font(s.value(QStringLiteral("fontFamily"), QStringLiteral("Consolas")).toString(),
+                             s.value(QStringLiteral("fontSize"), 11).toInt());
+            const int tabSize = s.value(QStringLiteral("tabSize"), 4).toInt();
+            const bool wrap = s.value(QStringLiteral("wordWrap"), false).toBool();
+            const bool minimap = s.value(QStringLiteral("showMinimap"), false).toBool();
+            s.endGroup();
+
+            for (int i = 0; i < m_tabs->count(); ++i) {
+                if (auto *e = qobject_cast<EditorView *>(m_tabs->widget(i))) {
+                    e->setFont(font);
+                    e->setTabStopDistance(QFontMetricsF(font).horizontalAdvance(QLatin1Char(' ')) * tabSize);
+                    e->setWordWrapMode(wrap ? QTextOption::WordWrap : QTextOption::NoWrap);
+                    e->setMinimapVisible(minimap);
+                }
+            }
+        });
+        dlg.exec();
+    });
+
+    QAction *keymapAction = editMenu->addAction(tr("&Keyboard Shortcuts..."));
+    keymapAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_K, Qt::CTRL | Qt::Key_S));
+    connect(keymapAction, &QAction::triggered, this, [this]() {
+        KeymapDialog dlg(m_keymapManager, this);
+        dlg.exec();
+    });
 
     // ── View ──────────────────────────────────────────────────────────────
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
@@ -651,8 +922,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleLogAction->setChecked(false);
     toggleTrajectoryAction->setCheckable(true);
     toggleTrajectoryAction->setChecked(false);
-    toggleSettingsAction->setCheckable(true);
-    toggleSettingsAction->setChecked(false);
     toggleMemoryAction->setCheckable(true);
     toggleMemoryAction->setChecked(false);
     toggleMcpAction->setCheckable(true);
@@ -666,12 +935,48 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     connect(buildAct, &QAction::triggered, this, [this]() {
         if (m_outputPanel) {
             m_outputPanel->setWorkingDirectory(m_currentFolder);
-            m_outputPanel->runCommand(m_outputPanel->findChild<QComboBox *>()->currentText());
+            const auto tasks = m_outputPanel->taskProfiles();
+            // Find default task, or fall back to combo selection
+            int defaultIdx = -1;
+            for (int i = 0; i < tasks.size(); ++i) {
+                if (tasks.at(i).isDefault) { defaultIdx = i; break; }
+            }
+            if (defaultIdx >= 0) {
+                auto *combo = m_outputPanel->findChild<QComboBox *>();
+                if (combo) combo->setCurrentIndex(defaultIdx);
+            }
+            auto *combo = m_outputPanel->findChild<QComboBox *>();
+            if (combo) {
+                // Trigger the Run button click
+                m_outputPanel->runCommand(combo->currentText());
+            }
             m_outputDock->show();
             m_outputDock->raise();
         }
     });
     addAction(buildAct);
+
+    // ── Run shortcut (F5) ─────────────────────────────────────────────────
+    auto *runAct = new QAction(tr("&Run"), this);
+    runAct->setShortcut(QKeySequence(Qt::Key_F5));
+    connect(runAct, &QAction::triggered, this, [this]() {
+        if (m_runPanel) {
+            m_runPanel->setWorkingDirectory(m_currentFolder);
+            m_runPanel->launch();
+            m_runDock->show();
+            m_runDock->raise();
+        }
+    });
+    addAction(runAct);
+
+    // ── Stop shortcut (Shift+F5) ──────────────────────────────────────────
+    auto *stopRunAct = new QAction(tr("Stop Run"), this);
+    stopRunAct->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F5));
+    connect(stopRunAct, &QAction::triggered, this, [this]() {
+        if (m_runPanel)
+            m_runPanel->stopProcess();
+    });
+    addAction(stopRunAct);
 
     // ── AI shortcuts ──────────────────────────────────────────────────────
     auto *focusChatAct = new QAction(tr("Focus AI Chat"), this);
@@ -736,78 +1041,104 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
 
     // Wire dock toggles after createDockWidgets() runs (called from setupUi)
     // by using lambdas that capture the dock pointer at call time.
-    connect(toggleProjectAction,  &QAction::toggled, this, [this](bool on) {
-        m_projectDock->setVisible(on);
-    });
-    connect(toggleSearchAction,   &QAction::toggled, this, [this](bool on) {
-        m_searchDock->setVisible(on);
-    });
-    connect(toggleGitAction,      &QAction::toggled, this, [this](bool on) {
-        m_gitDock->setVisible(on);
-    });
-    connect(toggleTerminalAction, &QAction::toggled, this, [this](bool on) {
-        m_terminalDock->setVisible(on);
-    });
-    connect(toggleAiAction,       &QAction::toggled, this, [this](bool on) {
-        m_aiDock->setVisible(on);
-    });
-    connect(toggleOutlineAction,  &QAction::toggled, this, [this](bool on) {
-        m_symbolDock->setVisible(on);
-    });
-    connect(toggleRefsAction,     &QAction::toggled, this, [this](bool on) {
-        m_referencesDock->setVisible(on);
-    });
+    // If a dock is auto-hidden and user checks it via View menu, re-pin it.
+    auto dockToggle = [this](QDockWidget *dock) {
+        return [this, dock](bool on) {
+            if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(dock))
+                m_dockAutoHide->pinDock(dock);
+            else
+                dock->setVisible(on);
+        };
+    };
+    connect(toggleProjectAction,  &QAction::toggled, this, dockToggle(m_projectDock));
+    connect(toggleSearchAction,   &QAction::toggled, this, dockToggle(m_searchDock));
+    connect(toggleGitAction,      &QAction::toggled, this, dockToggle(m_gitDock));
+    connect(toggleTerminalAction, &QAction::toggled, this, dockToggle(m_terminalDock));
+    connect(toggleAiAction,       &QAction::toggled, this, dockToggle(m_aiDock));
+    connect(toggleOutlineAction,  &QAction::toggled, this, dockToggle(m_symbolDock));
+    connect(toggleRefsAction,     &QAction::toggled, this, dockToggle(m_referencesDock));
     connect(toggleLogAction,      &QAction::toggled, this, [this](bool on) {
-        m_requestLogDock->setVisible(on);
+        if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(m_requestLogDock))
+            m_dockAutoHide->pinDock(m_requestLogDock);
+        else
+            m_requestLogDock->setVisible(on);
         if (on) m_requestLogDock->raise();
     });
     connect(toggleTrajectoryAction, &QAction::toggled, this, [this](bool on) {
-        m_trajectoryDock->setVisible(on);
+        if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(m_trajectoryDock))
+            m_dockAutoHide->pinDock(m_trajectoryDock);
+        else
+            m_trajectoryDock->setVisible(on);
         if (on) m_trajectoryDock->raise();
     });
-    connect(toggleSettingsAction, &QAction::toggled, this, [this](bool on) {
-        m_settingsDock->setVisible(on);
-        if (on) m_settingsDock->raise();
+    connect(toggleSettingsAction, &QAction::triggered, this, [this]() {
+        if (!m_settingsDialog) {
+            m_settingsDialog = new QDialog(this);
+            m_settingsDialog->setWindowTitle(tr("AI Settings"));
+            m_settingsDialog->setMinimumSize(420, 480);
+            auto *lay = new QVBoxLayout(m_settingsDialog);
+            lay->setContentsMargins(0, 0, 0, 0);
+            m_settingsPanel->setParent(m_settingsDialog);
+            lay->addWidget(m_settingsPanel);
+        }
+        m_settingsDialog->show();
+        m_settingsDialog->raise();
+        m_settingsDialog->activateWindow();
     });
     connect(toggleMemoryAction,   &QAction::toggled, this, [this](bool on) {
-        m_memoryDock->setVisible(on);
+        if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(m_memoryDock))
+            m_dockAutoHide->pinDock(m_memoryDock);
+        else
+            m_memoryDock->setVisible(on);
         if (on) { m_memoryDock->raise(); m_memoryBrowser->refresh(); }
     });
     connect(toggleMcpAction, &QAction::toggled, this, [this](bool on) {
-        m_mcpDock->setVisible(on);
+        if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(m_mcpDock))
+            m_dockAutoHide->pinDock(m_mcpDock);
+        else
+            m_mcpDock->setVisible(on);
         if (on) m_mcpDock->raise();
     });
     connect(toggleOutputAction, &QAction::toggled, this, [this](bool on) {
-        m_outputDock->setVisible(on);
+        if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(m_outputDock))
+            m_dockAutoHide->pinDock(m_outputDock);
+        else
+            m_outputDock->setVisible(on);
         if (on) m_outputDock->raise();
     });
     // Sync checkbox state when user closes a dock via its own X button.
+    // Guard: ignore visibilityChanged fired during window minimize/restore
+    // to prevent docks from being permanently hidden.
+    auto safeVisSync = [this](QAction *action) {
+        return [this, action](bool visible) {
+            if (!isMinimized())
+                action->setChecked(visible);
+        };
+    };
     connect(m_projectDock,    &QDockWidget::visibilityChanged,
-            toggleProjectAction,  &QAction::setChecked);
+            this, safeVisSync(toggleProjectAction));
     connect(m_searchDock,     &QDockWidget::visibilityChanged,
-            toggleSearchAction,   &QAction::setChecked);
+            this, safeVisSync(toggleSearchAction));
     connect(m_gitDock,        &QDockWidget::visibilityChanged,
-            toggleGitAction,      &QAction::setChecked);
+            this, safeVisSync(toggleGitAction));
     connect(m_terminalDock,   &QDockWidget::visibilityChanged,
-            toggleTerminalAction, &QAction::setChecked);
+            this, safeVisSync(toggleTerminalAction));
     connect(m_aiDock,         &QDockWidget::visibilityChanged,
-            toggleAiAction,       &QAction::setChecked);
+            this, safeVisSync(toggleAiAction));
     connect(m_symbolDock,     &QDockWidget::visibilityChanged,
-            toggleOutlineAction,  &QAction::setChecked);
+            this, safeVisSync(toggleOutlineAction));
     connect(m_trajectoryDock, &QDockWidget::visibilityChanged,
-            toggleTrajectoryAction, &QAction::setChecked);
+            this, safeVisSync(toggleTrajectoryAction));
     connect(m_referencesDock, &QDockWidget::visibilityChanged,
-            toggleRefsAction,     &QAction::setChecked);
+            this, safeVisSync(toggleRefsAction));
     connect(m_requestLogDock, &QDockWidget::visibilityChanged,
-            toggleLogAction,      &QAction::setChecked);
-    connect(m_settingsDock,   &QDockWidget::visibilityChanged,
-            toggleSettingsAction, &QAction::setChecked);
+            this, safeVisSync(toggleLogAction));
     connect(m_memoryDock,     &QDockWidget::visibilityChanged,
-            toggleMemoryAction,   &QAction::setChecked);
+            this, safeVisSync(toggleMemoryAction));
     connect(m_mcpDock,        &QDockWidget::visibilityChanged,
-            toggleMcpAction,      &QAction::setChecked);
+            this, safeVisSync(toggleMcpAction));
     connect(m_outputDock,     &QDockWidget::visibilityChanged,
-            toggleOutputAction,   &QAction::setChecked);
+            this, safeVisSync(toggleOutputAction));
 }
 
 void MainWindow::setupToolBar()
@@ -833,6 +1164,7 @@ void MainWindow::setupStatusBar()
     m_branchLabel     = new QLabel(this);
     m_copilotStatusLabel = new QLabel(tr("\u2713 AI Ready"), this);
     m_indexLabel = new QLabel(this);
+    m_memoryLabel = new QLabel(this);
 
     m_posLabel->setMinimumWidth(110);
     m_encodingLabel->setMinimumWidth(55);
@@ -846,6 +1178,8 @@ void MainWindow::setupStatusBar()
     m_branchLabel->setStyleSheet(labelStyle);
     m_indexLabel->setStyleSheet(labelStyle + QStringLiteral("color:#75bfff;"));
     m_indexLabel->setToolTip(tr("Workspace index status"));
+    m_memoryLabel->setStyleSheet(labelStyle + QStringLiteral("color:#888;"));
+    m_memoryLabel->setToolTip(tr("Process memory (working set)"));
     m_copilotStatusLabel->setStyleSheet(labelStyle + QStringLiteral("color:#89d185;"));
     m_copilotStatusLabel->setCursor(Qt::PointingHandCursor);
     m_copilotStatusLabel->setToolTip(tr("AI Assistant status — click to open AI panel"));
@@ -853,10 +1187,27 @@ void MainWindow::setupStatusBar()
 
     statusBar()->addPermanentWidget(m_copilotStatusLabel);
     statusBar()->addPermanentWidget(m_indexLabel);
+    statusBar()->addPermanentWidget(m_memoryLabel);
     statusBar()->addPermanentWidget(m_backgroundLabel);
     statusBar()->addPermanentWidget(m_branchLabel);
     statusBar()->addPermanentWidget(m_encodingLabel);
     statusBar()->addPermanentWidget(m_posLabel);
+
+    // Periodic memory usage update (every 5 s)
+    auto *memTimer = new QTimer(this);
+    connect(memTimer, &QTimer::timeout, this, [this]() {
+        const double mb = currentMemoryMB();
+        if (mb >= 0.0) {
+            m_memoryLabel->setText(QStringLiteral("%1 MB").arg(mb, 0, 'f', 1));
+        }
+    });
+    memTimer->start(5000);
+    // Show initial value
+    {
+        const double mb = currentMemoryMB();
+        if (mb >= 0.0)
+            m_memoryLabel->setText(QStringLiteral("%1 MB").arg(mb, 0, 'f', 1));
+    }
 }
 
 void MainWindow::createDockWidgets()
@@ -973,7 +1324,7 @@ void MainWindow::createDockWidgets()
     m_aiDock = new QDockWidget(tr("AI"), this);
     m_aiDock->setObjectName("AIDock");
     m_aiDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
-    m_chatPanel = new AgentChatPanel(m_agentOrchestrator, m_aiDock);
+    m_chatPanel = new ChatPanelWidget(m_agentOrchestrator, m_aiDock);
     // NOTE: AgentController is wired after it is created in the constructor.
     m_aiDock->setWidget(m_chatPanel);
     addDockWidget(Qt::RightDockWidgetArea, m_aiDock);
@@ -1036,15 +1387,8 @@ void MainWindow::createDockWidgets()
     tabifyDockWidget(m_requestLogDock, m_trajectoryDock);
     m_trajectoryDock->hide(); // hidden by default — debug panel
 
-    // ── Settings ──────────────────────────────────────────────────────────
+    // ── Settings (dialog, not dock) ──────────────────────────────────────────
     m_settingsPanel = new SettingsPanel(this);
-    m_settingsDock  = new QDockWidget(tr("Settings"), this);
-    m_settingsDock->setObjectName("SettingsDock");
-    m_settingsDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
-    m_settingsDock->setWidget(m_settingsPanel);
-    addDockWidget(Qt::RightDockWidgetArea, m_settingsDock);
-    tabifyDockWidget(m_aiDock, m_settingsDock);
-    m_aiDock->raise(); // AI panel visible by default
 
     // ── Memory Browser ────────────────────────────────────────────────────
     const QString memPath = QStandardPaths::writableLocation(
@@ -1056,7 +1400,7 @@ void MainWindow::createDockWidgets()
     m_memoryDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
     m_memoryDock->setWidget(m_memoryBrowser);
     addDockWidget(Qt::RightDockWidgetArea, m_memoryDock);
-    tabifyDockWidget(m_settingsDock, m_memoryDock);
+    tabifyDockWidget(m_aiDock, m_memoryDock);
     m_memoryDock->hide(); // hidden by default
 
     // ── Theme Manager ─────────────────────────────────────────────────────
@@ -1070,6 +1414,34 @@ void MainWindow::createDockWidgets()
     m_diffDock->setWidget(m_diffViewer);
     addDockWidget(Qt::BottomDockWidgetArea, m_diffDock);
     m_diffDock->hide();
+
+    // ── Proposed Edit panel ───────────────────────────────────────────────
+    m_proposedEditPanel = new ProposedEditPanel(this);
+    m_proposedEditDock  = new QDockWidget(tr("Proposed Edits"), this);
+    m_proposedEditDock->setObjectName("ProposedEditDock");
+    m_proposedEditDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::RightDockWidgetArea);
+    m_proposedEditDock->setWidget(m_proposedEditPanel);
+    addDockWidget(Qt::BottomDockWidgetArea, m_proposedEditDock);
+    tabifyDockWidget(m_diffDock, m_proposedEditDock);
+    m_proposedEditDock->hide();
+
+    connect(m_proposedEditPanel, &ProposedEditPanel::editAccepted,
+            this, [this](const QString &filePath, const QString &newText) {
+        // Write accepted edit to file and reload in editor
+        QFile f(filePath);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+            f.write(newText.toUtf8());
+            f.close();
+        }
+        // Update the open editor tab if present
+        for (int i = 0; i < m_tabs->count(); ++i) {
+            auto *editor = qobject_cast<EditorView *>(m_tabs->widget(i));
+            if (editor && editor->property("filePath").toString() == filePath) {
+                editor->setPlainText(newText);
+                break;
+            }
+        }
+    });
 
     // ── MCP client + panel ────────────────────────────────────────────────
     m_mcpClient = new McpClient(this);
@@ -1094,6 +1466,18 @@ void MainWindow::createDockWidgets()
 
     connect(m_outputPanel, &OutputPanel::problemClicked,
             this, &MainWindow::navigateToLocation);
+    connect(m_outputPanel, &OutputPanel::buildFinished,
+            this, &MainWindow::pushBuildDiagnostics);
+
+    // ── Run / Launch panel ────────────────────────────────────────────────
+    m_runPanel = new RunLaunchPanel(this);
+    m_runDock  = new QDockWidget(tr("Run"), this);
+    m_runDock->setObjectName("RunDock");
+    m_runDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
+    m_runDock->setWidget(m_runPanel);
+    addDockWidget(Qt::BottomDockWidgetArea, m_runDock);
+    tabifyDockWidget(m_outputDock, m_runDock);
+    m_runDock->hide();
 
     // ── File Watch Service ────────────────────────────────────────────────
     m_fileWatcher = new FileWatchService(this);
@@ -1354,15 +1738,17 @@ void MainWindow::createDockWidgets()
             m_inlineEngine->setDisabledLanguages(QSet<QString>(langs.begin(), langs.end()));
             m_inlineEngine->setCompletionModel(m_settingsPanel->completionModel());
         }
-        // Configure BYOK custom provider
+        // Configure BYOK provider (loaded as plugin)
         const QString endpoint = m_settingsPanel->customEndpoint();
         const QString apiKey   = m_settingsPanel->customApiKey();
         if (!endpoint.isEmpty() && !apiKey.isEmpty()) {
-            if (!m_customProvider) {
-                m_customProvider = new CustomProvider(this);
-                m_agentOrchestrator->registerProvider(m_customProvider);
+            for (IAgentProvider *p : m_agentOrchestrator->providers()) {
+                if (p->id() == QLatin1String("custom")) {
+                    QMetaObject::invokeMethod(p, "configure",
+                        Q_ARG(QString, endpoint), Q_ARG(QString, apiKey));
+                    break;
+                }
             }
-            m_customProvider->configure(endpoint, apiKey);
         }
         // Update disabled tools
         if (m_toolRegistry) {
@@ -1370,6 +1756,21 @@ void MainWindow::createDockWidgets()
             m_toolRegistry->setDisabledTools(QSet<QString>(disabled.begin(), disabled.end()));
         }
     });
+
+    // ── Auto-Hide Dock Manager ────────────────────────────────────────────
+    m_dockAutoHide = new DockAutoHideManager(this);
+
+    // Register all dock widgets so they get pin/unpin title bars
+    for (QDockWidget *dock : {m_projectDock, m_searchDock, m_gitDock,
+                              m_terminalDock, m_aiDock, m_symbolDock,
+                              m_referencesDock, m_requestLogDock,
+                              m_trajectoryDock, m_memoryDock, m_mcpDock,
+                              m_outputDock, m_runDock, m_diffDock,
+                              m_proposedEditDock}) {
+        m_dockAutoHide->registerDock(dock);
+    }
+    // Initial sidebar layout
+    m_dockAutoHide->repositionSidebars();
 }
 
 // ── Tabs / editor ────────────────────────────────────────────────────────────
@@ -1420,6 +1821,8 @@ void MainWindow::onTabChanged(int /*index*/)
         if (m_nesEngine) {
             const QString path = editor->property("filePath").toString();
             m_nesEngine->attachEditor(editor, path);
+            // Disconnect any previous NES connection to avoid duplicates
+            disconnect(editor, &EditorView::ghostTextAccepted, this, nullptr);
             connect(editor, &EditorView::ghostTextAccepted, this, [this, editor] {
                 if (!m_nesEngine) return;
                 QTextCursor cur = editor->textCursor();
@@ -1428,7 +1831,7 @@ void MainWindow::onTabChanged(int /*index*/)
                     editor->toPlainText().mid(
                         qMax(0, cur.position() - 200), 200),
                     cur.blockNumber(), cur.columnNumber());
-            }, Qt::UniqueConnection);
+            });
         }
     } else {
         m_symbolPanel->clear();
@@ -1511,6 +1914,23 @@ void MainWindow::openFile(const QString &path)
     LargeFileLoader::applyToEditor(editor, path, kLargeFileThreshold);
     editor->setProperty("filePath", path);
     SyntaxHighlighter::create(path, editor->document());
+
+    // Apply saved editor settings
+    {
+        QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+        s.beginGroup(QStringLiteral("editor"));
+        const QFont font(s.value(QStringLiteral("fontFamily"), QStringLiteral("Consolas")).toString(),
+                         s.value(QStringLiteral("fontSize"), 11).toInt());
+        const int tabSize = s.value(QStringLiteral("tabSize"), 4).toInt();
+        const bool wrap = s.value(QStringLiteral("wordWrap"), false).toBool();
+        const bool minimap = s.value(QStringLiteral("showMinimap"), false).toBool();
+        s.endGroup();
+
+        editor->setFont(font);
+        editor->setTabStopDistance(QFontMetricsF(font).horizontalAdvance(QLatin1Char(' ')) * tabSize);
+        editor->setWordWrapMode(wrap ? QTextOption::WordWrap : QTextOption::NoWrap);
+        editor->setMinimapVisible(minimap);
+    }
 
     // Set language ID on the editor for inline chat / inline completion
     const QString langId = editor->property("languageId").toString();
@@ -1611,34 +2031,43 @@ void MainWindow::openFolder(const QString &path)
             .arg(QFileInfo(m_projectManager->solution().filePath).fileName()), 4000);
     }
 
-    if (m_outputPanel)
+    if (m_outputPanel) {
         m_outputPanel->setWorkingDirectory(root);
+        // Load workspace tasks.json if it exists
+        const QString tasksPath = root + QStringLiteral("/.exorcist/tasks.json");
+        if (QFileInfo::exists(tasksPath))
+            m_outputPanel->loadTasksFromJson(tasksPath);
+    }
+
+    if (m_runPanel) {
+        m_runPanel->setWorkingDirectory(root);
+        const QString launchPath = root + QStringLiteral("/.exorcist/launch.json");
+        if (QFileInfo::exists(launchPath))
+            m_runPanel->loadLaunchJson(launchPath);
+    }
     m_currentFolder = root;
     m_terminal->setWorkingDirectory(root);
     m_clangd->start(root);
 
+    // Load custom workspace theme (.exorcist/theme.json)
+    {
+        const QString themePath = root + QStringLiteral("/.exorcist/theme.json");
+        if (QFileInfo::exists(themePath)) {
+            QString err;
+            if (m_themeManager->loadCustomTheme(themePath, &err))
+                m_themeManager->setTheme(ThemeManager::Custom);
+            else
+                statusBar()->showMessage(tr("Theme error: %1").arg(err), 5000);
+        }
+    }
+
     // Update agent tools with new workspace root
-    m_contextBuilder->setWorkspaceRoot(root);
+    if (m_agentPlatform)
+        m_agentPlatform->setWorkspaceRoot(root);
 
     // Load custom AI instructions from workspace (.github/copilot-instructions.md etc.)
     const QString instructions = PromptFileLoader::load(root);
     m_contextBuilder->setCustomInstructions(instructions);
-    auto *searchTool = dynamic_cast<SearchWorkspaceTool *>(m_toolRegistry->tool(QStringLiteral("grep_search")));
-    if (searchTool) searchTool->setWorkspaceRoot(root);
-    auto *semSearchTool = dynamic_cast<SemanticSearchTool *>(m_toolRegistry->tool(QStringLiteral("semantic_search")));
-    if (semSearchTool) semSearchTool->setWorkspaceRoot(root);
-    auto *fileSrchTool = dynamic_cast<FileSearchTool *>(m_toolRegistry->tool(QStringLiteral("file_search")));
-    if (fileSrchTool) fileSrchTool->setWorkspaceRoot(root);
-    auto *cmdTool = dynamic_cast<RunCommandTool *>(m_toolRegistry->tool(QStringLiteral("run_in_terminal")));
-    if (cmdTool) cmdTool->setWorkingDirectory(root);
-    auto *readTool  = dynamic_cast<ReadFileTool  *>(m_toolRegistry->tool(QStringLiteral("read_file")));
-    if (readTool)  readTool->setWorkspaceRoot(root);
-    auto *listTool  = dynamic_cast<ListFilesTool *>(m_toolRegistry->tool(QStringLiteral("list_dir")));
-    if (listTool)  listTool->setWorkspaceRoot(root);
-    auto *writeTool = dynamic_cast<WriteFileTool *>(m_toolRegistry->tool(QStringLiteral("create_file")));
-    if (writeTool) writeTool->setWorkspaceRoot(root);
-    auto *projTool = dynamic_cast<ReadProjectStructureTool *>(m_toolRegistry->tool(QStringLiteral("read_project_structure")));
-    if (projTool) projTool->setWorkspaceRoot(root);
 
     // Wire workspace root to chat panel for prompt files
     m_chatPanel->setWorkspaceRoot(root);
@@ -1897,7 +2326,10 @@ void MainWindow::saveSettings()
 {
     QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
     s.setValue(QStringLiteral("geometry"),    saveGeometry());
+    s.setValue(QStringLiteral("windowState"), saveState());
     s.setValue(QStringLiteral("lastFolder"),  m_projectManager->activeSolutionDir());
+    if (m_dockAutoHide)
+        m_dockAutoHide->saveState();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -2098,6 +2530,53 @@ void MainWindow::applyWorkspaceEdit(const QJsonObject &workspaceEdit)
     }
 }
 
+// ── Push build diagnostics to open editors ────────────────────────────────────
+
+void MainWindow::pushBuildDiagnostics()
+{
+    if (!m_outputPanel) return;
+
+    const auto problems = m_outputPanel->problems();
+
+    // Group problems by file path
+    QHash<QString, QJsonArray> diagsByFile;
+    for (const OutputPanel::ProblemMatch &p : problems) {
+        QJsonObject range;
+        QJsonObject start;
+        start[QLatin1String("line")]      = qMax(0, p.line - 1); // LSP uses 0-based lines
+        start[QLatin1String("character")] = qMax(0, p.column - 1);
+        QJsonObject end;
+        end[QLatin1String("line")]        = qMax(0, p.line - 1);
+        end[QLatin1String("character")]   = 1000; // underline to end of line
+        range[QLatin1String("start")] = start;
+        range[QLatin1String("end")]   = end;
+
+        int severity = 1; // Error
+        if (p.severity == OutputPanel::ProblemMatch::Warning) severity = 2;
+        else if (p.severity == OutputPanel::ProblemMatch::Info) severity = 3;
+
+        QJsonObject diag;
+        diag[QLatin1String("range")]    = range;
+        diag[QLatin1String("severity")] = severity;
+        diag[QLatin1String("source")]   = QStringLiteral("build");
+        diag[QLatin1String("message")]  = p.message;
+
+        diagsByFile[p.file].append(diag);
+    }
+
+    // Push to each open editor tab that has build problems
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        auto *editor = qobject_cast<EditorView *>(m_tabs->widget(i));
+        if (!editor) continue;
+        const QString filePath = editor->property("filePath").toString();
+        if (filePath.isEmpty()) continue;
+
+        auto it = diagsByFile.constFind(filePath);
+        if (it != diagsByFile.constEnd())
+            editor->setDiagnostics(it.value());
+    }
+}
+
 // ── File tree context menu ────────────────────────────────────────────────────
 
 void MainWindow::onTreeContextMenu(const QPoint &pos)
@@ -2240,15 +2719,8 @@ void MainWindow::loadPlugins()
     int loaded = m_pluginManager->loadPluginsFrom(pluginDir);
     m_pluginManager->initializeAll(m_services.get());
 
-    // Register AI providers from agent plugins
-    for (QObject *obj : m_pluginManager->pluginObjects()) {
-        auto *agentPlugin = qobject_cast<IAgentPlugin *>(obj);
-        if (agentPlugin) {
-            const auto providers = agentPlugin->createProviders(m_agentOrchestrator);
-            for (auto *provider : providers)
-                m_agentOrchestrator->registerProvider(provider);
-        }
-    }
+    if (m_agentPlatform)
+        m_agentPlatform->registerPluginProviders(m_pluginManager.get());
 
     // Wire inline completion engine to the first provider that supports it
     for (IAgentProvider *p : m_agentOrchestrator->providers()) {
@@ -2318,66 +2790,6 @@ void MainWindow::loadPlugins()
         }
     });
 
-    // ── Register agent tools ──────────────────────────────────────────────
-    m_toolRegistry->registerTool(new ReadFileTool(m_fileSystem.get()));
-    m_toolRegistry->registerTool(new ListFilesTool(m_fileSystem.get()));
-    m_toolRegistry->registerTool(new WriteFileTool(m_fileSystem.get()));
-    m_toolRegistry->registerTool(new ApplyPatchTool(m_fileSystem.get()));
-    m_toolRegistry->registerTool(new ReplaceStringTool());
-    m_toolRegistry->registerTool(new MultiReplaceStringTool());
-    m_toolRegistry->registerTool(new InsertEditIntoFileTool());
-    m_toolRegistry->registerTool(new SearchWorkspaceTool(m_currentFolder));
-    m_toolRegistry->registerTool(new SemanticSearchTool(m_currentFolder));
-    m_toolRegistry->registerTool(new FileSearchTool(m_currentFolder));
-    m_toolRegistry->registerTool(new CreateDirectoryTool());
-    m_toolRegistry->registerTool(new ManageTodoListTool(
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-            + QStringLiteral("/agent_todo.json")));
-    m_toolRegistry->registerTool(new ReadProjectStructureTool(m_currentFolder));
-    m_toolRegistry->registerTool(new RunCommandTool(
-        new QtProcess(), m_currentFolder));
-    m_toolRegistry->registerTool(new GitStatusTool([this]() -> QString {
-        if (!m_gitService || !m_gitService->isGitRepo()) return {};
-        QString result = QStringLiteral("Branch: %1\n").arg(m_gitService->currentBranch());
-        const auto statuses = m_gitService->fileStatuses();
-        for (auto it = statuses.begin(); it != statuses.end(); ++it)
-            result += QStringLiteral("  %1 %2\n").arg(it.value(), it.key());
-        return result;
-    }));
-    m_toolRegistry->registerTool(new GetChangedFilesTool([this]() -> QHash<QString, QString> {
-        if (!m_gitService || !m_gitService->isGitRepo()) return {};
-        return m_gitService->fileStatuses();
-    }));
-    m_toolRegistry->registerTool(new GitDiffTool([this](const QString &filePath) -> QString {
-        if (!m_gitService || !m_gitService->isGitRepo()) return {};
-        return m_gitService->diff(filePath);
-    }));
-    m_toolRegistry->registerTool(new FetchWebpageTool());
-    m_toolRegistry->registerTool(new WebSearchTool());
-    m_toolRegistry->registerTool(new MemoryTool(
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-            + QStringLiteral("/memories")));
-    m_toolRegistry->registerTool(new GetErrorsTool([this]() -> QList<AgentDiagnostic> {
-        auto *ed = currentEditor();
-        if (!ed) return {};
-        QList<AgentDiagnostic> result;
-        const QString path = ed->property("filePath").toString();
-        for (const DiagnosticMark &d : ed->diagnosticMarks()) {
-            AgentDiagnostic ag;
-            ag.filePath = path;
-            ag.line     = d.line;
-            ag.column   = d.startChar;
-            ag.message  = d.message;
-            ag.severity = (d.severity == DiagSeverity::Error)
-                ? AgentDiagnostic::Severity::Error
-                : (d.severity == DiagSeverity::Warning)
-                    ? AgentDiagnostic::Severity::Warning
-                    : AgentDiagnostic::Severity::Info;
-            result.append(ag);
-        }
-        return result;
-    }));
-
     // Populate tool toggles in settings panel
     if (m_settingsPanel) {
         QStringList toolNames = m_toolRegistry->toolNames();
@@ -2387,5 +2799,11 @@ void MainWindow::loadPlugins()
 
     if (loaded > 0) {
         statusBar()->showMessage(tr("Loaded %1 plugins").arg(loaded), 4000);
+    }
+
+    // Auto-show AI panel when at least one provider is available
+    if (!m_agentOrchestrator->providers().isEmpty()) {
+        m_aiDock->show();
+        m_aiDock->raise();
     }
 }

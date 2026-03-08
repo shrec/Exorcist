@@ -15,6 +15,14 @@ public:
     QObject *service(const QString &name) const;
     QStringList keys() const;
 
+    /// Typed convenience — returns nullptr if not found or wrong type.
+    /// Usage: auto *ctrl = registry->service<AgentController>("agentController");
+    template<typename T>
+    T *service(const QString &name) const
+    {
+        return qobject_cast<T *>(service(name));
+    }
+
 private:
     QHash<QString, QObject *> m_services;
 };

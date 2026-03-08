@@ -6,6 +6,8 @@ add_executable(exorcist WIN32
     editor/editorview.h
     editor/diffviewerpanel.cpp
     editor/diffviewerpanel.h
+    editor/proposededitpanel.cpp
+    editor/proposededitpanel.h
     editor/breadcrumbbar.cpp
     editor/breadcrumbbar.h
     editor/minimapwidget.cpp
@@ -48,6 +50,8 @@ add_executable(exorcist WIN32
     lsp/completionpopup.h
     lsp/lspeditorbridge.cpp
     lsp/lspeditorbridge.h
+    lsp/hovertooltipwidget.cpp
+    lsp/hovertooltipwidget.h
     lsp/referencespanel.cpp
     lsp/referencespanel.h
     project/projecttypes.h
@@ -72,8 +76,22 @@ add_executable(exorcist WIN32
     terminal/terminalpanel.cpp
     terminal/terminalpanel.h
     agent/iagentplugin.h
+    agent/iagentsettingspageprovider.h
+    agent/ichatsessionimporter.h
+    agent/iproviderauthintegration.h
     agent/agentorchestrator.cpp
     agent/agentorchestrator.h
+    agent/agentplatformbootstrap.cpp
+    agent/agentplatformbootstrap.h
+    agent/agentproviderregistry.cpp
+    agent/agentproviderregistry.h
+    agent/agentrequestrouter.cpp
+    agent/agentrequestrouter.h
+    agent/chatsessionservice.cpp
+    agent/chatsessionservice.h
+    agent/toolapprovalservice.cpp
+    agent/toolapprovalservice.h
+    agent/toolpresentation.h
     agent/agentchatpanel.cpp
     agent/agentchatpanel.h
     agent/agentcontroller.cpp
@@ -108,8 +126,6 @@ add_executable(exorcist WIN32
     agent/requestlogpanel.h
     agent/trajectorypanel.cpp
     agent/trajectorypanel.h
-    agent/customprovider.cpp
-    agent/customprovider.h
     agent/settingspanel.cpp
     agent/settingspanel.h
     agent/memorybrowserpanel.cpp
@@ -123,6 +139,14 @@ add_executable(exorcist WIN32
     mcp/mcppanel.h
     ui/notificationtoast.cpp
     ui/notificationtoast.h
+    ui/settingsdialog.cpp
+    ui/settingsdialog.h
+    ui/keymapmanager.cpp
+    ui/keymapmanager.h
+    ui/keymapdialog.cpp
+    ui/keymapdialog.h
+    ui/dockautohidemanager.cpp
+    ui/dockautohidemanager.h
     commandpalette.cpp
     commandpalette.h
     logger.cpp
@@ -151,6 +175,8 @@ add_executable(exorcist WIN32
     core/nullnetwork.h
     build/outputpanel.cpp
     build/outputpanel.h
+    build/runlaunchpanel.cpp
+    build/runlaunchpanel.h
     editor/filewatchservice.cpp
     editor/filewatchservice.h
     agent/contextpruner.cpp
@@ -210,6 +236,24 @@ add_executable(exorcist WIN32
     search/regexsearchengine.h
     agent/tools/notebooktools.h
     agent/tools/githubmcptools.h
+    agent/chat/chatcontentpart.h
+    agent/chat/chatfollowupswidget.h
+    agent/chat/chatinputwidget.cpp
+    agent/chat/chatinputwidget.h
+    agent/chat/chatmarkdownwidget.h
+    agent/chat/chatpanelwidget.cpp
+    agent/chat/chatpanelwidget.h
+    agent/chat/chatsessionhistorypopup.h
+    agent/chat/chatsessionmodel.h
+    agent/chat/chatthemetokens.h
+    agent/chat/chatthinkingwidget.h
+    agent/chat/chattoolinvocationwidget.h
+    agent/chat/chattranscriptview.h
+    agent/chat/chatturnmodel.h
+    agent/chat/chatturnwidget.h
+    agent/chat/chatwelcomewidget.h
+    agent/chat/chatworkspaceeditwidget.h
+    agent/chat/toolpresentationformatter.h
 )
 
 target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network)

@@ -1,0 +1,851 @@
+#include "chatinputwidget.h"
+#include "chatthemetokens.h"
+
+#include <QApplication>
+#include <QClipboard>
+#include <QComboBox>
+#include <QDateTime>
+#include <QDir>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QHBoxLayout>
+#include <QImage>
+#include <QKeyEvent>
+#include <QLabel>
+#include <QListWidget>
+#include <QMimeData>
+#include <QPlainTextEdit>
+#include <QSignalBlocker>
+#include <QTextCursor>
+#include <QTextDocument>
+#include <QToolButton>
+#include <QVBoxLayout>
+
+ChatInputWidget::ChatInputWidget(QWidget *parent)
+    : QWidget(parent)
+{
+    setupUi();
+    setAcceptDrops(true);
+}
+
+void ChatInputWidget::setupUi()
+{
+    // ── Style ─────────────────────────────────────────────────────────────
+    setStyleSheet(QStringLiteral(
+        "QToolButton {"
+        "  background: transparent; border: none; color: %1;"
+        "  padding: 4px 6px; border-radius: %2px; font-size: %3px; }"
+        "QToolButton:hover { background: %4; color: %5; }"
+        "QToolButton:focus { outline: 1px solid %6; }"
+        "QToolButton#sendBtn {"
+        "  background: %7; color: %8; padding: 4px 10px; border-radius: %2px;"
+        "  font-size: 14px; }"
+        "QToolButton#sendBtn:hover  { background: %9; }"
+        "QToolButton#sendBtn:pressed { background: %10; }"
+        "QToolButton#sendBtn:disabled { background: %11; color: %12; }"
+        "QToolButton#cancelBtn { color: %1; font-size: 14px; }"
+        "QToolButton#cancelBtn:hover { background: rgba(241,76,76,0.15); color: #f14c4c; }"
+        "QToolButton#cancelBtn:pressed { background: rgba(241,76,76,0.25); }"
+        "QToolButton#newSessionBtn {"
+        "  color: %13; font-size: 16px; font-weight: 300; padding: 2px 6px; }"
+        "QToolButton#historyBtn {"
+        "  color: %13; font-size: %3px; padding: 2px 6px; }"
+        "QComboBox {"
+        "  background: transparent; border: none; color: %13;"
+        "  font-size: %14px; padding: 2px 4px; }"
+        "QComboBox:hover { color: %5; }"
+        "QComboBox:disabled { color: %12; }"
+        "QComboBox::drop-down { border: none; width: 12px; }"
+        "QComboBox::down-arrow { border: none; }"
+        "QComboBox QAbstractItemView {"
+        "  background: %15; color: %5; border: 1px solid %16;"
+        "  selection-background-color: %17; outline: none; }"
+        "QPlainTextEdit {"
+        "  background: transparent; border: none; border-radius: 0;"
+        "  color: %5; font-size: %3px; padding: 4px 4px 4px 8px; }"
+        "QListWidget {"
+        "  background: %15; border: 1px solid %16; color: %5; }"
+        "QListWidget::item { padding: 5px 10px; font-size: %14px; }"
+        "QListWidget::item:hover, QListWidget::item:selected { background: %17; }")
+        .arg(ChatTheme::FgSecondary)                 // %1
+        .arg(ChatTheme::RadiusMedium)                // %2
+        .arg(ChatTheme::FontSize)                    // %3
+        .arg(ChatTheme::HoverBg)                     // %4
+        .arg(ChatTheme::FgPrimary)                   // %5
+        .arg(ChatTheme::FocusOutline)                // %6
+        .arg(ChatTheme::ButtonBg)                    // %7
+        .arg(ChatTheme::ButtonFg)                    // %8
+        .arg(ChatTheme::ButtonHover)                 // %9
+        .arg(ChatTheme::ButtonPressed)               // %10 (new pressed state)
+        .arg(ChatTheme::DisabledBg)                  // %11
+        .arg(ChatTheme::DisabledFg)                  // %12
+        .arg(ChatTheme::FgDimmed)                    // %13 — was #858585
+        .arg(ChatTheme::SmallFont)                   // %14
+        .arg(ChatTheme::ScrollTrack)                 // %15 — dropdown bg
+        .arg(ChatTheme::Border)                      // %16
+        .arg(ChatTheme::ListSelection));             // %17
+
+    // ── Input editor ──────────────────────────────────────────────────────
+    m_input = new QPlainTextEdit(this);
+    m_input->setPlaceholderText(tr("Ask Copilot or type / for commands"));
+    m_input->setAccessibleName(tr("Chat message input"));
+    m_input->setMinimumHeight(60);
+    m_input->setMaximumHeight(180);
+    m_input->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_input->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_input->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_input->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    connect(m_input->document(), &QTextDocument::contentsChanged, this, [this]() {
+        const int docH = int(m_input->document()->size().height()) + 12;
+        m_input->setFixedHeight(qBound(60, docH, 180));
+    });
+    m_input->installEventFilter(this);
+
+    // ── Buttons ───────────────────────────────────────────────────────────
+    m_sendBtn = new QToolButton(this);
+    m_sendBtn->setText(tr("\u2191"));
+    m_sendBtn->setObjectName("sendBtn");
+    m_sendBtn->setToolTip(tr("Send  (Enter)"));
+    m_sendBtn->setAccessibleName(tr("Send message"));
+    connect(m_sendBtn, &QToolButton::clicked, this, &ChatInputWidget::onSendClicked);
+
+    m_cancelBtn = new QToolButton(this);
+    m_cancelBtn->setText(tr("\u2715"));
+    m_cancelBtn->setObjectName("cancelBtn");
+    m_cancelBtn->setToolTip(tr("Cancel request"));
+    m_cancelBtn->setAccessibleName(tr("Cancel request"));
+    m_cancelBtn->setEnabled(false);
+    connect(m_cancelBtn, &QToolButton::clicked, this, &ChatInputWidget::cancelRequested);
+
+    m_attachBtn = new QToolButton(this);
+    m_attachBtn->setText(QStringLiteral("\u2295"));
+    m_attachBtn->setObjectName("attachBtn");
+    m_attachBtn->setToolTip(tr("Attach file or image"));
+    m_attachBtn->setAccessibleName(tr("Attach file or image"));
+    m_attachBtn->setStyleSheet(QStringLiteral(
+        "QToolButton#attachBtn { color:%1; font-size:14px; padding:2px 5px;"
+        "  background:transparent; border:none; border-radius:3px; }"
+        "QToolButton#attachBtn:hover { background:%2; color:%3; }")
+        .arg(ChatTheme::FgDimmed, ChatTheme::HoverBg, ChatTheme::FgPrimary));
+    connect(m_attachBtn, &QToolButton::clicked, this, [this]() {
+        const QStringList paths = QFileDialog::getOpenFileNames(
+            this, tr("Attach files"), {},
+            tr("All files (*);;Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"));
+        for (const QString &p : paths)
+            addAttachment(p);
+    });
+
+    auto *inputBtns = new QVBoxLayout;
+    inputBtns->setSpacing(2);
+    inputBtns->setContentsMargins(0, 0, 0, 0);
+    inputBtns->addWidget(m_sendBtn);
+    inputBtns->addWidget(m_cancelBtn);
+
+    auto *inputRow = new QHBoxLayout;
+    inputRow->setContentsMargins(4, 6, 4, 2);
+    inputRow->setSpacing(4);
+    inputRow->addWidget(m_attachBtn);
+    inputRow->addWidget(m_input, 1);
+    inputRow->addLayout(inputBtns);
+
+    // ── Mode buttons ──────────────────────────────────────────────────────
+    m_askBtn = new QToolButton(this);
+    m_editBtn = new QToolButton(this);
+    m_agentBtn = new QToolButton(this);
+    m_askBtn->setText(tr("Ask"));
+    m_editBtn->setText(tr("Edit"));
+    m_agentBtn->setText(tr("Agent"));
+    m_askBtn->setToolTip(tr("Ask \u2014 chat about code"));
+    m_editBtn->setToolTip(tr("Edit \u2014 safe targeted changes"));
+    m_agentBtn->setToolTip(tr("Agent \u2014 full tool autonomy"));
+    m_askBtn->setAccessibleName(tr("Ask mode"));
+    m_editBtn->setAccessibleName(tr("Edit mode"));
+    m_agentBtn->setAccessibleName(tr("Agent mode"));
+
+    auto *modeContainer = new QWidget(this);
+    modeContainer->setObjectName("modeContainer");
+    modeContainer->setStyleSheet(QStringLiteral(
+        "QWidget#modeContainer { background:%1; border:1px solid %2;"
+        "  border-radius:%3px; }")
+        .arg(ChatTheme::SideBarBg, ChatTheme::Border)
+        .arg(ChatTheme::RadiusMedium));
+    auto *modeLayout = new QHBoxLayout(modeContainer);
+    modeLayout->setContentsMargins(1, 1, 1, 1);
+    modeLayout->setSpacing(0);
+    modeLayout->addWidget(m_askBtn);
+    modeLayout->addWidget(m_editBtn);
+    modeLayout->addWidget(m_agentBtn);
+
+    connect(m_askBtn, &QToolButton::clicked, this, [this]() { setCurrentMode(0); });
+    connect(m_editBtn, &QToolButton::clicked, this, [this]() { setCurrentMode(1); });
+    connect(m_agentBtn, &QToolButton::clicked, this, [this]() { setCurrentMode(2); });
+
+    // ── Bottom bar ────────────────────────────────────────────────────────
+    m_newSessionBtn = new QToolButton(this);
+    m_newSessionBtn->setText(QStringLiteral("+"));
+    m_newSessionBtn->setObjectName("newSessionBtn");
+    m_newSessionBtn->setToolTip(tr("New session (clears conversation)"));
+    m_newSessionBtn->setAccessibleName(tr("New chat session"));
+    connect(m_newSessionBtn, &QToolButton::clicked,
+            this, &ChatInputWidget::newSessionRequested);
+
+    m_historyBtn = new QToolButton(this);
+    m_historyBtn->setText(QStringLiteral("\u2630"));
+    m_historyBtn->setObjectName("historyBtn");
+    m_historyBtn->setToolTip(tr("Session history"));
+    m_historyBtn->setAccessibleName(tr("Session history"));
+    connect(m_historyBtn, &QToolButton::clicked,
+            this, &ChatInputWidget::historyRequested);
+
+    m_modelCombo = new QComboBox(this);
+    m_modelCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_modelCombo->setToolTip(tr("Select model"));
+    m_modelCombo->setAccessibleName(tr("Model selection"));
+    connect(m_modelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int idx) {
+        if (idx >= 0) {
+            const QString id = m_modelCombo->itemData(idx).toString();
+            emit modelSelected(id.isEmpty() ? m_modelCombo->itemText(idx) : id);
+        }
+    });
+
+    m_ctxBtn = new QToolButton(this);
+    m_ctxBtn->setText(QStringLiteral("{ }"));
+    m_ctxBtn->setObjectName("ctxBtn");
+    m_ctxBtn->setToolTip(tr("Context window usage"));
+    m_ctxBtn->setStyleSheet(QStringLiteral(
+        "QToolButton#ctxBtn { color:%1; font-size:%2px; font-family:monospace;"
+        "  padding:2px 5px; background:transparent; border:none; border-radius:%3px; }"
+        "QToolButton#ctxBtn:hover { background:%4; color:%5; }"
+        "QToolButton#ctxBtn:checked { background:%4; color:%5; }")
+        .arg(ChatTheme::FgDimmed)
+        .arg(ChatTheme::TinyFont)
+        .arg(ChatTheme::RadiusSmall)
+        .arg(ChatTheme::HoverBg, ChatTheme::FgPrimary));
+    m_ctxBtn->setCheckable(true);
+    connect(m_ctxBtn, &QToolButton::toggled, this, [this](bool on) {
+        if (on) emit contextPopupRequested();
+    });
+
+    auto *bottomBar = new QHBoxLayout;
+    bottomBar->setContentsMargins(6, 2, 6, 4);
+    bottomBar->setSpacing(4);
+    bottomBar->addWidget(modeContainer);
+    bottomBar->addWidget(m_modelCombo, 1);
+    bottomBar->addWidget(m_ctxBtn);
+    bottomBar->addWidget(m_historyBtn);
+    bottomBar->addWidget(m_newSessionBtn);
+
+    // ── Attachment chips bar ──────────────────────────────────────────────
+    m_attachBar = new QWidget(this);
+    m_attachLayout = new QHBoxLayout(m_attachBar);
+    m_attachLayout->setContentsMargins(8, 4, 8, 0);
+    m_attachLayout->setSpacing(4);
+    m_attachLayout->addStretch();
+    m_attachBar->setStyleSheet(QStringLiteral("background:%1;").arg(ChatTheme::PanelBg));
+    m_attachBar->hide();
+
+    // ── Context strip ─────────────────────────────────────────────────────
+    m_contextStrip = new QLabel(this);
+    m_contextStrip->setStyleSheet(QStringLiteral(
+        "color:%1; font-size:%2px; padding:1px 10px; background:%3;")
+        .arg(ChatTheme::FgDimmed)
+        .arg(ChatTheme::TinyFont)
+        .arg(ChatTheme::PanelBg));
+    m_contextStrip->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_contextStrip->setFixedHeight(16);
+    m_contextStrip->hide();
+
+    // ── Input block container ─────────────────────────────────────────────
+    auto *inputBlock = new QWidget(this);
+    inputBlock->setObjectName("inputBlock");
+    inputBlock->setStyleSheet(QStringLiteral(
+        "QWidget#inputBlock { background:%1; border:1px solid %2;"
+        "  border-radius:%3px; margin:4px 8px 8px 8px; }"
+        "QWidget#inputBlock QPlainTextEdit {"
+        "  background:transparent; border:none; border-radius:0; }")
+        .arg(ChatTheme::ScrollTrack, ChatTheme::Border)
+        .arg(ChatTheme::RadiusLarge));
+    auto *inputBlockLayout = new QVBoxLayout(inputBlock);
+    inputBlockLayout->setContentsMargins(0, 0, 0, 0);
+    inputBlockLayout->setSpacing(0);
+    inputBlockLayout->addLayout(inputRow);
+    inputBlockLayout->addLayout(bottomBar);
+
+    // ── Autocomplete popups ───────────────────────────────────────────────
+    m_slashMenu = new QListWidget(this);
+    m_slashMenu->setWindowFlags(Qt::ToolTip);
+    m_slashMenu->setFocusPolicy(Qt::NoFocus);
+    m_slashMenu->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_slashMenu->setFixedWidth(300);
+    m_slashMenu->hide();
+    connect(m_slashMenu, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
+        const QString cmd = item->text().section(' ', 0, 0);
+        m_input->setPlainText(cmd + ' ');
+        m_input->moveCursor(QTextCursor::End);
+        hideSlashMenu();
+        m_input->setFocus();
+    });
+
+    m_mentionMenu = new QListWidget(this);
+    m_mentionMenu->setWindowFlags(Qt::ToolTip);
+    m_mentionMenu->setFocusPolicy(Qt::NoFocus);
+    m_mentionMenu->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_mentionMenu->setFixedWidth(340);
+    m_mentionMenu->hide();
+    connect(m_mentionMenu, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
+        const QString filePath = item->data(Qt::UserRole).toString();
+        QTextCursor tc = m_input->textCursor();
+        const QString txt = m_input->toPlainText();
+        int triggerPos = tc.position() - 1;
+        while (triggerPos >= 0 && txt[triggerPos] != QLatin1Char('@') &&
+               txt[triggerPos] != QLatin1Char('#'))
+            --triggerPos;
+        if (triggerPos >= 0) {
+            tc.setPosition(triggerPos);
+            tc.setPosition(m_input->textCursor().position(), QTextCursor::KeepAnchor);
+            if (m_mentionTrigger == QLatin1String("#")) {
+                tc.insertText(QStringLiteral("#%1 ").arg(filePath));
+                const QString fullPath = item->data(Qt::UserRole + 1).toString();
+                if (!fullPath.isEmpty())
+                    addAttachment(fullPath);
+            } else {
+                tc.insertText(QStringLiteral("@file:%1 ").arg(filePath));
+            }
+        }
+        hideMentionMenu();
+        m_input->setFocus();
+    });
+
+    // Wire text changes for autocomplete
+    connect(m_input->document(), &QTextDocument::contentsChanged,
+            this, &ChatInputWidget::onTextChanged);
+
+    // ── Root layout ───────────────────────────────────────────────────────
+    auto *root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+    root->addWidget(m_contextStrip);
+    root->addWidget(m_attachBar);
+    root->addWidget(inputBlock);
+
+    // ── Tab order ─────────────────────────────────────────────────────────
+    setTabOrder(m_input, m_sendBtn);
+    setTabOrder(m_sendBtn, m_modelCombo);
+    setTabOrder(m_modelCombo, m_historyBtn);
+    setTabOrder(m_historyBtn, m_newSessionBtn);
+
+    setModeButtonActive(0);
+}
+
+// ── Public accessors ──────────────────────────────────────────────────────────
+
+QString ChatInputWidget::text() const
+{
+    return m_input->toPlainText().trimmed();
+}
+
+void ChatInputWidget::setText(const QString &text)
+{
+    m_input->setPlainText(text);
+    m_input->moveCursor(QTextCursor::End);
+}
+
+void ChatInputWidget::clearText()
+{
+    m_input->clear();
+}
+
+void ChatInputWidget::focusInput()
+{
+    m_input->setFocus();
+}
+
+void ChatInputWidget::setCurrentMode(int mode)
+{
+    if (m_currentMode == mode)
+        return;
+    m_currentMode = mode;
+    setModeButtonActive(mode);
+    emit modeChanged(mode);
+}
+
+void ChatInputWidget::setModels(const QStringList &models, const QString &current)
+{
+    QSignalBlocker blocker(m_modelCombo);
+    m_modelCombo->clear();
+    for (const QString &m : models)
+        m_modelCombo->addItem(m);
+    const int idx = m_modelCombo->findText(current);
+    if (idx >= 0)
+        m_modelCombo->setCurrentIndex(idx);
+}
+
+void ChatInputWidget::clearModels()
+{
+    QSignalBlocker blocker(m_modelCombo);
+    m_modelCombo->clear();
+}
+
+void ChatInputWidget::addModel(const QString &id, const QString &displayName,
+                               bool isPremium, double multiplier)
+{
+    QSignalBlocker blocker(m_modelCombo);
+    QString label = displayName.isEmpty() ? id : displayName;
+    if (multiplier > 1.0)
+        label += QStringLiteral("  %1x").arg(multiplier, 0, 'g', 2);
+    m_modelCombo->addItem(label, id);
+
+    const int idx = m_modelCombo->count() - 1;
+    if (isPremium || multiplier > 1.0) {
+        QString tip = displayName.isEmpty() ? id : displayName;
+        if (multiplier > 1.0)
+            tip += QStringLiteral("\n") + tr("Rate is counted at %1x.").arg(multiplier, 0, 'g', 2);
+        if (isPremium)
+            tip += QStringLiteral("\n") + tr("Premium model");
+        m_modelCombo->setItemData(idx, tip, Qt::ToolTipRole);
+        m_modelCombo->setItemData(idx, QColor(QLatin1String(ChatTheme::PremiumFg)),
+                                  Qt::ForegroundRole);
+    }
+}
+
+void ChatInputWidget::setCurrentModel(const QString &id)
+{
+    QSignalBlocker blocker(m_modelCombo);
+    for (int i = 0; i < m_modelCombo->count(); ++i) {
+        if (m_modelCombo->itemData(i).toString() == id
+            || m_modelCombo->itemText(i) == id) {
+            m_modelCombo->setCurrentIndex(i);
+            break;
+        }
+    }
+}
+
+QString ChatInputWidget::selectedModel() const
+{
+    const QString id = m_modelCombo->currentData().toString();
+    return id.isEmpty() ? m_modelCombo->currentText() : id;
+}
+
+void ChatInputWidget::setStreamingState(bool streaming)
+{
+    m_sendBtn->setEnabled(!streaming);
+    m_cancelBtn->setEnabled(streaming);
+}
+
+void ChatInputWidget::setInputEnabled(bool enabled)
+{
+    m_sendBtn->setEnabled(enabled);
+    m_cancelBtn->setEnabled(!enabled);
+    if (enabled)
+        m_input->setFocus();
+}
+
+void ChatInputWidget::setSlashCommands(const QStringList &commands)
+{
+    m_slashMenu->clear();
+    for (const QString &cmd : commands)
+        m_slashMenu->addItem(cmd);
+    m_staticSlashCount = m_slashMenu->count();
+}
+
+void ChatInputWidget::addDynamicSlashCommands(const QStringList &commands)
+{
+    while (m_slashMenu->count() > m_staticSlashCount)
+        delete m_slashMenu->takeItem(m_slashMenu->count() - 1);
+    for (const QString &cmd : commands)
+        m_slashMenu->addItem(cmd);
+}
+
+void ChatInputWidget::setWorkspaceFileProvider(std::function<QStringList()> fn)
+{
+    m_workspaceFileFn = std::move(fn);
+}
+
+void ChatInputWidget::setContextInfo(const QString &info)
+{
+    if (info.isEmpty()) {
+        m_contextStrip->hide();
+    } else {
+        m_contextStrip->setText(info);
+        m_contextStrip->show();
+    }
+}
+
+void ChatInputWidget::setContextTokenCount(int tokens)
+{
+    m_ctxBtn->setText(tokens > 0
+        ? QStringLiteral("%1K").arg(tokens / 1000)
+        : QStringLiteral("{ }"));
+}
+
+// ── Attachments ───────────────────────────────────────────────────────────────
+
+void ChatInputWidget::addAttachment(const QString &path)
+{
+    const QFileInfo fi(path);
+    if (!fi.exists()) return;
+
+    Attachment att;
+    att.path = path;
+    att.name = fi.fileName();
+    const QString ext = fi.suffix().toLower();
+    att.isImage = (ext == QLatin1String("png") || ext == QLatin1String("jpg")
+                || ext == QLatin1String("jpeg") || ext == QLatin1String("gif")
+                || ext == QLatin1String("webp") || ext == QLatin1String("bmp"));
+    if (att.isImage) {
+        QFile f(path);
+        if (f.open(QIODevice::ReadOnly))
+            att.data = f.readAll();
+    }
+    m_attachments.append(att);
+    rebuildAttachChips();
+}
+
+void ChatInputWidget::attachSelection(const QString &text, const QString &filePath,
+                                       int startLine)
+{
+    if (text.isEmpty()) return;
+
+    const QFileInfo fi(filePath);
+    const QString label = fi.fileName().isEmpty()
+        ? tr("Selection")
+        : QStringLiteral("%1:%2").arg(fi.fileName()).arg(startLine);
+
+    Attachment att;
+    att.path = filePath;
+    att.name = label;
+    att.data = text.toUtf8();
+    att.isImage = false;
+    m_attachments.append(att);
+    rebuildAttachChips();
+}
+
+void ChatInputWidget::attachDiagnostics(const QString &summary, int count)
+{
+    Attachment att;
+    att.name = tr("%n diagnostic(s)", nullptr, count);
+    att.data = summary.toUtf8();
+    att.isImage = false;
+    m_attachments.append(att);
+    rebuildAttachChips();
+}
+
+void ChatInputWidget::clearAttachments()
+{
+    m_attachments.clear();
+    rebuildAttachChips();
+}
+
+void ChatInputWidget::rebuildAttachChips()
+{
+    // Clear old chips
+    while (QLayoutItem *item = m_attachLayout->takeAt(0)) {
+        if (auto *w = item->widget())
+            w->deleteLater();
+        delete item;
+    }
+    m_attachLayout->addStretch();
+
+    if (m_attachments.isEmpty()) {
+        m_attachBar->hide();
+        return;
+    }
+
+    for (int i = 0; i < m_attachments.size(); ++i) {
+        const auto &att = m_attachments[i];
+        auto *chip = new QWidget(m_attachBar);
+        chip->setStyleSheet(QStringLiteral(
+            "background:%1; border:1px solid %2; border-radius:3px; padding:0;")
+            .arg(ChatTheme::SideBarBg, ChatTheme::Border));
+        auto *hl = new QHBoxLayout(chip);
+        hl->setContentsMargins(6, 2, 4, 2);
+        hl->setSpacing(4);
+        auto *lbl = new QLabel(
+            QStringLiteral("&#128206; %1").arg(att.name.toHtmlEscaped()), chip);
+        lbl->setStyleSheet(QStringLiteral(
+            "color:%1; font-size:%2px; background:transparent;")
+            .arg(ChatTheme::FgPrimary).arg(ChatTheme::TinyFont));
+        lbl->setTextFormat(Qt::RichText);
+        auto *rm = new QToolButton(chip);
+        rm->setText(QStringLiteral("\u00d7"));
+        rm->setStyleSheet(QStringLiteral(
+            "QToolButton{background:transparent;border:none;color:%1;font-size:12px;padding:0 2px;}"
+            "QToolButton:hover{color:%2;}")
+            .arg(ChatTheme::FgDimmed, ChatTheme::ErrorFg));
+        connect(rm, &QToolButton::clicked, this, [this, i]() {
+            if (i < m_attachments.size()) {
+                m_attachments.removeAt(i);
+                rebuildAttachChips();
+            }
+        });
+        hl->addWidget(lbl);
+        hl->addWidget(rm);
+        m_attachLayout->insertWidget(m_attachLayout->count() - 1, chip);
+    }
+    m_attachBar->show();
+}
+
+// ── Slots ─────────────────────────────────────────────────────────────────────
+
+void ChatInputWidget::onSendClicked()
+{
+    const QString t = text();
+    if (t.isEmpty() && m_attachments.isEmpty())
+        return;
+
+    if (!t.isEmpty()) {
+        m_inputHistory.append(t);
+        m_historyIndex = -1;
+    }
+
+    hideSlashMenu();
+    hideMentionMenu();
+
+    emit sendRequested(t, m_currentMode);
+    m_attachments.clear();
+    rebuildAttachChips();
+    m_input->clear();
+}
+
+void ChatInputWidget::onTextChanged()
+{
+    const QString txt = m_input->toPlainText();
+    if (txt.startsWith('/') && !txt.contains(' ') && !txt.contains('\n'))
+        showSlashMenu();
+    else
+        hideSlashMenu();
+
+    // @-mention trigger
+    const int cursorPos = m_input->textCursor().position();
+    int atPos = txt.lastIndexOf('@', cursorPos - 1);
+    if (atPos >= 0 && (atPos == 0 || txt[atPos - 1].isSpace())) {
+        const QString filter = txt.mid(atPos + 1, cursorPos - atPos - 1);
+        if (!filter.contains(' ') && !filter.contains('\n'))
+            showMentionMenu(QStringLiteral("@"), filter);
+        else
+            hideMentionMenu();
+    } else {
+        int hashPos = txt.lastIndexOf('#', cursorPos - 1);
+        if (hashPos >= 0 && (hashPos == 0 || txt[hashPos - 1].isSpace())) {
+            const QString filter = txt.mid(hashPos + 1, cursorPos - hashPos - 1);
+            if (!filter.contains(' ') && !filter.contains('\n'))
+                showMentionMenu(QStringLiteral("#"), filter);
+            else
+                hideMentionMenu();
+        } else {
+            hideMentionMenu();
+        }
+    }
+}
+
+// ── Mode button styling ───────────────────────────────────────────────────────
+
+void ChatInputWidget::setModeButtonActive(int mode)
+{
+    const auto style = [](bool active) -> QString {
+        if (active)
+            return QStringLiteral(
+                "QToolButton { background:%1; color:%2; border:none;"
+                " padding:2px 10px; font-size:%3px; border-radius:3px; }"
+                "QToolButton:focus { outline:1px solid %4; }")
+                .arg(ChatTheme::AccentBlue, ChatTheme::ButtonFg)
+                .arg(ChatTheme::SmallFont)
+                .arg(ChatTheme::FocusOutline);
+        return QStringLiteral(
+            "QToolButton { background:transparent; color:%1; border:none;"
+            " padding:2px 10px; font-size:%2px; border-radius:3px; }"
+            "QToolButton:hover { color:%3; background:%4; }"
+            "QToolButton:focus { outline:1px solid %5; }")
+            .arg(ChatTheme::FgDimmed)
+            .arg(ChatTheme::SmallFont)
+            .arg(ChatTheme::FgPrimary, ChatTheme::HoverBg, ChatTheme::FocusOutline);
+    };
+    m_askBtn->setStyleSheet(style(mode == 0));
+    m_editBtn->setStyleSheet(style(mode == 1));
+    m_agentBtn->setStyleSheet(style(mode == 2));
+}
+
+// ── Slash / mention menu ──────────────────────────────────────────────────────
+
+void ChatInputWidget::showSlashMenu()
+{
+    const QString typed = m_input->toPlainText().toLower();
+    bool anyVisible = false;
+    for (int i = 0; i < m_slashMenu->count(); ++i) {
+        QListWidgetItem *item = m_slashMenu->item(i);
+        const bool matches = item->text().toLower().startsWith(typed);
+        item->setHidden(!matches);
+        if (matches) anyVisible = true;
+    }
+    if (!anyVisible) { hideSlashMenu(); return; }
+
+    const QPoint pos = m_input->mapToGlobal(QPoint(0, 0));
+    m_slashMenu->adjustSize();
+    const int menuH = m_slashMenu->sizeHintForRow(0) *
+                      std::min(m_slashMenu->count(), 6) + 4;
+    m_slashMenu->setFixedHeight(menuH);
+    m_slashMenu->move(pos.x(), pos.y() - menuH - 2);
+    m_slashMenu->show();
+    m_slashMenu->raise();
+}
+
+void ChatInputWidget::hideSlashMenu()
+{
+    m_slashMenu->hide();
+}
+
+void ChatInputWidget::showMentionMenu(const QString &trigger, const QString &filter)
+{
+    if (!m_workspaceFileFn) { hideMentionMenu(); return; }
+    m_mentionTrigger = trigger;
+    m_mentionMenu->clear();
+
+    const QStringList files = m_workspaceFileFn();
+    const QString lowerFilter = filter.toLower();
+    int shown = 0;
+
+    for (const QString &absPath : files) {
+        const QFileInfo fi(absPath);
+        const QString display = fi.fileName();
+        if (!lowerFilter.isEmpty()
+            && !display.toLower().contains(lowerFilter)
+            && !absPath.toLower().contains(lowerFilter))
+            continue;
+
+        auto *item = new QListWidgetItem(
+            trigger == QLatin1String("#")
+                ? QStringLiteral("\U0001F4C4 %1").arg(absPath)
+                : QStringLiteral("@file:%1").arg(absPath));
+        item->setData(Qt::UserRole, absPath);
+        item->setData(Qt::UserRole + 1, absPath);
+        m_mentionMenu->addItem(item);
+        if (++shown >= 15) break;
+    }
+
+    if (shown == 0) { hideMentionMenu(); return; }
+
+    const QPoint pos = m_input->mapToGlobal(QPoint(0, 0));
+    m_mentionMenu->adjustSize();
+    const int menuH = m_mentionMenu->sizeHintForRow(0) * std::min(shown, 8) + 4;
+    m_mentionMenu->setFixedHeight(menuH);
+    m_mentionMenu->move(pos.x(), pos.y() - menuH - 2);
+    m_mentionMenu->show();
+    m_mentionMenu->raise();
+}
+
+void ChatInputWidget::hideMentionMenu()
+{
+    m_mentionMenu->hide();
+}
+
+// ── Event filter (Enter, Up/Down, Escape, Ctrl+V) ────────────────────────────
+
+bool ChatInputWidget::eventFilter(QObject *obj, QEvent *ev)
+{
+    if (obj == m_input && ev->type() == QEvent::KeyPress) {
+        auto *ke = static_cast<QKeyEvent *>(ev);
+
+        // Rich paste: Ctrl+V with image
+        if (ke->key() == Qt::Key_V && (ke->modifiers() & Qt::ControlModifier)) {
+            const QMimeData *mime = QApplication::clipboard()->mimeData();
+            if (mime && mime->hasImage()) {
+                const QImage img = qvariant_cast<QImage>(mime->imageData());
+                if (!img.isNull()) {
+                    const QString tmpPath = QDir::tempPath()
+                        + QStringLiteral("/exorcist_paste_%1.png")
+                              .arg(QDateTime::currentMSecsSinceEpoch());
+                    if (img.save(tmpPath, "PNG"))
+                        addAttachment(tmpPath);
+                    return true;
+                }
+            }
+        }
+
+        // Escape dismisses popups
+        if (ke->key() == Qt::Key_Escape) {
+            if (m_mentionMenu->isVisible()) { hideMentionMenu(); return true; }
+            if (m_slashMenu->isVisible())   { hideSlashMenu();   return true; }
+        }
+
+        // Tab/Enter accepts popup item
+        if ((ke->key() == Qt::Key_Tab || ke->key() == Qt::Key_Return
+             || ke->key() == Qt::Key_Enter) && m_mentionMenu->isVisible()) {
+            auto *cur = m_mentionMenu->currentItem();
+            if (!cur && m_mentionMenu->count() > 0)
+                cur = m_mentionMenu->item(0);
+            if (cur) {
+                emit m_mentionMenu->itemClicked(cur);
+                return true;
+            }
+        }
+
+        // Up/Down navigate popup
+        if (ke->key() == Qt::Key_Up && m_mentionMenu->isVisible()) {
+            int row = m_mentionMenu->currentRow();
+            if (row > 0) m_mentionMenu->setCurrentRow(row - 1);
+            return true;
+        }
+        if (ke->key() == Qt::Key_Down && m_mentionMenu->isVisible()) {
+            int row = m_mentionMenu->currentRow();
+            if (row < m_mentionMenu->count() - 1)
+                m_mentionMenu->setCurrentRow(row + 1);
+            return true;
+        }
+
+        // Enter = send, Shift+Enter = newline
+        if (ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter) {
+            if (ke->modifiers() & Qt::ShiftModifier)
+                return false;
+            onSendClicked();
+            return true;
+        }
+
+        // Up/Down for input history
+        if (ke->key() == Qt::Key_Up && !m_inputHistory.isEmpty()) {
+            const QTextCursor tc = m_input->textCursor();
+            if (tc.blockNumber() == 0) {
+                if (m_historyIndex < 0)
+                    m_historyIndex = m_inputHistory.size();
+                if (m_historyIndex > 0) {
+                    --m_historyIndex;
+                    m_input->setPlainText(m_inputHistory[m_historyIndex]);
+                    m_input->moveCursor(QTextCursor::End);
+                }
+                return true;
+            }
+        }
+        if (ke->key() == Qt::Key_Down && !m_inputHistory.isEmpty()) {
+            const QTextCursor tc = m_input->textCursor();
+            if (tc.blockNumber() == m_input->document()->blockCount() - 1) {
+                if (m_historyIndex >= 0 && m_historyIndex < m_inputHistory.size() - 1) {
+                    ++m_historyIndex;
+                    m_input->setPlainText(m_inputHistory[m_historyIndex]);
+                    m_input->moveCursor(QTextCursor::End);
+                } else {
+                    m_historyIndex = -1;
+                    m_input->clear();
+                }
+                return true;
+            }
+        }
+    }
+    return QWidget::eventFilter(obj, ev);
+}
+
+void ChatInputWidget::dragEnterEvent(QDragEnterEvent *ev)
+{
+    if (ev->mimeData()->hasUrls() || ev->mimeData()->hasImage())
+        ev->acceptProposedAction();
+}
+
+void ChatInputWidget::dropEvent(QDropEvent *ev)
+{
+    for (const QUrl &url : ev->mimeData()->urls()) {
+        if (url.isLocalFile())
+            addAttachment(url.toLocalFile());
+    }
+    ev->acceptProposedAction();
+}

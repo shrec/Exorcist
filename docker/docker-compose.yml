@@ -1,0 +1,14 @@
+services:
+  ci:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ..:/workspace
+    working_dir: /workspace
+    command: /workspace/docker/entrypoint.sh
+    # For headless Qt tests
+    environment:
+      - QT_QPA_PLATFORM=offscreen
+    # Allow xvfb to create a virtual display
+    shm_size: 256m

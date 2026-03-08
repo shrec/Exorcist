@@ -2,6 +2,17 @@
   "version": 6,
   "configurePresets": [
     {
+      "name": "ci",
+      "displayName": "CI (Generic – no hardcoded paths)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-ci",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "EXORCIST_DEPLOY_QT": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
       "name": "default",
       "displayName": "Default",
       "generator": "Ninja",

@@ -114,6 +114,9 @@ void SettingsPanel::buildModelTab(QWidget *tab)
     connect(m_maxSteps, &QSpinBox::valueChanged, this, [this]() { saveSettings(); emit settingsChanged(); });
     connect(m_maxTokens, &QSpinBox::valueChanged, this, [this]() { saveSettings(); emit settingsChanged(); });
     connect(m_reasoningEffort, &QComboBox::currentIndexChanged, this, [this]() { saveSettings(); emit settingsChanged(); });
+    connect(m_customEndpoint, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
+    connect(m_customApiKey, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
+    connect(m_completionModel, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
 }
 
 void SettingsPanel::buildToolsTab(QWidget *tab)
@@ -272,6 +275,7 @@ void SettingsPanel::setToolNames(const QStringList &names)
     for (const QString &name : names) {
         auto *cb = new QCheckBox(name, m_toolsContainer);
         cb->setChecked(!disabled.contains(name));
+        connect(cb, &QCheckBox::toggled, this, [this]() { saveSettings(); emit settingsChanged(); });
         lay->addWidget(cb);
         m_toolChecks[name] = cb;
     }

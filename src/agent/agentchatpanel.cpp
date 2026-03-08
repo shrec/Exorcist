@@ -20,6 +20,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QEvent>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
@@ -81,21 +82,21 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
 {
     // ── Panel-wide dark theme (VS Code–aligned) ──────────────────────────
     setStyleSheet(
-        "AgentChatPanel { background: #1e1e1e; }"
-        "QTextBrowser   { background: #1e1e1e; border: none; color: #cccccc;"
+        "AgentChatPanel { background: #1f1f1f; }"
+        "QTextBrowser   { background: #1f1f1f; border: none; color: #cccccc;"
         "                 selection-background-color: #264f78; }"
         "QLineEdit {"
-        "  background: #252526; border: 1px solid #3e3e42; border-radius: 2px;"
+        "  background: #2b2b2b; border: 1px solid #3e3e42; border-radius: 6px;"
         "  color: #cccccc; padding: 4px 8px; font-size: 13px; }"
-        "QLineEdit:focus { border-color: #007acc; }"
+        "QLineEdit:focus { border-color: #0078d4; }"
         "QToolButton {"
         "  background: transparent; border: none; color: #9d9d9d;"
-        "  padding: 4px 6px; border-radius: 2px; font-size: 13px; }"
+        "  padding: 4px 6px; border-radius: 4px; font-size: 13px; }"
         "QToolButton:hover { background: #2a2d2e; color: #cccccc; }"
         "QToolButton#sendBtn {"
-        "  background: #0e639c; color: white; padding: 4px 10px; border-radius: 2px;"
+        "  background: #0078d4; color: white; padding: 4px 10px; border-radius: 4px;"
         "  font-size: 14px; }"
-        "QToolButton#sendBtn:hover  { background: #1177bb; }"
+        "QToolButton#sendBtn:hover  { background: #026ec1; }"
         "QToolButton#sendBtn:disabled { background: #2a2a2a; color: #4a4a4a; }"
         "QToolButton#cancelBtn { color: #9d9d9d; font-size: 14px; }"
         "QToolButton#newSessionBtn {"
@@ -103,11 +104,11 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
         "QToolButton#historyBtn {"
         "  color: #858585; font-size: 13px; padding: 2px 6px; }"
         "QToolButton#keepBtn {"
-        "  background: #0e639c; color: white; padding: 3px 10px; border-radius: 2px;"
+        "  background: #0078d4; color: white; padding: 3px 10px; border-radius: 4px;"
         "  font-size: 12px; }"
-        "QToolButton#keepBtn:hover { background: #1177bb; }"
+        "QToolButton#keepBtn:hover { background: #026ec1; }"
         "QToolButton#undoBtn {"
-        "  background: #3a3d41; color: #cccccc; padding: 3px 10px; border-radius: 2px;"
+        "  background: #3a3d41; color: #cccccc; padding: 3px 10px; border-radius: 4px;"
         "  font-size: 12px; }"
         "QToolButton#undoBtn:hover { background: #4a4d51; }"
         "QComboBox {"
@@ -117,10 +118,10 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
         "QComboBox::drop-down { border: none; width: 12px; }"
         "QComboBox::down-arrow { border: none; }"
         "QComboBox QAbstractItemView {"
-        "  background: #252526; color: #cccccc; border: 1px solid #3e3e42;"
+        "  background: #2b2b2b; color: #cccccc; border: 1px solid #3e3e42;"
         "  selection-background-color: #094771; outline: none; }"
         "QListWidget {"
-        "  background: #252526; border: 1px solid #3e3e42; color: #cccccc; }"
+        "  background: #2b2b2b; border: 1px solid #3e3e42; color: #cccccc; }"
         "QListWidget::item { padding: 5px 10px; font-size: 12px; }"
         "QListWidget::item:hover, QListWidget::item:selected { background: #094771; }"
         "QScrollBar:vertical { background: transparent; width: 8px; border: none; }"
@@ -130,13 +131,13 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
         "QScrollBar:horizontal { height: 0; }"
         "QPlainTextEdit {"
-        "  background: #252526; border: 1px solid #3e3e42; border-radius: 2px;"
-        "  color: #cccccc; font-size: 13px; padding: 2px 2px 2px 6px; }"
-        "QPlainTextEdit:focus { border-color: #007acc; }");
+        "  background: #2b2b2b; border: 1px solid #3e3e42; border-radius: 6px;"
+        "  color: #cccccc; font-size: 13px; padding: 4px 4px 4px 8px; }"
+        "QPlainTextEdit:focus { border-color: #0078d4; }");
 
     // ── Provider tab bar (top) ────────────────────────────────────────────
     m_providerTabBar->setFixedHeight(35);
-    m_providerTabBar->setStyleSheet("background:#1e1e1e;");
+    m_providerTabBar->setStyleSheet("background:#1f1f1f;");
     m_providerTabLayout->setContentsMargins(0, 0, 0, 0);
     m_providerTabLayout->setSpacing(0);
 
@@ -146,8 +147,8 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     m_history->setFrameShape(QFrame::NoFrame);
     m_history->document()->setDefaultStyleSheet(
         /* ── Base ────────────────────────────────────────────────────── */
-        "body  { color:#cccccc; font-family:'Segoe UI',Arial,sans-serif; font-size:13px;"
-        "        line-height:1.5; margin:0; padding:0; }"
+        "body  { color:#cccccc; font-family:'Segoe WPC','Segoe UI',Arial,sans-serif;"
+        "        font-size:13px; line-height:1.4; margin:0; padding:0; }"
 
         /* ── Message row (table-based: avatar | content) ─────────── */
         ".msg-table { margin:0; padding:0; border:none; border-spacing:0; width:100%; }"
@@ -155,13 +156,13 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
         ".avatar { width:24px; height:24px; border-radius:12px; color:#ffffff;"
         "          font-size:13px; font-weight:600; text-align:center;"
         "          line-height:24px; }"
-        ".avatar-user { background:#0e639c; }"
+        ".avatar-user { background:#0078d4; }"
         ".avatar-ai   { background:#5a4fcf; }"
-        ".content-cell { vertical-align:top; padding:6px 16px 4px 8px; }"
+        ".content-cell { vertical-align:top; padding:4px 20px 2px 6px; }"
 
         /* ── Name / timestamp row ────────────────────────────────── */
         ".who  { font-size:12px; font-weight:600; margin-bottom:2px; }"
-        ".you  { color:#569cd6; }"
+        ".you  { color:#4daafc; }"
         ".ai   { color:#b5bec9; }"
         ".body { color:#d4d4d4; }"
         ".timestamp { color:#4a4a4a; font-size:10px; margin-left:6px; font-weight:normal; }"
@@ -174,12 +175,12 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
         "        background:rgba(241,76,76,0.06); }"
 
         /* ── Code blocks ─────────────────────────────────────────── */
-        "pre   { background:#1e1e1e; padding:10px 12px; border-radius:2px;"
-        "        font-family:'Cascadia Code','Fira Code',Consolas,monospace; font-size:12px;"
-        "        border-left:3px solid #0e639c; margin:6px 0; white-space:pre-wrap; }"
+        "pre   { background:#1a1a1a; padding:10px 12px; border-radius:0 0 4px 4px;"
+        "        font-family:'Cascadia Code','Fira Code',Consolas,monospace; font-size:13px;"
+        "        margin:0 0 6px 0; white-space:pre-wrap; }"
         "code  { color:#ce9178; font-family:'Cascadia Code','Fira Code',Consolas,monospace;"
-        "        font-size:12px; }"
-        ".code-header { background:#2d2d30; border-radius:2px 2px 0 0; padding:4px 10px;"
+        "        font-size:12px; background:#383838; padding:1px 4px; border-radius:3px; }"
+        ".code-header { background:#2d2d30; border-radius:4px 4px 0 0; padding:4px 10px;"
         "              margin:6px 0 0 0; font-size:11px; color:#858585; }"
         ".code-lang { color:#569cd6; font-weight:600; }"
         ".code-header-actions { float:right; }"
@@ -188,7 +189,7 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
         ".code-actions a { color:#569cd6; margin-right:10px; }"
 
         /* ── Links ───────────────────────────────────────────────── */
-        "a     { color:#569cd6; text-decoration:none; }"
+        "a     { color:#4daafc; text-decoration:none; }"
 
         /* ── Horizontal rule ─────────────────────────────────────── */
         "hr    { border:none; border-top:1px solid #2d2d2d; margin:8px 10px; }"
@@ -251,7 +252,8 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     changesLayout->addWidget(m_changesLabel, 1);
     changesLayout->addWidget(m_keepBtn);
     changesLayout->addWidget(m_undoBtn);
-    m_changesBar->setStyleSheet("background:#1a2433; border-top:1px solid #2d2d2d;");
+    m_changesBar->setStyleSheet("background:#1a2433; border-top:1px solid #2d2d2d;"
+                                "border-radius:0;");
     m_changesBar->hide();
 
     // ── Working indicator bar ─────────────────────────────────────────────
@@ -354,7 +356,7 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     inputBtns->addWidget(m_cancelBtn);
 
     auto *inputRow = new QHBoxLayout;
-    inputRow->setContentsMargins(6, 4, 6, 4);
+    inputRow->setContentsMargins(4, 6, 4, 2);
     inputRow->setSpacing(4);
     inputRow->addWidget(m_attachBtn);
     inputRow->addWidget(m_input, 1);
@@ -460,7 +462,7 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     });
 
     auto *bottomBar = new QHBoxLayout;
-    bottomBar->setContentsMargins(6, 4, 6, 6);
+    bottomBar->setContentsMargins(6, 2, 6, 4);
     bottomBar->setSpacing(4);
     bottomBar->addWidget(modeContainer);
     bottomBar->addWidget(m_modelCombo, 1);
@@ -468,9 +470,23 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     bottomBar->addWidget(m_historyBtn);
     bottomBar->addWidget(m_newSessionBtn);
 
+    // ── Unified input container (VS Code style) ──────────────────────────
+    auto *inputBlock = new QWidget(this);
+    inputBlock->setObjectName("inputBlock");
+    inputBlock->setStyleSheet(
+        "QWidget#inputBlock { background:#2b2b2b; border:1px solid #3e3e42;"
+        "  border-radius:8px; margin:4px 8px 8px 8px; }"
+        "QWidget#inputBlock QPlainTextEdit {"
+        "  background:transparent; border:none; border-radius:0; }");
+    auto *inputBlockLayout = new QVBoxLayout(inputBlock);
+    inputBlockLayout->setContentsMargins(0, 0, 0, 0);
+    inputBlockLayout->setSpacing(0);
+    inputBlockLayout->addLayout(inputRow);
+    inputBlockLayout->addLayout(bottomBar);
+
     // ── Context info strip ────────────────────────────────────────────────
     m_contextStrip->setStyleSheet(
-        "color:#858585; font-size:11px; padding:1px 10px; background:#1e1e1e;");
+        "color:#858585; font-size:11px; padding:1px 10px; background:#1f1f1f;");
     m_contextStrip->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     m_contextStrip->setFixedHeight(16);
     m_contextStrip->hide();
@@ -496,8 +512,7 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     root->addWidget(makeSep());
     root->addWidget(m_contextStrip);
     root->addWidget(m_attachBar);
-    root->addLayout(inputRow);
-    root->addLayout(bottomBar);
+    root->addWidget(inputBlock);
 
     // ── Slash-command autocomplete popup ──────────────────────────────────
     m_slashMenu->setWindowFlags(Qt::ToolTip);
@@ -643,8 +658,7 @@ void AgentChatPanel::setAgentController(AgentController *controller)
     // Wire agent controller signals for tool call feedback
     connect(m_agentController, &AgentController::toolCallStarted,
             this, [this](const QString &toolName, const QJsonObject &args) {
-        // Lock in any in-progress streaming bubble as permanent HTML before
-        // appending the tool card, so the next streaming delta doesn't clobber it.
+        // Lock in any in-progress streaming bubble
         if (m_streamStarted) {
             const auto rendered = MarkdownRenderer::toHtmlWithActions(m_pendingAccum);
             finalizeStreamingBubble(m_pendingAccum, rendered.html);
@@ -653,41 +667,95 @@ void AgentChatPanel::setAgentController(AgentController *controller)
             m_streamAnchorPos = 0;
         }
 
-        const QString argSumm = [&]() -> QString {
-            for (const QString &k : {"path", "command", "query", "url", "pattern"}) {
+        // Lock in any live thinking bubble
+        if (m_thinkingStreamStarted)
+            finalizeThinkingBubble();
+
+        // Start working section if not already active
+        if (!m_workingSectionActive) {
+            m_workingSectionActive = true;
+            QTextCursor temp(m_history->document());
+            temp.movePosition(QTextCursor::End);
+            m_workingSectionAnchor = temp.position();
+        }
+
+        // Build human-readable description
+        const QString path = args[QLatin1String("filePath")].toString();
+        const QString fn   = path.isEmpty() ? QString() : QFileInfo(path).fileName();
+        QString desc;
+        QString icon = QStringLiteral("&#9654;"); // default: right triangle
+        if (toolName.contains(QLatin1String("grep")) || toolName.contains(QLatin1String("search"))) {
+            icon = QStringLiteral("Q");
+            const QString q = args[QLatin1String("query")].toString();
+            desc = q.isEmpty() ? QStringLiteral("Searched workspace")
+                : QStringLiteral("Searched for text <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#ce9178;'>%1</span>").arg(q.left(50).toHtmlEscaped());
+        } else if (toolName.contains(QLatin1String("read"))) {
+            icon = QStringLiteral("&#9776;"); // trigram
+            const int s = args[QLatin1String("startLine")].toInt();
+            const int e = args[QLatin1String("endLine")].toInt();
+            if (!fn.isEmpty() && s > 0 && e > 0)
+                desc = QStringLiteral("Read <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#4ec9b0;'>%1</span>, lines %2 to %3").arg(fn.toHtmlEscaped()).arg(s).arg(e);
+            else if (!fn.isEmpty())
+                desc = QStringLiteral("Read <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#4ec9b0;'>%1</span>").arg(fn.toHtmlEscaped());
+            else
+                desc = QStringLiteral("Read file");
+        } else if (toolName.contains(QLatin1String("list"))) {
+            icon = QStringLiteral("&#9776;");
+            const QString d = args[QLatin1String("path")].toString();
+            desc = d.isEmpty() ? QStringLiteral("Listed directory")
+                : QStringLiteral("Listed <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#4ec9b0;'>%1</span>").arg(QFileInfo(d).fileName().toHtmlEscaped());
+        } else if (toolName.contains(QLatin1String("create"))) {
+            icon = QStringLiteral("+");
+            desc = fn.isEmpty() ? QStringLiteral("Created file")
+                : QStringLiteral("Created <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#4ec9b0;'>%1</span>").arg(fn.toHtmlEscaped());
+        } else if (toolName.contains(QLatin1String("replace")) || toolName.contains(QLatin1String("edit"))) {
+            icon = QStringLiteral("&#9998;"); // pencil
+            desc = fn.isEmpty() ? QStringLiteral("Edited file")
+                : QStringLiteral("Edited <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#4ec9b0;'>%1</span>").arg(fn.toHtmlEscaped());
+        } else if (toolName.contains(QLatin1String("terminal")) || toolName.contains(QLatin1String("run"))) {
+            icon = QStringLiteral("&gt;");
+            const QString cmd = args[QLatin1String("command")].toString().left(50);
+            desc = cmd.isEmpty() ? QStringLiteral("Ran command")
+                : QStringLiteral("Ran <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#ce9178;'>%1</span>").arg(cmd.toHtmlEscaped());
+        } else {
+            // Fallback: tool name + first meaningful arg
+            for (const auto &k : {QLatin1String("path"), QLatin1String("query"), QLatin1String("command")}) {
                 const QString v = args[k].toString();
-                if (!v.isEmpty()) return v.left(80);
+                if (!v.isEmpty()) {
+                    desc = QStringLiteral("%1: %2").arg(toolName.toHtmlEscaped(), v.left(50).toHtmlEscaped());
+                    break;
+                }
             }
-            return {};
-        }();
-        const QString detail = argSumm.isEmpty() ? QString()
-            : QStringLiteral("<div class='tool-detail'>%1</div>").arg(argSumm.toHtmlEscaped());
-        m_history->append(
-            QStringLiteral("<div class='tool-call tool-run'>"
-                           "&#9654; <span class='tool-name'>%1</span>&#8230;"
-                           "%2</div>").arg(toolName.toHtmlEscaped(), detail));
+            if (desc.isEmpty()) desc = toolName.toHtmlEscaped();
+        }
+
+        WorkingStep step;
+        step.toolName = toolName;
+        step.summary  = icon + QStringLiteral(" ") + desc;
+        m_workingSteps.append(step);
+        updateWorkingSection();
+        showWorkingIndicator(tr("Running %1\u2026").arg(toolName));
     });
 
     connect(m_agentController, &AgentController::toolCallFinished,
             this, [this](const QString &toolName, const ToolExecResult &result) {
-        if (result.ok) {
-            const QString summ = result.textContent.left(120).trimmed()
-                .replace(QLatin1Char('\n'), QLatin1Char(' '));
-            const QString detail = summ.isEmpty() ? QString()
-                : QStringLiteral("<div class='tool-detail'>%1</div>").arg(summ.toHtmlEscaped());
-            m_history->append(
-                QStringLiteral("<div class='tool-call tool-ok'>"
-                               "&#9654; <span class='tool-name'>%1</span> "
-                               "<span style='color:#4ec9b0;font-size:11px;'>&#10003;</span>"
-                               "%2</div>").arg(toolName.toHtmlEscaped(), detail));
-        } else {
-            m_history->append(
-                QStringLiteral("<div class='tool-call tool-fail'>"
-                               "&#10007; <span class='tool-name'>%1</span>"
-                               "<div class='tool-detail'>%2</div></div>")
-                .arg(toolName.toHtmlEscaped(), result.error.toHtmlEscaped()));
+        // Find the last unfinished step for this tool and mark it done
+        for (int i = m_workingSteps.size() - 1; i >= 0; --i) {
+            auto &step = m_workingSteps[i];
+            if (step.toolName == toolName && !step.finished) {
+                step.finished = true;
+                step.success  = result.ok;
+                if (!result.ok) {
+                    step.result = result.error.left(60);
+                } else if (toolName.contains(QLatin1String("grep"))
+                        || toolName.contains(QLatin1String("search"))) {
+                    const int count = result.textContent.count(QLatin1Char('\n'));
+                    if (count > 0) step.result = tr("%1 results").arg(count);
+                }
+                break;
+            }
         }
-        // Show 'Working…' while model processes the tool result
+        updateWorkingSection();
         showWorkingIndicator(tr("Analyzing\u2026"));
     });
 
@@ -757,7 +825,7 @@ void AgentChatPanel::setSessionStore(SessionStore *store)
     m_history->clear();
 
     // Restore the last saved session into the chat view
-    const ChatSession lastSession = m_sessionStore->loadLastSession();
+    const SessionStore::ChatSession lastSession = m_sessionStore->loadLastSession();
     if (lastSession.isEmpty()) {
         showEmptyState();
         return;
@@ -1041,7 +1109,7 @@ void AgentChatPanel::onSend()
 
     m_input->clear();
     setInputEnabled(false);
-    showWorkingIndicator();
+    showWorkingIndicator(tr("Sending request\u2026"));
 
     // Effective prompt = user text + any attached file contents
     const QString effectiveText = attachContext.isEmpty() ? text : (text + attachContext);
@@ -1146,6 +1214,14 @@ void AgentChatPanel::onResponseDelta(const QString &requestId, const QString &ch
 
     m_pendingAccum += chunk;
 
+    // Finalize any live thinking bubble before starting the response stream
+    if (m_thinkingStreamStarted)
+        finalizeThinkingBubble();
+
+    // Finalize working section before response stream
+    if (m_workingSectionActive)
+        finalizeWorkingSection();
+
     // Lazily record where streaming content should start BEFORE hiding the
     // working bar (which triggers a layout resize that could affect positions).
     if (!m_streamStarted) {
@@ -1168,9 +1244,20 @@ void AgentChatPanel::onThinkingDelta(const QString &requestId, const QString &ch
 
     m_thinkingAccum += chunk;
 
-    // Show "Thinking..." indicator while model is reasoning
-    if (m_thinkingAccum.size() == chunk.size())
-        showWorkingIndicator(tr("Thinking"));
+    // Finalize working section if it was active
+    if (m_workingSectionActive)
+        finalizeWorkingSection();
+
+    // On first thinking chunk, set up the live thinking anchor
+    if (!m_thinkingStreamStarted) {
+        m_thinkingStreamStarted = true;
+        hideWorkingIndicator();
+        QTextCursor temp(m_history->document());
+        temp.movePosition(QTextCursor::End);
+        m_thinkingAnchorPos = temp.position();
+    }
+
+    updateThinkingContent();
 }
 
 void AgentChatPanel::onResponseFinished(const QString &requestId,
@@ -1181,10 +1268,18 @@ void AgentChatPanel::onResponseFinished(const QString &requestId,
 
     const QString responseText = m_pendingAccum.isEmpty() ? response.text : m_pendingAccum;
 
-    // Render thinking block if the model produced reasoning content
+    // Finalize any live thinking that's still streaming
+    if (m_thinkingStreamStarted)
+        finalizeThinkingBubble();
+
+    // Finalize working section
+    if (m_workingSectionActive)
+        finalizeWorkingSection();
+
+    // Render thinking block only if we have content that WASN'T already streamed live
     const QString thinking = m_thinkingAccum.isEmpty()
                                  ? response.thinkingContent : m_thinkingAccum;
-    if (!thinking.isEmpty()) {
+    if (!thinking.isEmpty() && !m_thinkingStreamStarted) {
         const QString escapedThinking = thinking.toHtmlEscaped()
             .replace(QStringLiteral("\n"), QStringLiteral("<br>"));
         m_history->append(
@@ -1300,8 +1395,13 @@ void AgentChatPanel::onResponseFinished(const QString &requestId,
     m_pendingRequestId.clear();
     m_pendingAccum.clear();
     m_thinkingAccum.clear();
-    m_streamStarted   = false;
-    m_streamAnchorPos = 0;
+    m_streamStarted           = false;
+    m_streamAnchorPos         = 0;
+    m_thinkingStreamStarted   = false;
+    m_thinkingAnchorPos       = 0;
+    m_workingSectionActive    = false;
+    m_workingSectionAnchor    = 0;
+    m_workingSteps.clear();
     hideWorkingIndicator();
     setInputEnabled(true);
     checkQueue();
@@ -1395,8 +1495,13 @@ void AgentChatPanel::onResponseError(const QString &requestId,
     m_pendingRequestId.clear();
     m_pendingAccum.clear();
     m_thinkingAccum.clear();
-    m_streamStarted   = false;
-    m_streamAnchorPos = 0;
+    m_streamStarted           = false;
+    m_streamAnchorPos         = 0;
+    m_thinkingStreamStarted   = false;
+    m_thinkingAnchorPos       = 0;
+    m_workingSectionActive    = false;
+    m_workingSectionAnchor    = 0;
+    m_workingSteps.clear();
     hideWorkingIndicator();
     setInputEnabled(true);
     checkQueue();
@@ -1505,7 +1610,28 @@ void AgentChatPanel::onAnchorClicked(const QUrl &url)
         return;
     }
 
-    if (action == QLatin1String("insert") || action == QLatin1String("apply")) {
+    if (action == QLatin1String("apply")) {
+        const QString target = !block.filePath.isEmpty()
+            ? block.filePath
+            : m_activeFilePath;
+        if (target.isEmpty()) {
+            appendMessage("error", tr("No target file to apply the code block."));
+            return;
+        }
+        QFile f(target);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            appendMessage("error",
+                tr("Failed to write file: %1").arg(f.errorString()));
+            return;
+        }
+        f.write(block.code.toUtf8());
+        f.close();
+        appendMessage("system", tr("Code block applied to %1.").arg(target.toHtmlEscaped()));
+        emit openFileRequested(target);
+        return;
+    }
+
+    if (action == QLatin1String("insert")) {
         if (m_insertAtCursorFn) {
             m_insertAtCursorFn(block.code);
             appendMessage("system", tr("Code block inserted into editor."));
@@ -1634,6 +1760,148 @@ void AgentChatPanel::finalizeStreamingBubble(const QString &/*markdownText*/,
     });
 }
 
+// ── Live thinking helpers ─────────────────────────────────────────────────────
+
+void AgentChatPanel::updateThinkingContent()
+{
+    const QString safeText = m_thinkingAccum.toHtmlEscaped()
+        .replace(QStringLiteral("\n"), QStringLiteral("<br>"));
+
+    const QString thinkHtml = QStringLiteral(
+        "<div class='thinking-block'>"
+        "<div class='thinking-summary'>&#128161; Thinking\u2026</div>"
+        "<div style='margin-top:4px;white-space:pre-wrap;'>%1"
+        "<span style='color:#5a4fcf;'>\u2588</span>"
+        "</div></div>").arg(safeText);
+
+    const int docLen = m_history->document()->characterCount();
+    if (m_thinkingAnchorPos > docLen)
+        m_thinkingAnchorPos = docLen > 0 ? docLen - 1 : 0;
+
+    QTextCursor c(m_history->document());
+    c.setPosition(m_thinkingAnchorPos, QTextCursor::MoveAnchor);
+    c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    c.insertHtml(thinkHtml);
+
+    QTimer::singleShot(0, this, [this]() {
+        m_history->verticalScrollBar()->setValue(
+            m_history->verticalScrollBar()->maximum());
+    });
+}
+
+void AgentChatPanel::finalizeThinkingBubble()
+{
+    if (!m_thinkingStreamStarted)
+        return;
+
+    const QString safeText = m_thinkingAccum.toHtmlEscaped()
+        .replace(QStringLiteral("\n"), QStringLiteral("<br>"));
+
+    const QString finalHtml = QStringLiteral(
+        "<div class='thinking-block'>"
+        "<div class='thinking-summary'>&#128161; Thinking</div>"
+        "<div style='margin-top:4px;white-space:pre-wrap;'>%1</div>"
+        "</div>").arg(safeText);
+
+    const int docLen = m_history->document()->characterCount();
+    if (m_thinkingAnchorPos > docLen)
+        m_thinkingAnchorPos = docLen > 0 ? docLen - 1 : 0;
+
+    QTextCursor c(m_history->document());
+    c.setPosition(m_thinkingAnchorPos, QTextCursor::MoveAnchor);
+    c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    c.insertHtml(finalHtml);
+
+    m_thinkingStreamStarted = false;
+    m_thinkingAnchorPos     = 0;
+}
+
+// ── Working section (VS Code-style tool activity display) ───────────────────
+
+void AgentChatPanel::updateWorkingSection()
+{
+    QString stepsHtml;
+    for (const auto &step : m_workingSteps) {
+        if (step.finished) {
+            const QString mark = step.success
+                ? QStringLiteral("<span style='color:#4ec9b0;'> &#10003;</span>")
+                : QStringLiteral("<span style='color:#f14c4c;'> &#10007;</span>");
+            const QString res  = step.result.isEmpty() ? QString()
+                : QStringLiteral(", %1").arg(step.result.toHtmlEscaped());
+            stepsHtml += QStringLiteral(
+                "<div style='color:#858585;font-size:12px;padding:1px 0 1px 12px;'>"
+                "%1%2%3</div>").arg(step.summary, res, mark);
+        } else {
+            stepsHtml += QStringLiteral(
+                "<div style='color:#cccccc;font-size:12px;padding:1px 0 1px 12px;'>"
+                "%1&#8230;</div>").arg(step.summary);
+        }
+    }
+
+    stepsHtml += QStringLiteral(
+        "<div style='color:#858585;font-size:11px;padding:3px 0 1px 12px;"
+        "font-style:italic;'>&#9679; Loading</div>");
+
+    const QString html = QStringLiteral(
+        "<div style='margin:6px 0;'>"
+        "<div style='color:#858585;font-size:12px;font-weight:600;margin-bottom:2px;'>Working</div>"
+        "<div style='border-left:2px solid #3e3e42;padding-left:8px;margin-left:4px;'>"
+        "%1</div></div>").arg(stepsHtml);
+
+    const int docLen = m_history->document()->characterCount();
+    if (m_workingSectionAnchor > docLen)
+        m_workingSectionAnchor = docLen > 0 ? docLen - 1 : 0;
+
+    QTextCursor c(m_history->document());
+    c.setPosition(m_workingSectionAnchor, QTextCursor::MoveAnchor);
+    c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    c.insertHtml(html);
+
+    QTimer::singleShot(0, this, [this]() {
+        m_history->verticalScrollBar()->setValue(
+            m_history->verticalScrollBar()->maximum());
+    });
+}
+
+void AgentChatPanel::finalizeWorkingSection()
+{
+    if (!m_workingSectionActive)
+        return;
+
+    QString stepsHtml;
+    for (const auto &step : m_workingSteps) {
+        const QString mark = step.finished
+            ? (step.success
+                ? QStringLiteral("<span style='color:#4ec9b0;'> &#10003;</span>")
+                : QStringLiteral("<span style='color:#f14c4c;'> &#10007;</span>"))
+            : QString();
+        const QString res  = step.result.isEmpty() ? QString()
+            : QStringLiteral(", %1").arg(step.result.toHtmlEscaped());
+        stepsHtml += QStringLiteral(
+            "<div style='color:#858585;font-size:12px;padding:1px 0 1px 12px;'>"
+            "%1%2%3</div>").arg(step.summary, res, mark);
+    }
+
+    const QString html = QStringLiteral(
+        "<div style='margin:6px 0;'>"
+        "<div style='color:#858585;font-size:12px;font-weight:600;margin-bottom:2px;'>Working</div>"
+        "<div style='border-left:2px solid #3e3e42;padding-left:8px;margin-left:4px;'>"
+        "%1</div></div>").arg(stepsHtml);
+
+    const int docLen = m_history->document()->characterCount();
+    if (m_workingSectionAnchor > docLen)
+        m_workingSectionAnchor = docLen > 0 ? docLen - 1 : 0;
+
+    QTextCursor c(m_history->document());
+    c.setPosition(m_workingSectionAnchor, QTextCursor::MoveAnchor);
+    c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    c.insertHtml(html);
+
+    m_workingSectionActive = false;
+    m_workingSectionAnchor = 0;
+    m_workingSteps.clear();
+}
+
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 void AgentChatPanel::showEmptyState()
@@ -1653,32 +1921,32 @@ void AgentChatPanel::showEmptyState()
             /* Suggestion pills — stacked, link-colored, VS Code style */
             "<div style='margin:0 auto; text-align:center;'>"
             "<div style='margin:5px 0;'>"
-            "<a href='suggest://explain' style='color:#569cd6; font-size:12px;"
-            "   text-decoration:none; background:#252526; padding:5px 14px;"
+            "<a href='suggest://explain' style='color:#4daafc; font-size:12px;"
+            "   text-decoration:none; background:#2b2b2b; padding:5px 14px;"
             "   border:1px solid #3e3e42; border-radius:14px;'>"
             "/explain &mdash; Explain selected code</a></div>"
 
             "<div style='margin:5px 0;'>"
-            "<a href='suggest://fix' style='color:#569cd6; font-size:12px;"
-            "   text-decoration:none; background:#252526; padding:5px 14px;"
+            "<a href='suggest://fix' style='color:#4daafc; font-size:12px;"
+            "   text-decoration:none; background:#2b2b2b; padding:5px 14px;"
             "   border:1px solid #3e3e42; border-radius:14px;'>"
             "/fix &mdash; Find and fix bugs</a></div>"
 
             "<div style='margin:5px 0;'>"
-            "<a href='suggest://test' style='color:#569cd6; font-size:12px;"
-            "   text-decoration:none; background:#252526; padding:5px 14px;"
+            "<a href='suggest://test' style='color:#4daafc; font-size:12px;"
+            "   text-decoration:none; background:#2b2b2b; padding:5px 14px;"
             "   border:1px solid #3e3e42; border-radius:14px;'>"
             "/test &mdash; Generate unit tests</a></div>"
 
             "<div style='margin:5px 0;'>"
-            "<a href='suggest://review' style='color:#569cd6; font-size:12px;"
-            "   text-decoration:none; background:#252526; padding:5px 14px;"
+            "<a href='suggest://review' style='color:#4daafc; font-size:12px;"
+            "   text-decoration:none; background:#2b2b2b; padding:5px 14px;"
             "   border:1px solid #3e3e42; border-radius:14px;'>"
             "/review &mdash; Code review</a></div>"
 
             "<div style='margin:5px 0;'>"
-            "<a href='suggest://doc' style='color:#569cd6; font-size:12px;"
-            "   text-decoration:none; background:#252526; padding:5px 14px;"
+            "<a href='suggest://doc' style='color:#4daafc; font-size:12px;"
+            "   text-decoration:none; background:#2b2b2b; padding:5px 14px;"
             "   border:1px solid #3e3e42; border-radius:14px;'>"
             "/doc &mdash; Add documentation</a></div>"
             "</div>"
@@ -1736,7 +2004,7 @@ void AgentChatPanel::showSessionHistory()
             // Session load action
             QAction *act = menu->addAction(displayName);
             connect(act, &QAction::triggered, this, [this, path]() {
-                const ChatSession sess = m_sessionStore->loadSession(path);
+                const SessionStore::ChatSession sess = m_sessionStore->loadSession(path);
                 if (sess.isEmpty()) {
                     appendMessage("system", tr("Session is empty."));
                     return;

@@ -26,6 +26,10 @@ static const char kModelsUrl[]  = "https://api.githubcopilot.com/models";
 static constexpr int kModelRefreshMs = 10 * 60 * 1000;
 // Token refresh interval: 25 minutes (tokens expire at 30 min)
 static constexpr int kTokenRefreshMs = 25 * 60 * 1000;
+// Idle timeout: 60 seconds without data → cancel
+static constexpr int kIdleTimeoutMs = 60 * 1000;
+// Base delay for exponential backoff (ms)
+static constexpr int kRetryBaseMs = 1000;
 
 // ── System prompts ────────────────────────────────────────────────────────────
 
@@ -65,6 +69,23 @@ CopilotProvider::CopilotProvider(QObject *parent)
     connect(&m_refreshTimer, &QTimer::timeout, this, [this] {
         if (!m_githubToken.isEmpty())
             refreshCopilotToken();
+    });
+
+    // Idle timeout for streaming requests
+    m_idleTimer.setSingleShot(true);
+    m_idleTimer.setInterval(kIdleTimeoutMs);
+    connect(&m_idleTimer, &QTimer::timeout, this, [this] {
+        if (!m_activeRequestId.isEmpty()) {
+            qCWarning(lcCopilot) << "Request timed out (no data for"
+                                 << kIdleTimeoutMs / 1000 << "seconds)";
+            cancelRequest(m_activeRequestId);
+            AgentError err;
+            err.requestId = m_activeRequestId;
+            err.code      = AgentError::Code::NetworkError;
+            err.message   = tr("Request timed out — no response from server.");
+            emit responseError(m_activeRequestId, err);
+            m_activeRequestId.clear();
+        }
     });
 }
 
@@ -234,6 +255,7 @@ void CopilotProvider::refreshCopilotToken()
     req.setRawHeader("Editor-Version", "vscode/1.100.0");
     req.setRawHeader("Editor-Plugin-Version", "copilot-chat/0.40.0");
     req.setRawHeader("Copilot-Integration-Id", "vscode-chat");
+    req.setRawHeader("OpenAI-Intent", "conversation-panel");
     req.setRawHeader("X-GitHub-Api-Version", "2025-04-01");
 
     QNetworkReply *reply = m_nam.get(req);
@@ -533,6 +555,7 @@ QNetworkRequest CopilotProvider::makeAuthRequest(const QUrl &url) const
     req.setRawHeader("Editor-Version", "vscode/1.100.0");
     req.setRawHeader("Editor-Plugin-Version", "copilot-chat/0.40.0");
     req.setRawHeader("Copilot-Integration-Id", "vscode-chat");
+    req.setRawHeader("OpenAI-Intent", "conversation-panel");
     req.setRawHeader("X-GitHub-Api-Version", "2025-04-01");
     return req;
 }
@@ -562,15 +585,25 @@ void CopilotProvider::sendRequest(const AgentRequest &request)
         return;
     }
 
+    // Save for potential retry
+    m_lastRequest = request;
+    m_retryCount  = 0;
+    m_promptTokens     = 0;
+    m_completionTokens = 0;
+    m_totalTokens      = 0;
+
     // Check if current model supports Responses API
     const ModelInfo mi = currentModelInfo();
     const bool supportsResponses =
         mi.supportedEndpoints.contains(QLatin1String("/responses"));
 
-    if (supportsResponses && request.agentMode)
+    if (supportsResponses && request.agentMode) {
+        m_useResponsesApi = true;
         sendResponsesApi(request);
-    else
+    } else {
+        m_useResponsesApi = false;
         sendChatCompletions(request);
+    }
 }
 
 // ── Chat Completions API (/chat/completions) ──────────────────────────────────
@@ -578,19 +611,30 @@ void CopilotProvider::sendRequest(const AgentRequest &request)
 void CopilotProvider::sendChatCompletions(const AgentRequest &request)
 {
     QJsonObject body;
+    const ModelInfo mi = currentModelInfo();
+    const bool isOSeries = mi.capabilities.family.startsWith(QLatin1String("o"));
+
     body[QStringLiteral("model")]    = m_model;
     body[QStringLiteral("messages")] = buildMessages(request);
     body[QStringLiteral("stream")]   = true;
 
+    // o-series models use max_completion_tokens instead of max_tokens
+    if (mi.capabilities.maxOutputTokens > 0) {
+        const QString key = isOSeries ? QStringLiteral("max_completion_tokens")
+                                      : QStringLiteral("max_tokens");
+        body[key] = mi.capabilities.maxOutputTokens;
+    }
+
     // Thinking / reasoning effort for supported models
     if (!request.reasoningEffort.isEmpty()) {
-        const ModelInfo mi = currentModelInfo();
         if (mi.capabilities.thinking || mi.capabilities.adaptiveThinking)
             body[QStringLiteral("reasoning_effort")] = request.reasoningEffort;
     }
 
-    // Tool calling
-    QJsonArray tools = buildTools(request);
+    // Tool calling — only if model supports it
+    QJsonArray tools;
+    if (mi.capabilities.toolCalls)
+        tools = buildTools(request);
     if (!tools.isEmpty())
         body[QStringLiteral("tools")] = tools;
 
@@ -600,6 +644,7 @@ void CopilotProvider::sendChatCompletions(const AgentRequest &request)
 
     QNetworkRequest netReq = makeAuthRequest(QUrl{url});
     m_activeRequestId = request.requestId;
+    m_streamAccum.clear();
     m_pendingToolCalls.clear();
     m_pendingThinking.clear();
     m_sseParser->reset();
@@ -608,6 +653,7 @@ void CopilotProvider::sendChatCompletions(const AgentRequest &request)
         QJsonDocument(body).toJson(QJsonDocument::Compact));
     m_activeReply = reply;
     connectReply(reply);
+    m_idleTimer.start();
 }
 
 // ── Responses API (/responses) ────────────────────────────────────────────────
@@ -642,30 +688,33 @@ void CopilotProvider::sendResponsesApi(const AgentRequest &request)
     userMsg[QStringLiteral("content")] = buildUserContent(request);
     input.append(userMsg);
 
-    // Build tools array
+    // Build tools array — only if model supports tool calls
+    const ModelInfo mi = currentModelInfo();
     QJsonArray tools;
-    for (const auto &tool : request.tools) {
-        QJsonObject props;
-        QJsonArray required;
-        for (const auto &p : tool.parameters) {
-            props[p.name] = QJsonObject{
-                {QStringLiteral("type"),        p.type},
-                {QStringLiteral("description"), p.description}
-            };
-            if (p.required)
-                required.append(p.name);
+    if (mi.capabilities.toolCalls) {
+        for (const auto &tool : request.tools) {
+            QJsonObject props;
+            QJsonArray required;
+            for (const auto &p : tool.parameters) {
+                props[p.name] = QJsonObject{
+                    {QStringLiteral("type"),        p.type},
+                    {QStringLiteral("description"), p.description}
+                };
+                if (p.required)
+                    required.append(p.name);
+            }
+            tools.append(QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("function")},
+                {QStringLiteral("name"), tool.name},
+                {QStringLiteral("description"), tool.description},
+                {QStringLiteral("strict"), false},
+                {QStringLiteral("parameters"), QJsonObject{
+                    {QStringLiteral("type"), QStringLiteral("object")},
+                    {QStringLiteral("properties"), props},
+                    {QStringLiteral("required"), required}
+                }}
+            });
         }
-        tools.append(QJsonObject{
-            {QStringLiteral("type"), QStringLiteral("function")},
-            {QStringLiteral("name"), tool.name},
-            {QStringLiteral("description"), tool.description},
-            {QStringLiteral("strict"), false},
-            {QStringLiteral("parameters"), QJsonObject{
-                {QStringLiteral("type"), QStringLiteral("object")},
-                {QStringLiteral("properties"), props},
-                {QStringLiteral("required"), required}
-            }}
-        });
     }
 
     QJsonObject body;
@@ -673,6 +722,8 @@ void CopilotProvider::sendResponsesApi(const AgentRequest &request)
     body[QStringLiteral("input")]  = input;
     body[QStringLiteral("stream")] = true;
     body[QStringLiteral("store")]  = false;
+    if (mi.capabilities.maxOutputTokens > 0)
+        body[QStringLiteral("max_output_tokens")] = mi.capabilities.maxOutputTokens;
     if (!tools.isEmpty())
         body[QStringLiteral("tools")] = tools;
 
@@ -682,6 +733,7 @@ void CopilotProvider::sendResponsesApi(const AgentRequest &request)
 
     QNetworkRequest netReq = makeAuthRequest(QUrl{url});
     m_activeRequestId = request.requestId;
+    m_streamAccum.clear();
     m_pendingToolCalls.clear();
     m_pendingThinking.clear();
     m_sseParser->reset();
@@ -690,6 +742,7 @@ void CopilotProvider::sendResponsesApi(const AgentRequest &request)
         QJsonDocument(body).toJson(QJsonDocument::Compact));
     m_activeReply = reply;
     connectReply(reply);
+    m_idleTimer.start();
 }
 
 // ── Message building ──────────────────────────────────────────────────────────
@@ -738,11 +791,35 @@ QJsonArray CopilotProvider::buildMessages(const AgentRequest &request) const
         messages.append(entry);
     }
 
-    // Current user message
-    messages.append(QJsonObject{
-        {QStringLiteral("role"),    QStringLiteral("user")},
-        {QStringLiteral("content"), buildUserContent(request)}
-    });
+    // Current user message — with vision content array if images attached
+    if (!request.attachments.isEmpty()) {
+        QJsonArray contentArray;
+        contentArray.append(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("text")},
+            {QStringLiteral("text"), buildUserContent(request)}
+        });
+        for (const auto &att : request.attachments) {
+            if (att.type == Attachment::Type::Image && !att.data.isEmpty()) {
+                const QString b64 = QString::fromLatin1(att.data.toBase64());
+                contentArray.append(QJsonObject{
+                    {QStringLiteral("type"), QStringLiteral("image_url")},
+                    {QStringLiteral("image_url"), QJsonObject{
+                        {QStringLiteral("url"),
+                         QStringLiteral("data:%1;base64,%2").arg(att.mimeType, b64)}
+                    }}
+                });
+            }
+        }
+        messages.append(QJsonObject{
+            {QStringLiteral("role"),    QStringLiteral("user")},
+            {QStringLiteral("content"), contentArray}
+        });
+    } else {
+        messages.append(QJsonObject{
+            {QStringLiteral("role"),    QStringLiteral("user")},
+            {QStringLiteral("content"), buildUserContent(request)}
+        });
+    }
 
     return messages;
 }
@@ -803,6 +880,7 @@ void CopilotProvider::cancelRequest(const QString &requestId)
         m_activeReply->abort();
         m_activeReply = nullptr;
     }
+    m_idleTimer.stop();
     m_activeRequestId.clear();
     m_pendingToolCalls.clear();
 }
@@ -812,11 +890,13 @@ void CopilotProvider::cancelRequest(const QString &requestId)
 void CopilotProvider::connectReply(QNetworkReply *reply)
 {
     connect(reply, &QNetworkReply::readyRead, this, [this, reply] {
+        m_idleTimer.start(); // reset idle timer on each chunk
         m_sseParser->feed(reply->readAll());
     });
 
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         reply->deleteLater();
+        m_idleTimer.stop();
         if (m_activeReply != reply)
             return;
         m_activeReply = nullptr;
@@ -830,26 +910,53 @@ void CopilotProvider::connectReply(QNetworkReply *reply)
         if (reply->error() == QNetworkReply::NoError) {
             handleSseDone(); // Stream ended without [DONE]
         } else {
-            AgentError err;
-            err.requestId = m_activeRequestId;
-            err.message   = reply->errorString();
-            if (status == 401 || status == 403)
-                err.code = AgentError::Code::AuthError;
-            else if (status == 429)
-                err.code = AgentError::Code::RateLimited;
-            else
-                err.code = AgentError::Code::NetworkError;
-            emit responseError(m_activeRequestId, err);
-            m_activeRequestId.clear();
+            retryOrFail(status, reply->errorString());
         }
     });
 }
 
 // ── SSE event handling ────────────────────────────────────────────────────────
 
-void CopilotProvider::handleSseEvent(const QString & /*eventType*/, const QString &data)
+void CopilotProvider::handleSseEvent(const QString &eventType, const QString &data)
+{
+    // Handle SSE error events from the server
+    if (eventType == QLatin1String("error")) {
+        qCWarning(lcCopilot) << "SSE error event:" << data.left(500);
+        const QJsonObject errObj = QJsonDocument::fromJson(data.toUtf8()).object();
+        AgentError err;
+        err.requestId = m_activeRequestId;
+        err.code      = AgentError::Code::Unknown;
+        err.message   = errObj[QLatin1String("message")].toString(
+                            tr("Server returned an error."));
+        emit responseError(m_activeRequestId, err);
+        m_activeRequestId.clear();
+        m_idleTimer.stop();
+        return;
+    }
+
+    m_idleTimer.start(); // reset idle timer on each event
+
+    // Route to appropriate handler based on API used
+    if (m_useResponsesApi)
+        handleResponsesEvent(eventType, data);
+    else
+        handleChatCompletionsEvent(data);
+}
+
+// ── Chat Completions SSE parsing ──────────────────────────────────────────────
+
+void CopilotProvider::handleChatCompletionsEvent(const QString &data)
 {
     const QJsonObject obj = QJsonDocument::fromJson(data.toUtf8()).object();
+
+    // Parse usage data (appears in the final chunk)
+    const QJsonObject usage = obj[QLatin1String("usage")].toObject();
+    if (!usage.isEmpty()) {
+        m_promptTokens     = usage[QLatin1String("prompt_tokens")].toInt();
+        m_completionTokens = usage[QLatin1String("completion_tokens")].toInt();
+        m_totalTokens      = usage[QLatin1String("total_tokens")].toInt();
+    }
+
     const QJsonArray choices = obj[QLatin1String("choices")].toArray();
     if (choices.isEmpty())
         return;
@@ -859,8 +966,10 @@ void CopilotProvider::handleSseEvent(const QString & /*eventType*/, const QStrin
 
     // Text content
     const QString content = delta[QLatin1String("content")].toString();
-    if (!content.isEmpty())
+    if (!content.isEmpty()) {
+        m_streamAccum += content;
         emit responseDelta(m_activeRequestId, content);
+    }
 
     // Thinking/reasoning content (for thinking models like o-series, Claude)
     const QString reasoning = delta[QLatin1String("reasoning_content")].toString();
@@ -890,15 +999,148 @@ void CopilotProvider::handleSseEvent(const QString & /*eventType*/, const QStrin
     // Check for finish_reason
     const QString finishReason = choice[QLatin1String("finish_reason")].toString();
     if (finishReason == QLatin1String("tool_calls")) {
-        // Model wants to call tools — emit response with tool calls
         AgentResponse resp;
         resp.requestId = m_activeRequestId;
         resp.thinkingContent = m_pendingThinking;
+        resp.promptTokens     = m_promptTokens;
+        resp.completionTokens = m_completionTokens;
+        resp.totalTokens      = m_totalTokens;
         for (auto it = m_pendingToolCalls.begin(); it != m_pendingToolCalls.end(); ++it)
             resp.toolCalls.append(it.value());
         emit responseFinished(m_activeRequestId, resp);
         m_activeRequestId.clear();
         m_activeReply = nullptr;
+        m_idleTimer.stop();
+        m_pendingToolCalls.clear();
+        m_pendingThinking.clear();
+    } else if (finishReason == QLatin1String("content_filter")) {
+        qCWarning(lcCopilot) << "Response blocked by content filter";
+        AgentError err;
+        err.requestId = m_activeRequestId;
+        err.code      = AgentError::Code::ContentFilter;
+        err.message   = tr("Response was blocked by the content safety filter.");
+        emit responseError(m_activeRequestId, err);
+        m_activeRequestId.clear();
+        m_activeReply = nullptr;
+        m_idleTimer.stop();
+        m_pendingToolCalls.clear();
+        m_pendingThinking.clear();
+    }
+}
+
+// ── Responses API SSE parsing ─────────────────────────────────────────────────
+// Events: response.output_text.delta, response.output_text.done,
+//         response.function_call_arguments.delta, response.function_call_arguments.done,
+//         response.output_item.added, response.output_item.done,
+//         response.completed, response.content_part.delta
+
+void CopilotProvider::handleResponsesEvent(const QString &eventType, const QString &data)
+{
+    const QJsonObject obj = QJsonDocument::fromJson(data.toUtf8()).object();
+
+    if (eventType == QLatin1String("response.output_text.delta")) {
+        // Streaming text delta
+        const QString delta = obj[QLatin1String("delta")].toString();
+        if (!delta.isEmpty()) {
+            m_streamAccum += delta;
+            emit responseDelta(m_activeRequestId, delta);
+        }
+    } else if (eventType == QLatin1String("response.content_part.delta")) {
+        // Alternative content delta format
+        const QJsonObject deltaPart = obj[QLatin1String("delta")].toObject();
+        const QString text = deltaPart[QLatin1String("text")].toString();
+        if (!text.isEmpty()) {
+            m_streamAccum += text;
+            emit responseDelta(m_activeRequestId, text);
+        }
+        // Reasoning/thinking
+        const QString reasoning = deltaPart[QLatin1String("reasoning")].toString();
+        if (!reasoning.isEmpty()) {
+            m_pendingThinking += reasoning;
+            emit thinkingDelta(m_activeRequestId, reasoning);
+        }
+    } else if (eventType == QLatin1String("response.output_item.added")) {
+        // New output item — could be function_call
+        const QJsonObject item = obj[QLatin1String("item")].toObject();
+        if (item[QLatin1String("type")].toString() == QLatin1String("function_call")) {
+            m_responsesToolCall = ToolCall();
+            m_responsesToolCall.id   = item[QLatin1String("call_id")].toString();
+            m_responsesToolCall.name = item[QLatin1String("name")].toString();
+            m_responsesToolCall.arguments.clear();
+        }
+    } else if (eventType == QLatin1String("response.function_call_arguments.delta")) {
+        // Accumulate function call arguments
+        const QString delta = obj[QLatin1String("delta")].toString();
+        m_responsesToolCall.arguments += delta;
+    } else if (eventType == QLatin1String("response.function_call_arguments.done")) {
+        // Function call complete — add to pending
+        if (!m_responsesToolCall.id.isEmpty())
+            m_pendingToolCalls[m_pendingToolCalls.size()] = m_responsesToolCall;
+    } else if (eventType == QLatin1String("response.output_item.done")) {
+        // Output item finished — may be function_call with full data
+        const QJsonObject item = obj[QLatin1String("item")].toObject();
+        if (item[QLatin1String("type")].toString() == QLatin1String("function_call")) {
+            ToolCall tc;
+            tc.id        = item[QLatin1String("call_id")].toString();
+            tc.name      = item[QLatin1String("name")].toString();
+            tc.arguments = item[QLatin1String("arguments")].toString();
+            // Overwrite if already accumulated via deltas
+            bool found = false;
+            for (auto it = m_pendingToolCalls.begin(); it != m_pendingToolCalls.end(); ++it) {
+                if (it.value().id == tc.id) {
+                    it.value() = tc;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                m_pendingToolCalls[m_pendingToolCalls.size()] = tc;
+        }
+    } else if (eventType == QLatin1String("response.completed")) {
+        // Stream finished — emit response with any accumulated tool calls
+        const QJsonObject response = obj[QLatin1String("response")].toObject();
+        const QString status = response[QLatin1String("status")].toString();
+
+        if (status == QLatin1String("incomplete")) {
+            const QJsonObject incompleteDetails =
+                response[QLatin1String("incomplete_details")].toObject();
+            const QString reason = incompleteDetails[QLatin1String("reason")].toString();
+
+            if (reason == QLatin1String("content_filter")) {
+                AgentError err;
+                err.requestId = m_activeRequestId;
+                err.code      = AgentError::Code::ContentFilter;
+                err.message   = tr("Response was blocked by the content safety filter.");
+                emit responseError(m_activeRequestId, err);
+                m_activeRequestId.clear();
+                m_activeReply = nullptr;
+                m_idleTimer.stop();
+                m_pendingToolCalls.clear();
+                m_pendingThinking.clear();
+                return;
+            }
+        }
+
+        // Parse usage from Responses API
+        const QJsonObject usage = response[QLatin1String("usage")].toObject();
+        if (!usage.isEmpty()) {
+            m_promptTokens     = usage[QLatin1String("input_tokens")].toInt();
+            m_completionTokens = usage[QLatin1String("output_tokens")].toInt();
+            m_totalTokens      = m_promptTokens + m_completionTokens;
+        }
+
+        AgentResponse resp;
+        resp.requestId = m_activeRequestId;
+        resp.thinkingContent = m_pendingThinking;
+        resp.promptTokens     = m_promptTokens;
+        resp.completionTokens = m_completionTokens;
+        resp.totalTokens      = m_totalTokens;
+        for (auto it = m_pendingToolCalls.begin(); it != m_pendingToolCalls.end(); ++it)
+            resp.toolCalls.append(it.value());
+        emit responseFinished(m_activeRequestId, resp);
+        m_activeRequestId.clear();
+        m_activeReply = nullptr;
+        m_idleTimer.stop();
         m_pendingToolCalls.clear();
         m_pendingThinking.clear();
     }
@@ -909,9 +1151,14 @@ void CopilotProvider::handleSseDone()
     if (m_activeRequestId.isEmpty())
         return;
 
+    m_idleTimer.stop();
+
     AgentResponse resp;
     resp.requestId = m_activeRequestId;
     resp.thinkingContent = m_pendingThinking;
+    resp.promptTokens     = m_promptTokens;
+    resp.completionTokens = m_completionTokens;
+    resp.totalTokens      = m_totalTokens;
     // Include any accumulated tool calls
     for (auto it = m_pendingToolCalls.begin(); it != m_pendingToolCalls.end(); ++it)
         resp.toolCalls.append(it.value());
@@ -921,6 +1168,56 @@ void CopilotProvider::handleSseDone()
     m_activeReply = nullptr;
     m_pendingToolCalls.clear();
     m_pendingThinking.clear();
+}
+
+// ── Retry with exponential backoff ────────────────────────────────────────────
+
+void CopilotProvider::retryOrFail(int httpStatus, const QString &errorMsg)
+{
+    // Only retry on 429 (rate limited) or 5xx (server error)
+    const bool retryable = (httpStatus == 429 || httpStatus >= 500);
+
+    if (retryable && m_retryCount < kMaxRetries) {
+        ++m_retryCount;
+        const int delayMs = kRetryBaseMs * (1 << (m_retryCount - 1)); // 1s, 2s, 4s
+        qCInfo(lcCopilot) << "Retrying request (attempt" << m_retryCount
+                          << "of" << kMaxRetries << ") after" << delayMs << "ms"
+                          << "(HTTP" << httpStatus << ")";
+
+        QTimer::singleShot(delayMs, this, [this] {
+            if (m_lastRequest.requestId.isEmpty())
+                return;
+            m_activeRequestId = m_lastRequest.requestId;
+
+            const ModelInfo mi = currentModelInfo();
+            const bool supportsResponses =
+                mi.supportedEndpoints.contains(QLatin1String("/responses"));
+
+            if (supportsResponses && m_lastRequest.agentMode)
+                sendResponsesApi(m_lastRequest);
+            else
+                sendChatCompletions(m_lastRequest);
+        });
+        return;
+    }
+
+    // Not retryable or exhausted retries
+    AgentError err;
+    err.requestId = m_activeRequestId;
+    err.message   = errorMsg;
+
+    if (httpStatus == 401 || httpStatus == 403)
+        err.code = AgentError::Code::AuthError;
+    else if (httpStatus == 429)
+        err.code = AgentError::Code::RateLimited;
+    else
+        err.code = AgentError::Code::NetworkError;
+
+    if (m_retryCount > 0)
+        err.message += tr(" (after %1 retries)").arg(m_retryCount);
+
+    emit responseError(m_activeRequestId, err);
+    m_activeRequestId.clear();
 }
 
 // ── Inline completion ─────────────────────────────────────────────────────────

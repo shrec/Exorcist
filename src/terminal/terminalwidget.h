@@ -32,11 +32,9 @@ public:
 
     // Send a command line to the shell (appends newline).
     void sendCommand(const QString &cmd);
-
-    // Send raw input bytes (without auto newline).
+    // Send raw input to the shell (no newline).
     void sendInput(const QString &text);
-
-    // Returns most recent terminal output as plain text.
+    // Get recent terminal output (best-effort, last N lines).
     QString recentOutput(int maxLines = 80) const;
 
 protected:

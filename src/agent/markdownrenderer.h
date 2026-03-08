@@ -10,9 +10,10 @@ namespace MarkdownRenderer {
 
 struct CodeBlock
 {
-	QString language;
-	QString filePath;
-	QString code;
+    int     index = -1;
+    QString language;
+    QString filePath;
+    QString code;
 };
 
 struct RenderResult

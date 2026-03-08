@@ -8,6 +8,12 @@
 #include <QTextBlock>
 #include <QFont>
 #include <QDir>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QLabel>
+#include <QTimer>
 
 OutputPanel::OutputPanel(QWidget *parent)
     : QWidget(parent)
@@ -22,11 +28,6 @@ OutputPanel::OutputPanel(QWidget *parent)
 
     m_profileCombo = new QComboBox(this);
     m_profileCombo->setMinimumWidth(180);
-    m_profileCombo->addItem(tr("cmake --build build"));
-    m_profileCombo->addItem(tr("make"));
-    m_profileCombo->addItem(tr("cargo build"));
-    m_profileCombo->addItem(tr("python -m pytest"));
-    m_profileCombo->addItem(tr("npm run build"));
     m_profileCombo->setEditable(true);
     toolbar->addWidget(m_profileCombo);
 
@@ -38,6 +39,12 @@ OutputPanel::OutputPanel(QWidget *parent)
     toolbar->addWidget(m_runBtn);
     toolbar->addWidget(m_stopBtn);
     toolbar->addWidget(m_clearBtn);
+
+    m_elapsedLabel = new QLabel(this);
+    m_elapsedLabel->setStyleSheet(QStringLiteral(
+        "QLabel { color: #888; font-size: 11px; padding-left: 8px; }"));
+    toolbar->addWidget(m_elapsedLabel);
+
     toolbar->addStretch();
 
     vbox->addLayout(toolbar);
@@ -52,11 +59,22 @@ OutputPanel::OutputPanel(QWidget *parent)
     m_output->setWordWrapMode(QTextOption::NoWrap);
     vbox->addWidget(m_output);
 
+    // Elapsed-time ticker
+    m_elapsedTimer = new QTimer(this);
+    m_elapsedTimer->setInterval(500);
+    connect(m_elapsedTimer, &QTimer::timeout, this, &OutputPanel::onElapsedTick);
+
     // Signals
     connect(m_runBtn, &QPushButton::clicked, this, [this] {
-        const QString cmd = m_profileCombo->currentText();
-        if (!cmd.isEmpty())
-            runCommand(cmd);
+        const int idx = m_profileCombo->currentIndex();
+        if (idx >= 0 && idx < m_tasks.size()) {
+            runTask(m_tasks.at(idx));
+        } else {
+            // Free-form command typed into editable combo
+            const QString cmd = m_profileCombo->currentText();
+            if (!cmd.isEmpty())
+                runCommand(cmd);
+        }
     });
     connect(m_stopBtn, &QPushButton::clicked, this, [this] {
         if (m_process && m_process->state() != QProcess::NotRunning)
@@ -73,6 +91,211 @@ OutputPanel::OutputPanel(QWidget *parent)
 void OutputPanel::setWorkingDirectory(const QString &dir)
 {
     m_workDir = dir;
+    // Auto-detect tasks if combo is empty
+    if (m_tasks.isEmpty())
+        autoDetectTasks();
+}
+
+// ── Task profile management ──────────────────────────────────────────────────
+
+void OutputPanel::setTaskProfiles(const QList<TaskProfile> &profiles)
+{
+    m_tasks = profiles;
+    populateCombo();
+}
+
+void OutputPanel::loadTasksFromJson(const QString &jsonPath)
+{
+    QFile f(jsonPath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return;
+
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    if (!doc.isObject()) return;
+
+    const QJsonArray arr = doc.object().value(QLatin1String("tasks")).toArray();
+    QList<TaskProfile> tasks;
+    for (const QJsonValue &v : arr) {
+        const QJsonObject obj = v.toObject();
+        TaskProfile t;
+        t.label   = obj.value(QLatin1String("label")).toString();
+        t.command = obj.value(QLatin1String("command")).toString();
+        const QJsonArray argsArr = obj.value(QLatin1String("args")).toArray();
+        for (const QJsonValue &a : argsArr)
+            t.args << a.toString();
+        t.workDir   = obj.value(QLatin1String("workDir")).toString();
+        t.isDefault = obj.value(QLatin1String("isDefault")).toBool();
+        const QJsonObject envObj = obj.value(QLatin1String("env")).toObject();
+        for (auto it = envObj.begin(); it != envObj.end(); ++it)
+            t.env.insert(it.key(), it.value().toString());
+        if (!t.command.isEmpty())
+            tasks.append(t);
+    }
+    setTaskProfiles(tasks);
+}
+
+void OutputPanel::saveTasksToJson(const QString &jsonPath) const
+{
+    QJsonArray arr;
+    for (const TaskProfile &t : m_tasks) {
+        QJsonObject obj;
+        obj[QLatin1String("label")]     = t.label;
+        obj[QLatin1String("command")]   = t.command;
+        if (!t.args.isEmpty())
+            obj[QLatin1String("args")]  = QJsonArray::fromStringList(t.args);
+        if (!t.workDir.isEmpty())
+            obj[QLatin1String("workDir")] = t.workDir;
+        if (t.isDefault)
+            obj[QLatin1String("isDefault")] = true;
+        if (!t.env.isEmpty()) {
+            QJsonObject envObj;
+            for (auto it = t.env.constBegin(); it != t.env.constEnd(); ++it)
+                envObj[it.key()] = it.value();
+            obj[QLatin1String("env")] = envObj;
+        }
+        arr.append(obj);
+    }
+    QJsonObject root;
+    root[QLatin1String("tasks")] = arr;
+
+    QFile f(jsonPath);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Text))
+        f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+}
+
+void OutputPanel::autoDetectTasks()
+{
+    if (m_workDir.isEmpty()) return;
+    const QDir dir(m_workDir);
+
+    QList<TaskProfile> detected;
+
+    // CMake
+    if (dir.exists(QStringLiteral("CMakeLists.txt"))) {
+        detected.append({tr("CMake: Build"), QStringLiteral("cmake"),
+                         {QStringLiteral("--build"), QStringLiteral("${workspaceFolder}/build")},
+                         {}, {}, true});
+        detected.append({tr("CMake: Configure"), QStringLiteral("cmake"),
+                         {QStringLiteral("-S"), QStringLiteral("${workspaceFolder}"),
+                          QStringLiteral("-B"), QStringLiteral("${workspaceFolder}/build")},
+                         {}, {}, false});
+    }
+    // Cargo
+    if (dir.exists(QStringLiteral("Cargo.toml"))) {
+        detected.append({tr("Cargo: Build"), QStringLiteral("cargo"),
+                         {QStringLiteral("build")}, {}, {}, true});
+        detected.append({tr("Cargo: Test"), QStringLiteral("cargo"),
+                         {QStringLiteral("test")}, {}, {}, false});
+    }
+    // Makefile
+    if (dir.exists(QStringLiteral("Makefile")) || dir.exists(QStringLiteral("makefile"))) {
+        detected.append({tr("Make: Build"), QStringLiteral("make"),
+                         {}, {}, {}, true});
+        detected.append({tr("Make: Clean"), QStringLiteral("make"),
+                         {QStringLiteral("clean")}, {}, {}, false});
+    }
+    // Node.js
+    if (dir.exists(QStringLiteral("package.json"))) {
+        detected.append({tr("npm: Build"), QStringLiteral("npm"),
+                         {QStringLiteral("run"), QStringLiteral("build")}, {}, {}, true});
+        detected.append({tr("npm: Test"), QStringLiteral("npm"),
+                         {QStringLiteral("test")}, {}, {}, false});
+    }
+    // Python
+    if (dir.exists(QStringLiteral("setup.py")) || dir.exists(QStringLiteral("pyproject.toml"))) {
+        detected.append({tr("Python: Test"), QStringLiteral("python"),
+                         {QStringLiteral("-m"), QStringLiteral("pytest")}, {}, {}, false});
+    }
+    // .NET
+    if (dir.exists(QStringLiteral("*.sln")) || !dir.entryList({QStringLiteral("*.csproj")}).isEmpty()) {
+        detected.append({tr("dotnet: Build"), QStringLiteral("dotnet"),
+                         {QStringLiteral("build")}, {}, {}, true});
+    }
+
+    if (!detected.isEmpty())
+        setTaskProfiles(detected);
+}
+
+void OutputPanel::populateCombo()
+{
+    m_profileCombo->clear();
+    int defaultIdx = 0;
+    for (int i = 0; i < m_tasks.size(); ++i) {
+        const TaskProfile &t = m_tasks.at(i);
+        const QString display = t.label.isEmpty()
+            ? t.command + QLatin1Char(' ') + t.args.join(QLatin1Char(' '))
+            : t.label;
+        m_profileCombo->addItem(display);
+        if (t.isDefault)
+            defaultIdx = i;
+    }
+    if (!m_tasks.isEmpty())
+        m_profileCombo->setCurrentIndex(defaultIdx);
+}
+
+QString OutputPanel::substituteVars(const QString &input) const
+{
+    QString result = input;
+    result.replace(QLatin1String("${workspaceFolder}"), m_workDir);
+    result.replace(QLatin1String("${workspaceRoot}"),   m_workDir);
+
+    // ${env:VAR} — read from process environment
+    static const QRegularExpression envRx(QStringLiteral(R"(\$\{env:(\w+)\})"));
+    auto it = envRx.globalMatch(result);
+    while (it.hasNext()) {
+        auto match = it.next();
+        const QString val = qEnvironmentVariable(match.captured(1).toUtf8().constData());
+        result.replace(match.captured(0), val);
+    }
+    return result;
+}
+
+void OutputPanel::runTask(const TaskProfile &task)
+{
+    // Substitute variables in command and args
+    QString cmd = substituteVars(task.command);
+    QStringList args;
+    for (const QString &a : task.args)
+        args << substituteVars(a);
+    QString workDir = task.workDir.isEmpty() ? m_workDir : substituteVars(task.workDir);
+
+    clear();
+
+    if (m_process) {
+        if (m_process->state() != QProcess::NotRunning)
+            m_process->kill();
+        m_process->deleteLater();
+    }
+
+    m_process = new QProcess(this);
+    m_process->setWorkingDirectory(workDir.isEmpty() ? QDir::currentPath() : workDir);
+    m_process->setProcessChannelMode(QProcess::SeparateChannels);
+
+    // Set extra env vars
+    if (!task.env.isEmpty()) {
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        for (auto it = task.env.constBegin(); it != task.env.constEnd(); ++it)
+            env.insert(it.key(), substituteVars(it.value()));
+        m_process->setProcessEnvironment(env);
+    }
+
+    connect(m_process, &QProcess::readyReadStandardOutput, this, &OutputPanel::onReadyReadStdout);
+    connect(m_process, &QProcess::readyReadStandardError,  this, &OutputPanel::onReadyReadStderr);
+    connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &OutputPanel::onProcessFinished);
+
+    const QString display = task.label.isEmpty()
+        ? cmd + QLatin1Char(' ') + args.join(QLatin1Char(' '))
+        : task.label;
+    appendText(tr("▶ Running: %1\n").arg(display), QColor(100, 180, 255));
+
+    m_runBtn->setEnabled(false);
+    m_stopBtn->setEnabled(true);
+    m_elapsed.start();
+    m_elapsedTimer->start();
+    m_elapsedLabel->setText(tr("0.0 s"));
+
+    m_process->start(cmd, args);
 }
 
 void OutputPanel::runCommand(const QString &cmd, const QStringList &args)
@@ -98,6 +321,9 @@ void OutputPanel::runCommand(const QString &cmd, const QStringList &args)
 
     m_runBtn->setEnabled(false);
     m_stopBtn->setEnabled(true);
+    m_elapsed.start();
+    m_elapsedTimer->start();
+    m_elapsedLabel->setText(tr("0.0 s"));
 
     // Parse command line
     QStringList parts;
@@ -173,9 +399,13 @@ void OutputPanel::onReadyReadStderr()
 
 void OutputPanel::onProcessFinished(int exitCode, QProcess::ExitStatus /*status*/)
 {
+    m_elapsedTimer->stop();
+    const double secs = m_elapsed.elapsed() / 1000.0;
+    m_elapsedLabel->setText(tr("%1 s").arg(secs, 0, 'f', 1));
+
     const QColor c = (exitCode == 0) ? QColor(80, 200, 80) : QColor(220, 80, 80);
-    appendText(tr("\n✔ Process exited with code %1  (%2 problem(s))\n")
-               .arg(exitCode).arg(m_problems.size()), c);
+    appendText(tr("\n✔ Process exited with code %1  (%2 problem(s), %3 s)\n")
+               .arg(exitCode).arg(m_problems.size()).arg(secs, 0, 'f', 1), c);
     m_runBtn->setEnabled(true);
     m_stopBtn->setEnabled(false);
     emit buildFinished(exitCode);
@@ -189,6 +419,12 @@ void OutputPanel::onTextClicked()
         const ProblemMatch &p = m_problems.at(it.value());
         emit problemClicked(p.file, p.line, p.column);
     }
+}
+
+void OutputPanel::onElapsedTick()
+{
+    const double secs = m_elapsed.elapsed() / 1000.0;
+    m_elapsedLabel->setText(tr("%1 s").arg(secs, 0, 'f', 1));
 }
 
 void OutputPanel::parseLine(const QString &line)

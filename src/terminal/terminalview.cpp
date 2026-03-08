@@ -3,14 +3,20 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QContextMenuEvent>
 #include <QFontDatabase>
 #include <QFontInfo>
 #include <QFontMetrics>
+#include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QScrollBar>
 #include <QTimer>
+#include <QToolButton>
 #include <QWheelEvent>
 
 static constexpr QRgb kTermSelectionBg = 0xFF264F78;
@@ -42,7 +48,7 @@ TerminalView::TerminalView(TerminalScreen *screen, QWidget *parent)
     viewport()->setCursor(Qt::IBeamCursor);
     setFocusPolicy(Qt::StrongFocus);
     viewport()->setFocusProxy(this);
-    setContextMenuPolicy(Qt::NoContextMenu);
+    setContextMenuPolicy(Qt::DefaultContextMenu);
 
     m_blinkTimer->setInterval(530);
     connect(m_blinkTimer, &QTimer::timeout, this, &TerminalView::blinkCursor);
@@ -120,6 +126,22 @@ void TerminalView::paintEvent(QPaintEvent * /*event*/)
             if (sel) bg = kTermSelectionBg;
             if (bg != kTermDefaultBg || sel)
                 p.fillRect(c * m_cellW, yPx, m_cellW, m_cellH, QColor(bg));
+        }
+
+        // ── Pass 1.5: search highlight ────────────────────────────────────
+        if (!m_searchNeedle.isEmpty()) {
+            const int needleLen = m_searchNeedle.length();
+            for (int i = 0; i < m_searchHits.size(); ++i) {
+                if (m_searchHits[i].first != absRow) continue;
+                const int startCol = m_searchHits[i].second;
+                const bool isCurrent = (i == m_searchCurrent);
+                const QColor hlBg = isCurrent ? QColor(0xFFE8A317)
+                                              : QColor(0x60E8A317);
+                for (int k = 0; k < needleLen && (startCol + k) < cols; ++k) {
+                    p.fillRect((startCol + k) * m_cellW, yPx,
+                               m_cellW, m_cellH, hlBg);
+                }
+            }
         }
 
         // ── Pass 2: text ──────────────────────────────────────────────────
@@ -203,6 +225,29 @@ void TerminalView::keyPressEvent(QKeyEvent *event)
         const QString text = QApplication::clipboard()->text();
         if (!text.isEmpty())
             emit inputData(text.toUtf8());
+        return;
+    }
+    // Ctrl+Shift+F → find in scrollback
+    if (ctrl && shift && event->key() == Qt::Key_F) {
+        showFindBar();
+        return;
+    }
+    // Escape → hide find bar if visible
+    if (event->key() == Qt::Key_Escape && m_findBar && m_findBar->isVisible()) {
+        hideFindBar();
+        return;
+    }
+    // Font size control
+    if (ctrl && (event->key() == Qt::Key_Equal || event->key() == Qt::Key_Plus)) {
+        setFontSize(m_fontSize + 1);
+        return;
+    }
+    if (ctrl && event->key() == Qt::Key_Minus) {
+        setFontSize(m_fontSize - 1);
+        return;
+    }
+    if (ctrl && event->key() == Qt::Key_0) {
+        setFontSize(10);
         return;
     }
 
@@ -389,4 +434,252 @@ QString TerminalView::selectedText() const
         result += line;
     }
     return result;
+}
+
+// ── Context Menu ──────────────────────────────────────────────────────────────
+
+void TerminalView::contextMenuEvent(QContextMenuEvent *event)
+{
+    QMenu menu(this);
+
+    auto *copyAction = menu.addAction(tr("Copy\tCtrl+Shift+C"));
+    copyAction->setEnabled(!selectedText().isEmpty());
+    connect(copyAction, &QAction::triggered, this, [this]() {
+        const QString text = selectedText();
+        if (!text.isEmpty())
+            QApplication::clipboard()->setText(text);
+    });
+
+    auto *pasteAction = menu.addAction(tr("Paste\tCtrl+Shift+V"));
+    pasteAction->setEnabled(!QApplication::clipboard()->text().isEmpty());
+    connect(pasteAction, &QAction::triggered, this, [this]() {
+        const QString text = QApplication::clipboard()->text();
+        if (!text.isEmpty())
+            emit inputData(text.toUtf8());
+    });
+
+    menu.addSeparator();
+
+    auto *selectAllAction = menu.addAction(tr("Select All"));
+    connect(selectAllAction, &QAction::triggered, this, [this]() {
+        const int sbLines = m_screen->scrollbackLines();
+        m_selStart = {0, 0};
+        m_selEnd = {m_screen->cols() - 1, sbLines + m_screen->rows() - 1};
+        viewport()->update();
+    });
+
+    auto *clearAction = menu.addAction(tr("Clear"));
+    connect(clearAction, &QAction::triggered, this, [this]() {
+        m_screen->feed("\x1B[2J\x1B[H");
+        viewport()->update();
+    });
+
+    menu.addSeparator();
+
+    auto *findAction = menu.addAction(tr("Find...\tCtrl+Shift+F"));
+    connect(findAction, &QAction::triggered, this, &TerminalView::showFindBar);
+
+    menu.addSeparator();
+
+    auto *zoomInAction = menu.addAction(tr("Zoom In\tCtrl++"));
+    connect(zoomInAction, &QAction::triggered, this, [this]() {
+        setFontSize(m_fontSize + 1);
+    });
+
+    auto *zoomOutAction = menu.addAction(tr("Zoom Out\tCtrl+-"));
+    connect(zoomOutAction, &QAction::triggered, this, [this]() {
+        setFontSize(m_fontSize - 1);
+    });
+
+    auto *resetZoomAction = menu.addAction(tr("Reset Zoom\tCtrl+0"));
+    connect(resetZoomAction, &QAction::triggered, this, [this]() {
+        setFontSize(10);
+    });
+
+    menu.exec(event->globalPos());
+}
+
+// ── Font Size ─────────────────────────────────────────────────────────────────
+
+void TerminalView::setFontSize(int pointSize)
+{
+    if (pointSize < 6 || pointSize > 48)
+        return;
+    m_fontSize = pointSize;
+    m_font.setPointSize(m_fontSize);
+    m_fontBold.setPointSize(m_fontSize);
+    QFontMetrics fm(m_font);
+    m_cellW = fm.horizontalAdvance(QLatin1Char('M'));
+    m_cellH = fm.lineSpacing();
+    // Re-grid the screen
+    const int cols = qMax(1, viewport()->width()  / m_cellW);
+    const int rows = qMax(1, viewport()->height() / m_cellH);
+    m_screen->resize(cols, rows);
+    emit sizeChanged(cols, rows);
+    updateScrollbar();
+    viewport()->update();
+}
+
+// ── Find Bar ──────────────────────────────────────────────────────────────────
+
+void TerminalView::showFindBar()
+{
+    if (!m_findBar) {
+        m_findBar = new QWidget(this);
+        auto *lay = new QHBoxLayout(m_findBar);
+        lay->setContentsMargins(6, 4, 6, 4);
+        lay->setSpacing(4);
+
+        m_findInput = new QLineEdit(m_findBar);
+        m_findInput->setPlaceholderText(tr("Find in terminal..."));
+        m_findInput->setStyleSheet(
+            QStringLiteral("QLineEdit { background:#313131; color:#cccccc;"
+                          " border:1px solid #3e3e42; border-radius:3px;"
+                          " padding:2px 6px; font-size:12px; }"));
+
+        m_findCount = new QLabel(m_findBar);
+        m_findCount->setStyleSheet(
+            QStringLiteral("color:#9d9d9d; font-size:11px;"));
+
+        auto *prevBtn = new QToolButton(m_findBar);
+        prevBtn->setText(QStringLiteral("\u25B2"));
+        prevBtn->setToolTip(tr("Previous match"));
+        prevBtn->setAutoRaise(true);
+
+        auto *nextBtn = new QToolButton(m_findBar);
+        nextBtn->setText(QStringLiteral("\u25BC"));
+        nextBtn->setToolTip(tr("Next match"));
+        nextBtn->setAutoRaise(true);
+
+        auto *closeBtn = new QToolButton(m_findBar);
+        closeBtn->setText(QStringLiteral("\u2715"));
+        closeBtn->setToolTip(tr("Close"));
+        closeBtn->setAutoRaise(true);
+
+        lay->addWidget(m_findInput, 1);
+        lay->addWidget(m_findCount);
+        lay->addWidget(prevBtn);
+        lay->addWidget(nextBtn);
+        lay->addWidget(closeBtn);
+
+        m_findBar->setStyleSheet(
+            QStringLiteral("background:#1f1f1f; border-bottom:1px solid #3e3e42;"));
+
+        connect(m_findInput, &QLineEdit::textChanged,
+                this, &TerminalView::updateSearchHighlight);
+        connect(m_findInput, &QLineEdit::returnPressed,
+                this, &TerminalView::findNext);
+        connect(nextBtn, &QToolButton::clicked, this, &TerminalView::findNext);
+        connect(prevBtn, &QToolButton::clicked, this, &TerminalView::findPrev);
+        connect(closeBtn, &QToolButton::clicked, this, &TerminalView::hideFindBar);
+    }
+
+    // Position find bar at the top of the viewport
+    m_findBar->setGeometry(0, 0, width(), 32);
+    m_findBar->show();
+    m_findBar->raise();
+    m_findInput->setFocus();
+    m_findInput->selectAll();
+}
+
+void TerminalView::hideFindBar()
+{
+    if (m_findBar) {
+        m_findBar->hide();
+        m_searchNeedle.clear();
+        m_searchHits.clear();
+        m_searchCurrent = -1;
+        viewport()->update();
+        setFocus();
+    }
+}
+
+void TerminalView::updateSearchHighlight()
+{
+    m_searchNeedle = m_findInput ? m_findInput->text() : QString();
+    m_searchHits.clear();
+    m_searchCurrent = -1;
+
+    if (m_searchNeedle.isEmpty()) {
+        if (m_findCount) m_findCount->clear();
+        viewport()->update();
+        return;
+    }
+
+    const int sbLines = m_screen->scrollbackLines();
+    const int totalRows = sbLines + m_screen->rows();
+    const int cols = m_screen->cols();
+
+    for (int absRow = 0; absRow < totalRows; ++absRow) {
+        const int screenRow = absRow - sbLines;
+        // Build the text of this row
+        QString line;
+        for (int c = 0; c < cols; ++c) {
+            const TermCell cell = m_screen->cellAt(c, screenRow);
+            line += (cell.cp > U' ') ? QString::fromUcs4(&cell.cp, 1)
+                                     : QStringLiteral(" ");
+        }
+        // Search for all occurrences in this row
+        int pos = 0;
+        while ((pos = line.indexOf(m_searchNeedle, pos, Qt::CaseInsensitive)) >= 0) {
+            m_searchHits.append({absRow, pos});
+            ++pos;
+        }
+    }
+
+    if (m_findCount) {
+        if (m_searchHits.isEmpty())
+            m_findCount->setText(tr("No matches"));
+        else
+            m_findCount->setText(tr("%1 matches").arg(m_searchHits.size()));
+    }
+
+    // Jump to first match closest to current scroll position
+    if (!m_searchHits.isEmpty()) {
+        const int scrolled = verticalScrollBar()->value();
+        m_searchCurrent = 0;
+        for (int i = 0; i < m_searchHits.size(); ++i) {
+            if (m_searchHits[i].first >= scrolled) {
+                m_searchCurrent = i;
+                break;
+            }
+        }
+        // Scroll to the match
+        verticalScrollBar()->setValue(m_searchHits[m_searchCurrent].first);
+    }
+
+    viewport()->update();
+}
+
+void TerminalView::findNext()
+{
+    if (m_searchHits.isEmpty()) return;
+    m_searchCurrent = (m_searchCurrent + 1) % m_searchHits.size();
+    verticalScrollBar()->setValue(m_searchHits[m_searchCurrent].first);
+    if (m_findCount) {
+        m_findCount->setText(tr("%1 of %2")
+            .arg(m_searchCurrent + 1)
+            .arg(m_searchHits.size()));
+    }
+    viewport()->update();
+}
+
+void TerminalView::findPrev()
+{
+    if (m_searchHits.isEmpty()) return;
+    m_searchCurrent = (m_searchCurrent - 1 + m_searchHits.size()) % m_searchHits.size();
+    verticalScrollBar()->setValue(m_searchHits[m_searchCurrent].first);
+    if (m_findCount) {
+        m_findCount->setText(tr("%1 of %2")
+            .arg(m_searchCurrent + 1)
+            .arg(m_searchHits.size()));
+    }
+    viewport()->update();
+}
+
+int TerminalView::lineMatchCount(int absRow, const QString &needle) const
+{
+    Q_UNUSED(absRow)
+    Q_UNUSED(needle)
+    return 0; // Unused — kept for potential future use
 }

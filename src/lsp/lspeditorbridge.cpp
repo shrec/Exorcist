@@ -1,10 +1,12 @@
 #include "lspeditorbridge.h"
 
 #include <QAction>
+#include <QEvent>
 #include <QInputDialog>
 #include <QJsonObject>
 #include <QKeySequence>
 #include <QLineEdit>
+#include <QMouseEvent>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTimer>
@@ -13,6 +15,7 @@
 
 #include "../editor/editorview.h"
 #include "completionpopup.h"
+#include "hovertooltipwidget.h"
 #include "lspclient.h"
 
 LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
@@ -26,7 +29,9 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
       m_version(1),
       m_changeTimer(new QTimer(this)),
       m_symbolTimer(new QTimer(this)),
-      m_completion(new CompletionPopup(editor))
+      m_hoverTimer(new QTimer(this)),
+      m_completion(new CompletionPopup(editor)),
+      m_hoverTooltip(new HoverTooltipWidget(editor))
 {
     // Debounce: fire didChange 300 ms after the last keystroke
     m_changeTimer->setSingleShot(true);
@@ -37,6 +42,18 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
     m_symbolTimer->setSingleShot(true);
     m_symbolTimer->setInterval(1000);
     connect(m_symbolTimer, &QTimer::timeout, this, &LspEditorBridge::sendDocumentSymbols);
+
+    // Hover timer: 500ms debounce
+    m_hoverTimer->setSingleShot(true);
+    m_hoverTimer->setInterval(500);
+    connect(m_hoverTimer, &QTimer::timeout, this, [this]() {
+        if (m_hoverLine >= 0)
+            m_client->requestHover(m_uri, m_hoverLine, m_hoverCol);
+    });
+
+    // Install event filter on editor viewport for mouse tracking hover
+    m_editor->viewport()->setMouseTracking(true);
+    m_editor->viewport()->installEventFilter(this);
 
     // Editor signals
     connect(m_editor->document(), &QTextDocument::contentsChanged,
@@ -162,7 +179,37 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
 LspEditorBridge::~LspEditorBridge()
 {
     m_completion->dismiss();
+    m_hoverTooltip->hideTooltip();
     m_client->didClose(m_uri);
+}
+
+// ── Event filter (mouse hover on viewport) ────────────────────────────────────
+
+bool LspEditorBridge::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == m_editor->viewport()) {
+        if (event->type() == QEvent::MouseMove) {
+            auto *me = static_cast<QMouseEvent *>(event);
+            const QTextCursor cur = m_editor->cursorForPosition(me->pos());
+            const int line = cur.blockNumber();
+            const int col  = cur.positionInBlock();
+
+            // Only re-request if position changed
+            if (line != m_hoverLine || col != m_hoverCol) {
+                m_hoverLine = line;
+                m_hoverCol  = col;
+                m_hoverGlobalPos = me->globalPosition().toPoint();
+                m_hoverTooltip->hideTooltip();
+                m_hoverTimer->start();
+            }
+        } else if (event->type() == QEvent::Leave) {
+            m_hoverTimer->stop();
+            m_hoverTooltip->hideTooltip();
+            m_hoverLine = -1;
+            m_hoverCol  = -1;
+        }
+    }
+    return QObject::eventFilter(obj, event);
 }
 
 // ── Slots ─────────────────────────────────────────────────────────────────────
@@ -171,6 +218,8 @@ void LspEditorBridge::onDocumentChanged()
 {
     m_changeTimer->start();  // restart debounce
     m_symbolTimer->start();  // restart symbol outline refresh
+    m_hoverTimer->stop();
+    m_hoverTooltip->hideTooltip();
 
     // Check last typed character to decide on triggers
     if (m_completion->isVisible()) {
@@ -253,10 +302,7 @@ void LspEditorBridge::onHoverResult(const QString &uri, int /*line*/,
                                     const QString &markdown)
 {
     if (uri != m_uri || markdown.isEmpty()) return;
-    // Show as a tooltip at the current cursor position
-    const QPoint globalPos = m_editor->viewport()->mapToGlobal(
-        m_editor->cursorRect().topRight());
-    QToolTip::showText(globalPos, markdown, m_editor);
+    m_hoverTooltip->showTooltip(m_hoverGlobalPos, markdown, m_editor);
 }
 
 void LspEditorBridge::onSignatureHelpResult(const QString &uri, int /*line*/,

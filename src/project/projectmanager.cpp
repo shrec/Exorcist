@@ -35,6 +35,12 @@ bool ProjectManager::openSolution(const QString &slnPath)
     return true;
 }
 
+void ProjectManager::closeSolution()
+{
+    m_solution = {};
+    emit solutionChanged();
+}
+
 bool ProjectManager::saveSolution()
 {
     if (m_solution.filePath.isEmpty()) {

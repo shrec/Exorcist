@@ -6,6 +6,22 @@
 #include <QPushButton>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QElapsedTimer>
+
+class QLabel;
+class QTimer;
+
+// ── TaskProfile ───────────────────────────────────────────────────────────────
+// A single build/run task definition, serialisable to JSON.
+struct TaskProfile
+{
+    QString label;                          // display name
+    QString command;                        // program or shell command
+    QStringList args;                       // arguments (may contain ${vars})
+    QString workDir;                        // override working directory
+    QMap<QString, QString> env;             // extra env vars
+    bool isDefault = false;                 // auto-selected for Ctrl+Shift+B
+};
 
 class OutputPanel : public QWidget
 {
@@ -17,6 +33,13 @@ public:
     void runCommand(const QString &cmd, const QStringList &args = {});
     void appendText(const QString &text, const QColor &color = {});
     void clear();
+
+    // Task profile management
+    void setTaskProfiles(const QList<TaskProfile> &profiles);
+    QList<TaskProfile> taskProfiles() const { return m_tasks; }
+    void loadTasksFromJson(const QString &jsonPath);
+    void saveTasksToJson(const QString &jsonPath) const;
+    void autoDetectTasks();
 
     // Problem matcher types
     struct ProblemMatch {
@@ -39,18 +62,30 @@ private slots:
     void onReadyReadStderr();
     void onProcessFinished(int exitCode, QProcess::ExitStatus status);
     void onTextClicked();
+    void onElapsedTick();
 
 private:
     void parseLine(const QString &line);
     void setupMatchers();
+    void populateCombo();
+    QString substituteVars(const QString &input) const;
+    void runTask(const TaskProfile &task);
 
     QPlainTextEdit *m_output;
     QComboBox      *m_profileCombo;
     QPushButton    *m_runBtn;
     QPushButton    *m_stopBtn;
     QPushButton    *m_clearBtn;
+    QLabel         *m_elapsedLabel = nullptr;
     QProcess       *m_process = nullptr;
     QString         m_workDir;
+
+    // Task profiles
+    QList<TaskProfile> m_tasks;
+
+    // Elapsed time tracking
+    QElapsedTimer  m_elapsed;
+    QTimer        *m_elapsedTimer = nullptr;
 
     struct Matcher {
         QRegularExpression regex;

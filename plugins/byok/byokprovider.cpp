@@ -1,67 +1,78 @@
-#include "customprovider.h"
+#include "byokprovider.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QSettings>
 
-CustomProvider::CustomProvider(QObject *parent)
+ByokProvider::ByokProvider(QObject *parent)
 {
     if (parent)
         setParent(parent);
 }
 
-QString CustomProvider::id() const
+QString ByokProvider::id() const
 {
     return QStringLiteral("custom");
 }
 
-QString CustomProvider::displayName() const
+QString ByokProvider::displayName() const
 {
     return QStringLiteral("Custom (BYOK)");
 }
 
-AgentCapabilities CustomProvider::capabilities() const
+AgentCapabilities ByokProvider::capabilities() const
 {
     return AgentCapability::Chat
          | AgentCapability::Streaming
          | AgentCapability::CodeEdit;
 }
 
-bool CustomProvider::isAvailable() const
+bool ByokProvider::isAvailable() const
 {
     return m_available;
 }
 
-QStringList CustomProvider::availableModels() const
+QStringList ByokProvider::availableModels() const
 {
     return {m_model};
 }
 
-QString CustomProvider::currentModel() const
+QString ByokProvider::currentModel() const
 {
     return m_model;
 }
 
-void CustomProvider::setModel(const QString &model)
+void ByokProvider::setModel(const QString &model)
 {
     m_model = model;
 }
 
-void CustomProvider::initialize()
+void ByokProvider::initialize()
 {
+    // Load configuration from QSettings on first init
+    QSettings s;
+    s.beginGroup(QStringLiteral("AI"));
+    m_endpointUrl = s.value(QStringLiteral("customEndpoint")).toString();
+    m_apiKey      = s.value(QStringLiteral("customApiKey")).toString();
+    s.endGroup();
+
+    if (m_model.isEmpty())
+        m_model = QStringLiteral("default");
+
     m_available = !m_endpointUrl.isEmpty() && !m_apiKey.isEmpty();
     emit availabilityChanged(m_available);
 }
 
-void CustomProvider::shutdown()
+void ByokProvider::shutdown()
 {
     cancelRequest(m_activeRequestId);
     m_available = false;
 }
 
-void CustomProvider::configure(const QString &endpointUrl, const QString &apiKey)
+void ByokProvider::configure(const QString &endpointUrl, const QString &apiKey)
 {
     m_endpointUrl = endpointUrl;
     m_apiKey      = apiKey;
@@ -73,7 +84,7 @@ void CustomProvider::configure(const QString &endpointUrl, const QString &apiKey
     emit availabilityChanged(m_available);
 }
 
-void CustomProvider::sendRequest(const AgentRequest &request)
+void ByokProvider::sendRequest(const AgentRequest &request)
 {
     if (!m_available) {
         AgentError err;
@@ -130,7 +141,7 @@ void CustomProvider::sendRequest(const AgentRequest &request)
     connectReply(reply);
 }
 
-void CustomProvider::cancelRequest(const QString &requestId)
+void ByokProvider::cancelRequest(const QString &requestId)
 {
     if (requestId.isEmpty() || requestId != m_activeRequestId)
         return;
@@ -141,7 +152,7 @@ void CustomProvider::cancelRequest(const QString &requestId)
     m_activeRequestId.clear();
 }
 
-void CustomProvider::connectReply(QNetworkReply *reply)
+void ByokProvider::connectReply(QNetworkReply *reply)
 {
     // Stream SSE data lines
     connect(reply, &QNetworkReply::readyRead, this, [this, reply] {
@@ -209,7 +220,7 @@ void CustomProvider::connectReply(QNetworkReply *reply)
     });
 }
 
-QString CustomProvider::buildUserContent(const AgentRequest &req) const
+QString ByokProvider::buildUserContent(const AgentRequest &req) const
 {
     QString content;
     if (!req.activeFilePath.isEmpty()) {

@@ -3,253 +3,370 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
-#include <QFileInfo>
-#include <QFileInfoList>
 #include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QRegularExpression>
 #include <QStandardPaths>
 
+SessionStore::SessionStore(const QString &dir, QObject *parent)
+    : QObject(parent),
+      m_dir(dir)
+{
+    QDir().mkpath(m_dir);
+}
+
 SessionStore::SessionStore(QObject *parent)
-    : QObject(parent)
+    : SessionStore(defaultDir(), parent)
 {
-    const QString base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    setRootDirectory(base + QLatin1String("/sessions"));
 }
 
-void SessionStore::setRootDirectory(const QString &rootDir)
+QString SessionStore::defaultDir()
 {
-    m_rootDir = rootDir;
-    QDir().mkpath(m_rootDir);
+    const QString base = QStandardPaths::writableLocation(
+        QStandardPaths::AppDataLocation);
+    return base + QLatin1String("/sessions");
 }
 
-QString SessionStore::rootDirectory() const
+void SessionStore::recordSessionStart(const QString &id, const QString &model,
+                                      const QString &mode)
 {
-    return m_rootDir;
+    QJsonObject data;
+    data["model"] = model;
+    data["mode"] = mode;
+
+    QJsonObject entry;
+    entry["v"] = 1;
+    entry["sid"] = id;
+    entry["ts"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    entry["type"] = QStringLiteral("session.start");
+    entry["data"] = data;
+    appendLine(id, entry);
 }
 
-void SessionStore::startSession(const QString &sessionId,
-                                const QString &providerId,
-                                const QString &model,
-                                bool agentMode)
+void SessionStore::recordUserMessage(const QString &id, const QString &content)
 {
-    QJsonObject payload;
-    payload.insert(QStringLiteral("provider"), providerId);
-    payload.insert(QStringLiteral("model"), model);
-    payload.insert(QStringLiteral("agentMode"), agentMode);
-    appendEvent(sessionId, QStringLiteral("session_start"), payload);
+    QJsonObject data;
+    data["content"] = content;
+
+    QJsonObject entry;
+    entry["v"] = 1;
+    entry["sid"] = id;
+    entry["ts"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    entry["type"] = QStringLiteral("user.message");
+    entry["data"] = data;
+    appendLine(id, entry);
 }
 
-void SessionStore::appendUserMessage(const QString &sessionId, const QString &text)
+void SessionStore::recordAssistantMessage(const QString &id, const QString &text)
 {
-    QJsonObject payload;
-    payload.insert(QStringLiteral("text"), text);
-    appendEvent(sessionId, QStringLiteral("user"), payload);
+    QJsonObject data;
+    data["text"] = text;
+
+    QJsonObject entry;
+    entry["v"] = 1;
+    entry["sid"] = id;
+    entry["ts"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    entry["type"] = QStringLiteral("assistant.message");
+    entry["data"] = data;
+    appendLine(id, entry);
 }
 
-void SessionStore::appendAssistantMessage(const QString &sessionId, const QString &text)
+void SessionStore::recordToolCall(const QString &id, const QString &name,
+                                  const QJsonObject &args, bool ok,
+                                  const QString &result)
 {
-    QJsonObject payload;
-    payload.insert(QStringLiteral("text"), text);
-    appendEvent(sessionId, QStringLiteral("assistant"), payload);
+    QJsonObject data;
+    data["name"] = name;
+    data["args"] = args;
+    data["ok"] = ok;
+    data["result"] = result;
+
+    QJsonObject entry;
+    entry["v"] = 1;
+    entry["sid"] = id;
+    entry["ts"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    entry["type"] = QStringLiteral("tool.call");
+    entry["data"] = data;
+    appendLine(id, entry);
 }
 
-void SessionStore::appendToolCall(const QString &sessionId,
-                                  const QString &toolName,
-                                  const QJsonObject &args,
-                                  const QString &result,
-                                  bool ok)
+void SessionStore::recordSessionEnd(const QString &id)
 {
-    QJsonObject payload;
-    payload.insert(QStringLiteral("tool"), toolName);
-    payload.insert(QStringLiteral("ok"), ok);
-    payload.insert(QStringLiteral("args"), args);
-    payload.insert(QStringLiteral("result"), result);
-    appendEvent(sessionId, QStringLiteral("tool"), payload);
+    QJsonObject entry;
+    entry["v"] = 1;
+    entry["sid"] = id;
+    entry["ts"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    entry["type"] = QStringLiteral("session.end");
+    entry["data"] = QJsonObject{};
+    appendLine(id, entry);
 }
 
-void SessionStore::appendError(const QString &sessionId, const QString &message)
+void SessionStore::recordCompleteTurn(const QString &id, const QJsonObject &turnJson)
 {
-    QJsonObject payload;
-    payload.insert(QStringLiteral("message"), message);
-    appendEvent(sessionId, QStringLiteral("error"), payload);
+    QJsonObject entry;
+    entry[QLatin1String("v")] = 1;
+    entry[QLatin1String("sid")] = id;
+    entry[QLatin1String("ts")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    entry[QLatin1String("type")] = QStringLiteral("turn.complete");
+    entry[QLatin1String("data")] = turnJson;
+    appendLine(id, entry);
 }
 
-QString SessionStore::ensureSessionFile(const QString &sessionId)
+void SessionStore::appendLine(const QString &id, const QJsonObject &entry)
 {
-    const auto found = m_sessionFiles.constFind(sessionId);
-    if (found != m_sessionFiles.constEnd())
-        return found.value();
+    QDir().mkpath(m_dir);
+    const QString path = sessionFilePath(id);
 
-    QDir().mkpath(m_rootDir);
-    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
-    const QString path = m_rootDir + QLatin1Char('/') + stamp + QLatin1Char('-') + sessionId + QStringLiteral(".jsonl");
-    m_sessionFiles.insert(sessionId, path);
-    return path;
-}
-
-void SessionStore::appendEvent(const QString &sessionId,
-                               const QString &eventType,
-                               const QJsonObject &payload)
-{
-    if (sessionId.isEmpty())
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
         return;
 
-    const QString path = ensureSessionFile(sessionId);
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
-        return;
+    const QJsonDocument doc(entry);
+    f.write(doc.toJson(QJsonDocument::Compact));
+    f.write("\n");
+    f.close();
 
-    QJsonObject line;
-    line.insert(QStringLiteral("ts"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
-    line.insert(QStringLiteral("sessionId"), sessionId);
-    line.insert(QStringLiteral("event"), eventType);
-    line.insert(QStringLiteral("data"), payload);
-
-    const QByteArray json = QJsonDocument(line).toJson(QJsonDocument::Compact);
-    file.write(json);
-    file.write("\n");
+    pruneOldSessions(50);
 }
 
-// ── Session reading ───────────────────────────────────────────────────────────
-
-QStringList SessionStore::listSessionFiles(int maxCount) const
+void SessionStore::pruneOldSessions(int keep)
 {
-    QDir dir(m_rootDir);
-    if (!dir.exists())
+    QDir dir(m_dir);
+    const QFileInfoList files = dir.entryInfoList(
+        {"*.jsonl"}, QDir::Files, QDir::Time);
+    for (int i = keep; i < files.size(); ++i)
+        QFile::remove(files[i].absoluteFilePath());
+}
+
+QVector<SessionStore::Summary> SessionStore::recentSessions(int max) const
+{
+    QVector<Summary> out;
+    QDir dir(m_dir);
+    const QFileInfoList files = dir.entryInfoList(
+        {"*.jsonl"}, QDir::Files, QDir::Time);
+    for (int i = 0; i < files.size() && out.size() < max; ++i) {
+        Summary s;
+        s.sessionId = files[i].completeBaseName();
+        s.created = files[i].birthTime().isValid()
+            ? files[i].birthTime()
+            : files[i].lastModified();
+        s.title = s.sessionId;
+        s.turnCount = 0;
+
+        // Read title and turn count from the JSONL file
+        QFile f(files[i].absoluteFilePath());
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            while (!f.atEnd()) {
+                const QByteArray line = f.readLine().trimmed();
+                if (line.isEmpty())
+                    continue;
+                const QJsonDocument doc = QJsonDocument::fromJson(line);
+                if (!doc.isObject())
+                    continue;
+                const QJsonObject obj = doc.object();
+                const QString type = obj.value(QLatin1String("type")).toString();
+                if (type == QLatin1String("title")) {
+                    const QString t = obj.value(QLatin1String("title")).toString();
+                    if (!t.isEmpty())
+                        s.title = t;
+                } else if (type == QLatin1String("user.message")
+                           || type == QLatin1String("turn.complete")) {
+                    ++s.turnCount;
+                }
+            }
+        }
+
+        out.append(s);
+    }
+    return out;
+}
+
+void SessionStore::startSession(const QString &id, const QString &providerId,
+                                const QString &model, bool agentMode)
+{
+    QJsonObject data;
+    data["provider"] = providerId;
+    data["model"] = model;
+    data["mode"] = agentMode ? QStringLiteral("Agent") : QStringLiteral("Ask");
+
+    QJsonObject entry;
+    entry["v"] = 1;
+    entry["sid"] = id;
+    entry["ts"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    entry["type"] = QStringLiteral("session.start");
+    entry["data"] = data;
+    appendLine(id, entry);
+}
+
+void SessionStore::appendUserMessage(const QString &id, const QString &content)
+{
+    recordUserMessage(id, content);
+}
+
+void SessionStore::appendAssistantMessage(const QString &id, const QString &text)
+{
+    recordAssistantMessage(id, text);
+}
+
+void SessionStore::appendToolCall(const QString &id, const QString &name,
+                                  const QJsonObject &args, const QString &result, bool ok)
+{
+    recordToolCall(id, name, args, ok, result);
+}
+
+void SessionStore::appendError(const QString &id, const QString &message)
+{
+    QJsonObject data;
+    data["message"] = message;
+
+    QJsonObject entry;
+    entry["v"] = 1;
+    entry["sid"] = id;
+    entry["ts"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    entry["type"] = QStringLiteral("error");
+    entry["data"] = data;
+    appendLine(id, entry);
+}
+
+QStringList SessionStore::listSessionFiles(int max) const
+{
+    QStringList out;
+    QDir dir(m_dir);
+    const QFileInfoList files = dir.entryInfoList(
+        {"*.jsonl"}, QDir::Files, QDir::Time);
+    for (int i = 0; i < files.size() && out.size() < max; ++i)
+        out.append(files[i].absoluteFilePath());
+    return out;
+}
+
+SessionStore::ChatSession SessionStore::loadSession(const QString &path) const
+{
+    ChatSession sess;
+    QFileInfo fi(path);
+    if (!fi.exists())
+        return sess;
+
+    sess.sessionId = fi.completeBaseName();
+    sess.createdAt = fi.birthTime().isValid() ? fi.birthTime() : fi.lastModified();
+
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return sess;
+
+    while (!f.atEnd()) {
+        const QByteArray line = f.readLine().trimmed();
+        if (line.isEmpty())
+            continue;
+        const QJsonDocument doc = QJsonDocument::fromJson(line);
+        if (!doc.isObject())
+            continue;
+        const QJsonObject obj = doc.object();
+        const QString type = obj.value("type").toString();
+        const QJsonObject data = obj.value("data").toObject();
+        if (type == QLatin1String("session.start")) {
+            const QString ts = obj.value("ts").toString();
+            const QDateTime dt = QDateTime::fromString(ts, Qt::ISODate);
+            if (dt.isValid())
+                sess.createdAt = dt;
+        } else if (type == QLatin1String("user.message")) {
+            sess.messages.append({QStringLiteral("user"),
+                                  data.value("content").toString()});
+        } else if (type == QLatin1String("assistant.message")) {
+            sess.messages.append({QStringLiteral("assistant"),
+                                  data.value("text").toString()});
+        } else if (type == QLatin1String("turn.complete")) {
+            sess.completeTurns.append(data);
+        }
+    }
+    return sess;
+}
+
+SessionStore::ChatSession SessionStore::loadLastSession() const
+{
+    const QStringList files = listSessionFiles(1);
+    if (files.isEmpty())
         return {};
-
-    const QFileInfoList infos = dir.entryInfoList(
-        QStringList() << QStringLiteral("*.jsonl"),
-        QDir::Files, QDir::Time);  // newest first
-
-    QStringList result;
-    for (const QFileInfo &fi : infos) {
-        result << fi.absoluteFilePath();
-        if (result.size() >= maxCount)
-            break;
-    }
-    return result;
+    return loadSession(files.first());
 }
 
-ChatSession SessionStore::loadLastSession() const
+QString SessionStore::renameSession(const QString &path, const QString &newName)
 {
-    const QStringList files = listSessionFiles(10);
-    for (const QString &path : files) {
-        ChatSession s = parseSessionFile(path);
-        if (!s.isEmpty())
-            return s;
-    }
-    return {};
-}
-
-ChatSession SessionStore::loadSession(const QString &filePath) const
-{
-    return parseSessionFile(filePath);
-}
-
-bool SessionStore::deleteSession(const QString &filePath)
-{
-    return QFile::remove(filePath);
-}
-
-QString SessionStore::renameSession(const QString &filePath, const QString &newName)
-{
-    const QFileInfo fi(filePath);
+    QFileInfo fi(path);
     if (!fi.exists())
         return {};
 
-    // Sanitize: keep only safe characters for the filename
-    QString safe = newName.simplified();
-    safe.remove(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]")));
+    const QString safe = sanitizeName(newName);
     if (safe.isEmpty())
         return {};
 
-    // Preserve the timestamp prefix (yyyyMMdd-HHmmss), replace the rest
-    const QString baseName = fi.baseName();
-    QString prefix;
-    if (baseName.size() >= 15)
-        prefix = baseName.left(15); // "yyyyMMdd-HHmmss"
-    else
-        prefix = baseName;
-
-    const QString newPath = fi.absolutePath() + QLatin1Char('/')
-                          + prefix + QLatin1Char('-') + safe + QStringLiteral(".jsonl");
-
-    if (QFile::rename(filePath, newPath)) {
-        // Update the in-memory cache if this session is tracked
-        for (auto it = m_sessionFiles.begin(); it != m_sessionFiles.end(); ++it) {
-            if (it.value() == filePath) {
-                it.value() = newPath;
-                break;
-            }
-        }
+    const QString newPath = fi.absoluteDir().absoluteFilePath(safe + ".jsonl");
+    if (QFile::rename(path, newPath))
         return newPath;
-    }
     return {};
 }
 
-QStringList SessionStore::searchSessions(const QString &query, int maxCount) const
+void SessionStore::deleteSession(const QString &path)
 {
-    if (query.isEmpty())
-        return listSessionFiles(maxCount);
-
-    const QStringList allFiles = listSessionFiles(200);
-    QStringList results;
-
-    for (const QString &path : allFiles) {
-        QFile file(path);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
-            continue;
-
-        const QByteArray content = file.readAll();
-        if (content.contains(query.toUtf8())) {
-            results.append(path);
-            if (results.size() >= maxCount)
-                break;
-        }
-    }
-    return results;
+    QFile::remove(path);
 }
 
-ChatSession SessionStore::parseSessionFile(const QString &filePath) const
+void SessionStore::setSessionTitle(const QString &id, const QString &title)
 {
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
-        return {};
+    QJsonObject entry;
+    entry[QLatin1String("type")] = QLatin1String("title");
+    entry[QLatin1String("title")] = title;
+    appendLine(id, entry);
+}
 
-    ChatSession session;
-    session.sessionId = QFileInfo(filePath).baseName()
-                            .section(QLatin1Char('-'), 2);  // strip yyyyMMdd-HHmmss-
+QStringList SessionStore::searchSessions(const QString &query, int max) const
+{
+    if (query.trimmed().isEmpty())
+        return listSessionFiles(max);
 
-    while (!file.atEnd()) {
-        const QByteArray raw = file.readLine().trimmed();
-        if (raw.isEmpty())
+    QStringList out;
+    QDir dir(m_dir);
+    const QFileInfoList files = dir.entryInfoList(
+        {"*.jsonl"}, QDir::Files, QDir::Time);
+    const QString q = query.toLower();
+
+    for (const QFileInfo &fi : files) {
+        if (out.size() >= max)
+            break;
+        if (fi.completeBaseName().toLower().contains(q)) {
+            out.append(fi.absoluteFilePath());
             continue;
-
-        QJsonParseError err;
-        const QJsonObject obj = QJsonDocument::fromJson(raw, &err).object();
-        if (err.error != QJsonParseError::NoError || obj.isEmpty())
-            continue;
-
-        const QString event = obj.value(QLatin1String("event")).toString();
-        const QJsonObject data = obj.value(QLatin1String("data")).toObject();
-
-        if (event == QLatin1String("session_start")) {
-            session.sessionId  = obj.value(QLatin1String("sessionId")).toString();
-            session.providerId = data.value(QLatin1String("provider")).toString();
-            session.model      = data.value(QLatin1String("model")).toString();
-            session.agentMode  = data.value(QLatin1String("agentMode")).toBool();
-            const QString ts   = obj.value(QLatin1String("ts")).toString();
-            session.createdAt  = QDateTime::fromString(ts, Qt::ISODateWithMs);
-        } else if (event == QLatin1String("user")) {
-            const QString text = data.value(QLatin1String("text")).toString();
-            if (!text.isEmpty())
-                session.messages.append({QStringLiteral("user"), text});
-        } else if (event == QLatin1String("assistant")) {
-            const QString text = data.value(QLatin1String("text")).toString();
-            if (!text.isEmpty())
-                session.messages.append({QStringLiteral("assistant"), text});
         }
+
+        QFile f(fi.absoluteFilePath());
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+            continue;
+        bool match = false;
+        while (!f.atEnd()) {
+            const QByteArray line = f.readLine();
+            if (QString::fromUtf8(line).toLower().contains(q)) {
+                match = true;
+                break;
+            }
+        }
+        if (match)
+            out.append(fi.absoluteFilePath());
     }
-    return session;
+    return out;
+}
+
+QString SessionStore::sessionFilePath(const QString &id) const
+{
+    return m_dir + QLatin1Char('/') + id + QLatin1String(".jsonl");
+}
+
+QString SessionStore::sanitizeName(const QString &name)
+{
+    QString out = name;
+    out.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]+")), QStringLiteral("_"));
+    while (out.startsWith(QLatin1Char('_')))
+        out.remove(0, 1);
+    if (out.isEmpty())
+        out = QStringLiteral("session");
+    return out;
 }

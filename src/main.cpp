@@ -1,10 +1,12 @@
 #include <QApplication>
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QFont>
 #include <QIcon>
 #include <QLocale>
 #include <QPalette>
 #include <QStyleFactory>
+#include <QTimer>
 #include <QTranslator>
 
 #include "logger.h"
@@ -55,6 +57,9 @@ void loadTranslator(QApplication &app)
 
 int main(int argc, char *argv[])
 {
+    QElapsedTimer startupTimer;
+    startupTimer.start();
+
     QApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("Exorcist"));
     app.setApplicationName(QStringLiteral("Exorcist"));
@@ -68,6 +73,15 @@ int main(int argc, char *argv[])
 
     MainWindow window;
     window.showMaximized();
+
+    // Defer heavy init (plugins, last folder) to after first paint.
+    QTimer::singleShot(0, &window, &MainWindow::deferredInit);
+
+    // Log time-to-first-paint after the event loop processes the initial
+    // show/paint events (singleShot 0 fires once the queue is drained).
+    QTimer::singleShot(0, [&startupTimer]() {
+        qInfo() << "Startup: first paint in" << startupTimer.elapsed() << "ms";
+    });
 
     const int ret = app.exec();
     Logger::uninstall();

@@ -11,6 +11,7 @@
 #include "itool.h"
 
 class AgentOrchestrator;
+class ToolApprovalService;
 class ToolRegistry;
 class IAgentProvider;
 class SessionStore;
@@ -62,7 +63,8 @@ public:
                      const QString &activeFilePath = {},
                      const QString &selectedText = {},
                      const QString &languageId = {},
-                     AgentIntent intent = AgentIntent::Chat);
+                     AgentIntent intent = AgentIntent::Chat,
+                     const QList<Attachment> &attachments = {});
 
     /// Cancel the current turn.
     void cancel();
@@ -76,6 +78,11 @@ public:
 
     void setSystemPrompt(const QString &prompt) { m_systemPrompt = prompt; }
     void setSessionStore(SessionStore *store) { m_store = store; }
+
+    /// Set the centralised tool-approval service. When set, the controller
+    /// delegates all approval checks to it instead of using its own built-in
+    /// m_confirmFn / m_alwaysAllowedTools / m_maxPermission fields.
+    void setToolApprovalService(ToolApprovalService *svc) { m_approvalService = svc; }
 
     /// Tool approval result from user confirmation dialog.
     enum class ToolApproval { Deny, AllowOnce, AllowAlways };
@@ -139,6 +146,7 @@ private:
     AgentToolPermission  m_maxPermission = AgentToolPermission::SafeMutate;
     QString              m_systemPrompt;
     SessionStore        *m_store = nullptr;
+    ToolApprovalService *m_approvalService = nullptr;
     ConfirmToolFn        m_confirmFn;
     QSet<QString>        m_alwaysAllowedTools;
 
@@ -147,4 +155,5 @@ private:
     QString m_selectedText;
     QString m_languageId;
     AgentIntent m_pendingIntent = AgentIntent::Chat;
+    QList<Attachment> m_attachments;
 };

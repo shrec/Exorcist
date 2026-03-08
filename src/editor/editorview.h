@@ -6,8 +6,11 @@
 #include <QRegularExpression>
 #include <QString>
 
+#include <memory>
+
 class LineNumberArea;
 class FindBar;
+class PieceTableBuffer;
 
 // Diagnostic severity — matches LSP DiagnosticSeverity values
 enum class DiagSeverity { Error = 1, Warning = 2, Info = 3, Hint = 4 };
@@ -27,6 +30,7 @@ class EditorView : public QPlainTextEdit
 
 public:
     explicit EditorView(QWidget *parent = nullptr);
+    ~EditorView() override;
     void setLargeFilePreview(const QString &text, bool isPartial);
     void appendLargeFileChunk(const QString &text, bool isFinal);
     bool isLargeFilePreview() const;
@@ -94,6 +98,11 @@ public:
 
     void setMinimapVisible(bool visible);
     bool isMinimapVisible() const { return m_minimapVisible; }
+
+    // ── PieceTableBuffer (shadow backing store) ───────────────────────────
+    PieceTableBuffer *buffer() const;
+    QString bufferText() const;
+    QString bufferSlice(int start, int length) const;
 
 signals:
     void requestMoreData();
@@ -163,4 +172,8 @@ private:
 
     class MinimapWidget     *m_minimap = nullptr;
     bool                     m_minimapVisible = true;
+
+    // Shadow buffer kept in sync with QTextDocument via contentsChanged
+    std::unique_ptr<PieceTableBuffer> m_buffer;
+    bool                     m_bufferSyncing = false;  // guard re-entrant syncs
 };

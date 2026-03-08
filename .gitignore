@@ -12,6 +12,7 @@
 *.VC.opendb
 /build-llvm/
 /build*/
+/bw-output/
 
 # Temporary build/run logs
 *.log

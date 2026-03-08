@@ -130,6 +130,15 @@ struct AgentDiagnostic
     Severity severity = Severity::Error;
 };
 
+struct Attachment
+{
+    enum class Type { File, Image };
+    Type    type    = Type::File;
+    QString path;       // local file path
+    QString mimeType;   // e.g. "image/png"
+    QByteArray data;    // raw bytes (for images)
+};
+
 struct AgentRequest
 {
     QString              requestId;
@@ -157,6 +166,9 @@ struct AgentRequest
 
     // Thinking / reasoning effort for thinking models ("low", "medium", "high")
     QString reasoningEffort;
+
+    // Image/file attachments for vision models
+    QList<Attachment>    attachments;
 };
 
 // ── Response types ────────────────────────────────────────────────────────────
@@ -176,11 +188,17 @@ struct AgentResponse
     QString                  thinkingContent; // reasoning/thinking text (for thinking models)
     QList<AgentProposedEdit> proposedEdits;
     QList<ToolCall>          toolCalls; // tool calls requested by the model
+    QStringList              followups;     // suggested follow-up messages
+
+    // Token usage (populated from API response when available)
+    int promptTokens     = 0;
+    int completionTokens = 0;
+    int totalTokens      = 0;
 };
 
 struct AgentError
 {
-    enum class Code { NetworkError, AuthError, RateLimited, Cancelled, Unknown };
+    enum class Code { NetworkError, AuthError, RateLimited, ContentFilter, Cancelled, Unknown };
     QString requestId;
     Code    code = Code::Unknown;
     QString message;

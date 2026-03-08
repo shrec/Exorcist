@@ -14,6 +14,7 @@ public:
 
     bool openFolder(const QString &dirPath);
     bool openSolution(const QString &slnPath);
+    void closeSolution();
     bool saveSolution();
     bool saveSolutionAs(const QString &slnPath);
     bool createSolution(const QString &name, const QString &slnPath);

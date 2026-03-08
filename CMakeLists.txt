@@ -21,3 +21,6 @@ endif()
 
 add_subdirectory(src)
 add_subdirectory(plugins)
+
+enable_testing()
+add_subdirectory(tests)

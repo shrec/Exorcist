@@ -6,13 +6,22 @@
 
 #include "../aiinterface.h"
 
+class AgentProviderRegistry;
+class AgentRequestRouter;
+
 // ── AgentOrchestrator ─────────────────────────────────────────────────────────
 //
-// Central hub that:
-//   - Holds the list of registered providers (from plugins or built-in).
-//   - Routes requests to the currently-active provider.
-//   - Forwards provider signals to subscribers (e.g. the chat panel).
-//   - Manages the active provider lifecycle on switch.
+// Compatibility facade that preserves the original API while delegating to
+// the new AgentProviderRegistry (provider management) and AgentRequestRouter
+// (request routing / signal forwarding).
+//
+// When the registry and router are injected via setRegistry() / setRouter(),
+// all calls are forwarded.  When they are not set, the orchestrator falls
+// back to its own built-in implementation (legacy mode).
+//
+// Consumers that depend on this class continue to work unchanged.
+// New code should prefer using AgentProviderRegistry / AgentRequestRouter
+// directly via ServiceRegistry.
 //
 // Access via ServiceRegistry: registry->service("agentOrchestrator")
 
@@ -23,6 +32,10 @@ class AgentOrchestrator : public QObject
 public:
     explicit AgentOrchestrator(QObject *parent = nullptr);
     ~AgentOrchestrator() override;
+
+    // ── Delegation injection ──────────────────────────────────────────────
+    void setRegistry(AgentProviderRegistry *registry);
+    void setRouter(AgentRequestRouter *router);
 
     // ── Provider registry ─────────────────────────────────────────────────
     void registerProvider(IAgentProvider *provider);
@@ -58,9 +71,15 @@ signals:
     void providerAvailabilityChanged(bool available);
 
 private:
+    // Legacy (fallback) signal wiring
     void wireProvider(IAgentProvider *p);
     void unwireProvider(IAgentProvider *p);
 
+    // Delegation targets (nullable — when null, use built-in logic)
+    AgentProviderRegistry *m_registry = nullptr;
+    AgentRequestRouter    *m_router   = nullptr;
+
+    // Built-in fallback state (used only when m_registry/m_router are null)
     QList<IAgentProvider *> m_providers;
     IAgentProvider         *m_active = nullptr;
 };

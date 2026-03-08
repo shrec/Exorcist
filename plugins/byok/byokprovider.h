@@ -8,13 +8,13 @@
 class QNetworkReply;
 
 /// A simple OpenAI-compatible "Bring Your Own Key" provider.
-/// The user configures the endpoint URL and API key in Settings.
-class CustomProvider : public IAgentProvider
+/// Reads endpoint URL and API key from QSettings AI/customEndpoint, AI/customApiKey.
+class ByokProvider : public IAgentProvider
 {
     Q_OBJECT
 
 public:
-    explicit CustomProvider(QObject *parent = nullptr);
+    explicit ByokProvider(QObject *parent = nullptr);
 
     QString           id()           const override;
     QString           displayName()  const override;
@@ -31,8 +31,8 @@ public:
     void sendRequest(const AgentRequest &request)  override;
     void cancelRequest(const QString &requestId)   override;
 
-    /// Reconfigure endpoint + API key at runtime.
-    void configure(const QString &endpointUrl, const QString &apiKey);
+    /// Reconfigure endpoint + API key at runtime (called by settings handler).
+    Q_INVOKABLE void configure(const QString &endpointUrl, const QString &apiKey);
 
 private:
     void connectReply(QNetworkReply *reply);

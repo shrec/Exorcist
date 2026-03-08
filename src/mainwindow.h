@@ -12,6 +12,7 @@
 #include "serviceregistry.h"
 
 class QDockWidget;
+class QDialog;
 class QTabWidget;
 class QTreeView;
 class EditorView;
@@ -22,12 +23,13 @@ class SolutionTreeModel;
 class GitService;
 class GitPanel;
 class AgentOrchestrator;
-class AgentChatPanel;
+class ChatPanelWidget;
 class AgentController;
 class SessionStore;
 class PromptVariableResolver;
 class ToolRegistry;
 class ContextBuilder;
+class AgentPlatformBootstrap;
 class ClangdManager;
 class LspClient;
 class ReferencesPanel;
@@ -47,9 +49,12 @@ class McpClient;
 class McpPanel;
 class ThemeManager;
 class DiffViewerPanel;
+class ProposedEditPanel;
 class BreadcrumbBar;
 class OutputPanel;
+class RunLaunchPanel;
 class FileWatchService;
+class KeymapManager;
 class ContextPruner;
 class AutoCompactor;
 class TestScaffold;
@@ -96,6 +101,7 @@ class ContextScopeConfig;
 class EmbeddingIndex;
 class GitignoreFilter;
 class RegexSearchEngine;
+class DockAutoHideManager;
 
 class MainWindow : public QMainWindow
 {
@@ -103,6 +109,9 @@ class MainWindow : public QMainWindow
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+
+    // Call after show() to defer heavy initialization (plugins, last folder).
+    void deferredInit();
 
 private:
     void setupUi();
@@ -147,7 +156,6 @@ private:
     QDockWidget *m_symbolDock;
     QDockWidget *m_requestLogDock;
     QDockWidget *m_trajectoryDock;
-    QDockWidget *m_settingsDock;
     QDockWidget *m_memoryDock;
     QDockWidget *m_mcpDock;
 
@@ -162,12 +170,13 @@ private:
     std::unique_ptr<IFileSystem>     m_fileSystem;
     SearchService    *m_searchService;
     AgentOrchestrator *m_agentOrchestrator;
-    AgentChatPanel   *m_chatPanel;
+    ChatPanelWidget  *m_chatPanel;
     AgentController  *m_agentController;
     SessionStore     *m_sessionStore;
     PromptVariableResolver *m_promptResolver;
     ToolRegistry     *m_toolRegistry;
     ContextBuilder   *m_contextBuilder;
+    AgentPlatformBootstrap *m_agentPlatform = nullptr;
     ReferencesPanel  *m_referencesPanel;
     SymbolOutlinePanel *m_symbolPanel;
     TerminalPanel   *m_terminal;
@@ -181,20 +190,24 @@ private:
     RequestLogPanel          *m_requestLogPanel;
     TrajectoryPanel          *m_trajectoryPanel;
     SettingsPanel            *m_settingsPanel;
+    QDialog                  *m_settingsDialog = nullptr;
     MemoryBrowserPanel       *m_memoryBrowser;
-    class CustomProvider     *m_customProvider = nullptr;
     class NextEditEngine     *m_nesEngine      = nullptr;
     McpClient               *m_mcpClient         = nullptr;
     McpPanel                *m_mcpPanel          = nullptr;
     ThemeManager             *m_themeManager      = nullptr;
     DiffViewerPanel          *m_diffViewer        = nullptr;
     QDockWidget              *m_diffDock          = nullptr;
+    ProposedEditPanel         *m_proposedEditPanel = nullptr;
+    QDockWidget              *m_proposedEditDock  = nullptr;
     BreadcrumbBar            *m_breadcrumb        = nullptr;
     WorkspaceIndexer         *m_workspaceIndexer = nullptr;
     SymbolIndex              *m_symbolIndex      = nullptr;
     QLabel                   *m_indexLabel = nullptr;
     OutputPanel              *m_outputPanel = nullptr;
     QDockWidget              *m_outputDock  = nullptr;
+    RunLaunchPanel           *m_runPanel    = nullptr;
+    QDockWidget              *m_runDock     = nullptr;
     FileWatchService         *m_fileWatcher = nullptr;
     ContextPruner            *m_contextPruner = nullptr;
     AutoCompactor            *m_autoCompactor = nullptr;
@@ -241,6 +254,9 @@ private:
     ContextScopeConfig       *m_contextScopeConfig = nullptr;
     EmbeddingIndex           *m_embeddingIndex = nullptr;
     RegexSearchEngine        *m_regexSearch = nullptr;
+    KeymapManager            *m_keymapManager = nullptr;
+    QLabel                   *m_memoryLabel = nullptr;
+    DockAutoHideManager      *m_dockAutoHide = nullptr;
 
     void updateDiffRanges(EditorView *editor);
     void onLspInitialized();
@@ -249,5 +265,6 @@ private:
     void createLspBridge(EditorView *editor, const QString &path);
     void navigateToLocation(const QString &path, int line, int character);
     void applyWorkspaceEdit(const QJsonObject &workspaceEdit);
+    void pushBuildDiagnostics();
     void onTreeContextMenu(const QPoint &pos);
 };

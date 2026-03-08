@@ -110,6 +110,14 @@ private:
     void showWorkingIndicator(const QString &label = {});
     void hideWorkingIndicator();
 
+    // Live thinking helpers
+    void updateThinkingContent();
+    void finalizeThinkingBubble();
+
+    // Working section helpers (VS Code-style tool activity display)
+    void updateWorkingSection();
+    void finalizeWorkingSection();
+
     bool eventFilter(QObject *obj, QEvent *ev) override;
     void dragEnterEvent(QDragEnterEvent *ev) override;
     void dropEvent(QDropEvent *ev) override;
@@ -206,6 +214,22 @@ private:
     // Live streaming state
     int  m_streamAnchorPos = 0;   // document char position just before AI bubble
     bool m_streamStarted   = false;
+
+    // Live thinking state (streams thinking into chat area)
+    int  m_thinkingAnchorPos = 0;
+    bool m_thinkingStreamStarted = false;
+
+    // Working section state (VS Code-style tool activity display)
+    struct WorkingStep {
+        QString toolName;
+        QString summary;      // human-readable HTML (icon + description)
+        bool finished = false;
+        bool success  = true;
+        QString result;       // brief result text (e.g. "63 results")
+    };
+    QList<WorkingStep> m_workingSteps;
+    int  m_workingSectionAnchor = 0;
+    bool m_workingSectionActive = false;
 
     // Message queue — holds text of messages sent while a request is in flight
     QQueue<QString> m_msgQueue;

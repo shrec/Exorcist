@@ -84,12 +84,18 @@ private:
 
     // ── SSE parsing ───────────────────────────────────────────────────────
     void handleSseEvent(const QString &eventType, const QString &data);
+    void handleChatCompletionsEvent(const QString &data);
+    void handleResponsesEvent(const QString &eventType, const QString &data);
     void handleSseDone();
+
+    // ── Retry logic ───────────────────────────────────────────────────────
+    void retryOrFail(int httpStatus, const QString &errorMsg);
 
     // ── State ─────────────────────────────────────────────────────────────
     QNetworkAccessManager m_nam;
     SseParser            *m_sseParser;
     QTimer                m_refreshTimer;
+    QTimer                m_idleTimer;        // per-request idle timeout
 
     // Auth
     QString       m_githubToken;    // GitHub PAT or OAuth token
@@ -106,8 +112,22 @@ private:
     // Active request
     QNetworkReply *m_activeReply = nullptr;
     QString        m_activeRequestId;
+    QString        m_streamAccum;            // accumulated text from streaming deltas
+    bool           m_useResponsesApi = false; // true when using /responses endpoint
     // Accumulated tool calls during streaming
     QMap<int, ToolCall> m_pendingToolCalls;
+    // Pending tool call for Responses API (one at a time)
+    ToolCall       m_responsesToolCall;
     // Accumulated thinking/reasoning content during streaming
     QString m_pendingThinking;
+
+    // Usage tracking
+    int m_promptTokens     = 0;
+    int m_completionTokens = 0;
+    int m_totalTokens      = 0;
+
+    // Retry state
+    AgentRequest   m_lastRequest;   // saved for retry
+    int            m_retryCount = 0;
+    static constexpr int kMaxRetries = 3;
 };

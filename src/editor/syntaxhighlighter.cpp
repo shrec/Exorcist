@@ -32,12 +32,21 @@ static void addKeywords(QVector<SyntaxHighlighter::Rule> &rules,
                         const QStringList &words,
                         const QTextCharFormat &fmt)
 {
-    for (const QString &w : words) {
-        SyntaxHighlighter::Rule r;
-        r.pattern = QRegularExpression(QStringLiteral("\\b") + w + QStringLiteral("\\b"));
-        r.format  = fmt;
-        rules.append(r);
+    // Combine all keywords into a single alternation pattern for efficiency.
+    // This avoids running a separate regex per keyword.
+    if (words.isEmpty())
+        return;
+    QString pattern = QStringLiteral("\\b(?:");
+    for (int i = 0; i < words.size(); ++i) {
+        if (i > 0)
+            pattern += QLatin1Char('|');
+        pattern += QRegularExpression::escape(words[i]);
     }
+    pattern += QStringLiteral(")\\b");
+    SyntaxHighlighter::Rule r;
+    r.pattern = QRegularExpression(pattern);
+    r.format  = fmt;
+    rules.append(r);
 }
 
 static void addRule(QVector<SyntaxHighlighter::Rule> &rules,
