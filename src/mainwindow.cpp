@@ -3,7 +3,6 @@
 #include <QAction>
 #include <QDialog>
 #include <QDirIterator>
-#include <QDockWidget>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -40,10 +39,19 @@
 #include "agent/agentorchestrator.h"
 #include "agent/agentproviderregistry.h"
 #include "agent/agentrequestrouter.h"
+#include "agent/memorysuggestionengine.h"
+#include "debug/debugpanel.h"
+#include "debug/gdbmiadapter.h"
+#include "remote/sshconnectionmanager.h"
+#include "remote/remotefilepanel.h"
+#include "remote/remotesyncservice.h"
+#include "remote/remotehostinfo.h"
+#include "remote/sshsession.h"
 #include "agent/chat/chatpanelwidget.h"
 #include "agent/agentcontroller.h"
 #include "agent/agentmodes.h"
 #include "agent/agentplatformbootstrap.h"
+#include "agent/projectbrainservice.h"
 #include "agent/contextbuilder.h"
 #include "agent/quickchatdialog.h"
 #include "agent/inlinechat/inlinechatwidget.h"
@@ -78,7 +86,8 @@
 #include "ui/settingsdialog.h"
 #include "ui/keymapmanager.h"
 #include "ui/keymapdialog.h"
-#include "ui/dockautohidemanager.h"
+#include "ui/dock/DockManager.h"
+#include "ui/dock/ExDockWidget.h"
 #include "pluginmanager.h"
 #include "serviceregistry.h"
 #include "core/qtfilesystem.h"
@@ -238,7 +247,6 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(m_lspClient, &LspClient::initialized,
             this, &MainWindow::onLspInitialized);
-
     setupUi();
     setupMenus();
     setupToolBar();
@@ -271,6 +279,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_services = std::make_unique<ServiceRegistry>();
     m_services->registerService("mainwindow", this);
     m_services->registerService("agentOrchestrator", m_agentOrchestrator);
+    if (m_keyStorage)
+        m_services->registerService(QStringLiteral("secureKeyStorage"), m_keyStorage);
     m_fileSystem = std::make_unique<QtFileSystem>();
 
     // ── Agent core bootstrap ──────────────────────────────────────────────
@@ -336,6 +346,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_agentController = m_agentPlatform->agentController();
     m_sessionStore = m_agentPlatform->sessionStore();
 
+    // Deferred from createDockWidgets — m_agentPlatform was null there.
+    if (m_memoryBrowser)
+        m_memoryBrowser->setBrainService(m_agentPlatform->brainService());
+
     // Wire the orchestrator facade to delegate to the new platform services
     m_agentOrchestrator->setRegistry(m_agentPlatform->providerRegistry());
     m_agentOrchestrator->setRouter(m_agentPlatform->requestRouter());
@@ -396,6 +410,46 @@ MainWindow::MainWindow(QWidget *parent)
             this, [this](const AgentTurn &turn) {
         m_trajectoryPanel->setTurn(turn);
     });
+
+    // Wire memory suggestion engine — suggest facts after each turn
+    if (auto *engine = m_agentPlatform->memorySuggestionEngine()) {
+        connect(m_agentController, &AgentController::turnFinished,
+                this, [this, engine](const AgentTurn &turn) {
+            // Collect touched files from tool call arguments
+            QStringList touchedFiles;
+            for (const auto &step : turn.steps) {
+                if (step.type == AgentStep::Type::ToolCall) {
+                    const auto args = QJsonDocument::fromJson(
+                        step.toolCall.arguments.toUtf8()).object();
+                    const QString fp = args.value(QStringLiteral("filePath")).toString();
+                    if (!fp.isEmpty() && !touchedFiles.contains(fp))
+                        touchedFiles.append(fp);
+                }
+            }
+            // Gather response text
+            QString response;
+            for (const auto &step : turn.steps) {
+                if (!step.finalText.isEmpty())
+                    response += step.finalText;
+            }
+            engine->suggestFacts(turn.userMessage, response, touchedFiles);
+        });
+        connect(engine, &MemorySuggestionEngine::factSuggested,
+                this, [this](const MemoryFact &fact) {
+            NotificationToast::showWithAction(
+                this,
+                tr("Memory suggestion: %1").arg(fact.value.left(80)),
+                tr("Save"),
+                [this, fact]() {
+                    if (auto *brain = m_agentPlatform->brainService()) {
+                        MemoryFact accepted = fact;
+                        accepted.confidence = 1.0;
+                        brain->addFact(accepted);
+                    }
+                },
+                NotificationToast::Info, 10000);
+        });
+    }
     connect(m_agentController, &AgentController::toolCallStarted,
             this, [this](const QString &name, const QJsonObject &args) {
         AgentStep step;
@@ -556,7 +610,7 @@ MainWindow::MainWindow(QWidget *parent)
         });
         m_chatPanel->setRunInTerminalCallback([this](const QString &code) {
             if (!m_terminal) return;
-            m_terminalDock->raise();
+            m_dockManager->showDock(m_terminalDock, exdock::SideBarArea::Bottom);
             m_terminal->sendInput(code);
             m_terminal->sendInput(QStringLiteral("\r\n"));
         });
@@ -605,17 +659,16 @@ void MainWindow::deferredInit()
 {
     loadPlugins();
 
-    // Restore dock layout after all widgets and plugins are created.
+    // Restore dock layout from DockManager JSON state.
     {
         QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
-        const QByteArray winState = s.value(QStringLiteral("windowState")).toByteArray();
-        if (!winState.isEmpty())
-            restoreState(winState);
+        const QString dockJson = s.value(QStringLiteral("dockState")).toString();
+        if (!dockJson.isEmpty()) {
+            const QJsonObject obj = QJsonDocument::fromJson(dockJson.toUtf8()).object();
+            if (!obj.isEmpty())
+                m_dockManager->restoreState(obj);
+        }
     }
-
-    // Restore which docks are auto-hidden (unpinned to sidebars).
-    if (m_dockAutoHide)
-        m_dockAutoHide->restoreState();
 
     // Re-open last folder (deferred to avoid blocking first paint).
     QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
@@ -634,14 +687,6 @@ void MainWindow::setupUi()
     m_tabs->setMovable(true);
 
     m_breadcrumb = new BreadcrumbBar(this);
-
-    auto *centralContainer = new QWidget(this);
-    auto *centralLayout = new QVBoxLayout(centralContainer);
-    centralLayout->setContentsMargins(0, 0, 0, 0);
-    centralLayout->setSpacing(0);
-    centralLayout->addWidget(m_breadcrumb);
-    centralLayout->addWidget(m_tabs);
-    setCentralWidget(centralContainer);
 
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
         QWidget *widget = m_tabs->widget(index);
@@ -842,7 +887,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     
     viewMenu->addSeparator();
 
-    // Dock toggle actions (QDockWidget provides them automatically).
+    // Dock toggle actions.
     // They are added after createDockWidgets() populates the dock pointers, so
     // we use a lambda that defers the addAction until after the constructor.
     QAction *toggleProjectAction   = viewMenu->addAction(tr("&Project panel"));
@@ -859,6 +904,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     QAction *toggleMemoryAction    = viewMenu->addAction(tr("AI &Memory"));
     QAction *toggleMcpAction       = viewMenu->addAction(tr("&MCP Servers"));
     QAction *toggleOutputAction    = viewMenu->addAction(tr("&Output / Build"));
+    QAction *toggleDebugAction     = viewMenu->addAction(tr("&Debug panel"));
+    QAction *toggleRemoteAction    = viewMenu->addAction(tr("&Remote / SSH"));
     viewMenu->addSeparator();
     QAction *toggleBlameAction     = viewMenu->addAction(tr("Toggle Git &Blame"));
     toggleBlameAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_B));
@@ -912,8 +959,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
         const QString headText = m_gitService->showAtHead(path);
         const QString currentText = editor->toPlainText();
         m_diffViewer->showDiff(path, headText, currentText);
-        m_diffDock->show();
-        m_diffDock->raise();
+        m_dockManager->showDock(m_diffDock, exdock::SideBarArea::Bottom);
     });
 
     for (QAction *a : {toggleProjectAction, toggleSearchAction, toggleGitAction,
@@ -932,6 +978,10 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleMcpAction->setChecked(false);
     toggleOutputAction->setCheckable(true);
     toggleOutputAction->setChecked(false);
+    toggleDebugAction->setCheckable(true);
+    toggleDebugAction->setChecked(false);
+    toggleRemoteAction->setCheckable(true);
+    toggleRemoteAction->setChecked(false);
 
     // ── Build shortcut (Ctrl+Shift+B) ─────────────────────────────────────
     auto *buildAct = new QAction(tr("&Build"), this);
@@ -954,8 +1004,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
                 // Trigger the Run button click
                 m_outputPanel->runCommand(combo->currentText());
             }
-            m_outputDock->show();
-            m_outputDock->raise();
+            m_dockManager->showDock(m_outputDock, exdock::SideBarArea::Bottom);
         }
     });
     addAction(buildAct);
@@ -967,8 +1016,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
         if (m_runPanel) {
             m_runPanel->setWorkingDirectory(m_currentFolder);
             m_runPanel->launch();
-            m_runDock->show();
-            m_runDock->raise();
+            m_dockManager->showDock(m_runDock, exdock::SideBarArea::Bottom);
         }
     });
     addAction(runAct);
@@ -993,13 +1041,9 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     auto *toggleChatAct = new QAction(tr("Toggle AI Panel"), this);
     toggleChatAct->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_I));
     connect(toggleChatAct, &QAction::triggered, this, [this]() {
-        if (m_aiDock->isVisible()) {
-            m_aiDock->hide();
-        } else {
-            m_aiDock->show();
-            m_aiDock->raise();
+        m_dockManager->toggleDock(m_aiDock);
+        if (m_dockManager->isPinned(m_aiDock))
             m_chatPanel->focusInput();
-        }
     });
     addAction(toggleChatAct);
 
@@ -1043,15 +1087,13 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     connect(cmdPaletteAction, &QAction::triggered, this, &MainWindow::showCommandPalette);
     connect(filePaletteAction, &QAction::triggered, this, &MainWindow::showFilePalette);
 
-    // Wire dock toggles after createDockWidgets() runs (called from setupUi)
-    // by using lambdas that capture the dock pointer at call time.
-    // If a dock is auto-hidden and user checks it via View menu, re-pin it.
-    auto dockToggle = [this](QDockWidget *dock) {
+    // Wire dock toggles via DockManager.
+    auto dockToggle = [this](exdock::ExDockWidget *dock) {
         return [this, dock](bool on) {
-            if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(dock))
-                m_dockAutoHide->pinDock(dock);
+            if (on)
+                m_dockManager->showDock(dock, m_dockManager->inferSide(dock));
             else
-                dock->setVisible(on);
+                m_dockManager->closeDock(dock);
         };
     };
     connect(toggleProjectAction,  &QAction::toggled, this, dockToggle(m_projectDock));
@@ -1061,20 +1103,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     connect(toggleAiAction,       &QAction::toggled, this, dockToggle(m_aiDock));
     connect(toggleOutlineAction,  &QAction::toggled, this, dockToggle(m_symbolDock));
     connect(toggleRefsAction,     &QAction::toggled, this, dockToggle(m_referencesDock));
-    connect(toggleLogAction,      &QAction::toggled, this, [this](bool on) {
-        if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(m_requestLogDock))
-            m_dockAutoHide->pinDock(m_requestLogDock);
-        else
-            m_requestLogDock->setVisible(on);
-        if (on) m_requestLogDock->raise();
-    });
-    connect(toggleTrajectoryAction, &QAction::toggled, this, [this](bool on) {
-        if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(m_trajectoryDock))
-            m_dockAutoHide->pinDock(m_trajectoryDock);
-        else
-            m_trajectoryDock->setVisible(on);
-        if (on) m_trajectoryDock->raise();
-    });
+    connect(toggleLogAction,      &QAction::toggled, this, dockToggle(m_requestLogDock));
+    connect(toggleTrajectoryAction, &QAction::toggled, this, dockToggle(m_trajectoryDock));
     connect(toggleSettingsAction, &QAction::triggered, this, [this]() {
         if (!m_settingsDialog) {
             m_settingsDialog = new QDialog(this);
@@ -1090,59 +1120,38 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
         m_settingsDialog->activateWindow();
     });
     connect(toggleMemoryAction,   &QAction::toggled, this, [this](bool on) {
-        if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(m_memoryDock))
-            m_dockAutoHide->pinDock(m_memoryDock);
+        if (on)
+            m_dockManager->showDock(m_memoryDock, exdock::SideBarArea::Right);
         else
-            m_memoryDock->setVisible(on);
-        if (on) { m_memoryDock->raise(); m_memoryBrowser->refresh(); }
+            m_dockManager->closeDock(m_memoryDock);
+        if (on) m_memoryBrowser->refresh();
     });
-    connect(toggleMcpAction, &QAction::toggled, this, [this](bool on) {
-        if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(m_mcpDock))
-            m_dockAutoHide->pinDock(m_mcpDock);
-        else
-            m_mcpDock->setVisible(on);
-        if (on) m_mcpDock->raise();
-    });
-    connect(toggleOutputAction, &QAction::toggled, this, [this](bool on) {
-        if (on && m_dockAutoHide && m_dockAutoHide->isAutoHidden(m_outputDock))
-            m_dockAutoHide->pinDock(m_outputDock);
-        else
-            m_outputDock->setVisible(on);
-        if (on) m_outputDock->raise();
-    });
-    // Sync checkbox state when user closes a dock via its own X button.
-    // Guard: ignore visibilityChanged fired during window minimize/restore
-    // to prevent docks from being permanently hidden.
-    auto safeVisSync = [this](QAction *action) {
-        return [this, action](bool visible) {
-            if (!isMinimized())
-                action->setChecked(visible);
-        };
+    connect(toggleMcpAction,    &QAction::toggled, this, dockToggle(m_mcpDock));
+    connect(toggleOutputAction, &QAction::toggled, this, dockToggle(m_outputDock));
+    connect(toggleDebugAction,  &QAction::toggled, this, dockToggle(m_debugDock));
+    connect(toggleRemoteAction, &QAction::toggled, this, dockToggle(m_remoteDock));
+
+    // Sync View-menu checkbox with dock state changes.
+    auto syncAction = [](QAction *action, exdock::ExDockWidget *dock) {
+        QObject::connect(dock, &exdock::ExDockWidget::stateChanged,
+                         action, [action](exdock::DockState s) {
+            action->setChecked(s == exdock::DockState::Docked);
+        });
     };
-    connect(m_projectDock,    &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleProjectAction));
-    connect(m_searchDock,     &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleSearchAction));
-    connect(m_gitDock,        &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleGitAction));
-    connect(m_terminalDock,   &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleTerminalAction));
-    connect(m_aiDock,         &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleAiAction));
-    connect(m_symbolDock,     &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleOutlineAction));
-    connect(m_trajectoryDock, &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleTrajectoryAction));
-    connect(m_referencesDock, &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleRefsAction));
-    connect(m_requestLogDock, &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleLogAction));
-    connect(m_memoryDock,     &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleMemoryAction));
-    connect(m_mcpDock,        &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleMcpAction));
-    connect(m_outputDock,     &QDockWidget::visibilityChanged,
-            this, safeVisSync(toggleOutputAction));
+    syncAction(toggleProjectAction,    m_projectDock);
+    syncAction(toggleSearchAction,     m_searchDock);
+    syncAction(toggleGitAction,        m_gitDock);
+    syncAction(toggleTerminalAction,   m_terminalDock);
+    syncAction(toggleAiAction,         m_aiDock);
+    syncAction(toggleOutlineAction,    m_symbolDock);
+    syncAction(toggleRefsAction,       m_referencesDock);
+    syncAction(toggleLogAction,        m_requestLogDock);
+    syncAction(toggleTrajectoryAction, m_trajectoryDock);
+    syncAction(toggleMemoryAction,     m_memoryDock);
+    syncAction(toggleMcpAction,        m_mcpDock);
+    syncAction(toggleOutputAction,     m_outputDock);
+    syncAction(toggleDebugAction,      m_debugDock);
+    syncAction(toggleRemoteAction,     m_remoteDock);
 }
 
 void MainWindow::setupToolBar()
@@ -1216,14 +1225,29 @@ void MainWindow::setupStatusBar()
 
 void MainWindow::createDockWidgets()
 {
+    using namespace exdock;
+
+    // ── Create DockManager (takes over centralWidget) ─────────────────────
+    m_dockManager = new DockManager(this, this);
+
+    // Build the central editor container (breadcrumb + tab widget) and set
+    // it as the center content BEFORE any dock panels are added, so that
+    // Bottom/Top areas can find the editor position in the center splitter.
+    auto *centralContainer = new QWidget(this);
+    auto *centralLayout = new QVBoxLayout(centralContainer);
+    centralLayout->setContentsMargins(0, 0, 0, 0);
+    centralLayout->setSpacing(0);
+    centralLayout->addWidget(m_breadcrumb);
+    centralLayout->addWidget(m_tabs);
+    m_dockManager->setCentralContent(centralContainer);
+
     // ── Project tree ──────────────────────────────────────────────────────
-    m_projectDock = new QDockWidget(tr("Project"), this);
-    m_projectDock->setObjectName("ProjectDock");
-    m_projectDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_projectDock = new ExDockWidget(tr("Project"), this);
+    m_projectDock->setDockId(QStringLiteral("ProjectDock"));
 
     m_treeModel = new SolutionTreeModel(m_projectManager, m_gitService, this);
 
-    m_fileTree = new QTreeView(m_projectDock);
+    m_fileTree = new QTreeView;
     m_fileTree->setModel(m_treeModel);
     m_fileTree->setHeaderHidden(true);
     m_fileTree->setIndentation(14);
@@ -1232,26 +1256,21 @@ void MainWindow::createDockWidgets()
     connect(m_fileTree, &QTreeView::customContextMenuRequested,
             this, &MainWindow::onTreeContextMenu);
 
-    m_projectDock->setWidget(m_fileTree);
-    addDockWidget(Qt::LeftDockWidgetArea, m_projectDock);
+    m_projectDock->setContentWidget(m_fileTree);
+    m_dockManager->addDockWidget(m_projectDock, SideBarArea::Left, /*startPinned=*/true);
 
     // ── Search ────────────────────────────────────────────────────────────
     m_searchPanel = new SearchPanel(m_searchService, this);
-    m_searchDock  = new QDockWidget(tr("Search"), this);
-    m_searchDock->setObjectName("SearchDock");
-    m_searchDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    m_searchDock->setWidget(m_searchPanel);
-    addDockWidget(Qt::LeftDockWidgetArea, m_searchDock);
-    tabifyDockWidget(m_projectDock, m_searchDock);
-    m_projectDock->raise();   // project visible by default
+    m_searchDock  = new ExDockWidget(tr("Search"), this);
+    m_searchDock->setDockId(QStringLiteral("SearchDock"));
+    m_searchDock->setContentWidget(m_searchPanel);
+    m_dockManager->addDockWidget(m_searchDock, SideBarArea::Left, /*startPinned=*/false);
 
     m_gitPanel = new GitPanel(m_gitService, this);
-    m_gitDock  = new QDockWidget(tr("Git"), this);
-    m_gitDock->setObjectName("GitDock");
-    m_gitDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    m_gitDock->setWidget(m_gitPanel);
-    addDockWidget(Qt::LeftDockWidgetArea, m_gitDock);
-    tabifyDockWidget(m_searchDock, m_gitDock);
+    m_gitDock  = new ExDockWidget(tr("Git"), this);
+    m_gitDock->setDockId(QStringLiteral("GitDock"));
+    m_gitDock->setContentWidget(m_gitPanel);
+    m_dockManager->addDockWidget(m_gitDock, SideBarArea::Left, /*startPinned=*/false);
 
     // Generate commit message with AI
     connect(m_gitPanel, &GitPanel::generateCommitMessageRequested,
@@ -1313,35 +1332,30 @@ void MainWindow::createDockWidgets()
         }
         m_chatPanel->setInputText(QStringLiteral("/resolve ") + prompt.left(12000));
         m_chatPanel->focusInput();
-        m_aiDock->raise();
+        m_dockManager->showDock(m_aiDock, exdock::SideBarArea::Right);
     });
 
     // ── Terminal ──────────────────────────────────────────────────────────
     m_terminal     = new TerminalPanel(this);
-    m_terminalDock = new QDockWidget(tr("Terminal"), this);
-    m_terminalDock->setObjectName("TerminalDock");
-    m_terminalDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
-    m_terminalDock->setWidget(m_terminal);
-    addDockWidget(Qt::BottomDockWidgetArea, m_terminalDock);
+    m_terminalDock = new ExDockWidget(tr("Terminal"), this);
+    m_terminalDock->setDockId(QStringLiteral("TerminalDock"));
+    m_terminalDock->setContentWidget(m_terminal);
+    m_dockManager->addDockWidget(m_terminalDock, SideBarArea::Bottom, /*startPinned=*/true);
 
     // ── AI ────────────────────────────────────────────────────────────────
-    m_aiDock = new QDockWidget(tr("AI"), this);
-    m_aiDock->setObjectName("AIDock");
-    m_aiDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
-    m_chatPanel = new ChatPanelWidget(m_agentOrchestrator, m_aiDock);
+    m_aiDock = new ExDockWidget(tr("AI"), this);
+    m_aiDock->setDockId(QStringLiteral("AIDock"));
+    m_chatPanel = new ChatPanelWidget(m_agentOrchestrator, nullptr);
     // NOTE: AgentController is wired after it is created in the constructor.
-    m_aiDock->setWidget(m_chatPanel);
-    addDockWidget(Qt::RightDockWidgetArea, m_aiDock);
+    m_aiDock->setContentWidget(m_chatPanel);
+    m_dockManager->addDockWidget(m_aiDock, SideBarArea::Right, /*startPinned=*/false);
 
     // ── Symbol outline ────────────────────────────────────────────────────
     m_symbolPanel = new SymbolOutlinePanel(this);
-    m_symbolDock  = new QDockWidget(tr("Outline"), this);
-    m_symbolDock->setObjectName("OutlineDock");
-    m_symbolDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    m_symbolDock->setWidget(m_symbolPanel);
-    addDockWidget(Qt::LeftDockWidgetArea, m_symbolDock);
-    tabifyDockWidget(m_searchDock, m_symbolDock);
-    m_projectDock->raise();   // project still visible by default
+    m_symbolDock  = new ExDockWidget(tr("Outline"), this);
+    m_symbolDock->setDockId(QStringLiteral("OutlineDock"));
+    m_symbolDock->setContentWidget(m_symbolPanel);
+    m_dockManager->addDockWidget(m_symbolDock, SideBarArea::Left, /*startPinned=*/false);
 
     connect(m_symbolPanel, &SymbolOutlinePanel::symbolActivated,
             this, [this](int line, int col) {
@@ -1360,36 +1374,27 @@ void MainWindow::createDockWidgets()
 
     // ── References ────────────────────────────────────────────────────────
     m_referencesPanel = new ReferencesPanel(this);
-    m_referencesDock  = new QDockWidget(tr("References"), this);
-    m_referencesDock->setObjectName("ReferencesDock");
-    m_referencesDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
-    m_referencesDock->setWidget(m_referencesPanel);
-    addDockWidget(Qt::BottomDockWidgetArea, m_referencesDock);
-    tabifyDockWidget(m_terminalDock, m_referencesDock);
-    m_terminalDock->raise();  // terminal visible by default
+    m_referencesDock  = new ExDockWidget(tr("References"), this);
+    m_referencesDock->setDockId(QStringLiteral("ReferencesDock"));
+    m_referencesDock->setContentWidget(m_referencesPanel);
+    m_dockManager->addDockWidget(m_referencesDock, SideBarArea::Bottom, /*startPinned=*/false);
 
     connect(m_referencesPanel, &ReferencesPanel::referenceActivated,
             this, &MainWindow::navigateToLocation);
 
     // ── Request Log (Debug) ───────────────────────────────────────────────
     m_requestLogPanel = new RequestLogPanel(this);
-    m_requestLogDock  = new QDockWidget(tr("Request Log"), this);
-    m_requestLogDock->setObjectName("RequestLogDock");
-    m_requestLogDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
-    m_requestLogDock->setWidget(m_requestLogPanel);
-    addDockWidget(Qt::BottomDockWidgetArea, m_requestLogDock);
-    tabifyDockWidget(m_terminalDock, m_requestLogDock);
-    m_requestLogDock->hide(); // hidden by default — debug panel
+    m_requestLogDock  = new ExDockWidget(tr("Request Log"), this);
+    m_requestLogDock->setDockId(QStringLiteral("RequestLogDock"));
+    m_requestLogDock->setContentWidget(m_requestLogPanel);
+    m_dockManager->addDockWidget(m_requestLogDock, SideBarArea::Bottom, /*startPinned=*/false);
 
     // ── Trajectory Viewer (Debug) ─────────────────────────────────────────
     m_trajectoryPanel = new TrajectoryPanel(this);
-    m_trajectoryDock  = new QDockWidget(tr("Trajectory"), this);
-    m_trajectoryDock->setObjectName("TrajectoryDock");
-    m_trajectoryDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
-    m_trajectoryDock->setWidget(m_trajectoryPanel);
-    addDockWidget(Qt::BottomDockWidgetArea, m_trajectoryDock);
-    tabifyDockWidget(m_requestLogDock, m_trajectoryDock);
-    m_trajectoryDock->hide(); // hidden by default — debug panel
+    m_trajectoryDock  = new ExDockWidget(tr("Trajectory"), this);
+    m_trajectoryDock->setDockId(QStringLiteral("TrajectoryDock"));
+    m_trajectoryDock->setContentWidget(m_trajectoryPanel);
+    m_dockManager->addDockWidget(m_trajectoryDock, SideBarArea::Bottom, /*startPinned=*/false);
 
     // ── Settings (dialog, not dock) ──────────────────────────────────────────
     m_settingsPanel = new SettingsPanel(this);
@@ -1399,35 +1404,130 @@ void MainWindow::createDockWidgets()
         QStandardPaths::AppDataLocation) + QStringLiteral("/memories");
     m_symbolIndex  = new SymbolIndex(this);
     m_memoryBrowser = new MemoryBrowserPanel(memPath, this);
-    m_memoryDock = new QDockWidget(tr("Memory"), this);
-    m_memoryDock->setObjectName("MemoryDock");
-    m_memoryDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
-    m_memoryDock->setWidget(m_memoryBrowser);
-    addDockWidget(Qt::RightDockWidgetArea, m_memoryDock);
-    tabifyDockWidget(m_aiDock, m_memoryDock);
-    m_memoryDock->hide(); // hidden by default
+    // setBrainService deferred — m_agentPlatform is not yet created here
+    m_memoryDock = new ExDockWidget(tr("Memory"), this);
+    m_memoryDock->setDockId(QStringLiteral("MemoryDock"));
+    m_memoryDock->setContentWidget(m_memoryBrowser);
+    m_dockManager->addDockWidget(m_memoryDock, SideBarArea::Right, /*startPinned=*/false);
+
+    // ── Debug Panel ───────────────────────────────────────────────────────
+    m_debugAdapter = new GdbMiAdapter(this);
+    m_debugPanel = new DebugPanel(this);
+    m_debugPanel->setAdapter(m_debugAdapter);
+    m_debugDock = new ExDockWidget(tr("Debug"), this);
+    m_debugDock->setDockId(QStringLiteral("DebugDock"));
+    m_debugDock->setContentWidget(m_debugPanel);
+    m_dockManager->addDockWidget(m_debugDock, SideBarArea::Bottom, /*startPinned=*/false);
+
+    // Navigate to source on stack frame double-click
+    connect(m_debugPanel, &DebugPanel::navigateToSource,
+            this, [this](const QString &filePath, int line) {
+        navigateToLocation(filePath, line - 1, 0);
+    });
+
+    // Highlight current stopped line in editor
+    connect(m_debugAdapter, &GdbMiAdapter::stopped,
+            this, [this](int /*threadId*/, DebugStopReason /*reason*/,
+                         const QString &/*desc*/) {
+        m_debugAdapter->requestStackTrace(0);
+    });
+    connect(m_debugAdapter, &GdbMiAdapter::stackTraceReceived,
+            this, [this](int /*threadId*/, const QList<DebugFrame> &frames) {
+        // Clear previous debug line on all editors
+        for (int i = 0; i < m_tabs->count(); ++i) {
+            auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+            if (ed) ed->setCurrentDebugLine(0);
+        }
+        // Set debug line on top frame's editor
+        if (!frames.isEmpty()) {
+            const auto &top = frames.first();
+            for (int i = 0; i < m_tabs->count(); ++i) {
+                auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+                if (ed && ed->property("filePath").toString() == top.filePath) {
+                    ed->setCurrentDebugLine(top.line);
+                    m_tabs->setCurrentIndex(i);
+                    break;
+                }
+            }
+        }
+    });
+
+    // Clear debug line on session end
+    connect(m_debugAdapter, &GdbMiAdapter::terminated,
+            this, [this]() {
+        for (int i = 0; i < m_tabs->count(); ++i) {
+            auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+            if (ed) ed->setCurrentDebugLine(0);
+        }
+    });
+
+    // Wire breakpoint from editor to debug panel
+    // (connected per-tab when tab is opened — see below in openFile)
+
+    // ── Remote / SSH panel ────────────────────────────────────────────────
+    m_sshManager = new SshConnectionManager(this);
+    m_syncService = new RemoteSyncService(this);
+    m_remotePanel = new RemoteFilePanel(this);
+    m_remotePanel->setConnectionManager(m_sshManager);
+    m_remoteDock = new ExDockWidget(tr("Remote"), this);
+    m_remoteDock->setDockId(QStringLiteral("RemoteDock"));
+    m_remoteDock->setContentWidget(m_remotePanel);
+    m_dockManager->addDockWidget(m_remoteDock, SideBarArea::Left, /*startPinned=*/false);
+
+    // Open remote file: download to temp, then open in editor
+    connect(m_remotePanel, &RemoteFilePanel::openRemoteFile,
+            this, [this](const QString &remotePath, const QString &profileId) {
+        auto *session = m_sshManager->activeSession(profileId);
+        if (!session) return;
+
+        const QString tmpDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+        const QString localPath = tmpDir + QLatin1String("/exorcist_remote_")
+            + QFileInfo(remotePath).fileName();
+
+        connect(session, &SshSession::fileContentReady,
+                this, [this, localPath](const QString &/*reqId*/, const QByteArray &data) {
+            QFile f(localPath);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                f.write(data);
+                f.close();
+                openFile(localPath);
+            }
+        }, Qt::SingleShotConnection);
+
+        session->readFile(remotePath);
+    });
+
+    // Open remote terminal tab
+    connect(m_remotePanel, &RemoteFilePanel::openRemoteTerminal,
+            this, [this](const QString &profileId) {
+        const auto profiles = m_sshManager->profiles();
+        for (const auto &p : profiles) {
+            if (p.id == profileId) {
+                m_terminal->addSshTerminal(
+                    QStringLiteral("SSH: %1").arg(p.name.isEmpty() ? p.host : p.name),
+                    p.host, p.port, p.user, p.privateKeyPath);
+                m_dockManager->showDock(m_terminalDock, exdock::SideBarArea::Bottom);
+                return;
+            }
+        }
+    });
 
     // ── Theme Manager ─────────────────────────────────────────────────────
     m_themeManager = new ThemeManager(this);
 
     // ── Diff Viewer panel ─────────────────────────────────────────────────
     m_diffViewer = new DiffViewerPanel(this);
-    m_diffDock = new QDockWidget(tr("Diff Viewer"), this);
-    m_diffDock->setObjectName("DiffDock");
-    m_diffDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::RightDockWidgetArea);
-    m_diffDock->setWidget(m_diffViewer);
-    addDockWidget(Qt::BottomDockWidgetArea, m_diffDock);
-    m_diffDock->hide();
+    m_diffDock = new ExDockWidget(tr("Diff Viewer"), this);
+    m_diffDock->setDockId(QStringLiteral("DiffDock"));
+    m_diffDock->setContentWidget(m_diffViewer);
+    m_dockManager->addDockWidget(m_diffDock, SideBarArea::Bottom, /*startPinned=*/false);
 
     // ── Proposed Edit panel ───────────────────────────────────────────────
     m_proposedEditPanel = new ProposedEditPanel(this);
-    m_proposedEditDock  = new QDockWidget(tr("Proposed Edits"), this);
-    m_proposedEditDock->setObjectName("ProposedEditDock");
-    m_proposedEditDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::RightDockWidgetArea);
-    m_proposedEditDock->setWidget(m_proposedEditPanel);
-    addDockWidget(Qt::BottomDockWidgetArea, m_proposedEditDock);
-    tabifyDockWidget(m_diffDock, m_proposedEditDock);
-    m_proposedEditDock->hide();
+    m_proposedEditDock  = new ExDockWidget(tr("Proposed Edits"), this);
+    m_proposedEditDock->setDockId(QStringLiteral("ProposedEditDock"));
+    m_proposedEditDock->setContentWidget(m_proposedEditPanel);
+    m_dockManager->addDockWidget(m_proposedEditDock, SideBarArea::Bottom, /*startPinned=*/false);
 
     connect(m_proposedEditPanel, &ProposedEditPanel::editAccepted,
             this, [this](const QString &filePath, const QString &newText) {
@@ -1450,23 +1550,17 @@ void MainWindow::createDockWidgets()
     // ── MCP client + panel ────────────────────────────────────────────────
     m_mcpClient = new McpClient(this);
     m_mcpPanel  = new McpPanel(m_mcpClient, this);
-    m_mcpDock   = new QDockWidget(tr("MCP Servers"), this);
-    m_mcpDock->setObjectName("McpDock");
-    m_mcpDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
-    m_mcpDock->setWidget(m_mcpPanel);
-    addDockWidget(Qt::RightDockWidgetArea, m_mcpDock);
-    tabifyDockWidget(m_memoryDock, m_mcpDock);
-    m_mcpDock->hide();
+    m_mcpDock   = new ExDockWidget(tr("MCP Servers"), this);
+    m_mcpDock->setDockId(QStringLiteral("McpDock"));
+    m_mcpDock->setContentWidget(m_mcpPanel);
+    m_dockManager->addDockWidget(m_mcpDock, SideBarArea::Right, /*startPinned=*/false);
 
     // ── Output / Build panel ──────────────────────────────────────────────
     m_outputPanel = new OutputPanel(this);
-    m_outputDock  = new QDockWidget(tr("Output"), this);
-    m_outputDock->setObjectName("OutputDock");
-    m_outputDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
-    m_outputDock->setWidget(m_outputPanel);
-    addDockWidget(Qt::BottomDockWidgetArea, m_outputDock);
-    tabifyDockWidget(m_terminalDock, m_outputDock);
-    m_outputDock->hide();
+    m_outputDock  = new ExDockWidget(tr("Output"), this);
+    m_outputDock->setDockId(QStringLiteral("OutputDock"));
+    m_outputDock->setContentWidget(m_outputPanel);
+    m_dockManager->addDockWidget(m_outputDock, SideBarArea::Bottom, /*startPinned=*/false);
 
     connect(m_outputPanel, &OutputPanel::problemClicked,
             this, &MainWindow::navigateToLocation);
@@ -1475,13 +1569,10 @@ void MainWindow::createDockWidgets()
 
     // ── Run / Launch panel ────────────────────────────────────────────────
     m_runPanel = new RunLaunchPanel(this);
-    m_runDock  = new QDockWidget(tr("Run"), this);
-    m_runDock->setObjectName("RunDock");
-    m_runDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
-    m_runDock->setWidget(m_runPanel);
-    addDockWidget(Qt::BottomDockWidgetArea, m_runDock);
-    tabifyDockWidget(m_outputDock, m_runDock);
-    m_runDock->hide();
+    m_runDock  = new ExDockWidget(tr("Run"), this);
+    m_runDock->setDockId(QStringLiteral("RunDock"));
+    m_runDock->setContentWidget(m_runPanel);
+    m_dockManager->addDockWidget(m_runDock, SideBarArea::Bottom, /*startPinned=*/false);
 
     // ── File Watch Service ────────────────────────────────────────────────
     m_fileWatcher = new FileWatchService(this);
@@ -1530,7 +1621,8 @@ void MainWindow::createDockWidgets()
 
     // ── Secure Key Storage ────────────────────────────────────────────────
     m_keyStorage = new SecureKeyStorage(this);
-    m_services->registerService(QStringLiteral("secureKeyStorage"), m_keyStorage);
+    // NOTE: m_services->registerService deferred to after setupUi() — m_services
+    // is not yet created when createDockWidgets() runs inside setupUi().
 
     // ── Prompt File Manager ───────────────────────────────────────────────
     m_promptFileManager = new PromptFileManager(this);
@@ -1628,10 +1720,20 @@ void MainWindow::createDockWidgets()
 
     // ── Network Monitor ──────────────────────────────────────────────────
     m_networkMonitor = new NetworkMonitor(this);
-    connect(m_networkMonitor, &NetworkMonitor::wentOffline, this,
-            [this]() { m_authIndicator->setState(AuthStatusIndicator::Offline); });
-    connect(m_networkMonitor, &NetworkMonitor::wentOnline, this,
-            [this]() { m_authIndicator->setState(AuthStatusIndicator::SignedIn); });
+    connect(m_networkMonitor, &NetworkMonitor::wentOffline, this, [this]() {
+        m_authIndicator->setState(AuthStatusIndicator::Offline);
+        NotificationToast::show(this, tr("Network offline — AI features unavailable"),
+                                NotificationToast::Warning, 5000);
+        if (m_chatPanel)
+            m_chatPanel->setInputEnabled(false);
+    });
+    connect(m_networkMonitor, &NetworkMonitor::wentOnline, this, [this]() {
+        m_authIndicator->setState(AuthStatusIndicator::SignedIn);
+        NotificationToast::show(this, tr("Network restored"),
+                                NotificationToast::Success, 3000);
+        if (m_chatPanel)
+            m_chatPanel->setInputEnabled(true);
+    });
     m_networkMonitor->start();
 
     // ── Telemetry Manager ─────────────────────────────────────────────────
@@ -1712,7 +1814,7 @@ void MainWindow::createDockWidgets()
         if (m_referencesPanel)
             m_referencesPanel->showReferences(tr("Symbol"), locations);
         if (m_referencesDock)
-            m_referencesDock->show();
+            m_dockManager->showDock(m_referencesDock, exdock::SideBarArea::Bottom);
     });
 
     // ── Rename Symbol ─────────────────────────────────────────────────────
@@ -1762,20 +1864,6 @@ void MainWindow::createDockWidgets()
         }
     });
 
-    // ── Auto-Hide Dock Manager ────────────────────────────────────────────
-    m_dockAutoHide = new DockAutoHideManager(this);
-
-    // Register all dock widgets so they get pin/unpin title bars
-    for (QDockWidget *dock : {m_projectDock, m_searchDock, m_gitDock,
-                              m_terminalDock, m_aiDock, m_symbolDock,
-                              m_referencesDock, m_requestLogDock,
-                              m_trajectoryDock, m_memoryDock, m_mcpDock,
-                              m_outputDock, m_runDock, m_diffDock,
-                              m_proposedEditDock}) {
-        m_dockAutoHide->registerDock(dock);
-    }
-    // Initial sidebar layout
-    m_dockAutoHide->repositionSidebars();
 }
 
 // ── Tabs / editor ────────────────────────────────────────────────────────────
@@ -1998,6 +2086,25 @@ void MainWindow::openFile(const QString &path)
     prevRevAction->setShortcutContext(Qt::WidgetShortcut);
     connect(prevRevAction, &QAction::triggered, editor, &EditorView::prevReviewAnnotation);
     editor->addAction(prevRevAction);
+
+    // Wire breakpoint gutter → debug panel + adapter
+    connect(editor, &EditorView::breakpointToggled,
+            this, [this](const QString &fp, int ln, bool added) {
+        if (added) {
+            m_debugPanel->addBreakpointEntry(fp, ln);
+            if (m_debugAdapter) {
+                DebugBreakpoint bp;
+                bp.filePath = fp;
+                bp.line = ln;
+                m_debugAdapter->addBreakpoint(bp);
+            }
+        } else {
+            m_debugPanel->removeBreakpointEntry(fp, ln);
+            // Adapter breakpoint removal requires the adapter-assigned ID,
+            // which is tracked inside GdbMiAdapter. For now, re-setting
+            // breakpoints on next launch is the simplest approach.
+        }
+    });
 
     createLspBridge(editor, path);
 
@@ -2264,10 +2371,10 @@ void MainWindow::showCommandPalette()
     case 5:
         if (auto *e = currentEditor()) e->showFindBar();
         break;
-    case 6:  m_projectDock->setVisible(!m_projectDock->isVisible());  break;
-    case 7:  m_searchDock->setVisible(!m_searchDock->isVisible());    break;
-    case 8:  m_terminalDock->setVisible(!m_terminalDock->isVisible()); break;
-    case 9:  m_aiDock->setVisible(!m_aiDock->isVisible());            break;
+    case 6:  m_dockManager->toggleDock(m_projectDock);  break;
+    case 7:  m_dockManager->toggleDock(m_searchDock);    break;
+    case 8:  m_dockManager->toggleDock(m_terminalDock); break;
+    case 9:  m_dockManager->toggleDock(m_aiDock);            break;
     case 10: showSymbolPalette();    break;
     case 11: close();                break;
     default: break;
@@ -2331,15 +2438,21 @@ void MainWindow::saveSettings()
 {
     QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
     s.setValue(QStringLiteral("geometry"),    saveGeometry());
-    s.setValue(QStringLiteral("windowState"), saveState());
     s.setValue(QStringLiteral("lastFolder"),  m_projectManager->activeSolutionDir());
-    if (m_dockAutoHide)
-        m_dockAutoHide->saveState();
+
+    // Save DockManager layout as JSON
+    if (m_dockManager) {
+        const QJsonObject dockState = m_dockManager->saveState();
+        s.setValue(QStringLiteral("dockState"),
+                   QString::fromUtf8(QJsonDocument(dockState).toJson(QJsonDocument::Compact)));
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     saveSettings();
+    if (m_agentPlatform && m_agentPlatform->brainService())
+        m_agentPlatform->brainService()->save();
     QMainWindow::closeEvent(event);
 }
 
@@ -2393,7 +2506,7 @@ void MainWindow::createLspBridge(EditorView *editor, const QString &path)
     connect(bridge, &LspEditorBridge::referencesFound,
             this, [this](const QString &symbol, const QJsonArray &locations) {
         m_referencesPanel->showReferences(symbol, locations);
-        m_referencesDock->raise();
+        m_dockManager->showDock(m_referencesDock, exdock::SideBarArea::Bottom);
     });
 
     connect(bridge, &LspEditorBridge::workspaceEditReady,
@@ -2710,7 +2823,7 @@ void MainWindow::onTreeContextMenu(const QPoint &pos)
     QAction *terminalAction = menu.addAction(tr("Open in Terminal"));
     terminalAction->setEnabled(!dirPath.isEmpty());
     connect(terminalAction, &QAction::triggered, this, [this, dirPath]() {
-        m_terminalDock->raise();
+        m_dockManager->showDock(m_terminalDock, exdock::SideBarArea::Bottom);
         m_terminal->setWorkingDirectory(dirPath);
     });
 
@@ -2808,7 +2921,6 @@ void MainWindow::loadPlugins()
 
     // Auto-show AI panel when at least one provider is available
     if (!m_agentOrchestrator->providers().isEmpty()) {
-        m_aiDock->show();
-        m_aiDock->raise();
+        m_dockManager->showDock(m_aiDock, exdock::SideBarArea::Right);
     }
 }

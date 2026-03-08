@@ -23,6 +23,28 @@ add_executable(exorcist WIN32
     editor/textbuffer.h
     editor/piecetablebuffer.cpp
     editor/piecetablebuffer.h
+    debug/idebugadapter.h
+    debug/gdbmiadapter.cpp
+    debug/gdbmiadapter.h
+    debug/debugpanel.cpp
+    debug/debugpanel.h
+    debug/watchtreemodel.cpp
+    debug/watchtreemodel.h
+    debug/quickwatchdialog.cpp
+    debug/quickwatchdialog.h
+    remote/sshprofile.h
+    remote/sshsession.cpp
+    remote/sshsession.h
+    remote/sshconnectionmanager.cpp
+    remote/sshconnectionmanager.h
+    remote/remotefilesystemmodel.cpp
+    remote/remotefilesystemmodel.h
+    remote/remotefilepanel.cpp
+    remote/remotefilepanel.h
+    remote/remotesyncservice.cpp
+    remote/remotesyncservice.h
+    remote/remotehostinfo.cpp
+    remote/remotehostinfo.h
     search/searchquery.h
     search/searchmatch.h
     search/searchindex.cpp
@@ -98,10 +120,17 @@ add_executable(exorcist WIN32
     agent/agentcontroller.h
     agent/agentmodes.h
     agent/agentsession.h
+    agent/braincontextbuilder.cpp
+    agent/braincontextbuilder.h
     agent/contextbuilder.cpp
     agent/contextbuilder.h
     agent/icontextprovider.h
     agent/itool.h
+    agent/memorysuggestionengine.cpp
+    agent/memorysuggestionengine.h
+    agent/projectbrainservice.cpp
+    agent/projectbrainservice.h
+    agent/projectbraintypes.h
     agent/promptvariables.cpp
     agent/promptvariables.h
     agent/sessionstore.cpp
@@ -147,6 +176,32 @@ add_executable(exorcist WIN32
     ui/keymapdialog.h
     ui/dockautohidemanager.cpp
     ui/dockautohidemanager.h
+    ui/dock/DockTypes.h
+    ui/dock/DockTabBar.h
+    ui/dock/DockTabBar.cpp
+    ui/dock/DockTitleBar.h
+    ui/dock/DockTitleBar.cpp
+    ui/dock/ExDockWidget.h
+    ui/dock/ExDockWidget.cpp
+    ui/dock/DockArea.h
+    ui/dock/DockArea.cpp
+    ui/dock/DockSplitter.h
+    ui/dock/DockSplitter.cpp
+    ui/dock/DockToolBar.h
+    ui/dock/DockToolBar.cpp
+    ui/dock/DockToolBarArea.h
+    ui/dock/DockToolBarArea.cpp
+    ui/dock/DockToolBarManager.h
+    ui/dock/DockToolBarManager.cpp
+    ui/dock/DockSideTab.h
+    ui/dock/DockSideTab.cpp
+    ui/dock/DockSideBar.h
+    ui/dock/DockSideBar.cpp
+    ui/dock/DockOverlayPanel.h
+    ui/dock/DockOverlayPanel.cpp
+    ui/dock/DockManager.h
+    ui/dock/DockManager.cpp
+    ui/dock/IToolBarService.h
     commandpalette.cpp
     commandpalette.h
     logger.cpp
@@ -256,7 +311,7 @@ add_executable(exorcist WIN32
     agent/chat/toolpresentationformatter.h
 )
 
-target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network)
+target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent)
 target_include_directories(exorcist PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(EXORCIST_USE_LLVM)

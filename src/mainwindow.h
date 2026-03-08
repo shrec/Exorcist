@@ -11,7 +11,7 @@
 #include "pluginmanager.h"
 #include "serviceregistry.h"
 
-class QDockWidget;
+namespace exdock { class ExDockWidget; class DockManager; }
 class QDialog;
 class QTabWidget;
 class QTreeView;
@@ -101,7 +101,12 @@ class ContextScopeConfig;
 class EmbeddingIndex;
 class GitignoreFilter;
 class RegexSearchEngine;
-class DockAutoHideManager;
+
+class DebugPanel;
+class GdbMiAdapter;
+class SshConnectionManager;
+class RemoteFilePanel;
+class RemoteSyncService;
 
 class MainWindow : public QMainWindow
 {
@@ -147,17 +152,17 @@ private:
     GitService       *m_gitService;
     GitPanel         *m_gitPanel;
 
-    QDockWidget *m_projectDock;
-    QDockWidget *m_searchDock;
-    QDockWidget *m_gitDock;
-    QDockWidget *m_terminalDock;
-    QDockWidget *m_aiDock;
-    QDockWidget *m_referencesDock;
-    QDockWidget *m_symbolDock;
-    QDockWidget *m_requestLogDock;
-    QDockWidget *m_trajectoryDock;
-    QDockWidget *m_memoryDock;
-    QDockWidget *m_mcpDock;
+    exdock::ExDockWidget *m_projectDock;
+    exdock::ExDockWidget *m_searchDock;
+    exdock::ExDockWidget *m_gitDock;
+    exdock::ExDockWidget *m_terminalDock;
+    exdock::ExDockWidget *m_aiDock;
+    exdock::ExDockWidget *m_referencesDock;
+    exdock::ExDockWidget *m_symbolDock;
+    exdock::ExDockWidget *m_requestLogDock;
+    exdock::ExDockWidget *m_trajectoryDock;
+    exdock::ExDockWidget *m_memoryDock;
+    exdock::ExDockWidget *m_mcpDock;
 
     QLabel *m_posLabel;
     QLabel *m_encodingLabel;
@@ -197,17 +202,17 @@ private:
     McpPanel                *m_mcpPanel          = nullptr;
     ThemeManager             *m_themeManager      = nullptr;
     DiffViewerPanel          *m_diffViewer        = nullptr;
-    QDockWidget              *m_diffDock          = nullptr;
+    exdock::ExDockWidget      *m_diffDock          = nullptr;
     ProposedEditPanel         *m_proposedEditPanel = nullptr;
-    QDockWidget              *m_proposedEditDock  = nullptr;
+    exdock::ExDockWidget      *m_proposedEditDock  = nullptr;
     BreadcrumbBar            *m_breadcrumb        = nullptr;
     WorkspaceIndexer         *m_workspaceIndexer = nullptr;
     SymbolIndex              *m_symbolIndex      = nullptr;
     QLabel                   *m_indexLabel = nullptr;
     OutputPanel              *m_outputPanel = nullptr;
-    QDockWidget              *m_outputDock  = nullptr;
+    exdock::ExDockWidget      *m_outputDock  = nullptr;
     RunLaunchPanel           *m_runPanel    = nullptr;
-    QDockWidget              *m_runDock     = nullptr;
+    exdock::ExDockWidget      *m_runDock     = nullptr;
     FileWatchService         *m_fileWatcher = nullptr;
     ContextPruner            *m_contextPruner = nullptr;
     AutoCompactor            *m_autoCompactor = nullptr;
@@ -256,7 +261,15 @@ private:
     RegexSearchEngine        *m_regexSearch = nullptr;
     KeymapManager            *m_keymapManager = nullptr;
     QLabel                   *m_memoryLabel = nullptr;
-    DockAutoHideManager      *m_dockAutoHide = nullptr;
+    exdock::DockManager       *m_dockManager = nullptr;
+    DebugPanel               *m_debugPanel = nullptr;
+    exdock::ExDockWidget      *m_debugDock = nullptr;
+    GdbMiAdapter             *m_debugAdapter = nullptr;
+
+    SshConnectionManager     *m_sshManager = nullptr;
+    RemoteFilePanel          *m_remotePanel = nullptr;
+    exdock::ExDockWidget      *m_remoteDock = nullptr;
+    RemoteSyncService        *m_syncService = nullptr;
 
     void updateDiffRanges(EditorView *editor);
     void onLspInitialized();
