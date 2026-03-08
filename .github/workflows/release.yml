@@ -13,10 +13,10 @@ env:
 
 jobs:
   # ─────────────────────────────────────────────────────────────
-  #  Windows – MSVC x64  →  .zip
+  #  Windows – Clang/llvm-mingw x64  →  .zip
   # ─────────────────────────────────────────────────────────────
   release-windows:
-    name: Windows (MSVC x64)
+    name: Windows (llvm-mingw x64)
     runs-on: windows-2022
 
     steps:
@@ -28,16 +28,21 @@ jobs:
           version: ${{ env.QT_VERSION }}
           host: windows
           target: desktop
-          arch: win64_msvc2019_64
+          arch: win64_llvm_mingw
+          tools: tools_llvm_mingw
           cache: true
 
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
+      - name: Add llvm-mingw to PATH
+        shell: pwsh
+        run: |
+          $llvm = Get-ChildItem "$env:IQTA_TOOLS" -Filter "llvm-mingw*" -Directory | Select-Object -First 1
+          "$($llvm.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Configure
-        run: cmake --preset release
+        run: cmake --preset release -DCMAKE_RC_COMPILER=llvm-windres
+        env:
+          CC: clang
+          CXX: clang++
 
       - name: Build
         run: cmake --build build-release --parallel
@@ -57,7 +62,6 @@ jobs:
           Copy-Item "$src\*" "dist\$name\" -Recurse -Exclude "*.obj","*.pdb","CMake*","Makefile*"
 
           Compress-Archive -Path "dist\$name" -DestinationPath "$name.zip"
-          Write-Output "artifact=$name.zip" >> $env:GITHUB_OUTPUT
 
       - name: Upload artifact
         uses: softprops/action-gh-release@v2
@@ -65,7 +69,7 @@ jobs:
           files: Exorcist-${{ github.ref_name }}-windows-x64.zip
 
   # ─────────────────────────────────────────────────────────────
-  #  Linux – GCC x86_64  →  AppImage
+  #  Linux – Clang x86_64  →  AppImage
   # ─────────────────────────────────────────────────────────────
   release-linux:
     name: Linux (x86_64 AppImage)
@@ -78,7 +82,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            ninja-build libgl1-mesa-dev \
+            ninja-build libgl1-mesa-dev clang \
             libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 \
             libfuse2  # required to run AppImage tools
@@ -94,9 +98,15 @@ jobs:
 
       - name: Configure
         run: cmake --preset release
+        env:
+          CC: clang
+          CXX: clang++
 
       - name: Build
         run: cmake --build build-release --parallel
+        env:
+          CC: clang
+          CXX: clang++
 
       - name: Download linuxdeploy + Qt plugin
         run: |

@@ -11,10 +11,10 @@ env:
 
 jobs:
   # ─────────────────────────────────────────────
-  #  Linux – GCC
+  #  Linux – Clang
   # ─────────────────────────────────────────────
   build-linux:
-    name: Linux (GCC)
+    name: Linux (Clang)
     runs-on: ubuntu-24.04
 
     steps:
@@ -23,7 +23,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgl1-mesa-dev xvfb
+          sudo apt-get install -y ninja-build libgl1-mesa-dev xvfb clang
 
       - name: Install Qt ${{ env.QT_VERSION }}
         uses: jurplel/install-qt-action@v4
@@ -36,9 +36,15 @@ jobs:
 
       - name: Configure
         run: cmake --preset ci
+        env:
+          CC: clang
+          CXX: clang++
 
       - name: Build
         run: cmake --build build-ci --parallel
+        env:
+          CC: clang
+          CXX: clang++
 
       - name: Test
         run: xvfb-run -a ctest --test-dir build-ci --output-on-failure --parallel 4
@@ -46,10 +52,10 @@ jobs:
           QT_QPA_PLATFORM: offscreen
 
   # ─────────────────────────────────────────────
-  #  Windows – MSVC 2022
+  #  Windows – Clang (llvm-mingw)
   # ─────────────────────────────────────────────
   build-windows:
-    name: Windows (MSVC)
+    name: Windows (Clang/llvm-mingw)
     runs-on: windows-2022
 
     steps:
@@ -61,16 +67,21 @@ jobs:
           version: ${{ env.QT_VERSION }}
           host: windows
           target: desktop
-          arch: win64_msvc2019_64
+          arch: win64_llvm_mingw
+          tools: tools_llvm_mingw
           cache: true
 
-      - name: Set up MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
+      - name: Add llvm-mingw to PATH
+        shell: pwsh
+        run: |
+          $llvm = Get-ChildItem "$env:IQTA_TOOLS" -Filter "llvm-mingw*" -Directory | Select-Object -First 1
+          "$($llvm.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Configure
-        run: cmake --preset ci
+        run: cmake --preset ci -DCMAKE_RC_COMPILER=llvm-windres
+        env:
+          CC: clang
+          CXX: clang++
 
       - name: Build
         run: cmake --build build-ci --parallel
@@ -101,7 +112,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgl1-mesa-dev
+          sudo apt-get install -y ninja-build libgl1-mesa-dev clang
 
       - name: Install Qt ${{ env.QT_VERSION }}
         uses: jurplel/install-qt-action@v4
@@ -114,9 +125,15 @@ jobs:
 
       - name: Configure
         run: cmake --preset ci   # CMAKE_EXPORT_COMPILE_COMMANDS=ON → build-ci/compile_commands.json
+        env:
+          CC: clang
+          CXX: clang++
 
       - name: Build
         run: cmake --build build-ci --parallel
+        env:
+          CC: clang
+          CXX: clang++
 
       - name: SonarQube scan
         uses: SonarSource/sonarqube-scan-action@v6
