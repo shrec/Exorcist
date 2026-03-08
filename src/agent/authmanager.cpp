@@ -1,5 +1,6 @@
 #include "authmanager.h"
 
+#include <QEventLoop>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
