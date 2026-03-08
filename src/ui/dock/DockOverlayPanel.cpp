@@ -16,7 +16,7 @@ DockOverlayPanel::DockOverlayPanel(QWidget *mainWindow, QWidget *parent)
     , m_mainWindow(mainWindow)
 {
     setObjectName(QStringLiteral("exdock-overlay-panel"));
-    setFrameShape(QFrame::StyledPanel);
+    setFrameShape(QFrame::NoFrame);
     setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
     setAttribute(Qt::WA_ShowWithoutActivating, false);
 

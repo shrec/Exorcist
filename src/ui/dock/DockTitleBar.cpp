@@ -97,8 +97,7 @@ void DockTitleBar::mouseDoubleClickEvent(QMouseEvent *event)
 
 void DockTitleBar::paintEvent(QPaintEvent *)
 {
-    QPainter p(this);
-    p.fillRect(rect(), palette().window());
+    // Handled by stylesheet (exdock-title-bar)
 }
 
 } // namespace exdock

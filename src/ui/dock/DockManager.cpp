@@ -64,7 +64,157 @@ void DockManager::setupSideBars()
     connectBar(m_rightBar);
     connectBar(m_bottomBar);
 
+    applyDockStyleSheet();
     repositionSideBars();
+}
+
+void DockManager::applyDockStyleSheet()
+{
+    const QPalette &pal = qApp->palette();
+    const QColor window     = pal.color(QPalette::Window);
+    const QColor base       = pal.color(QPalette::Base);
+    const QColor text       = pal.color(QPalette::WindowText);
+    const QColor mid        = pal.color(QPalette::Mid);
+    const QColor button     = pal.color(QPalette::Button);
+    const QColor highlight  = pal.color(QPalette::Highlight);
+    const QColor dimText    = pal.color(QPalette::PlaceholderText);
+
+    // Slightly lighter/darker than window for subtle contrast
+    const bool isDark = window.lightnessF() < 0.5;
+    const QColor titleBg    = isDark ? window.lighter(120) : window.darker(105);
+    const QColor tabActiveBg = window;
+    const QColor tabInactiveBg = isDark ? window.lighter(110) : window.darker(103);
+    const QColor hoverBg    = isDark ? window.lighter(140) : window.darker(110);
+    const QColor border     = isDark ? window.lighter(160) : window.darker(115);
+    const QColor closeHover = QColor(232, 17, 35);  // VS red
+
+    auto c = [](const QColor &col) {
+        return QString("rgba(%1,%2,%3,%4)")
+            .arg(col.red()).arg(col.green()).arg(col.blue()).arg(col.alpha());
+    };
+
+    const QString css = QStringLiteral(
+        /* ── Dock sidebar strips ─────────────────────────────── */
+        "QWidget[objectName^=\"exdock-sidebar\"] {"
+        "  background: transparent;"
+        "  border: none;"
+        "}"
+
+        /* ── Dock side tabs ──────────────────────────────────── */
+        "QToolButton#exdock-side-tab {"
+        "  background: transparent;"
+        "  border: none;"
+        "  padding: 0;"
+        "  margin: 0;"
+        "}"
+
+        /* ── DockArea container ──────────────────────────────── */
+        "QWidget#exdock-area {"
+        "  background: %1;"
+        "}"
+
+        /* ── DockTitleBar ────────────────────────────────────── */
+        "QWidget#exdock-title-bar {"
+        "  background: %2;"
+        "  border-bottom: 1px solid %3;"
+        "}"
+        "QLabel#exdock-title-label {"
+        "  color: %4;"
+        "  font-size: 11px;"
+        "  font-weight: 600;"
+        "  padding-left: 2px;"
+        "  background: transparent;"
+        "}"
+
+        /* ── TitleBar / Overlay buttons ──────────────────────── */
+        "QToolButton#exdock-pin-btn,"
+        "QToolButton#exdock-close-btn,"
+        "QToolButton#exdock-overlay-pin,"
+        "QToolButton#exdock-overlay-close {"
+        "  background: transparent;"
+        "  border: none;"
+        "  border-radius: 2px;"
+        "  color: %5;"
+        "  font-size: 14px;"
+        "}"
+        "QToolButton#exdock-pin-btn:hover,"
+        "QToolButton#exdock-overlay-pin:hover {"
+        "  background: %6;"
+        "}"
+        "QToolButton#exdock-close-btn:hover,"
+        "QToolButton#exdock-overlay-close:hover {"
+        "  background: %7;"
+        "  color: white;"
+        "}"
+
+        /* ── DockTabBar (QTabBar in dock areas) ─────────────── */
+        "DockTabBar {"
+        "  background: %2;"
+        "  border: none;"
+        "  qproperty-drawBase: false;"
+        "}"
+        "DockTabBar::tab {"
+        "  background: %8;"
+        "  color: %5;"
+        "  padding: 4px 12px;"
+        "  border: none;"
+        "  border-bottom: 2px solid transparent;"
+        "  margin-right: 1px;"
+        "  min-width: 60px;"
+        "}"
+        "DockTabBar::tab:selected {"
+        "  background: %1;"
+        "  color: %4;"
+        "  border-bottom: 2px solid %9;"
+        "}"
+        "DockTabBar::tab:hover:!selected {"
+        "  background: %6;"
+        "  color: %4;"
+        "}"
+        "DockTabBar::close-button {"
+        "  image: none;"
+        "  subcontrol-position: right;"
+        "  padding: 2px;"
+        "}"
+
+        /* ── Overlay panel ──────────────────────────────────── */
+        "QFrame#exdock-overlay-panel {"
+        "  background: %1;"
+        "  border: 1px solid %3;"
+        "}"
+        "QWidget#exdock-overlay-titlebar {"
+        "  background: %2;"
+        "  border-bottom: 1px solid %3;"
+        "}"
+        "QLabel#exdock-overlay-title {"
+        "  color: %4;"
+        "  font-size: 11px;"
+        "  font-weight: 600;"
+        "  background: transparent;"
+        "}"
+
+        /* ── Splitter handles ───────────────────────────────── */
+        "DockSplitter::handle {"
+        "  background: %3;"
+        "}"
+        "DockSplitter::handle:hover {"
+        "  background: %9;"
+        "}"
+    ).arg(
+        c(window),       // %1 — main background
+        c(titleBg),      // %2 — title bar / tab bar bg
+        c(border),       // %3 — borders
+        c(text),         // %4 — active text
+        c(dimText),      // %5 — dim text
+        c(hoverBg),      // %6 — hover bg
+        c(closeHover),   // %7 — close hover (red)
+        c(tabInactiveBg),// %8 — inactive tab bg
+        c(highlight)     // %9 — accent / highlight
+    );
+
+    m_mainWindow->setStyleSheet(css);
+    if (m_overlay)
+        m_overlay->setStyleSheet(css);
 }
 
 DockSideBar *DockManager::sideBar(SideBarArea area) const

@@ -16,6 +16,7 @@ DockSideTab::DockSideTab(ExDockWidget *dock, SideBarArea area,
     setCheckable(true);
     setCursor(Qt::PointingHandCursor);
     setObjectName(QStringLiteral("exdock-side-tab"));
+    setAttribute(Qt::WA_OpaquePaintEvent, true);
 
     const bool vertical = (area == SideBarArea::Left || area == SideBarArea::Right);
     if (vertical)
@@ -44,24 +45,23 @@ void DockSideTab::paintEvent(QPaintEvent *)
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    // Background — use palette for theme integration
-    QStyleOptionToolButton opt;
-    initStyleOption(&opt);
-    const bool hovered = opt.state & QStyle::State_MouseOver;
-    const bool checked = opt.state & QStyle::State_On;
+    // VS-style colors from palette
+    const bool hovered = underMouse();
+    const bool checked = isChecked();
 
-    const QColor bgNormal  = palette().color(QPalette::Window);
-    const QColor bgHover   = palette().color(QPalette::Midlight);
-    const QColor bgChecked = palette().color(QPalette::Mid);
+    const QColor window = palette().color(QPalette::Window);
+    const bool isDark = window.lightnessF() < 0.5;
 
-    if (checked)
-        p.fillRect(rect(), bgChecked);
-    else if (hovered)
-        p.fillRect(rect(), bgHover);
-    else
-        p.fillRect(rect(), bgNormal);
+    // Background: transparent normally, subtle highlight on hover/active
+    if (checked) {
+        p.fillRect(rect(), isDark ? window.lighter(130) : window.darker(108));
+    } else if (hovered) {
+        p.fillRect(rect(), isDark ? window.lighter(140) : window.darker(110));
+    } else {
+        p.fillRect(rect(), window);
+    }
 
-    // Active indicator (accent stripe)
+    // Active indicator — VS-style accent stripe (2px)
     if (checked) {
         const QColor accent = palette().color(QPalette::Highlight);
         p.setPen(Qt::NoPen);
@@ -84,12 +84,14 @@ void DockSideTab::paintEvent(QPaintEvent *)
         }
     }
 
-    // Text — palette-based
+    // Text — white when active, dim when inactive
     const QColor textColor = (checked || hovered)
         ? palette().color(QPalette::WindowText)
         : palette().color(QPalette::PlaceholderText);
     p.setPen(textColor);
-    p.setFont(font());
+    QFont f = font();
+    f.setPointSize(9);
+    p.setFont(f);
 
     const bool vertical = (m_area == SideBarArea::Left ||
                            m_area == SideBarArea::Right);

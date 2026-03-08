@@ -1233,6 +1233,10 @@ void MainWindow::createDockWidgets()
     // ── Create DockManager (takes over centralWidget) ─────────────────────
     m_dockManager = new DockManager(this, this);
 
+    // Reapply dock stylesheet when theme changes
+    connect(m_themeManager, &ThemeManager::themeChanged,
+            m_dockManager, &DockManager::applyDockStyleSheet);
+
     // Build the central editor container (breadcrumb + tab widget) and set
     // it as the center content BEFORE any dock panels are added, so that
     // Bottom/Top areas can find the editor position in the center splitter.

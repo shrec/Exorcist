@@ -26,6 +26,10 @@ DockSideBar::DockSideBar(SideBarArea area, QWidget *parent)
     setObjectName(QStringLiteral("exdock-sidebar-%1")
                       .arg(static_cast<int>(area)));
 
+    // Transparent background — main window shows through
+    setAttribute(Qt::WA_TranslucentBackground, true);
+    setAutoFillBackground(false);
+
     // Hidden until tabs are added
     hide();
 }

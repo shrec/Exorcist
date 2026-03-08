@@ -133,6 +133,11 @@ private slots:
     void onOverlayCloseRequested(ExDockWidget *dock);
     void onOverlayHidden();
 
+public:
+    /// Reapply dock visual stylesheet from current palette.
+    /// Call after a theme change to keep dock styling in sync.
+    void applyDockStyleSheet();
+
 private:
     void setupSideBars();
     DockArea *createDockArea(SideBarArea side);
