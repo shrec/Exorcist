@@ -83,14 +83,18 @@ Related core interfaces:
 - Core owns the shared tool registry and tool execution pipeline.
 - Plugins must not duplicate tool implementations that are already part of the shared platform.
 
-### Recommended future extension points
+### Extension Interfaces (implemented)
 
-- `IAgentSettingsPageProvider`
-    provider-specific settings UI.
-- `IProviderAuthIntegration`
-    sign-in/sign-out and auth status integration.
-- `IChatSessionImporterPlugin`
-    provider-specific remote session import/reconstruction.
+These interfaces are defined in `src/agent/` and can be implemented by plugins:
+
+| Interface | File | Purpose |
+|-----------|------|---------|
+| `IAgentSettingsPageProvider` | `iagentsettingspageprovider.h` | Plugin contributes a settings page widget to the AI Settings panel |
+| `IProviderAuthIntegration` | `iproviderauthintegration.h` | Unified sign-in/sign-out lifecycle and auth status |
+| `IChatSessionImporter` | `ichatsessionimporter.h` | Import vendor-specific remote session transcripts |
+
+Plugins that implement these interfaces are discovered during
+`AgentPlatformBootstrap::registerPluginProviders()` via `qobject_cast`.
 
 ### Plugin authoring goal
 

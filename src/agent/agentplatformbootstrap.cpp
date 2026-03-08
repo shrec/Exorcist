@@ -4,6 +4,7 @@
 #include "agentorchestrator.h"
 #include "agentproviderregistry.h"
 #include "agentrequestrouter.h"
+#include "braincontextbuilder.h"
 #include "chatsessionservice.h"
 #include "contextbuilder.h"
 #include "iagentplugin.h"
@@ -11,6 +12,8 @@
 #include "ichatsessionimporter.h"
 #include "iproviderauthintegration.h"
 #include "itool.h"
+#include "memorysuggestionengine.h"
+#include "projectbrainservice.h"
 #include "sessionstore.h"
 #include "toolapprovalservice.h"
 #include "tools/advancedtools.h"
@@ -60,10 +63,24 @@ void AgentPlatformBootstrap::initialize(const Callbacks &callbacks)
     // Wire the approval service into the controller
     m_agentController->setToolApprovalService(m_toolApprovalService);
 
+    // Project brain (persistent workspace knowledge)
+    m_brainService = new ProjectBrainService(this);
+    m_brainBuilder = new BrainContextBuilder(m_brainService, this);
+    m_memorySuggestionEngine = new MemorySuggestionEngine(m_brainService, this);
+    m_agentController->setBrainContextBuilder(m_brainBuilder);
+
     m_contextBuilder->setFileSystem(m_fileSystem);
     m_contextBuilder->setOpenFilesGetter(m_callbacks.openFilesGetter);
     m_contextBuilder->setGitStatusGetter(m_callbacks.gitStatusGetter);
     m_contextBuilder->setTerminalOutputGetter(m_callbacks.terminalOutputGetter);
+    m_contextBuilder->setDiagnosticsGetter(m_callbacks.diagnosticsGetter);
+
+    // Adapt per-file gitDiffGetter to no-arg getter (full working tree diff)
+    if (m_callbacks.gitDiffGetter) {
+        m_contextBuilder->setGitDiffGetter([cb = m_callbacks.gitDiffGetter]() -> QString {
+            return cb(QString()); // empty path = full diff
+        });
+    }
 
     if (m_services) {
         m_services->registerService(QStringLiteral("toolRegistry"), m_toolRegistry);
@@ -74,6 +91,7 @@ void AgentPlatformBootstrap::initialize(const Callbacks &callbacks)
         m_services->registerService(QStringLiteral("agentRequestRouter"), m_requestRouter);
         m_services->registerService(QStringLiteral("chatSessionService"), m_chatSessionService);
         m_services->registerService(QStringLiteral("toolApprovalService"), m_toolApprovalService);
+        m_services->registerService(QStringLiteral("projectBrainService"), m_brainService);
     }
 }
 
@@ -147,6 +165,10 @@ void AgentPlatformBootstrap::setWorkspaceRoot(const QString &root)
 {
     if (m_contextBuilder) {
         m_contextBuilder->setWorkspaceRoot(root);
+    }
+
+    if (m_brainService) {
+        m_brainService->load(root);
     }
 
     if (!m_toolRegistry) {

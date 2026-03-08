@@ -31,6 +31,14 @@ struct ChatTurnModel
     QString providerId;           // which provider
     int     mode = 0;             // 0=Ask, 1=Edit, 2=Agent
 
+    // ── Context references ────────────────────────────────────────────────
+    struct TurnReference {
+        QString label;   // "@workspace", "@file:main.cpp", "@terminal"
+        QString tooltip; // full path or content preview
+        QString filePath;// optional file path for navigation
+    };
+    QList<TurnReference> references;
+
     // ── Response side ─────────────────────────────────────────────────────
     QList<ChatContentPart> parts; // ordered content parts
 
@@ -127,6 +135,19 @@ struct ChatTurnModel
         o[QLatin1String("state")] = static_cast<int>(state);
         o[QLatin1String("feedback")] = static_cast<int>(feedback);
 
+        if (!references.isEmpty()) {
+            QJsonArray refsArr;
+            for (const auto &ref : references) {
+                QJsonObject r;
+                r[QLatin1String("label")]   = ref.label;
+                r[QLatin1String("tooltip")] = ref.tooltip;
+                if (!ref.filePath.isEmpty())
+                    r[QLatin1String("filePath")] = ref.filePath;
+                refsArr.append(r);
+            }
+            o[QLatin1String("references")] = refsArr;
+        }
+
         QJsonArray partsArr;
         for (const auto &p : parts)
             partsArr.append(p.toJson());
@@ -155,6 +176,16 @@ struct ChatTurnModel
             o.value(QLatin1String("state")).toInt(static_cast<int>(State::Complete)));
         t.feedback = static_cast<Feedback>(
             o.value(QLatin1String("feedback")).toInt());
+
+        const QJsonArray refsArr = o.value(QLatin1String("references")).toArray();
+        for (const auto &v : refsArr) {
+            const QJsonObject r = v.toObject();
+            TurnReference ref;
+            ref.label    = r.value(QLatin1String("label")).toString();
+            ref.tooltip  = r.value(QLatin1String("tooltip")).toString();
+            ref.filePath = r.value(QLatin1String("filePath")).toString();
+            t.references.append(ref);
+        }
 
         const QJsonArray partsArr = o.value(QLatin1String("parts")).toArray();
         for (const auto &v : partsArr)

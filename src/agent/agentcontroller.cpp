@@ -1,5 +1,6 @@
 #include "agentcontroller.h"
 #include "agentorchestrator.h"
+#include "braincontextbuilder.h"
 #include "itool.h"
 #include "promptfileloader.h"
 #include "sessionstore.h"
@@ -8,6 +9,7 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QEventLoop>
+#include <QFutureWatcher>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLoggingCategory>
@@ -208,6 +210,21 @@ void AgentController::sendModelRequest()
         }
     }
 
+    // Inject project brain context (rules, facts, notes)
+    if (m_brainBuilder) {
+        const auto brainCtx = m_brainBuilder->buildForTask(
+            req.userPrompt, {m_activeFilePath});
+        const QString brainText = m_brainBuilder->toPromptText(brainCtx);
+        if (!brainText.isEmpty()) {
+            AgentMessage brainMsg;
+            brainMsg.role = AgentMessage::Role::System;
+            brainMsg.content = brainText;
+            const int insertAt = (!req.conversationHistory.isEmpty() &&
+                req.conversationHistory.first().role == AgentMessage::Role::System) ? 1 : 0;
+            req.conversationHistory.insert(insertAt, brainMsg);
+        }
+    }
+
     // Auto-compaction: prune oldest non-system messages when conversation is too large.
     // Rough estimate: 4 chars ≈ 1 token. Threshold: ~80% of a 128k context window.
     {
@@ -304,20 +321,33 @@ void AgentController::sendModelRequest()
         req.tools = m_toolRegistry->definitions(m_maxPermission);
     }
 
-    // Build context if provider is available
+    // Build context asynchronously if provider supports it
     if (m_contextProvider) {
-        ContextSnapshot ctx = m_contextProvider->buildContext(
-            req.userPrompt, m_activeFilePath, m_selectedText, m_languageId);
-        req.workspaceRoot = ctx.workspaceRoot;
-        if (req.activeFilePath.isEmpty())
-            req.activeFilePath = ctx.activeFilePath;
+        auto *watcher = new QFutureWatcher<ContextSnapshot>(this);
+        connect(watcher, &QFutureWatcher<ContextSnapshot>::finished,
+                this, [this, watcher, req]() mutable {
+            ContextSnapshot ctx = watcher->result();
+            watcher->deleteLater();
+
+            req.workspaceRoot = ctx.workspaceRoot;
+            if (req.activeFilePath.isEmpty())
+                req.activeFilePath = ctx.activeFilePath;
+
+            qCDebug(lcCtrl) << "Sending model request" << m_activeRequestId
+                             << "step" << m_currentStepCount
+                             << "tools:" << req.tools.size();
+
+            m_orchestrator->sendRequest(req);
+        });
+        watcher->setFuture(m_contextProvider->buildContextAsync(
+            req.userPrompt, m_activeFilePath, m_selectedText, m_languageId));
+    } else {
+        qCDebug(lcCtrl) << "Sending model request" << m_activeRequestId
+                         << "step" << m_currentStepCount
+                         << "tools:" << req.tools.size();
+
+        m_orchestrator->sendRequest(req);
     }
-
-    qCDebug(lcCtrl) << "Sending model request" << m_activeRequestId
-                     << "step" << m_currentStepCount
-                     << "tools:" << req.tools.size();
-
-    m_orchestrator->sendRequest(req);
 }
 
 // ── Response handling ─────────────────────────────────────────────────────────

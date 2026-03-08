@@ -1,7 +1,9 @@
 #pragma once
 
+#include <QFuture>
 #include <QJsonObject>
 #include <QString>
+#include <QtConcurrent>
 
 // ── IContextProvider ──────────────────────────────────────────────────────────
 //
@@ -75,4 +77,19 @@ public:
                                         const QString &activeFilePath,
                                         const QString &selectedText,
                                         const QString &languageId) = 0;
+
+    /// Async variant — builds context on a worker thread.
+    /// Default implementation wraps the synchronous buildContext().
+    virtual QFuture<ContextSnapshot> buildContextAsync(
+        const QString &userPrompt,
+        const QString &activeFilePath,
+        const QString &selectedText,
+        const QString &languageId)
+    {
+        return QtConcurrent::run([this, userPrompt, activeFilePath,
+                                  selectedText, languageId]() {
+            return buildContext(userPrompt, activeFilePath,
+                               selectedText, languageId);
+        });
+    }
 };

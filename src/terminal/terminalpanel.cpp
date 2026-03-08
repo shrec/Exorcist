@@ -123,3 +123,35 @@ void TerminalPanel::renameTab(int index)
     if (ok && !name.isEmpty())
         m_tabs->setTabText(index, name);
 }
+
+TerminalWidget *TerminalPanel::addSshTerminal(const QString &label,
+                                              const QString &host, int port,
+                                              const QString &user,
+                                              const QString &privateKeyPath)
+{
+    auto *term = new TerminalWidget(this);
+
+    // Build the ssh command and args
+    const QString program = QStringLiteral("ssh");
+    QStringList args;
+    args << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new")
+         << QStringLiteral("-o") << QStringLiteral("ConnectTimeout=10");
+
+    if (port != 22)
+        args << QStringLiteral("-p") << QString::number(port);
+
+    if (!privateKeyPath.isEmpty())
+        args << QStringLiteral("-i") << privateKeyPath;
+
+    args << (user.isEmpty() ? host : user + QStringLiteral("@") + host);
+
+    term->startProgram(program, args);
+
+    const QString tabLabel = label.isEmpty()
+        ? tr("SSH: %1").arg(host)
+        : label;
+    const int idx = m_tabs->addTab(term, tabLabel);
+    m_tabs->setCurrentIndex(idx);
+    term->setFocus();
+    return term;
+}

@@ -78,6 +78,7 @@ public:
 
     void focusInput();
     void setInputText(const QString &text);
+    void setInputEnabled(bool enabled);
     void setWorkspaceRoot(const QString &root) { m_workspaceRoot = root; }
     void attachSelection(const QString &text, const QString &filePath, int startLine);
     void attachDiagnostics(const QList<AgentDiagnostic> &diagnostics);

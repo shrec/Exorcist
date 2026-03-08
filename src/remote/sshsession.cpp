@@ -1,0 +1,379 @@
+#include "sshsession.h"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QProcess>
+#include <QTemporaryFile>
+#include <QTimer>
+
+SshSession::SshSession(const SshProfile &profile, QObject *parent)
+    : QObject(parent)
+    , m_profile(profile)
+{
+}
+
+SshSession::~SshSession()
+{
+    disconnectFromHost();
+}
+
+// ── Connection ────────────────────────────────────────────────────────────────
+
+QStringList SshSession::sshBaseArgs() const
+{
+    QStringList args;
+    args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes")
+         << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new")
+         << QStringLiteral("-o") << QStringLiteral("ConnectTimeout=10");
+
+    if (m_profile.port != 22) {
+        args << QStringLiteral("-p") << QString::number(m_profile.port);
+    }
+
+    if (m_profile.authMethod == QLatin1String("key") && !m_profile.privateKeyPath.isEmpty()) {
+        args << QStringLiteral("-i") << m_profile.privateKeyPath;
+    }
+
+    return args;
+}
+
+QProcess *SshSession::startSshProcess(const QStringList &args)
+{
+    auto *proc = new QProcess(this);
+    m_activeProcesses.append(proc);
+
+    QStringList fullArgs = sshBaseArgs();
+    fullArgs << QStringLiteral("%1@%2").arg(m_profile.user, m_profile.host);
+    fullArgs.append(args);
+
+    proc->setProgram(QStringLiteral("ssh"));
+    proc->setArguments(fullArgs);
+    proc->start();
+    return proc;
+}
+
+QProcess *SshSession::startSftpBatch(const QString &batchCommands)
+{
+    // Write batch commands to a temp file
+    auto *tmpFile = new QTemporaryFile(this);
+    if (!tmpFile->open()) {
+        m_lastError = tr("Failed to create temp file for SFTP batch");
+        return nullptr;
+    }
+    tmpFile->write(batchCommands.toUtf8());
+    tmpFile->flush();
+
+    auto *proc = new QProcess(this);
+    m_activeProcesses.append(proc);
+
+    QStringList args;
+    args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes")
+         << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new")
+         << QStringLiteral("-o") << QStringLiteral("ConnectTimeout=10");
+
+    if (m_profile.port != 22) {
+        args << QStringLiteral("-P") << QString::number(m_profile.port); // SFTP uses -P (uppercase)
+    }
+
+    if (m_profile.authMethod == QLatin1String("key") && !m_profile.privateKeyPath.isEmpty()) {
+        args << QStringLiteral("-i") << m_profile.privateKeyPath;
+    }
+
+    args << QStringLiteral("-b") << tmpFile->fileName();
+    args << QStringLiteral("%1@%2").arg(m_profile.user, m_profile.host);
+
+    proc->setProgram(QStringLiteral("sftp"));
+    proc->setArguments(args);
+    proc->start();
+
+    // Clean up temp file when process finishes
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            tmpFile, &QObject::deleteLater);
+
+    return proc;
+}
+
+void SshSession::cleanupProcess(QProcess *proc)
+{
+    m_activeProcesses.removeOne(proc);
+    proc->deleteLater();
+}
+
+bool SshSession::connectToHost()
+{
+    m_connected = false;
+    m_lastError.clear();
+
+    // Test connectivity: ssh user@host echo __EXORCIST_OK__
+    auto *proc = startSshProcess({QStringLiteral("echo __EXORCIST_OK__")});
+    if (!proc || !proc->waitForStarted(5000)) {
+        m_lastError = tr("Failed to start ssh process");
+        if (proc) cleanupProcess(proc);
+        return false;
+    }
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc](int exitCode, QProcess::ExitStatus) {
+        cleanupProcess(proc);
+        const QString out = QString::fromUtf8(proc->readAllStandardOutput());
+        const QString err = QString::fromUtf8(proc->readAllStandardError());
+        if (exitCode == 0 && out.contains(QLatin1String("__EXORCIST_OK__"))) {
+            m_connected = true;
+            emit connectionEstablished();
+        } else {
+            m_connected = false;
+            m_lastError = err.isEmpty() ? tr("Connection failed (exit code %1)").arg(exitCode) : err.trimmed();
+            emit connectionLost(m_lastError);
+        }
+    });
+
+    return true;
+}
+
+void SshSession::disconnectFromHost()
+{
+    m_connected = false;
+    for (auto *proc : m_activeProcesses) {
+        proc->kill();
+        proc->waitForFinished(2000);
+        proc->deleteLater();
+    }
+    m_activeProcesses.clear();
+}
+
+// ── Remote command execution ──────────────────────────────────────────────────
+
+int SshSession::runCommand(const QString &command, const QString &workDir)
+{
+    if (!m_connected)
+        return -1;
+
+    const int reqId = m_nextRequestId++;
+
+    QString remoteCmd = command;
+    if (!workDir.isEmpty())
+        remoteCmd = QStringLiteral("cd %1 && %2").arg(workDir, command);
+
+    auto *proc = startSshProcess({remoteCmd});
+    if (!proc)
+        return -1;
+
+    // Stream output in real time
+    connect(proc, &QProcess::readyReadStandardOutput, this, [this, proc, reqId]() {
+        const QString text = QString::fromUtf8(proc->readAllStandardOutput());
+        emit commandOutput(reqId, text);
+    });
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc, reqId](int exitCode, QProcess::ExitStatus) {
+        const QString stdOut = QString::fromUtf8(proc->readAllStandardOutput());
+        const QString stdErr = QString::fromUtf8(proc->readAllStandardError());
+        cleanupProcess(proc);
+        emit commandFinished(reqId, exitCode, stdOut, stdErr);
+    });
+
+    return reqId;
+}
+
+// ── SFTP operations ───────────────────────────────────────────────────────────
+
+void SshSession::listDirectory(const QString &remotePath)
+{
+    if (!m_connected) {
+        emit directoryListed(remotePath, {}, tr("Not connected"));
+        return;
+    }
+
+    // Use ssh + ls instead of sftp for simpler parsing
+    const QString cmd = QStringLiteral("ls -1aF %1").arg(remotePath);
+    auto *proc = startSshProcess({cmd});
+    if (!proc) {
+        emit directoryListed(remotePath, {}, tr("Failed to start ssh"));
+        return;
+    }
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc, remotePath](int exitCode, QProcess::ExitStatus) {
+        cleanupProcess(proc);
+        if (exitCode != 0) {
+            const QString err = QString::fromUtf8(proc->readAllStandardError()).trimmed();
+            emit directoryListed(remotePath, {}, err);
+            return;
+        }
+        const QString out = QString::fromUtf8(proc->readAllStandardOutput());
+        QStringList entries;
+        const auto lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        for (const auto &line : lines) {
+            const QString trimmed = line.trimmed();
+            if (trimmed == QLatin1String(".") || trimmed == QLatin1String("./")
+                || trimmed == QLatin1String("..") || trimmed == QLatin1String("../"))
+                continue;
+            entries.append(trimmed);
+        }
+        emit directoryListed(remotePath, entries, {});
+    });
+}
+
+void SshSession::readFile(const QString &remotePath)
+{
+    if (!m_connected) {
+        emit fileContentReady(remotePath, {}, tr("Not connected"));
+        return;
+    }
+
+    const QString cmd = QStringLiteral("cat %1").arg(remotePath);
+    auto *proc = startSshProcess({cmd});
+    if (!proc) {
+        emit fileContentReady(remotePath, {}, tr("Failed to start ssh"));
+        return;
+    }
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc, remotePath](int exitCode, QProcess::ExitStatus) {
+        cleanupProcess(proc);
+        if (exitCode != 0) {
+            const QString err = QString::fromUtf8(proc->readAllStandardError()).trimmed();
+            emit fileContentReady(remotePath, {}, err);
+            return;
+        }
+        emit fileContentReady(remotePath, proc->readAllStandardOutput(), {});
+    });
+}
+
+void SshSession::writeFile(const QString &remotePath, const QByteArray &content)
+{
+    if (!m_connected) {
+        emit fileWritten(remotePath, tr("Not connected"));
+        return;
+    }
+
+    // Pipe content via stdin to ssh cat > file
+    auto *proc = new QProcess(this);
+    m_activeProcesses.append(proc);
+
+    QStringList args = sshBaseArgs();
+    args << QStringLiteral("%1@%2").arg(m_profile.user, m_profile.host);
+    args << QStringLiteral("cat > %1").arg(remotePath);
+
+    proc->setProgram(QStringLiteral("ssh"));
+    proc->setArguments(args);
+    proc->start();
+
+    if (!proc->waitForStarted(5000)) {
+        cleanupProcess(proc);
+        emit fileWritten(remotePath, tr("Failed to start ssh"));
+        return;
+    }
+
+    proc->write(content);
+    proc->closeWriteChannel();
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc, remotePath](int exitCode, QProcess::ExitStatus) {
+        cleanupProcess(proc);
+        if (exitCode != 0) {
+            const QString err = QString::fromUtf8(proc->readAllStandardError()).trimmed();
+            emit fileWritten(remotePath, err);
+        } else {
+            emit fileWritten(remotePath, {});
+        }
+    });
+}
+
+void SshSession::downloadFile(const QString &remotePath, const QString &localPath)
+{
+    if (!m_connected) {
+        emit fileTransferred(remotePath, localPath, tr("Not connected"));
+        return;
+    }
+
+    auto *proc = new QProcess(this);
+    m_activeProcesses.append(proc);
+
+    QStringList args;
+    args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes")
+         << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new");
+    if (m_profile.port != 22) {
+        args << QStringLiteral("-P") << QString::number(m_profile.port);
+    }
+    if (m_profile.authMethod == QLatin1String("key") && !m_profile.privateKeyPath.isEmpty()) {
+        args << QStringLiteral("-i") << m_profile.privateKeyPath;
+    }
+    args << QStringLiteral("%1@%2:%3").arg(m_profile.user, m_profile.host, remotePath);
+    args << localPath;
+
+    proc->setProgram(QStringLiteral("scp"));
+    proc->setArguments(args);
+    proc->start();
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc, remotePath, localPath](int exitCode, QProcess::ExitStatus) {
+        cleanupProcess(proc);
+        if (exitCode != 0) {
+            const QString err = QString::fromUtf8(proc->readAllStandardError()).trimmed();
+            emit fileTransferred(remotePath, localPath, err);
+        } else {
+            emit fileTransferred(remotePath, localPath, {});
+        }
+    });
+}
+
+void SshSession::uploadFile(const QString &localPath, const QString &remotePath)
+{
+    if (!m_connected) {
+        emit fileTransferred(remotePath, localPath, tr("Not connected"));
+        return;
+    }
+
+    auto *proc = new QProcess(this);
+    m_activeProcesses.append(proc);
+
+    QStringList args;
+    args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes")
+         << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new");
+    if (m_profile.port != 22) {
+        args << QStringLiteral("-P") << QString::number(m_profile.port);
+    }
+    if (m_profile.authMethod == QLatin1String("key") && !m_profile.privateKeyPath.isEmpty()) {
+        args << QStringLiteral("-i") << m_profile.privateKeyPath;
+    }
+    args << localPath;
+    args << QStringLiteral("%1@%2:%3").arg(m_profile.user, m_profile.host, remotePath);
+
+    proc->setProgram(QStringLiteral("scp"));
+    proc->setArguments(args);
+    proc->start();
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc, remotePath, localPath](int exitCode, QProcess::ExitStatus) {
+        cleanupProcess(proc);
+        if (exitCode != 0) {
+            const QString err = QString::fromUtf8(proc->readAllStandardError()).trimmed();
+            emit fileTransferred(remotePath, localPath, err);
+        } else {
+            emit fileTransferred(remotePath, localPath, {});
+        }
+    });
+}
+
+void SshSession::exists(const QString &remotePath)
+{
+    if (!m_connected) {
+        emit existsResult(remotePath, false);
+        return;
+    }
+
+    const QString cmd = QStringLiteral("test -e %1 && echo EXISTS || echo NOTFOUND").arg(remotePath);
+    auto *proc = startSshProcess({cmd});
+    if (!proc) {
+        emit existsResult(remotePath, false);
+        return;
+    }
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc, remotePath](int, QProcess::ExitStatus) {
+        cleanupProcess(proc);
+        const QString out = QString::fromUtf8(proc->readAllStandardOutput()).trimmed();
+        emit existsResult(remotePath, out.contains(QLatin1String("EXISTS")));
+    });
+}

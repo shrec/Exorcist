@@ -128,6 +128,41 @@ public:
             userLayout->addLayout(attRow);
         }
 
+        // Context references (badges)
+        if (!turn.references.isEmpty()) {
+            auto *refRow = new QHBoxLayout;
+            refRow->setContentsMargins(26, 2, 0, 0);
+            refRow->setSpacing(4);
+            for (const auto &ref : turn.references) {
+                auto *badge = new QLabel(this);
+                badge->setText(ref.label);
+                badge->setToolTip(ref.tooltip);
+                badge->setCursor(ref.filePath.isEmpty()
+                                     ? Qt::ArrowCursor
+                                     : Qt::PointingHandCursor);
+                badge->setStyleSheet(
+                    QStringLiteral("color:%1; font-size:10px; background:%2;"
+                                  " padding:2px 8px; border-radius:10px;"
+                                  " border:1px solid %3;")
+                        .arg(ChatTheme::AccentFg, ChatTheme::InputBg,
+                             ChatTheme::Border));
+                if (!ref.filePath.isEmpty()) {
+                    const QString path = ref.filePath;
+                    connect(badge, &QLabel::linkActivated, this,
+                            [this, path](const QString &) {
+                                emit fileClicked(path);
+                            });
+                    // QLabel linkActivated won't fire without a link,
+                    // so use mouse press event via event filter
+                    badge->installEventFilter(this);
+                    badge->setProperty("_refPath", path);
+                }
+                refRow->addWidget(badge);
+            }
+            refRow->addStretch();
+            userLayout->addLayout(refRow);
+        }
+
         root->addWidget(userSection);
 
         // ── Separator ─────────────────────────────────────────────────
@@ -554,6 +589,18 @@ private:
             "QToolButton:focus { outline:1px solid %2; border-radius:4px; }")
             .arg(ChatTheme::InputBg, ChatTheme::FocusOutline,
                  ChatTheme::SecondaryBtnHover);
+    }
+
+    bool eventFilter(QObject *obj, QEvent *event) override
+    {
+        if (event->type() == QEvent::MouseButtonPress) {
+            const QString path = obj->property("_refPath").toString();
+            if (!path.isEmpty()) {
+                emit fileClicked(path);
+                return true;
+            }
+        }
+        return QWidget::eventFilter(obj, event);
     }
 
     void enterEvent(QEnterEvent *event) override

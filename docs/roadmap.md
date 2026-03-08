@@ -82,7 +82,7 @@ Priority rule: **typing never blocks** — all background work must be async/can
 
 ---
 
-## Phase 5 — AI Assistant  🟡 Core done, polishing
+## Phase 5 — AI Assistant  ✅ Done
 **Done:**
 - IAgentProvider interface (streaming, capabilities, rich context)
 - AgentOrchestrator (provider registry, lifecycle, routing)
@@ -94,11 +94,40 @@ Priority rule: **typing never blocks** — all background work must be async/can
 - Inline chat widget (selection → AI chat)
 - Context builder (diagnostics, selection, file content)
 - Agent platform with tools (file system, search, semantic search)
-- Session store + model picker
+- Session store + model picker + session persistence (JSONL-backed)
 - Prompt file loader (.github/copilot-instructions.md)
-- Review annotations (inline code review)\n- Proposed-edit diff panel (side-by-side, per-file accept/reject, Accept All/Reject All)
-
+- Review annotations (inline code review)
+- Proposed-edit diff panel (side-by-side, per-file accept/reject, Accept All/Reject All)
 - Ollama local LLM provider plugin (streaming NDJSON, model discovery)
+- Agent platform refactor: AgentProviderRegistry, AgentRequestRouter, ChatSessionService, ToolApprovalService
+- Plugin extension interfaces: IAgentSettingsPageProvider, IChatSessionImporter, IProviderAuthIntegration
+- Token usage tracking (prompt/completion/total display)
+- File attachment marshalling (images, code files)
+- SecureKeyStorage (DPAPI/Keychain/libsecret)
+- Network monitor with offline/rate-limit toasts
+- Async context gathering (workspace indexer, git status, diagnostics)
+
+---
+
+## Phase 5.5 — Project Brain + Debug  ✅ Done
+
+### Project Brain (persistent workspace knowledge)
+- ProjectBrainService: rules, facts, session summaries stored in `.exorcist/`
+- BrainContextBuilder: assembles relevant knowledge for prompt injection
+- MemorySuggestionEngine: auto-extracts facts from completed agent turns with toast UI
+- MemoryBrowserPanel: 4-tab UI (Files/Facts/Rules/Sessions) with full CRUD
+- Brain context injected into system prompt after custom instructions
+
+See [docs/project-brain.md](project-brain.md)
+
+### Debug Subsystem
+- IDebugAdapter: abstract interface for debuggers (lifecycle, execution control, breakpoints, inspection)
+- GdbMiAdapter: full GDB/MI protocol implementation via QProcess
+- DebugPanel: toolbar (Launch/Continue/Step/Pause/Stop) + 5 tabs (Call Stack, Locals, Breakpoints, Watch, Output)
+- Editor breakpoint gutter: click-to-toggle red circles, yellow debug line arrow
+- Wired in MainWindow: DebugDock, View menu toggle, per-tab breakpoint signals
+
+See [docs/debug.md](debug.md)
 
 ---
 
@@ -129,11 +158,25 @@ Priority rule: **typing never blocks** — all background work must be async/can
 
 ---
 
-## Phase 8 — Remote + SSH  🔴 Future
-- SSH profiles + connection manager
-- Remote file browser + edit
-- Remote build / run + log streaming
-- Optional file sync (rsync-style)
+## Phase 8 — Remote + SSH  ✅ Done
+- **SshProfile** — connection profile struct with JSON serialisation (host, port, user, auth method, key path, remote work dir, env vars, detected arch/OS/distro)
+- **SshSession** — QProcess-based wrapper around system `ssh`/`sftp`/`scp` commands; async command execution, directory listing, file read/write, file transfer
+- **SshConnectionManager** — profile CRUD, persistence to `.exorcist/ssh_profiles.json`, session lifecycle management (connect/disconnect/disconnectAll)
+- **RemoteFileSystemModel** — lazy-loading QAbstractItemModel for remote file trees (`ls -1aF` → expand-on-demand)
+- **RemoteFilePanel** — UI panel: profile selector (add/edit/remove), connect/disconnect, remote terminal button, QTreeView for remote FS, architecture info label
+- **Remote terminal** — `TerminalPanel::addSshTerminal()` opens interactive SSH session in a terminal tab
+- **Remote build/run** — `OutputPanel::runRemoteCommand()` runs build commands over SSH with streaming output and problem matching
+- **RemoteSyncService** — rsync wrapper for workspace ↔ remote directory sync; scp fallback for single files
+- **Multi-architecture support** — `RemoteHostProber` auto-detects remote CPU arch (x86_64, AArch64/ARM64, ARM32, RISC-V 64/32, MIPS64, PPC64, s390x, LoongArch64), OS, distro, cores, memory, available compilers/build systems/debuggers/package managers; generates target triples for cross-compilation
+- **MainWindow integration** — Remote dock (tabified with Project), View menu toggle, double-click→download→open, remote terminal tab launch
+
+### Custom Docking System (Complete ✅)
+- **Custom dock framework** — `exdock` namespace: `DockManager`, `ExDockWidget`, `DockArea`, `DockSplitter`, `DockOverlayPanel`, `DockSideBar`, `DockSideTab`, `DockTabBar`, `DockTitleBar`, `DockTypes`, `DockToolBarManager`
+- **VS-style dock layout** — Horizontal root splitter [Left | Center vertical splitter | Right], center vertical [Top | Editor | Bottom]
+- **Auto-hide system** — Sidebar tabs, slide-out overlay panel with pin/close, click-outside dismiss
+- **Resize policies** — Stretch factors, minimum sizes, ratio-based save/restore
+- **MainWindow integration** — All 17 dock panels migrated from QDockWidget to ExDockWidget, DockManager replaces QMainWindow native docking + DockAutoHideManager
+- **State persistence** — JSON-based dock layout save/restore via DockManager (replaces QMainWindow::saveState/restoreState)
 
 ---
 

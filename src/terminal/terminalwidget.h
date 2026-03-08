@@ -26,6 +26,10 @@ public:
     // Start a shell in workDir (called automatically on first show if not started)
     void startShell(const QString &workDir = {});
 
+    // Start an arbitrary program (e.g. ssh) with arguments.
+    void startProgram(const QString &program, const QStringList &args,
+                      const QString &workDir = {});
+
     // Change the working directory.  If shell is already running, sends a
     // 'cd' command.  Otherwise starts a fresh shell in workDir.
     void setWorkingDirectory(const QString &dir);

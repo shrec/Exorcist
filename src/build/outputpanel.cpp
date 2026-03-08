@@ -352,6 +352,57 @@ void OutputPanel::runCommand(const QString &cmd, const QStringList &args)
     m_process->start(program, parts);
 }
 
+void OutputPanel::runRemoteCommand(const QString &host, int port,
+                                   const QString &user, const QString &privateKeyPath,
+                                   const QString &remoteCmd,
+                                   const QString &remoteWorkDir)
+{
+    clear();
+
+    if (m_process) {
+        if (m_process->state() != QProcess::NotRunning)
+            m_process->kill();
+        m_process->deleteLater();
+    }
+
+    m_process = new QProcess(this);
+    m_process->setProcessChannelMode(QProcess::SeparateChannels);
+
+    connect(m_process, &QProcess::readyReadStandardOutput, this, &OutputPanel::onReadyReadStdout);
+    connect(m_process, &QProcess::readyReadStandardError,  this, &OutputPanel::onReadyReadStderr);
+    connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &OutputPanel::onProcessFinished);
+
+    QStringList args;
+    args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes")
+         << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new")
+         << QStringLiteral("-o") << QStringLiteral("ConnectTimeout=10");
+
+    if (port != 22 && port > 0)
+        args << QStringLiteral("-p") << QString::number(port);
+    if (!privateKeyPath.isEmpty())
+        args << QStringLiteral("-i") << privateKeyPath;
+
+    args << QStringLiteral("%1@%2").arg(user, host);
+
+    // Build the remote command with optional cd
+    QString fullCmd = remoteCmd;
+    if (!remoteWorkDir.isEmpty())
+        fullCmd = QStringLiteral("cd %1 && %2").arg(remoteWorkDir, remoteCmd);
+    args << fullCmd;
+
+    const QString display = QStringLiteral("[%1@%2] %3").arg(user, host, fullCmd);
+    appendText(tr("\u25B6 Remote: %1\n").arg(display), QColor(100, 180, 255));
+
+    m_runBtn->setEnabled(false);
+    m_stopBtn->setEnabled(true);
+    m_elapsed.start();
+    m_elapsedTimer->start();
+    m_elapsedLabel->setText(tr("0.0 s"));
+
+    m_process->start(QStringLiteral("ssh"), args);
+}
+
 void OutputPanel::appendText(const QString &text, const QColor &color)
 {
     QTextCharFormat fmt;

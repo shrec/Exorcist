@@ -35,6 +35,8 @@ The core IDE — all subsystems below ship as one executable and work together:
 | **Search** | Workspace search, file search, regex search | `search/` |
 | **Project** | Solution/project tree model, workspace management | `project/` |
 | **MCP** | Model Context Protocol client for tool servers | `mcp/` |
+| **Debug** | Debug adapter framework, GDB/MI, breakpoints, debug panel | `debug/` |
+| **Remote / SSH** | SSH connections, remote FS browse, multi-arch probing, rsync, remote build | `remote/` |
 | **Core abstractions** | OS interfaces, file system, process, network | `core/`, `plugininterface.h`, `aiinterface.h` |
 | **Plugin system** | Plugin loader, service registry | `pluginmanager.*`, `serviceregistry.*` |
 | **UI framework** | Command palette, theme engine, keymap | `commandpalette.*`, `thememanager.*`, `ui/` |
@@ -91,6 +93,32 @@ cmake --build build           # Build
 - Only required dependency: **Qt 6 Widgets**.
 - Optional dependency stubs: `EXORCIST_USE_LLVM` CMake option.
 - New dependencies must be MIT/BSD/public-domain compatible. Update [docs/dependencies.md](docs/dependencies.md) when adding any.
+
+## Documentation (STRICT)
+
+Documentation is **not optional** and must be maintained **alongside** implementation — never deferred to "later."
+
+### Rules
+
+1. **Document as you go.** Every new subsystem, interface, or significant feature must have corresponding documentation updated **in the same work session** it was implemented. No "we'll document it later."
+2. **Roadmap reflects reality.** When a phase or feature is completed, [docs/roadmap.md](docs/roadmap.md) must be updated immediately to mark it done and briefly describe what was delivered.
+3. **Architecture doc stays current.** When a new subsystem is added to `src/` (e.g., `debug/`, `agent/`), [docs/architecture.md](docs/architecture.md) must be updated with the new layer, its purpose, and its key interfaces.
+4. **New subsystem = new doc.** Any new major subsystem (debug, agent platform, project brain, etc.) gets its own `docs/<subsystem>.md` describing: purpose, architecture, key types/interfaces, usage, and extension points.
+5. **Plugin API changes are documented.** Any new extension interface (`IAgentSettingsPageProvider`, `IDebugAdapter`, etc.) must be reflected in [docs/plugin_api.md](docs/plugin_api.md).
+6. **Dependencies tracked.** New third-party dependencies (even header-only) must be added to [docs/dependencies.md](docs/dependencies.md) with license info.
+7. **Doc structure:** Keep docs concise and scannable. Use tables for type inventories, code blocks for interface signatures, and bullet lists for rules. Write in English (code comments) or Georgian (design rationale) — be consistent within each file.
+
+### What to document
+
+| Change type | Required doc update |
+|-------------|-------------------|
+| New `src/` subsystem directory | `architecture.md` + new `docs/<subsystem>.md` |
+| New interface / abstract class | `architecture.md` layer table + subsystem doc |
+| New plugin extension point | `plugin_api.md` |
+| Completed roadmap phase/feature | `roadmap.md` status update |
+| New dependency | `dependencies.md` |
+| New data types / protocols | Subsystem doc (types table + protocol description) |
+| UI panel / dock added | `architecture.md` app shell section |
 
 ## Conventions
 

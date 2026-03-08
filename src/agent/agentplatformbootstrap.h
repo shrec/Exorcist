@@ -19,11 +19,14 @@ class AgentOrchestrator;
 class AgentController;
 class AgentProviderRegistry;
 class AgentRequestRouter;
+class BrainContextBuilder;
 class ChatSessionService;
 class ContextBuilder;
 class IAgentSettingsPageProvider;
 class IChatSessionImporter;
 class IProviderAuthIntegration;
+class MemorySuggestionEngine;
+class ProjectBrainService;
 class SessionStore;
 class ToolApprovalService;
 class ToolRegistry;
@@ -61,6 +64,8 @@ public:
     AgentRequestRouter    *requestRouter() const { return m_requestRouter; }
     ChatSessionService    *chatSessionService() const { return m_chatSessionService; }
     ToolApprovalService   *toolApprovalService() const { return m_toolApprovalService; }
+    ProjectBrainService   *brainService() const { return m_brainService; }
+    MemorySuggestionEngine *memorySuggestionEngine() const { return m_memorySuggestionEngine; }
 
     // Plugin extension accessors (populated by registerPluginProviders)
     const QList<IChatSessionImporter *>      &sessionImporters() const { return m_sessionImporters; }
@@ -83,6 +88,9 @@ private:
     AgentRequestRouter    *m_requestRouter = nullptr;
     ChatSessionService    *m_chatSessionService = nullptr;
     ToolApprovalService   *m_toolApprovalService = nullptr;
+    ProjectBrainService   *m_brainService = nullptr;
+    BrainContextBuilder   *m_brainBuilder = nullptr;
+    MemorySuggestionEngine *m_memorySuggestionEngine = nullptr;
 
     // Plugin extension registries
     QList<IChatSessionImporter *>      m_sessionImporters;

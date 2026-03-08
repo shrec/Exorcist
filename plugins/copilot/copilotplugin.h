@@ -17,4 +17,7 @@ public:
     void shutdown() override;
 
     QList<IAgentProvider *> createProviders(QObject *parent) override;
+
+private:
+    QObject *m_services = nullptr;
 };

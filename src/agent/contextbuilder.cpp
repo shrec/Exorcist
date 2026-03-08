@@ -32,6 +32,7 @@ ContextSnapshot ContextBuilder::buildContext()
     addDiagnosticsContext(ctx);
     addGitContext(ctx);
     addTerminalContext(ctx);
+    addWorkspaceInfoContext(ctx);
 
     // Apply pinned flags based on m_pinnedTypes
     for (auto &item : ctx.items) {
@@ -82,6 +83,8 @@ ContextSnapshot ContextBuilder::buildContext(const QString &userPrompt,
         addGitContext(ctx);
     if (isContextTypeEnabled(ContextItem::Type::WorkspaceInfo))
         addTerminalContext(ctx);
+    if (isContextTypeEnabled(ContextItem::Type::WorkspaceInfo))
+        addWorkspaceInfoContext(ctx);
 
     // Apply pinned flags based on m_pinnedTypes
     for (auto &item : ctx.items) {
@@ -92,6 +95,19 @@ ContextSnapshot ContextBuilder::buildContext(const QString &userPrompt,
     pruneContext(ctx, m_maxContextChars);
 
     return ctx;
+}
+
+QFuture<ContextSnapshot> ContextBuilder::buildContextAsync(
+    const QString &userPrompt,
+    const QString &activeFilePath,
+    const QString &selectedText,
+    const QString &languageId)
+{
+    return QtConcurrent::run([this, userPrompt, activeFilePath,
+                              selectedText, languageId]() {
+        return buildContext(userPrompt, activeFilePath,
+                            selectedText, languageId);
+    });
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -235,6 +251,58 @@ void ContextBuilder::addTerminalContext(ContextSnapshot &ctx)
     ctx.items.append(item);
 }
 
+void ContextBuilder::addWorkspaceInfoContext(ContextSnapshot &ctx)
+{
+    if (m_workspaceRoot.isEmpty())
+        return;
+
+    QDir root(m_workspaceRoot);
+    if (!root.exists())
+        return;
+
+    // Build depth-limited directory tree (max depth 3, max 300 entries)
+    QStringList tree;
+    std::function<void(const QDir &, int, int)> collectTree =
+        [&tree, &collectTree, &root](const QDir &dir, int depth, int maxDepth) {
+        if (depth > maxDepth || tree.size() >= 300)
+            return;
+        const auto entries = dir.entryInfoList(
+            QDir::AllEntries | QDir::NoDotAndDotDot, QDir::DirsFirst | QDir::Name);
+        for (const auto &entry : entries) {
+            if (tree.size() >= 300)
+                break;
+            const QString name = entry.fileName();
+            // Skip build artifacts, hidden dirs, and common noise
+            if (name.startsWith(QLatin1Char('.'))
+                || name == QLatin1String("build")
+                || name.startsWith(QLatin1String("build-"))
+                || name == QLatin1String("node_modules")
+                || name == QLatin1String("__pycache__"))
+                continue;
+
+            const QString rel = root.relativeFilePath(entry.absoluteFilePath());
+            if (entry.isDir()) {
+                tree << rel + QLatin1Char('/');
+                collectTree(QDir(entry.absoluteFilePath()), depth + 1, maxDepth);
+            } else {
+                tree << rel;
+            }
+        }
+    };
+
+    collectTree(root, 0, 3);
+
+    if (tree.isEmpty())
+        return;
+
+    ContextItem item;
+    item.type     = ContextItem::Type::WorkspaceInfo;
+    item.label    = QStringLiteral("@workspace");
+    item.content  = QStringLiteral("Project structure:\n") + tree.join(QLatin1Char('\n'));
+    item.priority = 2; // low priority — pruned first
+    ctx.items.append(item);
+}
+
 // ── Pruning ───────────────────────────────────────────────────────────────────
 
 void ContextBuilder::pruneContext(ContextSnapshot &ctx, int maxChars)
@@ -242,45 +310,56 @@ void ContextBuilder::pruneContext(ContextSnapshot &ctx, int maxChars)
     if (maxChars <= 0)
         return;
 
-    // Calculate total size
-    auto totalChars = [&ctx]() {
+    // Use UTF-8 byte size / 4 as token estimate (more accurate than char count)
+    auto estimateTokens = [](const QString &s) -> int {
+        return s.toUtf8().size() / 4;
+    };
+
+    auto totalTokens = [&ctx, &estimateTokens]() {
         int total = 0;
         for (const auto &item : std::as_const(ctx.items))
-            total += item.content.size();
+            total += estimateTokens(item.content);
         return total;
     };
 
-    int total = totalChars();
-    if (total <= maxChars)
+    const int maxTokens = maxChars / 4; // convert char budget to token budget
+    int total = totalTokens();
+    if (total <= maxTokens)
         return;
 
-    // Sort by priority ascending (lowest priority = first to remove)
+    // Sort: pinned first, then by priority ascending (lowest = first to remove),
+    // then by token count descending (largest removed first at same priority)
     std::sort(ctx.items.begin(), ctx.items.end(),
-              [](const ContextItem &a, const ContextItem &b) {
-                  // Pinned items sort to the end (never removed first)
+              [&estimateTokens](const ContextItem &a, const ContextItem &b) {
                   if (a.pinned != b.pinned) return b.pinned;
-                  return a.priority < b.priority;
+                  if (a.priority != b.priority) return a.priority < b.priority;
+                  return estimateTokens(a.content) > estimateTokens(b.content);
               });
 
     // Remove lowest-priority unpinned items until we fit
-    while (total > maxChars && !ctx.items.isEmpty()) {
+    while (total > maxTokens && !ctx.items.isEmpty()) {
         if (ctx.items.first().pinned)
             break;  // all remaining items are pinned
-        total -= ctx.items.first().content.size();
+        total -= estimateTokens(ctx.items.first().content);
         ctx.items.removeFirst();
     }
 
     // If still over budget after removing items, truncate the largest remaining item
-    if (total > maxChars && !ctx.items.isEmpty()) {
-        // Find largest remaining item
+    if (total > maxTokens && !ctx.items.isEmpty()) {
         int largestIdx = 0;
-        for (int i = 1; i < ctx.items.size(); ++i) {
-            if (ctx.items[i].content.size() > ctx.items[largestIdx].content.size())
+        int largestTokens = 0;
+        for (int i = 0; i < ctx.items.size(); ++i) {
+            const int t = estimateTokens(ctx.items[i].content);
+            if (t > largestTokens) {
+                largestTokens = t;
                 largestIdx = i;
+            }
         }
-        const int excess = total - maxChars;
+        const int excessTokens = total - maxTokens;
+        const int excessChars = excessTokens * 4;
         auto &item = ctx.items[largestIdx];
-        item.content.truncate(item.content.size() - excess);
+        if (item.content.size() > excessChars)
+            item.content.truncate(item.content.size() - excessChars);
         item.content += QStringLiteral("\n... [truncated]");
     }
 

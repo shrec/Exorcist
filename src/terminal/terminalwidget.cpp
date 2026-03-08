@@ -80,6 +80,26 @@ void TerminalWidget::startShell(const QString &workDir)
     });
 }
 
+void TerminalWidget::startProgram(const QString &program,
+                                  const QStringList &args,
+                                  const QString &workDir)
+{
+    if (m_started) return;
+    m_started = true;
+    m_workDir = workDir;
+
+    if (!m_backend->start(program, args, workDir,
+                          m_screen->cols(), m_screen->rows())) {
+        m_screen->feed(QByteArrayLiteral(
+            "\r\n\x1B[31m[Failed to start program]\x1B[0m\r\n"));
+    }
+
+    QTimer::singleShot(150, this, [this]() {
+        if (m_backend->isRunning())
+            m_backend->resize(m_screen->cols(), m_screen->rows());
+    });
+}
+
 void TerminalWidget::setWorkingDirectory(const QString &dir)
 {
     m_workDir = dir;

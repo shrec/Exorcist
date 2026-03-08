@@ -11,6 +11,7 @@
 #include "itool.h"
 
 class AgentOrchestrator;
+class BrainContextBuilder;
 class ToolApprovalService;
 class ToolRegistry;
 class IAgentProvider;
@@ -84,6 +85,8 @@ public:
     /// m_confirmFn / m_alwaysAllowedTools / m_maxPermission fields.
     void setToolApprovalService(ToolApprovalService *svc) { m_approvalService = svc; }
 
+    void setBrainContextBuilder(BrainContextBuilder *b) { m_brainBuilder = b; }
+
     /// Tool approval result from user confirmation dialog.
     enum class ToolApproval { Deny, AllowOnce, AllowAlways };
 
@@ -147,6 +150,7 @@ private:
     QString              m_systemPrompt;
     SessionStore        *m_store = nullptr;
     ToolApprovalService *m_approvalService = nullptr;
+    BrainContextBuilder *m_brainBuilder = nullptr;
     ConfirmToolFn        m_confirmFn;
     QSet<QString>        m_alwaysAllowedTools;
 

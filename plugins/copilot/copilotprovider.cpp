@@ -31,6 +31,10 @@ static constexpr int kIdleTimeoutMs = 60 * 1000;
 // Base delay for exponential backoff (ms)
 static constexpr int kRetryBaseMs = 1000;
 
+// Secure storage service keys
+static const QString kGithubTokenKey  = QStringLiteral("copilot/github_token");
+static const QString kRefreshTokenKey = QStringLiteral("copilot/refresh_token");
+
 // ── System prompts ────────────────────────────────────────────────────────────
 
 static const char kSystemPrompt[] =
@@ -169,23 +173,33 @@ void CopilotProvider::initialize()
     if (m_available && m_token.isValid() && !m_token.isExpired(now))
         return;
 
-    // Try environment variable first, then QSettings
+    // Try environment variable first, then secure storage, then QSettings (migration)
     if (m_githubToken.isEmpty())
         m_githubToken = QString::fromUtf8(qgetenv("GITHUB_TOKEN"));
+    if (m_githubToken.isEmpty() && m_keyRetrieve) {
+        m_githubToken  = m_keyRetrieve(kGithubTokenKey);
+        m_refreshToken = m_keyRetrieve(kRefreshTokenKey);
+    }
     if (m_githubToken.isEmpty()) {
+        // Migrate from old QSettings storage to secure storage
         QSettings settings;
         m_githubToken  = settings.value(QStringLiteral("ai/copilot/github_token")).toString();
         m_refreshToken = settings.value(QStringLiteral("ai/copilot/refresh_token")).toString();
-
-        // Migrate from old key name
         if (m_githubToken.isEmpty()) {
             m_githubToken = settings.value(QStringLiteral("ai/copilot/token")).toString();
-            if (!m_githubToken.isEmpty()) {
-                settings.setValue(QStringLiteral("ai/copilot/github_token"), m_githubToken);
-                settings.remove(QStringLiteral("ai/copilot/token"));
-                settings.sync();
-                qCInfo(lcCopilot) << "Migrated token from old settings key";
+        }
+        if (!m_githubToken.isEmpty()) {
+            // Migrate to secure storage and remove plaintext settings
+            if (m_keyStore) {
+                m_keyStore(kGithubTokenKey, m_githubToken);
+                if (!m_refreshToken.isEmpty())
+                    m_keyStore(kRefreshTokenKey, m_refreshToken);
             }
+            settings.remove(QStringLiteral("ai/copilot/github_token"));
+            settings.remove(QStringLiteral("ai/copilot/refresh_token"));
+            settings.remove(QStringLiteral("ai/copilot/token"));
+            settings.sync();
+            qCInfo(lcCopilot) << "Migrated tokens from QSettings to secure storage";
         }
     }
 
@@ -207,6 +221,13 @@ void CopilotProvider::shutdown()
     m_available = false;
 }
 
+void CopilotProvider::setKeyStorageCallbacks(KeyStoreFn store, KeyRetrieveFn retrieve, KeyDeleteFn remove)
+{
+    m_keyStore    = std::move(store);
+    m_keyRetrieve = std::move(retrieve);
+    m_keyDelete   = std::move(remove);
+}
+
 // ── OAuth Device Flow ─────────────────────────────────────────────────────────
 
 void CopilotProvider::tryOAuthLogin()
@@ -224,11 +245,11 @@ void CopilotProvider::tryOAuthLogin()
         m_githubToken  = dialog->githubToken();
         m_refreshToken = dialog->refreshToken();
         if (!m_githubToken.isEmpty()) {
-            QSettings settings;
-            settings.setValue(QStringLiteral("ai/copilot/github_token"), m_githubToken);
-            if (!m_refreshToken.isEmpty())
-                settings.setValue(QStringLiteral("ai/copilot/refresh_token"), m_refreshToken);
-            settings.sync();
+            if (m_keyStore) {
+                m_keyStore(kGithubTokenKey, m_githubToken);
+                if (!m_refreshToken.isEmpty())
+                    m_keyStore(kRefreshTokenKey, m_refreshToken);
+            }
             qCInfo(lcCopilot) << "OAuth login succeeded, tokens saved";
             m_oauthRefreshAttempted = false;
             refreshCopilotToken();
@@ -378,11 +399,11 @@ void CopilotProvider::handleOAuthRefreshReply(QNetworkReply *reply)
         m_githubToken  = obj[QLatin1String("access_token")].toString();
         m_refreshToken = obj[QLatin1String("refresh_token")].toString();
 
-        QSettings settings;
-        settings.setValue(QStringLiteral("ai/copilot/github_token"), m_githubToken);
-        if (!m_refreshToken.isEmpty())
-            settings.setValue(QStringLiteral("ai/copilot/refresh_token"), m_refreshToken);
-        settings.sync();
+        if (m_keyStore) {
+            m_keyStore(kGithubTokenKey, m_githubToken);
+            if (!m_refreshToken.isEmpty())
+                m_keyStore(kRefreshTokenKey, m_refreshToken);
+        }
 
         qCInfo(lcCopilot) << "OAuth token refreshed successfully";
         refreshCopilotToken();
@@ -406,6 +427,11 @@ void CopilotProvider::clearSavedAuth()
     m_available = false;
     m_oauthRefreshAttempted = false;
 
+    if (m_keyDelete) {
+        m_keyDelete(kGithubTokenKey);
+        m_keyDelete(kRefreshTokenKey);
+    }
+    // Also clean up any legacy QSettings entries
     QSettings settings;
     settings.remove(QStringLiteral("ai/copilot/github_token"));
     settings.remove(QStringLiteral("ai/copilot/refresh_token"));
@@ -901,6 +927,16 @@ void CopilotProvider::connectReply(QNetworkReply *reply)
             return;
         m_activeReply = nullptr;
 
+        // Parse rate limit headers
+        const QByteArray remaining = reply->rawHeader("x-ratelimit-remaining");
+        const QByteArray resetTs   = reply->rawHeader("x-ratelimit-reset");
+        const QByteArray retryAfter = reply->rawHeader("retry-after");
+
+        if (!remaining.isEmpty())
+            m_rateLimit.remaining = remaining.toInt();
+        if (!resetTs.isEmpty())
+            m_rateLimit.resetEpoch = resetTs.toInt();
+
         if (m_activeRequestId.isEmpty())
             return; // Already handled by SSE done
 
@@ -908,8 +944,21 @@ void CopilotProvider::connectReply(QNetworkReply *reply)
             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
         if (reply->error() == QNetworkReply::NoError) {
+            m_rateLimit.throttled = false;
             handleSseDone(); // Stream ended without [DONE]
         } else {
+            if (status == 429) {
+                m_rateLimit.throttled = true;
+                int secsUntilReset = 0;
+                if (!retryAfter.isEmpty()) {
+                    secsUntilReset = retryAfter.toInt();
+                } else if (m_rateLimit.resetEpoch > 0) {
+                    secsUntilReset = m_rateLimit.resetEpoch
+                                     - static_cast<int>(QDateTime::currentSecsSinceEpoch());
+                    if (secsUntilReset < 0) secsUntilReset = 0;
+                }
+                emit rateLimitHit(secsUntilReset);
+            }
             retryOrFail(status, reply->errorString());
         }
     });
@@ -1179,7 +1228,15 @@ void CopilotProvider::retryOrFail(int httpStatus, const QString &errorMsg)
 
     if (retryable && m_retryCount < kMaxRetries) {
         ++m_retryCount;
-        const int delayMs = kRetryBaseMs * (1 << (m_retryCount - 1)); // 1s, 2s, 4s
+        int delayMs;
+        if (httpStatus == 429 && m_rateLimit.resetEpoch > 0) {
+            // Use server-provided reset time
+            const int secsLeft = m_rateLimit.resetEpoch
+                                 - static_cast<int>(QDateTime::currentSecsSinceEpoch());
+            delayMs = qMax(secsLeft * 1000, kRetryBaseMs);
+        } else {
+            delayMs = kRetryBaseMs * (1 << (m_retryCount - 1)); // 1s, 2s, 4s
+        }
         qCInfo(lcCopilot) << "Retrying request (attempt" << m_retryCount
                           << "of" << kMaxRetries << ") after" << delayMs << "ms"
                           << "(HTTP" << httpStatus << ")";

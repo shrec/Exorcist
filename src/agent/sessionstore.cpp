@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -369,4 +370,61 @@ QString SessionStore::sanitizeName(const QString &name)
     if (out.isEmpty())
         out = QStringLiteral("session");
     return out;
+}
+
+// ── Export ─────────────────────────────────────────────────────────────────────
+
+bool SessionStore::exportToMarkdown(const QString &sessionPath, const QString &outputPath) const
+{
+    const ChatSession sess = loadSession(sessionPath);
+    if (sess.isEmpty())
+        return false;
+
+    QFile out(outputPath);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Text))
+        return false;
+
+    QTextStream ts(&out);
+    ts << QStringLiteral("# Session: %1\n").arg(sess.sessionId);
+    ts << QStringLiteral("Date: %1\n\n").arg(
+              sess.createdAt.toString(Qt::ISODate));
+
+    for (const auto &msg : sess.messages) {
+        if (msg.first == QLatin1String("user"))
+            ts << QStringLiteral("**User:** ");
+        else
+            ts << QStringLiteral("**Assistant:** ");
+        ts << msg.second << QStringLiteral("\n\n");
+    }
+
+    return true;
+}
+
+bool SessionStore::exportToJson(const QString &sessionPath, const QString &outputPath) const
+{
+    const ChatSession sess = loadSession(sessionPath);
+    if (sess.isEmpty())
+        return false;
+
+    QJsonObject root;
+    root[QLatin1String("sessionId")] = sess.sessionId;
+    root[QLatin1String("createdAt")] = sess.createdAt.toString(Qt::ISODate);
+
+    QJsonArray msgs;
+    for (const auto &msg : sess.messages) {
+        QJsonObject m;
+        m[QLatin1String("role")] = msg.first;
+        m[QLatin1String("content")] = msg.second;
+        msgs.append(m);
+    }
+    root[QLatin1String("messages")] = msgs;
+
+    if (!sess.completeTurns.isEmpty())
+        root[QLatin1String("turns")] = sess.completeTurns;
+
+    QFile out(outputPath);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Text))
+        return false;
+    out.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    return true;
 }

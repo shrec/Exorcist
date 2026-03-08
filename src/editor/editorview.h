@@ -4,6 +4,7 @@
 #include <QList>
 #include <QPlainTextEdit>
 #include <QRegularExpression>
+#include <QSet>
 #include <QString>
 
 #include <memory>
@@ -127,6 +128,28 @@ signals:
     void reviewAnnotationApplied(int line, const QString &comment);
     void reviewAnnotationDiscarded(int line, const QString &comment);
 
+    /// Emitted when user clicks the gutter to toggle a breakpoint (1-based line).
+    void breakpointToggled(const QString &filePath, int line, bool added);
+
+public:
+    // ── Breakpoint gutter ─────────────────────────────────────────────────
+
+    /// Toggle a breakpoint on the given 1-based line.
+    void toggleBreakpoint(int line);
+
+    /// Set breakpoints from external source (e.g. debug adapter).
+    void setBreakpointLines(const QSet<int> &lines);
+
+    /// Get current breakpoint lines (1-based).
+    const QSet<int> &breakpointLines() const { return m_breakpointLines; }
+
+    /// Set the line where the debugger is currently stopped (1-based, 0=none).
+    void setCurrentDebugLine(int line);
+    int  currentDebugLine() const { return m_currentDebugLine; }
+
+    /// Called by LineNumberArea on mouse click.
+    void lineNumberAreaMousePress(QMouseEvent *event);
+
 protected:
     void resizeEvent(QResizeEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
@@ -172,6 +195,10 @@ private:
 
     class MinimapWidget     *m_minimap = nullptr;
     bool                     m_minimapVisible = true;
+
+    // Breakpoints
+    QSet<int>                m_breakpointLines;   // 1-based lines
+    int                      m_currentDebugLine = 0; // 1-based (0=none)
 
     // Shadow buffer kept in sync with QTextDocument via contentsChanged
     std::unique_ptr<PieceTableBuffer> m_buffer;

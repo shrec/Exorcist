@@ -7,6 +7,8 @@
 #include <QString>
 #include <QTimer>
 
+#include <functional>
+
 class QNetworkReply;
 class SseParser;
 
@@ -55,8 +57,15 @@ public:
     void requestCompletion(const QString &filePath, const QString &languageId,
                            const QString &textBefore, const QString &textAfter);
 
+    // Secure storage injection via callbacks (avoids link-time dependency on core)
+    using KeyStoreFn    = std::function<bool(const QString &service, const QString &key)>;
+    using KeyRetrieveFn = std::function<QString(const QString &service)>;
+    using KeyDeleteFn   = std::function<bool(const QString &service)>;
+    void setKeyStorageCallbacks(KeyStoreFn store, KeyRetrieveFn retrieve, KeyDeleteFn remove);
+
 signals:
     void completionReady(const QString &suggestion);
+    void rateLimitHit(int secondsUntilReset);
 
 private:
     // ── Authentication ────────────────────────────────────────────────────
@@ -130,4 +139,16 @@ private:
     AgentRequest   m_lastRequest;   // saved for retry
     int            m_retryCount = 0;
     static constexpr int kMaxRetries = 3;
+
+    // Rate limit tracking
+    struct RateLimitState {
+        int  remaining   = -1;   // -1 = unknown
+        int  resetEpoch  = 0;
+        bool throttled   = false;
+    } m_rateLimit;
+
+    // Secure credential storage (callbacks injected by plugin)
+    KeyStoreFn    m_keyStore;
+    KeyRetrieveFn m_keyRetrieve;
+    KeyDeleteFn   m_keyDelete;
 };

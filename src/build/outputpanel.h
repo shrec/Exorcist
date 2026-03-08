@@ -31,6 +31,10 @@ public:
 
     void setWorkingDirectory(const QString &dir);
     void runCommand(const QString &cmd, const QStringList &args = {});
+    void runRemoteCommand(const QString &host, int port,
+                          const QString &user, const QString &privateKeyPath,
+                          const QString &remoteCmd,
+                          const QString &remoteWorkDir = {});
     void appendText(const QString &text, const QColor &color = {});
     void clear();
 

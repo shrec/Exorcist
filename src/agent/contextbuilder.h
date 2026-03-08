@@ -3,8 +3,10 @@
 #include "icontextprovider.h"
 #include "../aiinterface.h"
 
+#include <QFuture>
 #include <QObject>
 #include <QSet>
+#include <QtConcurrent>
 #include <functional>
 
 class IFileSystem;
@@ -73,9 +75,21 @@ public:
                                  const QString &selectedText,
                                  const QString &languageId) override;
 
+    QFuture<ContextSnapshot> buildContextAsync(
+        const QString &userPrompt,
+        const QString &activeFilePath,
+        const QString &selectedText,
+        const QString &languageId) override;
+
     /// Set maximum total context size in characters (default: 120000 ≈ 30k tokens).
     void setMaxContextChars(int chars) { m_maxContextChars = chars; }
     int maxContextChars() const { return m_maxContextChars; }
+
+    /// Set budget from model token limit (uses ~80% of input limit).
+    void setMaxTokenBudget(int modelInputTokenLimit)
+    {
+        m_maxContextChars = (modelInputTokenLimit * 4) * 8 / 10; // 80% of limit in chars
+    }
 
     /// Prune a context snapshot to fit within maxContextChars.
     /// Removes lowest-priority items first, then truncates remaining items.
@@ -88,6 +102,7 @@ private:
     void addDiagnosticsContext(ContextSnapshot &ctx);
     void addGitContext(ContextSnapshot &ctx);
     void addTerminalContext(ContextSnapshot &ctx);
+    void addWorkspaceInfoContext(ContextSnapshot &ctx);
 
     IFileSystem *m_fs = nullptr;
     QString      m_workspaceRoot;

@@ -10,6 +10,7 @@
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
 #include <QScrollBar>
@@ -37,6 +38,11 @@ protected:
     void paintEvent(QPaintEvent *event) override
     {
         m_editor->lineNumberAreaPaintEvent(event);
+    }
+
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        m_editor->lineNumberAreaMousePress(event);
     }
 
 private:
@@ -478,6 +484,30 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
                 const int dotSize = 5;
                 painter.drawEllipse(2, top + (lineH - dotSize) / 2,
                                     dotSize, dotSize);
+            }
+
+            // Breakpoint indicator (red filled circle, 1-based line)
+            if (m_breakpointLines.contains(blockNumber + 1)) {
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(QColor(0xE5, 0x1A, 0x1A));
+                const int bpSize = 10;
+                painter.drawEllipse(2, top + (lineH - bpSize) / 2,
+                                    bpSize, bpSize);
+            }
+
+            // Current debug line highlight (yellow arrow)
+            if (m_currentDebugLine > 0 && blockNumber + 1 == m_currentDebugLine) {
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(QColor(0xFF, 0xCC, 0x00));
+                const int arrowH = 10;
+                const int arrowW = 7;
+                const int ax = m_lineNumberArea->width() - arrowW - 2;
+                const int ay = top + (lineH - arrowH) / 2;
+                QPolygon arrow;
+                arrow << QPoint(ax, ay)
+                      << QPoint(ax + arrowW, ay + arrowH / 2)
+                      << QPoint(ax, ay + arrowH);
+                painter.drawPolygon(arrow);
             }
 
             // NES arrow indicator (→ pointing right, yellow-green)
@@ -1059,4 +1089,63 @@ QString EditorView::bufferText() const
 QString EditorView::bufferSlice(int start, int length) const
 {
     return m_buffer->slice(start, length);
+}
+
+// ── Breakpoint gutter ─────────────────────────────────────────────────────────
+
+void EditorView::toggleBreakpoint(int line)
+{
+    if (m_breakpointLines.contains(line)) {
+        m_breakpointLines.remove(line);
+        const QString fp = property("filePath").toString();
+        emit breakpointToggled(fp, line, false);
+    } else {
+        m_breakpointLines.insert(line);
+        const QString fp = property("filePath").toString();
+        emit breakpointToggled(fp, line, true);
+    }
+    m_lineNumberArea->update();
+}
+
+void EditorView::setBreakpointLines(const QSet<int> &lines)
+{
+    m_breakpointLines = lines;
+    m_lineNumberArea->update();
+}
+
+void EditorView::setCurrentDebugLine(int line)
+{
+    m_currentDebugLine = line;
+    m_lineNumberArea->update();
+
+    // Highlight the debug line with a yellow background
+    if (line > 0) {
+        QTextBlock blk = document()->findBlockByNumber(line - 1);
+        if (blk.isValid()) {
+            QTextCursor cursor(blk);
+            cursor.movePosition(QTextCursor::EndOfBlock);
+            setTextCursor(cursor);
+            ensureCursorVisible();
+        }
+    }
+}
+
+void EditorView::lineNumberAreaMousePress(QMouseEvent *event)
+{
+    if (event->button() != Qt::LeftButton) return;
+
+    // Determine which line the user clicked on
+    QTextBlock block = firstVisibleBlock();
+    int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
+    int bottom = top + qRound(blockBoundingRect(block).height());
+
+    while (block.isValid()) {
+        if (event->position().y() >= top && event->position().y() < bottom) {
+            toggleBreakpoint(block.blockNumber() + 1); // 1-based
+            return;
+        }
+        block = block.next();
+        top = bottom;
+        bottom = top + qRound(blockBoundingRect(block).height());
+    }
 }

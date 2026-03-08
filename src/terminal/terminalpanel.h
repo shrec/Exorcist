@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QString>
+#include <QStringList>
 
 class QTabWidget;
 class QToolButton;
@@ -23,6 +24,12 @@ public:
     void sendCommand(const QString &cmd);
     void sendInput(const QString &text);
     QString recentOutput(int maxLines = 80) const;
+
+    // Open an SSH terminal tab for the given remote host.
+    TerminalWidget *addSshTerminal(const QString &label,
+                                   const QString &host, int port,
+                                   const QString &user,
+                                   const QString &privateKeyPath = {});
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;

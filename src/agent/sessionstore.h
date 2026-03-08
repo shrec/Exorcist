@@ -62,6 +62,10 @@ public:
     QStringList searchSessions(const QString &query, int max = 20) const;
     void setSessionTitle(const QString &id, const QString &title);
 
+    // ── Export ────────────────────────────────────────────────────────────
+    bool exportToMarkdown(const QString &sessionPath, const QString &outputPath) const;
+    bool exportToJson(const QString &sessionPath, const QString &outputPath) const;
+
 private:
     void appendLine(const QString &id, const QJsonObject &entry);
     void pruneOldSessions(int keep = 50);

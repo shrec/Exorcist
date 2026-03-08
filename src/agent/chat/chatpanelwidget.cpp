@@ -31,6 +31,7 @@
 #include "chattranscriptview.h"
 #include "chatwelcomewidget.h"
 #include "toolpresentationformatter.h"
+#include "ui/notificationtoast.h"
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  Construction
@@ -451,6 +452,11 @@ void ChatPanelWidget::setInputText(const QString &text)
     m_inputWidget->setInputText(text);
 }
 
+void ChatPanelWidget::setInputEnabled(bool enabled)
+{
+    m_inputWidget->setEnabled(enabled);
+}
+
 void ChatPanelWidget::attachSelection(const QString &text, const QString &filePath,
                                       int startLine)
 {
@@ -659,6 +665,40 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
     }
 
     m_sessionModel->beginTurn(text, attachmentNames, mode, modelId, providerId, slashCmd);
+
+    // Populate context references for the turn
+    if (m_contextBuilder) {
+        ContextSnapshot ctx = m_contextBuilder->buildContext(
+            text, m_activeFilePath, m_selectedText, m_languageId);
+        auto &turn = m_sessionModel->currentTurn();
+        for (const auto &item : std::as_const(ctx.items)) {
+            ChatTurnModel::TurnReference ref;
+            ref.filePath = item.filePath;
+            ref.tooltip  = item.content.left(200);
+            switch (item.type) {
+            case ContextItem::Type::ActiveFile:
+                ref.label = QStringLiteral("\U0001F4C4 %1").arg(item.label);
+                break;
+            case ContextItem::Type::Selection:
+                ref.label = QStringLiteral("\u2702 selection");
+                break;
+            case ContextItem::Type::GitDiff:
+            case ContextItem::Type::GitStatus:
+                ref.label = QStringLiteral("\U0001F500 git");
+                break;
+            case ContextItem::Type::Diagnostics:
+                ref.label = QStringLiteral("\u26A0 diagnostics");
+                break;
+            case ContextItem::Type::WorkspaceInfo:
+                ref.label = QStringLiteral("\U0001F4C1 workspace");
+                break;
+            default:
+                ref.label = item.label;
+                break;
+            }
+            turn.references.append(ref);
+        }
+    }
 
     // Auto-generate session title from first user message
     if (m_sessionModel->turnCount() == 1 && m_sessionModel->title().isEmpty()) {
@@ -905,9 +945,11 @@ void ChatPanelWidget::onResponseError(const QString &requestId,
     switch (error.code) {
     case AgentError::Code::AuthError:
         displayMsg = tr("Authentication failed. Please sign in again.");
+        NotificationToast::show(this, displayMsg, NotificationToast::Error, 6000);
         break;
     case AgentError::Code::RateLimited:
         displayMsg = tr("Rate limit exceeded. Try again in a moment, or switch models.");
+        NotificationToast::show(this, displayMsg, NotificationToast::Warning, 6000);
         break;
     case AgentError::Code::ContentFilter:
         displayMsg = tr("Response was blocked by the content safety filter.");
