@@ -27,6 +27,10 @@
 #include <QMessageBox>
 #include <QTimer>
 
+#ifdef Q_OS_UNIX
+#  include <unistd.h>   // sysconf, _SC_PAGESIZE
+#endif
+
 #include "commandpalette.h"
 #include "editor/editorview.h"
 #include "editor/largefileloader.h"
@@ -1526,6 +1530,7 @@ void MainWindow::createDockWidgets()
 
     // ── Secure Key Storage ────────────────────────────────────────────────
     m_keyStorage = new SecureKeyStorage(this);
+    m_services->registerService(QStringLiteral("secureKeyStorage"), m_keyStorage);
 
     // ── Prompt File Manager ───────────────────────────────────────────────
     m_promptFileManager = new PromptFileManager(this);
