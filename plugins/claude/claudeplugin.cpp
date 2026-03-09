@@ -7,7 +7,15 @@ PluginInfo ClaudePlugin::info() const
             QStringLiteral("Anthropic Claude"),
             QStringLiteral("1.0.0"),
             QStringLiteral("Anthropic Claude AI assistant"),
-            QStringLiteral("Exorcist")};
+            QStringLiteral("Exorcist"),
+            QStringLiteral("1.0"),
+            {PluginPermission::NetworkAccess}};
+}
+
+bool ClaudePlugin::initialize(IHostServices *host)
+{
+    m_host = host;
+    return true;
 }
 
 void ClaudePlugin::initialize(QObject *) {}

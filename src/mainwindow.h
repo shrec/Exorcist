@@ -111,6 +111,8 @@ class ToolchainManager;
 class CMakeIntegration;
 class BuildToolbar;
 class DebugLaunchController;
+class HostServices;
+class ContributionRegistry;
 
 class MainWindow : public QMainWindow
 {
@@ -122,6 +124,18 @@ public:
     // Call after show() to defer heavy initialization (plugins, last folder).
     void deferredInit();
 
+    /// Current workspace root folder (used by SDK services).
+    QString currentFolder() const { return m_currentFolder; }
+
+    /// Open a file in the editor (used by SDK EditorService).
+    void openFile(const QString &path);
+
+    /// Get the currently active editor (used by SDK EditorService).
+    EditorView *currentEditor() const;
+
+    /// Access the dock manager (used by ContributionRegistry).
+    exdock::DockManager *dockManager() const { return m_dockManager; }
+
 private:
     void setupUi();
     void setupMenus();
@@ -130,7 +144,6 @@ private:
     void createDockWidgets();
     void openNewTab();
     void openFileFromIndex(const QModelIndex &index);
-    void openFile(const QString &path);
     void openFolder(const QString &path = {});
     void newSolution();
     void openSolutionFile();
@@ -141,7 +154,6 @@ private:
     void showCommandPalette();
     void updateEditorStatus(EditorView *editor);
     void onTabChanged(int index);
-    EditorView *currentEditor() const;
     void loadPlugins();
     void loadSettings();
     void saveSettings();
@@ -280,6 +292,9 @@ private:
     CMakeIntegration         *m_cmakeIntegration = nullptr;
     BuildToolbar             *m_buildToolbar = nullptr;
     DebugLaunchController    *m_debugLauncher = nullptr;
+
+    HostServices             *m_hostServices = nullptr;
+    ContributionRegistry     *m_contributions = nullptr;
 
     void updateDiffRanges(EditorView *editor);
     void onLspInitialized();

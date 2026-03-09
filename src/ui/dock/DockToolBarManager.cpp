@@ -124,7 +124,7 @@ bool DockToolBarManager::removeToolBar(const QString &id)
 
     m_toolBars.remove(id);
     emit toolBarRemoved(id);
-    delete bar;
+    bar->deleteLater();
     return true;
 }
 

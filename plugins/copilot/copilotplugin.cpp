@@ -9,7 +9,15 @@ PluginInfo CopilotPlugin::info() const
             QStringLiteral("GitHub Copilot"),
             QStringLiteral("1.0.0"),
             QStringLiteral("GitHub Copilot AI assistant"),
-            QStringLiteral("Exorcist")};
+            QStringLiteral("Exorcist"),
+            QStringLiteral("1.0"),
+            {PluginPermission::NetworkAccess}};
+}
+
+bool CopilotPlugin::initialize(IHostServices *host)
+{
+    m_host = host;
+    return true;
 }
 
 void CopilotPlugin::initialize(QObject *services)

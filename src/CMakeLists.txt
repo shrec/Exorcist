@@ -319,9 +319,37 @@ add_executable(exorcist WIN32
     agent/chat/chatwelcomewidget.h
     agent/chat/chatworkspaceeditwidget.h
     agent/chat/toolpresentationformatter.h
+    sdk/pluginpermission.h
+    sdk/icommandservice.h
+    sdk/iworkspaceservice.h
+    sdk/ieditorservice.h
+    sdk/iviewservice.h
+    sdk/inotificationservice.h
+    sdk/igitservice.h
+    sdk/iterminalservice.h
+    sdk/idiagnosticsservice.h
+    sdk/itaskservice.h
+    sdk/ihostservices.h
+    sdk/hostservices.cpp
+    sdk/hostservices.h
+    sdk/contributionregistry.cpp
+    sdk/contributionregistry.h
+    sdk/permissionguard.h
+    plugin/pluginmanifest.cpp
+    plugin/pluginmanifest.h
+    plugin/icommandhandler.h
+    plugin/iviewcontributor.h
+    plugin/icompletioncontributor.h
+    plugin/ieditorcontributor.h
+    plugin/iformattercontributor.h
+    plugin/ilanguagecontributor.h
+    plugin/ilintercontributor.h
+    plugin/isettingscontributor.h
+    plugin/itaskcontributor.h
+    plugin/ithemecontributor.h
 )
 
-target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent)
+target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent libluajit)
 target_include_directories(exorcist PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(EXORCIST_USE_LLVM)

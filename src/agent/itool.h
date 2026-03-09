@@ -1,12 +1,14 @@
 #pragma once
 
-#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
 #include <QSet>
 #include <QString>
 #include <QStringList>
+
+#include <memory>
+#include <unordered_map>
 
 #include "../aiinterface.h"
 
@@ -86,38 +88,42 @@ public:
 
     // ── Registration ──────────────────────────────────────────────────────
 
-    /// Register a tool. ToolRegistry takes ownership.
-    ~ToolRegistry() override { qDeleteAll(m_tools); }
+    /// Register a tool. ToolRegistry takes ownership via unique_ptr.
+    ~ToolRegistry() override = default;
 
-    void registerTool(ITool *tool)
+    void registerTool(std::unique_ptr<ITool> tool)
     {
         if (!tool) return;
         const QString name = tool->spec().name;
-        delete m_tools.value(name, nullptr);
-        m_tools[name] = tool;
+        m_tools[name] = std::move(tool);
     }
 
     /// Unregister (and destroy) a tool by name.
     void removeTool(const QString &name)
     {
-        delete m_tools.take(name);
+        m_tools.erase(name);
     }
 
     // ── Lookup ────────────────────────────────────────────────────────────
 
     ITool *tool(const QString &name) const
     {
-        return m_tools.value(name, nullptr);
+        auto it = m_tools.find(name);
+        return it != m_tools.end() ? it->second.get() : nullptr;
     }
 
     bool hasTool(const QString &name) const
     {
-        return m_tools.contains(name);
+        return m_tools.find(name) != m_tools.end();
     }
 
     QStringList toolNames() const
     {
-        return m_tools.keys();
+        QStringList names;
+        names.reserve(static_cast<int>(m_tools.size()));
+        for (const auto &[key, _] : m_tools)
+            names.append(key);
+        return names;
     }
 
     // ── Build ToolDefinition list for model requests ──────────────────────
@@ -125,9 +131,8 @@ public:
     QList<ToolDefinition> allDefinitions() const
     {
         QList<ToolDefinition> defs;
-        for (auto it = m_tools.begin(); it != m_tools.end(); ++it) {
-            defs.append(toolToDefinition(it.value()));
-        }
+        for (const auto &[name, t] : m_tools)
+            defs.append(toolToDefinition(t.get()));
         return defs;
     }
 
@@ -135,11 +140,11 @@ public:
     QList<ToolDefinition> definitions(AgentToolPermission maxLevel) const
     {
         QList<ToolDefinition> defs;
-        for (auto it = m_tools.begin(); it != m_tools.end(); ++it) {
-            if (m_disabled.contains(it.key()))
+        for (const auto &[name, t] : m_tools) {
+            if (m_disabled.contains(name))
                 continue;
-            if (static_cast<int>(it.value()->spec().permission) <= static_cast<int>(maxLevel))
-                defs.append(toolToDefinition(it.value()));
+            if (static_cast<int>(t->spec().permission) <= static_cast<int>(maxLevel))
+                defs.append(toolToDefinition(t.get()));
         }
         return defs;
     }
@@ -171,6 +176,9 @@ private:
         return td;
     }
 
-    QHash<QString, ITool *> m_tools;
-    QSet<QString>           m_disabled;
+    struct QStringHash {
+        size_t operator()(const QString &s) const { return qHash(s); }
+    };
+    std::unordered_map<QString, std::unique_ptr<ITool>, QStringHash> m_tools;
+    QSet<QString> m_disabled;
 };

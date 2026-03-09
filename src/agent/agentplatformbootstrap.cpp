@@ -32,6 +32,8 @@
 
 #include <QStandardPaths>
 
+#include <memory>
+
 AgentPlatformBootstrap::AgentPlatformBootstrap(AgentOrchestrator *orchestrator,
                                                ServiceRegistry *services,
                                                IFileSystem *fileSystem,
@@ -101,31 +103,31 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
         return;
     }
 
-    m_toolRegistry->registerTool(new ReadFileTool(m_fileSystem));
-    m_toolRegistry->registerTool(new ListFilesTool(m_fileSystem));
-    m_toolRegistry->registerTool(new WriteFileTool(m_fileSystem));
-    m_toolRegistry->registerTool(new ApplyPatchTool(m_fileSystem));
-    m_toolRegistry->registerTool(new ReplaceStringTool());
-    m_toolRegistry->registerTool(new MultiReplaceStringTool());
-    m_toolRegistry->registerTool(new InsertEditIntoFileTool());
-    m_toolRegistry->registerTool(new SearchWorkspaceTool(workspaceRoot));
-    m_toolRegistry->registerTool(new SemanticSearchTool(workspaceRoot));
-    m_toolRegistry->registerTool(new FileSearchTool(workspaceRoot));
-    m_toolRegistry->registerTool(new CreateDirectoryTool());
-    m_toolRegistry->registerTool(new ManageTodoListTool(
+    m_toolRegistry->registerTool(std::make_unique<ReadFileTool>(m_fileSystem));
+    m_toolRegistry->registerTool(std::make_unique<ListFilesTool>(m_fileSystem));
+    m_toolRegistry->registerTool(std::make_unique<WriteFileTool>(m_fileSystem));
+    m_toolRegistry->registerTool(std::make_unique<ApplyPatchTool>(m_fileSystem));
+    m_toolRegistry->registerTool(std::make_unique<ReplaceStringTool>());
+    m_toolRegistry->registerTool(std::make_unique<MultiReplaceStringTool>());
+    m_toolRegistry->registerTool(std::make_unique<InsertEditIntoFileTool>());
+    m_toolRegistry->registerTool(std::make_unique<SearchWorkspaceTool>(workspaceRoot));
+    m_toolRegistry->registerTool(std::make_unique<SemanticSearchTool>(workspaceRoot));
+    m_toolRegistry->registerTool(std::make_unique<FileSearchTool>(workspaceRoot));
+    m_toolRegistry->registerTool(std::make_unique<CreateDirectoryTool>());
+    m_toolRegistry->registerTool(std::make_unique<ManageTodoListTool>(
         QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
             + QStringLiteral("/agent_todo.json")));
-    m_toolRegistry->registerTool(new ReadProjectStructureTool(workspaceRoot));
-    m_toolRegistry->registerTool(new RunCommandTool(m_process.get(), workspaceRoot));
-    m_toolRegistry->registerTool(new GitStatusTool(m_callbacks.gitStatusGetter));
-    m_toolRegistry->registerTool(new GetChangedFilesTool(m_callbacks.changedFilesGetter));
-    m_toolRegistry->registerTool(new GitDiffTool(m_callbacks.gitDiffGetter));
-    m_toolRegistry->registerTool(new FetchWebpageTool());
-    m_toolRegistry->registerTool(new WebSearchTool());
-    m_toolRegistry->registerTool(new MemoryTool(
+    m_toolRegistry->registerTool(std::make_unique<ReadProjectStructureTool>(workspaceRoot));
+    m_toolRegistry->registerTool(std::make_unique<RunCommandTool>(m_process.get(), workspaceRoot));
+    m_toolRegistry->registerTool(std::make_unique<GitStatusTool>(m_callbacks.gitStatusGetter));
+    m_toolRegistry->registerTool(std::make_unique<GetChangedFilesTool>(m_callbacks.changedFilesGetter));
+    m_toolRegistry->registerTool(std::make_unique<GitDiffTool>(m_callbacks.gitDiffGetter));
+    m_toolRegistry->registerTool(std::make_unique<FetchWebpageTool>());
+    m_toolRegistry->registerTool(std::make_unique<WebSearchTool>());
+    m_toolRegistry->registerTool(std::make_unique<MemoryTool>(
         QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
             + QStringLiteral("/memories")));
-    m_toolRegistry->registerTool(new GetErrorsTool(m_callbacks.diagnosticsGetter));
+    m_toolRegistry->registerTool(std::make_unique<GetErrorsTool>(m_callbacks.diagnosticsGetter));
 
     setWorkspaceRoot(workspaceRoot);
 }

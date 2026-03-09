@@ -2,6 +2,11 @@
 
 #include <QString>
 #include <QObject>
+#include <QList>
+
+#include "sdk/pluginpermission.h"
+
+class IHostServices;
 
 struct PluginInfo
 {
@@ -10,6 +15,8 @@ struct PluginInfo
     QString version;
     QString description;
     QString author;
+    QString apiVersion;                          // SDK version (e.g. "1.0")
+    QList<PluginPermission> requestedPermissions; // declared permissions
 };
 
 class IPlugin
@@ -17,7 +24,16 @@ class IPlugin
 public:
     virtual ~IPlugin() = default;
     virtual PluginInfo info() const = 0;
-    virtual void initialize(QObject *services) = 0;
+
+    /// SDK v1: Initialize with typed host services.
+    /// Default implementation falls back to legacy initialize(QObject*).
+    virtual bool initialize(IHostServices *host) { Q_UNUSED(host); return true; }
+
+    /// Legacy: Initialize with raw service registry.
+    /// Kept for backward compatibility. New plugins should override
+    /// initialize(IHostServices*) instead.
+    virtual void initialize(QObject *services) { Q_UNUSED(services); }
+
     virtual void shutdown() = 0;
 };
 

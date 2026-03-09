@@ -167,7 +167,7 @@ void DockToolBarArea::cleanupEmptyBands()
     while (!m_bands.isEmpty() && m_bands.last().bars.isEmpty()) {
         auto &b = m_bands.last();
         m_rootLayout->removeWidget(b.container);
-        delete b.container;
+        b.container->deleteLater();
         m_bands.removeLast();
     }
 }

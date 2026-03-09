@@ -130,7 +130,7 @@ SshSession *SshConnectionManager::connect(const QString &profileId)
 
     if (!session->connectToHost()) {
         const QString err = session->lastError();
-        delete session;
+        session->deleteLater();
         emit connectionError(profileId, err);
         return nullptr;
     }

@@ -50,9 +50,11 @@ void DockOverlayPanel::showForDock(ExDockWidget *dock, SideBarArea side,
     m_activeSide = side;
 
     // Clean up previous overlay title bar (prevents widget leak)
-    delete m_overlayTitleBar;
-    m_overlayTitleBar = nullptr;
-    delete layout();
+    if (m_overlayTitleBar) {
+        m_overlayTitleBar->deleteLater();
+        m_overlayTitleBar = nullptr;
+    }
+    delete layout(); // Qt requires synchronous layout delete before replacement
 
     auto *mainLay = new QVBoxLayout(this);
     mainLay->setContentsMargins(1, 1, 1, 1);

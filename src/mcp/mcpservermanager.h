@@ -94,8 +94,9 @@ public:
 
         proc->start();
         if (!proc->waitForStarted(5000)) {
-            delete proc;
-            emit serverError(config.name, tr("Failed to start: %1").arg(proc->errorString()));
+            const QString err = proc->errorString();
+            proc->deleteLater();
+            emit serverError(config.name, tr("Failed to start: %1").arg(err));
             return false;
         }
 

@@ -1155,7 +1155,7 @@ void EditorView::contextMenuEvent(QContextMenuEvent *event)
     });
 
     menu->exec(event->globalPos());
-    delete menu;
+    menu->deleteLater();
 }
 
 QString EditorView::includePathUnderCursor() const
