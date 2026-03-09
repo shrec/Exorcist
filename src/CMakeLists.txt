@@ -20,6 +20,10 @@ add_executable(exorcist WIN32
     editor/largefileloader.h
     editor/syntaxhighlighter.cpp
     editor/syntaxhighlighter.h
+    editor/treesitterhighlighter.cpp
+    editor/treesitterhighlighter.h
+    editor/highlighterfactory.cpp
+    editor/highlighterfactory.h
     editor/languages/langcommon.h
     editor/languages/langcommon.cpp
     editor/languages/langbuilders.h
@@ -381,6 +385,16 @@ add_executable(exorcist WIN32
 
 target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent libluajit)
 target_include_directories(exorcist PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+if(EXORCIST_USE_TREESITTER)
+    target_compile_definitions(exorcist PRIVATE EXORCIST_HAS_TREESITTER)
+    target_link_libraries(exorcist PRIVATE
+        tree-sitter-core
+        ts-grammar-c ts-grammar-cpp ts-grammar-python
+        ts-grammar-javascript ts-grammar-typescript
+        ts-grammar-rust ts-grammar-json
+    )
+endif()
 
 if(EXORCIST_USE_LLVM)
     target_include_directories(exorcist PRIVATE ${LLVM_INCLUDE_DIRS})

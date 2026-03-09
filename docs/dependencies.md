@@ -3,8 +3,12 @@
 The core goal is to keep dependencies minimal and permissive. The list below is
 for optional acceleration; nothing is bundled yet.
 
+## Bundled (via FetchContent)
+- **tree-sitter** v0.25.3 (MIT): incremental parsing engine for syntax highlighting. Core library + 7 grammar packages (C, C++, Python, JavaScript, TypeScript, Rust, JSON). Controlled by `EXORCIST_USE_TREESITTER` CMake option (ON by default).
+- **LuaJIT** (MIT): scripting runtime for Lua plugins.
+
 ## Candidates (permissive)
-- tree-sitter (MIT): fast incremental parsing and syntax highlighting.
+- tree-sitter (MIT): ~~fast incremental parsing and syntax highlighting.~~ **Bundled.**
 - rapidfuzz (MIT): fuzzy search for quick open and command palette.
 - nlohmann/json (MIT): lightweight JSON parsing for settings.
 - sqlite (Public Domain): workspace indexing and metadata caching.

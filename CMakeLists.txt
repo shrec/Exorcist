@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(Exorcist VERSION 0.1.0 LANGUAGES CXX)
+project(Exorcist VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,8 +15,118 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Network Concurrent)
 
 option(EXORCIST_USE_LLVM "Enable LLVM integration stubs" OFF)
 option(EXORCIST_DEPLOY_QT "Run windeployqt after build on Windows" ON)
+option(EXORCIST_USE_TREESITTER "Enable tree-sitter syntax highlighting" ON)
 if(EXORCIST_USE_LLVM)
     find_package(LLVM CONFIG REQUIRED)
+endif()
+
+# ── Tree-sitter ──────────────────────────────────────────────────────────────
+if(EXORCIST_USE_TREESITTER)
+    include(FetchContent)
+
+    FetchContent_Declare(
+        tree-sitter
+        GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter.git
+        GIT_TAG        v0.25.3
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_Declare(
+        tree-sitter-c
+        GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-c.git
+        GIT_TAG        v0.23.5
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_Declare(
+        tree-sitter-cpp
+        GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-cpp.git
+        GIT_TAG        v0.23.4
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_Declare(
+        tree-sitter-python
+        GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-python.git
+        GIT_TAG        v0.23.6
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_Declare(
+        tree-sitter-javascript
+        GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-javascript.git
+        GIT_TAG        v0.23.1
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_Declare(
+        tree-sitter-typescript
+        GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-typescript.git
+        GIT_TAG        v0.23.2
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_Declare(
+        tree-sitter-rust
+        GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-rust.git
+        GIT_TAG        v0.23.2
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_Declare(
+        tree-sitter-json
+        GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-json.git
+        GIT_TAG        v0.24.8
+        GIT_SHALLOW    TRUE
+    )
+
+    # Populate sources only — do NOT add subdirectories (grammar CMakeLists
+    # define conflicting targets like "ts-test").
+    FetchContent_Populate(tree-sitter)
+    FetchContent_Populate(tree-sitter-c)
+    FetchContent_Populate(tree-sitter-cpp)
+    FetchContent_Populate(tree-sitter-python)
+    FetchContent_Populate(tree-sitter-javascript)
+    FetchContent_Populate(tree-sitter-typescript)
+    FetchContent_Populate(tree-sitter-rust)
+    FetchContent_Populate(tree-sitter-json)
+
+    # Build tree-sitter core as a static C library
+    set(TS_SRC_DIR "${tree-sitter_SOURCE_DIR}/lib/src")
+    set(TS_INC_DIR "${tree-sitter_SOURCE_DIR}/lib/include")
+    add_library(tree-sitter-core STATIC "${TS_SRC_DIR}/lib.c")
+    target_include_directories(tree-sitter-core PUBLIC "${TS_INC_DIR}" PRIVATE "${TS_SRC_DIR}")
+    set_target_properties(tree-sitter-core PROPERTIES C_STANDARD 11)
+
+    # Grammar static libraries
+    add_library(ts-grammar-c STATIC "${tree-sitter-c_SOURCE_DIR}/src/parser.c")
+    target_include_directories(ts-grammar-c PRIVATE "${tree-sitter-c_SOURCE_DIR}/src" "${TS_INC_DIR}")
+
+    add_library(ts-grammar-cpp STATIC
+        "${tree-sitter-cpp_SOURCE_DIR}/src/parser.c"
+        "${tree-sitter-cpp_SOURCE_DIR}/src/scanner.c"
+    )
+    target_include_directories(ts-grammar-cpp PRIVATE "${tree-sitter-cpp_SOURCE_DIR}/src" "${TS_INC_DIR}")
+
+    add_library(ts-grammar-python STATIC
+        "${tree-sitter-python_SOURCE_DIR}/src/parser.c"
+        "${tree-sitter-python_SOURCE_DIR}/src/scanner.c"
+    )
+    target_include_directories(ts-grammar-python PRIVATE "${tree-sitter-python_SOURCE_DIR}/src" "${TS_INC_DIR}")
+
+    add_library(ts-grammar-javascript STATIC
+        "${tree-sitter-javascript_SOURCE_DIR}/src/parser.c"
+        "${tree-sitter-javascript_SOURCE_DIR}/src/scanner.c"
+    )
+    target_include_directories(ts-grammar-javascript PRIVATE "${tree-sitter-javascript_SOURCE_DIR}/src" "${TS_INC_DIR}")
+
+    add_library(ts-grammar-typescript STATIC
+        "${tree-sitter-typescript_SOURCE_DIR}/typescript/src/parser.c"
+        "${tree-sitter-typescript_SOURCE_DIR}/typescript/src/scanner.c"
+    )
+    target_include_directories(ts-grammar-typescript PRIVATE "${tree-sitter-typescript_SOURCE_DIR}/typescript/src" "${TS_INC_DIR}")
+
+    add_library(ts-grammar-rust STATIC
+        "${tree-sitter-rust_SOURCE_DIR}/src/parser.c"
+        "${tree-sitter-rust_SOURCE_DIR}/src/scanner.c"
+    )
+    target_include_directories(ts-grammar-rust PRIVATE "${tree-sitter-rust_SOURCE_DIR}/src" "${TS_INC_DIR}")
+
+    add_library(ts-grammar-json STATIC "${tree-sitter-json_SOURCE_DIR}/src/parser.c")
+    target_include_directories(ts-grammar-json PRIVATE "${tree-sitter-json_SOURCE_DIR}/src" "${TS_INC_DIR}")
 endif()
 
 add_subdirectory(cmake/luajit)

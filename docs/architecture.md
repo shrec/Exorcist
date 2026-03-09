@@ -33,7 +33,7 @@ concrete core classes or MainWindow.
 | Subsystem | Directory | Purpose | Key interfaces / types |
 |-----------|-----------|---------|----------------------|
 | **App shell** | `mainwindow.*`, `main.cpp` | Window, tabs, docks, menus, status bar | `MainWindow` |
-| **Editor** | `editor/` | Text editing, syntax highlighting, piece table, minimap | `EditorView`, `SyntaxHighlighter`, `PieceTableBuffer` |
+| **Editor** | `editor/` | Text editing, syntax highlighting (tree-sitter + regex fallback), piece table, minimap | `EditorView`, `HighlighterFactory`, `TreeSitterHighlighter`, `SyntaxHighlighter`, `PieceTableBuffer` |
 | **Language Intelligence** | `lsp/` | LSP client, Clangd lifecycle, completion, hover, diagnostics | `LspClient`, `ClangdManager`, `LspEditorBridge` |
 | **Terminal** | `terminal/` | ConPTY/PTY emulator, VT100/xterm, scrollback | `TerminalView`, `TerminalPanel` |
 | **Build System** | `build/` | Task runner, build profiles, problem matchers, toolchain detection, CMake integration, build toolbar, debug launch | `OutputPanel`, `RunPanel`, `TaskProfile`, `ToolchainManager`, `CMakeIntegration`, `BuildToolbar`, `DebugLaunchController` |

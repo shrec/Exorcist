@@ -40,6 +40,7 @@
 #include "editor/editorview.h"
 #include "editor/largefileloader.h"
 #include "editor/syntaxhighlighter.h"
+#include "editor/highlighterfactory.h"
 #include "editor/inlinecompletionengine.h"
 #include "editor/nexteditengine.h"
 #include "agent/agentorchestrator.h"
@@ -2161,7 +2162,7 @@ void MainWindow::openFile(const QString &path)
     constexpr qint64 kLargeFileThreshold = 10 * 1024 * 1024;
     LargeFileLoader::applyToEditor(editor, path, kLargeFileThreshold);
     editor->setProperty("filePath", path);
-    SyntaxHighlighter::create(path, editor->document());
+    HighlighterFactory::create(path, editor->document());
 
     // Apply saved editor settings
     {
