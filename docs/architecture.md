@@ -7,8 +7,12 @@ organized into layers with clear dependency direction.
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│  4. Plugins   (plugins/)                                          │
+│  5. Plugins   (plugins/)                                          │
 │     AI providers (Copilot, Claude, Codex, Ollama) + future exts   │
+├────────────────────────────────────────────────────────────────────┤
+│  4. SDK — Stable Plugin API   (src/sdk/)                          │
+│     IHostServices, ICommandService, IViewService, IEditorService  │
+│     IWorkspaceService, IGitService, ITerminalService, etc.        │
 ├────────────────────────────────────────────────────────────────────┤
 │  3. UI + Features   (src/)                                        │
 │     MainWindow, docks, panels — depends only on Core interfaces   │
@@ -21,8 +25,8 @@ organized into layers with clear dependency direction.
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-Dependencies flow **downward only**. Plugins depend on interfaces, never on
-concrete core classes.
+Dependencies flow **downward only**. Plugins depend on SDK interfaces, never on
+concrete core classes or MainWindow.
 
 ## Core Subsystems (all in `src/`)
 
@@ -43,6 +47,7 @@ concrete core classes.
 | **Project Brain** | `agent/projectbrain*` | Persistent workspace knowledge (rules, facts, sessions) | `ProjectBrainService`, `BrainContextBuilder`, `MemorySuggestionEngine` |
 | **Core abstractions** | `core/` | OS interfaces (filesystem, process, terminal, network) | `IFileSystem`, `IProcess`, `ITerminal`, `INetwork` |
 | **Plugin system** | `pluginmanager.*`, `serviceregistry.*` | Plugin loader, typed service resolution | `PluginManager`, `ServiceRegistry` |
+| **SDK** | `sdk/` | Stable plugin API — typed host services, permissions | `IHostServices`, `HostServices`, `PluginPermission` |
 | **UI framework** | `ui/`, `commandpalette.*`, `thememanager.*` | Command palette, theme engine, keymap, notifications, custom docking | `CommandPalette`, `ThemeManager`, `KeymapManager`, `NotificationToast`, `DockManager`, `ExDockWidget` |
 | **Logger** | `logger.*` | Thread-safe timestamped logging | `Logger` |
 
@@ -67,6 +72,65 @@ registry->registerService("projectBrainService", m_brain);
 // Resolution (plugin or other subsystem)
 auto *brain = registry->service<ProjectBrainService>("projectBrainService");
 ```
+
+## Plugin SDK (`src/sdk/`)
+
+The SDK is the **stable API boundary** between the IDE core and plugins.
+Plugins receive a single `IHostServices*` on initialization and use typed
+service interfaces to interact with the IDE. No plugin should ever reference
+`MainWindow`, internal panels, or concrete service implementations.
+
+### Entry Point
+
+```cpp
+bool MyPlugin::initialize(IHostServices *host) override
+{
+    host->commands()->registerCommand("myPlugin.run", "Run", [host]() {
+        host->notifications()->info("Running...");
+    });
+    return true;
+}
+```
+
+### SDK Services
+
+| Interface | File | Purpose |
+|-----------|------|---------|
+| `IHostServices` | `ihostservices.h` | Root — provides access to all services |
+| `ICommandService` | `icommandservice.h` | Register/execute commands |
+| `IWorkspaceService` | `iworkspaceservice.h` | File system, open files, workspace root |
+| `IEditorService` | `ieditorservice.h` | Active document, cursor, selection |
+| `IViewService` | `iviewservice.h` | Register/show/hide plugin panels |
+| `INotificationService` | `inotificationservice.h` | Info/warning/error messages |
+| `IGitService` | `igitservice.h` | Branch, diff, changed files |
+| `ITerminalService` | `iterminalservice.h` | Run commands, read output |
+| `IDiagnosticsService` | `idiagnosticsservice.h` | LSP diagnostics |
+| `ITaskService` | `itaskservice.h` | Build/test task runner |
+
+### Permissions
+
+Plugins declare required permissions in `PluginInfo::requestedPermissions`.
+The IDE grants only what the user approves.
+
+| Permission | Grants |
+|------------|--------|
+| `FilesystemRead` | Read files in workspace |
+| `FilesystemWrite` | Create/modify/delete files |
+| `TerminalExecute` | Spawn processes |
+| `GitRead` | Branch, status, blame, diff |
+| `GitWrite` | Stage, commit, push |
+| `NetworkAccess` | Outbound HTTP/WebSocket |
+| `DiagnosticsRead` | Read LSP diagnostics |
+| `WorkspaceRead` | Open files, project structure |
+| `WorkspaceWrite` | Modify workspace settings |
+| `AgentToolInvoke` | Invoke agent tools |
+
+### Concrete Implementation
+
+`HostServices` (in `hostservices.h/cpp`) bridges SDK interfaces to real subsystems.
+It is created by `MainWindow` and passed to `PluginManager::initializeAll(IHostServices*)`.
+The concrete implementations (`CommandServiceImpl`, `WorkspaceServiceImpl`, etc.) are
+internal to the core and never exposed to plugins.
 
 ## Plugin Architecture
 
