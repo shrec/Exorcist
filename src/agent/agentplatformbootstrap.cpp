@@ -161,6 +161,13 @@ void AgentPlatformBootstrap::registerPluginProviders(PluginManager *pluginManage
         if (auto *settings = qobject_cast<IAgentSettingsPageProvider *>(obj))
             m_settingsPages.append(settings);
     }
+
+    // ── Register C ABI plugin providers ───────────────────────────────
+    for (IAgentProvider *provider : pluginManager->cabiProviders()) {
+        m_orchestrator->registerProvider(provider);
+        if (m_providerRegistry)
+            m_providerRegistry->registerProvider(provider);
+    }
 }
 
 void AgentPlatformBootstrap::setWorkspaceRoot(const QString &root)

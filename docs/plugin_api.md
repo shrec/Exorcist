@@ -111,3 +111,104 @@ AI plugins should expect to consume services such as:
 - model catalog
 
 Typed service interfaces are preferred over raw string lookups as the plugin API matures.
+
+## C ABI Plugin API
+
+For plugins that don't use Qt or need compiler-independent binaries, Exorcist
+provides a stable C ABI. Plugins export four `extern "C"` functions and receive
+a vtable of host service callbacks.
+
+### Header
+
+Include `src/sdk/cabi/exorcist_plugin_api.h` — pure C, no C++ or Qt dependency.
+Optionally include `src/sdk/cabi/exorcist_sdk.hpp` for a C++ convenience wrapper.
+
+### Required exports
+
+```c
+EX_EXPORT int32_t           ex_plugin_api_version(void);
+EX_EXPORT ExPluginDescriptor ex_plugin_describe(void);
+EX_EXPORT int32_t           ex_plugin_initialize(const ExHostAPI *api);
+EX_EXPORT void              ex_plugin_shutdown(void);
+```
+
+### Host API surface
+
+The `ExHostAPI` vtable provides ~40 callbacks covering:
+
+| Service | Functions |
+|---------|-----------|
+| **Memory** | `free_string`, `free_buffer` |
+| **Editor** | `editor_active_file`, `editor_selected_text`, `editor_insert_text`, `editor_open_file`, etc. |
+| **Workspace** | `workspace_root`, `workspace_read_file`, `workspace_write_file`, `workspace_exists` |
+| **Notifications** | `notify_info`, `notify_warning`, `notify_error`, `notify_status` |
+| **Commands** | `command_register`, `command_unregister`, `command_execute` |
+| **Git** | `git_is_repo`, `git_current_branch`, `git_diff` |
+| **Terminal** | `terminal_run_command`, `terminal_send_input`, `terminal_recent_output` |
+| **Diagnostics** | `diagnostics_error_count`, `diagnostics_warning_count` |
+| **AI** | `ai_register_provider`, `ai_response_delta`, `ai_response_finished`, etc. |
+| **Logging** | `log_debug`, `log_info`, `log_warning`, `log_error` |
+
+### Minimal C example
+
+```c
+#include "exorcist_plugin_api.h"
+
+static const ExHostAPI *g_api;
+
+int32_t ex_plugin_api_version(void) { return EX_ABI_VERSION; }
+
+ExPluginDescriptor ex_plugin_describe(void) {
+    return (ExPluginDescriptor){
+        .id = "org.example.hello", .name = "Hello", .version = "1.0.0",
+        .description = "Hello World plugin", .author = "Example"
+    };
+}
+
+int32_t ex_plugin_initialize(const ExHostAPI *api) {
+    g_api = api;
+    api->notify_info(api->ctx, "Hello from C ABI plugin!");
+    return 1;
+}
+
+void ex_plugin_shutdown(void) { g_api = NULL; }
+```
+
+### AI provider via C ABI
+
+Fill an `ExAIProviderVTable` and register it during init:
+
+```c
+int32_t ex_plugin_initialize(const ExHostAPI *api) {
+    ExAIProviderVTable vtable = {
+        .ctx          = my_provider_context,
+        .id           = my_id,
+        .display_name = my_name,
+        .capabilities = my_caps,
+        .is_available = my_available,
+        .send_request = my_send_request,
+        // ... fill remaining fields
+    };
+    api->ai_register_provider(api->ctx, &vtable);
+    return 1;
+}
+```
+
+Send streaming responses back via `api->ai_response_delta()` and
+`api->ai_response_finished()`.
+
+### C++ wrapper
+
+`exorcist_sdk.hpp` provides RAII string management and typed service wrappers:
+
+```cpp
+#include "exorcist_sdk.hpp"
+
+static exorcist::PluginHost *g_host;
+
+int32_t ex_plugin_initialize(const ExHostAPI *api) {
+    g_host = new exorcist::PluginHost(api);
+    g_host->notifications().info("Hello from C++ plugin!");
+    return 1;
+}
+```

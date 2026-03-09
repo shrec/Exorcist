@@ -132,11 +132,48 @@ It is created by `MainWindow` and passed to `PluginManager::initializeAll(IHostS
 The concrete implementations (`CommandServiceImpl`, `WorkspaceServiceImpl`, etc.) are
 internal to the core and never exposed to plugins.
 
+### C ABI (`src/sdk/cabi/`)
+
+The C ABI layer provides a **compiler-independent, stable binary interface** for
+plugins built without Qt or the IDE's C++ ABI. Any language with C FFI support
+(Rust, Go, Zig, C, C++ with any compiler) can build Exorcist plugins.
+
+| File | Purpose |
+|------|---------|
+| `exorcist_plugin_api.h` | **THE** stable C header — versioned ABI, all types, host API vtable, plugin entry points |
+| `exorcist_sdk.hpp` | C++ header-only wrapper (RAII strings, service wrappers) — no Qt dependency |
+| `cabi_bridge.h/cpp` | Host-side bridge: `CAbiPluginBridge` populates ExHostAPI vtable with static callbacks that delegate to IHostServices; `CAbiProviderAdapter` wraps C vtable AI providers as `IAgentProvider` QObjects |
+
+**Plugin entry points** (plugin exports via `extern "C"`):
+- `ex_plugin_api_version()` — returns `EX_ABI_VERSION` for compatibility check
+- `ex_plugin_describe()` — returns `ExPluginDescriptor` with plugin metadata
+- `ex_plugin_initialize(const ExHostAPI *api)` — receives host services vtable
+- `ex_plugin_shutdown()` — cleanup
+
+**Host API vtable** (`ExHostAPI`): ~40 function pointers covering editor, workspace,
+notifications, commands, git, terminal, diagnostics, AI provider registration,
+AI response callbacks, and logging. All strings are UTF-8 `const char*`; host-allocated
+strings are freed via `api->free_string()`.
+
+**AI providers via C ABI**: Plugins fill an `ExAIProviderVTable` and register it
+during `ex_plugin_initialize()` via `api->ai_register_provider()`. The host wraps
+it as a Qt `IAgentProvider` through `CAbiProviderAdapter`.
+
+**Loading**: `PluginManager` tries `QPluginLoader` first (Qt C++ plugins). On failure,
+it resolves `ex_plugin_*` symbols via `QLibrary` and creates a `CAbiPluginBridge`.
+
 ## Plugin Architecture
 
 Plugins implement `IPlugin` (from `plugininterface.h`) and optionally `IAgentPlugin`
 (from `agent/iagentplugin.h`). Each plugin resides in its own directory under `plugins/`
 with a standalone `CMakeLists.txt`.
+
+**Qt C++ plugins** use `QPluginLoader` and share the IDE's C++ ABI. They must be
+compiled with the same compiler and Qt version as the host.
+
+**C ABI plugins** export `extern "C"` entry points and can be built with any
+compiler or language. They interact with the IDE through the `ExHostAPI` vtable
+passed during initialization. See `src/sdk/cabi/exorcist_plugin_api.h`.
 
 | Plugin | Directory | Purpose |
 |--------|-----------|---------|

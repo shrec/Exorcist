@@ -347,6 +347,10 @@ add_executable(exorcist WIN32
     plugin/isettingscontributor.h
     plugin/itaskcontributor.h
     plugin/ithemecontributor.h
+    sdk/cabi/exorcist_plugin_api.h
+    sdk/cabi/exorcist_sdk.hpp
+    sdk/cabi/cabi_bridge.h
+    sdk/cabi/cabi_bridge.cpp
 )
 
 target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent libluajit)

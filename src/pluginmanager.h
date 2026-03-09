@@ -11,8 +11,11 @@
 #include "plugin/pluginmanifest.h"
 
 class QPluginLoader;
+class QLibrary;
 class IHostServices;
+class IAgentProvider;
 class PermissionGuardedHostServices;
+namespace cabi { class CAbiPluginBridge; }
 
 class PluginManager : public QObject
 {
@@ -24,6 +27,12 @@ public:
         IPlugin *instance;
         QPluginLoader *loader;
         PluginManifest manifest;  // from plugin.json (may be empty)
+    };
+
+    struct LoadedCAbiPlugin {
+        QLibrary *library;
+        cabi::CAbiPluginBridge *bridge;
+        QString id;
     };
 
     int loadPluginsFrom(const QString &path);
@@ -43,8 +52,14 @@ public:
     /// Get loaded plugins with their manifests (for ContributionRegistry).
     const QVector<LoadedPlugin> &loadedPlugins() const { return m_loaded; }
 
+    /// Get AI providers from C ABI plugins.
+    QList<IAgentProvider *> cabiProviders() const;
+
 private:
+    bool tryLoadCAbi(const QString &filePath);
+
     QVector<LoadedPlugin> m_loaded;
+    QVector<LoadedCAbiPlugin> m_cabiLoaded;
     QStringList m_errors;
     std::vector<std::unique_ptr<PermissionGuardedHostServices>> m_permGuards;
 };
