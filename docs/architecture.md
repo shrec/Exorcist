@@ -46,7 +46,7 @@ concrete core classes or MainWindow.
 | **Agent framework** | `agent/` | Agent runtime, tools, chat UI, session management | `AgentController`, `AgentOrchestrator`, `ChatPanelWidget` |
 | **Project Brain** | `agent/projectbrain*` | Persistent workspace knowledge (rules, facts, sessions) | `ProjectBrainService`, `BrainContextBuilder`, `MemorySuggestionEngine` |
 | **Core abstractions** | `core/` | OS interfaces (filesystem, process, terminal, network) | `IFileSystem`, `IProcess`, `ITerminal`, `INetwork` |
-| **Plugin system** | `pluginmanager.*`, `serviceregistry.*` | Plugin loader, typed service resolution | `PluginManager`, `ServiceRegistry` |
+| **Plugin system** | `pluginmanager.*`, `serviceregistry.*`, `plugin/` | Plugin loader, typed service resolution, extension gallery | `PluginManager`, `ServiceRegistry`, `PluginGalleryPanel` |
 | **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code | `LspBootstrap`, `BuildDebugBootstrap` |
 | **SDK** | `sdk/` | Stable plugin API — typed host services, permissions | `IHostServices`, `HostServices`, `PluginPermission` |
 | **UI framework** | `ui/`, `commandpalette.*`, `thememanager.*` | Command palette, theme engine, keymap, notifications, custom docking | `CommandPalette`, `ThemeManager`, `KeymapManager`, `NotificationToast`, `DockManager`, `ExDockWidget` |
