@@ -246,6 +246,9 @@ public:
     /// Access the command service for command palette integration.
     CommandServiceImpl *commandService() { return m_commands.get(); }
 
+    /// Access the diagnostics service for LSP signal wiring.
+    DiagnosticsServiceImpl *diagnosticsService() { return m_diagnostics.get(); }
+
 private:
     MainWindow *m_window;
     std::unique_ptr<CommandServiceImpl>       m_commands;

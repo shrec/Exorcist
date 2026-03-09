@@ -3251,6 +3251,11 @@ void MainWindow::loadPlugins()
     m_hostServices = new HostServices(this, this);
     m_hostServices->initSubsystemServices(m_fileSystem.get(), m_gitService, m_terminal);
 
+    // Wire LSP diagnostics into the SDK DiagnosticsService
+    connect(m_lspClient, &LspClient::diagnosticsPublished,
+            m_hostServices->diagnosticsService(),
+            &DiagnosticsServiceImpl::onDiagnosticsPublished);
+
     // Register core IDE commands so plugins can invoke them
     auto *cmdSvc = m_hostServices->commandService();
     cmdSvc->registerCommand(QStringLiteral("workbench.action.newTab"), tr("New Tab"),
