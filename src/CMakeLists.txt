@@ -305,7 +305,6 @@ add_executable(exorcist WIN32
     agent/chatthemeadapter.h
     agent/apikeymanagerwidget.h
     agent/networkmonitor.h
-    agent/telemetrymanager.h
     agent/citationmanager.h
     mcp/mcpservermanager.h
     search/workspacechunkindex.h

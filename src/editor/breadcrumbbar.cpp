@@ -5,6 +5,8 @@
 #include <QLabel>
 #include <QPushButton>
 
+#include <memory>
+
 
 BreadcrumbBar::BreadcrumbBar(QWidget *parent)
     : QWidget(parent)
@@ -60,8 +62,10 @@ void BreadcrumbBar::clear()
 {
     while (m_layout->count() > 1) {  // keep the stretch
         auto *item = m_layout->takeAt(0);
-        if (item->widget())
-            delete item->widget();
-        delete item;
+        if (auto *w = item->widget()) {
+            m_layout->removeWidget(w);
+            w->deleteLater();
+        }
+        auto guard = std::unique_ptr<QLayoutItem>(item);
     }
 }

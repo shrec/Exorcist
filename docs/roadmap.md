@@ -247,3 +247,38 @@ See [docs/debug.md](debug.md)
 - 2 sample plugins: hello-world, word-count
 
 See [docs/luajit.md](luajit.md)
+
+---
+
+## Phase 11 — Self-Hosting Dogfood  🔄 In Progress
+
+**Goal:** Use Exorcist to develop Exorcist daily. Every pain point found while self-hosting becomes a bug fix or feature task.
+
+### Pre-dogfood cleanup ✅
+- [x] Dead TelemetryManager references removed (forward decl, member, include, CMakeLists)
+- [x] `QDir::currentPath()` eliminated from outputpanel.cpp (2 occurrences)
+- [x] `socket->flush()` Qt6 compat fixed in OAuthManager
+- [x] BreadcrumbBar `delete` violations → `std::unique_ptr` + `deleteLater()`
+- [x] `main.cpp` translator nodiscard warning suppressed
+- [x] Todolist verified against actual codebase (inaccuracies corrected)
+
+### Dogfood capability matrix
+| Capability | Status | Notes |
+|-----------|--------|-------|
+| Open own project folder | ✅ | file tree + project manager |
+| Edit C++/CMake/Markdown | ✅ | tree-sitter 7 grammars |
+| LSP (clangd) intellisense | ✅ | completion, hover, go-to-def, references, rename |
+| CMake configure + build | ✅ | preset detection, Ninja, problem matchers (GCC/Clang/MSVC) |
+| Run executable | ✅ | RunLaunchPanel + OutputPanel |
+| Debug (GDB) | ✅ | F5 build-before-debug, breakpoints, locals, call stack |
+| Terminal | ✅ | ConPTY, VT100, search, tabs |
+| Git (status/commit/blame/diff) | ✅ | GitPanel, inline diff gutter, branch switcher |
+| Search (workspace/file/regex) | ✅ | SearchPanel, command palette |
+| File watcher | ✅ | auto-reload on external change |
+| AI chat (optional) | ✅ | Claude/Copilot/Codex/Ollama plugins |
+
+### Remaining dogfood tasks
+- [ ] Self-hosting session: open `D:\Dev\Exorcist`, configure llvm-clang preset, build, run, verify
+- [ ] Document pain points and file issues
+- [ ] OAuthManager token exchange stub → real implementation
+- [ ] MainWindow god object further decomposition (129 members → target <80)

@@ -268,7 +268,7 @@ void OutputPanel::runTask(const TaskProfile &task)
     }
 
     m_process = new QProcess(this);
-    m_process->setWorkingDirectory(workDir.isEmpty() ? QDir::currentPath() : workDir);
+    m_process->setWorkingDirectory(workDir);
     m_process->setProcessChannelMode(QProcess::SeparateChannels);
 
     // Set extra env vars
@@ -309,7 +309,7 @@ void OutputPanel::runCommand(const QString &cmd, const QStringList &args)
     }
 
     m_process = new QProcess(this);
-    m_process->setWorkingDirectory(m_workDir.isEmpty() ? QDir::currentPath() : m_workDir);
+    m_process->setWorkingDirectory(m_workDir);
     m_process->setProcessChannelMode(QProcess::SeparateChannels);
 
     connect(m_process, &QProcess::readyReadStandardOutput, this, &OutputPanel::onReadyReadStdout);

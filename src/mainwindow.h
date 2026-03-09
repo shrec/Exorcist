@@ -84,7 +84,6 @@ class PromptFilePicker;
 class ChatThemeAdapter;
 class APIKeyManagerWidget;
 class NetworkMonitor;
-class TelemetryManager;
 class CitationManager;
 class MCPServerManager;
 class WorkspaceChunkIndex;
@@ -269,7 +268,6 @@ private:
     ChatThemeAdapter         *m_chatTheme = nullptr;
     APIKeyManagerWidget      *m_apiKeyManager = nullptr;
     NetworkMonitor           *m_networkMonitor = nullptr;
-    TelemetryManager         *m_telemetry = nullptr;
     CitationManager          *m_citationManager = nullptr;
     MCPServerManager         *m_mcpServerManager = nullptr;
     WorkspaceChunkIndex      *m_chunkIndex = nullptr;

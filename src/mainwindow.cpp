@@ -151,7 +151,6 @@
 #include "agent/chatthemeadapter.h"
 #include "agent/apikeymanagerwidget.h"
 #include "agent/networkmonitor.h"
-#include "agent/telemetrymanager.h"
 #include "agent/citationmanager.h"
 #include "mcp/mcpservermanager.h"
 #include "search/workspacechunkindex.h"

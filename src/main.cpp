@@ -64,7 +64,7 @@ void loadTranslator(QApplication &app)
     if (!translator->load(fileName, basePath)) {
         const QString shortLocale = localeName.section('_', 0, 0);
         const QString fallbackName = QString("exorcist_%1.qm").arg(shortLocale);
-        translator->load(fallbackName, basePath);
+        (void)translator->load(fallbackName, basePath);
     }
 
     if (!translator->isEmpty()) {
