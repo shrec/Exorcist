@@ -26,11 +26,15 @@
 #include <QMessageBox>
 #include <QTimer>
 
+#include <memory>
+
 #ifdef Q_OS_UNIX
 #  include <unistd.h>   // sysconf, _SC_PAGESIZE
 #endif
 
 #include "commandpalette.h"
+#include "sdk/hostservices.h"
+#include "sdk/contributionregistry.h"
 #include "editor/editorview.h"
 #include "editor/largefileloader.h"
 #include "editor/syntaxhighlighter.h"
@@ -1498,6 +1502,7 @@ void MainWindow::createDockWidgets()
 
     // ── Settings (dialog, not dock) ──────────────────────────────────────────
     m_settingsPanel = new SettingsPanel(this);
+    m_settingsPanel->hide();
 
     // ── Memory Browser ────────────────────────────────────────────────────
     const QString memPath = QStandardPaths::writableLocation(
@@ -2030,7 +2035,7 @@ void MainWindow::createDockWidgets()
         for (const McpToolInfo &t : tools) {
             const QString regName = QStringLiteral("mcp_%1_%2").arg(t.serverName, t.name);
             if (!m_toolRegistry->hasTool(regName))
-                m_toolRegistry->registerTool(new McpToolAdapter(m_mcpClient, t));
+                m_toolRegistry->registerTool(std::make_unique<McpToolAdapter>(m_mcpClient, t));
         }
     });
 
@@ -2622,7 +2627,7 @@ void MainWindow::showFilePalette()
 
 void MainWindow::showCommandPalette()
 {
-    const QStringList commands = {
+    const QStringList builtInCommands = {
         tr("New Tab\tCtrl+N"),
         tr("Open File...\tCtrl+O"),
         tr("Open Folder...\tCtrl+Shift+O"),
@@ -2637,6 +2642,13 @@ void MainWindow::showCommandPalette()
         tr("Quit\tCtrl+Q"),
     };
 
+    // Merge built-in commands with plugin-contributed commands
+    QStringList commands = builtInCommands;
+    QStringList pluginEntries;
+    if (m_contributions)
+        pluginEntries = m_contributions->commandPaletteEntries();
+    commands.append(pluginEntries);
+
     CommandPalette palette(CommandPalette::CommandMode, this);
     palette.setCommands(commands);
 
@@ -2646,26 +2658,35 @@ void MainWindow::showCommandPalette()
 
     if (palette.exec() != QDialog::Accepted) return;
 
-    switch (palette.selectedCommandIndex()) {
-    case 0:  openNewTab();           break;
-    case 1: {
-        const QString p = QFileDialog::getOpenFileName(this, tr("Open File"));
-        if (!p.isEmpty()) openFile(p);
-        break;
-    }
-    case 2:  openFolder();           break;
-    case 3:  saveCurrentTab();       break;
-    case 4:  showFilePalette();      break;
-    case 5:
-        if (auto *e = currentEditor()) e->showFindBar();
-        break;
-    case 6:  m_dockManager->toggleDock(m_projectDock);  break;
-    case 7:  m_dockManager->toggleDock(m_searchDock);    break;
-    case 8:  m_dockManager->toggleDock(m_terminalDock); break;
-    case 9:  m_dockManager->toggleDock(m_aiDock);            break;
-    case 10: showSymbolPalette();    break;
-    case 11: close();                break;
-    default: break;
+    const int idx = palette.selectedCommandIndex();
+    const int builtInCount = builtInCommands.size();
+
+    if (idx < builtInCount) {
+        // Built-in command
+        switch (idx) {
+        case 0:  openNewTab();           break;
+        case 1: {
+            const QString p = QFileDialog::getOpenFileName(this, tr("Open File"));
+            if (!p.isEmpty()) openFile(p);
+            break;
+        }
+        case 2:  openFolder();           break;
+        case 3:  saveCurrentTab();       break;
+        case 4:  showFilePalette();      break;
+        case 5:
+            if (auto *e = currentEditor()) e->showFindBar();
+            break;
+        case 6:  m_dockManager->toggleDock(m_projectDock);  break;
+        case 7:  m_dockManager->toggleDock(m_searchDock);    break;
+        case 8:  m_dockManager->toggleDock(m_terminalDock); break;
+        case 9:  m_dockManager->toggleDock(m_aiDock);            break;
+        case 10: showSymbolPalette();    break;
+        case 11: close();                break;
+        default: break;
+        }
+    } else if (m_contributions) {
+        // Plugin-contributed command
+        m_contributions->executeCommandByIndex(idx - builtInCount);
     }
 }
 
@@ -3225,7 +3246,58 @@ void MainWindow::loadPlugins()
     m_pluginManager = std::make_unique<PluginManager>();
     const QString pluginDir = QCoreApplication::applicationDirPath() + "/plugins";
     int loaded = m_pluginManager->loadPluginsFrom(pluginDir);
-    m_pluginManager->initializeAll(m_services.get());
+
+    // Create SDK host services for the new plugin interface
+    m_hostServices = new HostServices(this, this);
+    m_hostServices->initSubsystemServices(m_fileSystem.get(), m_gitService, m_terminal);
+
+    // Register core IDE commands so plugins can invoke them
+    auto *cmdSvc = m_hostServices->commandService();
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.newTab"), tr("New Tab"),
+                            [this]() { openNewTab(); });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.openFile"), tr("Open File..."),
+                            [this]() {
+        const QString p = QFileDialog::getOpenFileName(this, tr("Open File"));
+        if (!p.isEmpty()) openFile(p);
+    });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.openFolder"), tr("Open Folder..."),
+                            [this]() { openFolder(); });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.save"), tr("Save"),
+                            [this]() { saveCurrentTab(); });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.goToFile"), tr("Go to File..."),
+                            [this]() { showFilePalette(); });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.findReplace"), tr("Find / Replace"),
+                            [this]() { if (auto *e = currentEditor()) e->showFindBar(); });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.toggleProject"), tr("Toggle Project Panel"),
+                            [this]() { m_dockManager->toggleDock(m_projectDock); });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.toggleSearch"), tr("Toggle Search Panel"),
+                            [this]() { m_dockManager->toggleDock(m_searchDock); });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.toggleTerminal"), tr("Toggle Terminal Panel"),
+                            [this]() { m_dockManager->toggleDock(m_terminalDock); });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.toggleAI"), tr("Toggle AI Panel"),
+                            [this]() { m_dockManager->toggleDock(m_aiDock); });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.goToSymbol"), tr("Go to Symbol..."),
+                            [this]() { showSymbolPalette(); });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.quit"), tr("Quit"),
+                            [this]() { close(); });
+    cmdSvc->registerCommand(QStringLiteral("workbench.action.commandPalette"), tr("Command Palette"),
+                            [this]() { showCommandPalette(); });
+
+    // Create contribution registry for wiring plugin manifests into the IDE
+    m_contributions = new ContributionRegistry(this, m_hostServices->commandService(), this);
+
+    // Initialize plugins: SDK v1 first, then legacy
+    m_pluginManager->initializeAll(static_cast<IHostServices *>(m_hostServices));
+    m_pluginManager->initializeAll(static_cast<QObject *>(m_services.get()));
+
+    // Process plugin manifests → wire contributions into the IDE
+    for (const auto &lp : m_pluginManager->loadedPlugins()) {
+        if (lp.manifest.hasContributions()) {
+            m_contributions->registerManifest(
+                lp.manifest.id.isEmpty() ? lp.instance->info().id : lp.manifest.id,
+                lp.manifest, lp.instance);
+        }
+    }
 
     if (m_agentPlatform)
         m_agentPlatform->registerPluginProviders(m_pluginManager.get());

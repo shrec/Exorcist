@@ -45,8 +45,10 @@ DockManager::DockManager(QMainWindow *mainWindow, QObject *parent)
     connect(m_overlay, &DockOverlayPanel::overlayHidden,
             this, &DockManager::onOverlayHidden);
 
-    // Drop overlay for drag-and-drop
-    m_dropOverlay = new DockDropOverlay(m_rootSplitter);
+    // Drop overlay for drag-and-drop — must NOT be a child of the
+    // root splitter, otherwise QSplitter treats it as a managed child and
+    // allocates a slot for it in the layout.
+    m_dropOverlay = new DockDropOverlay(mainWindow);
 
     // Track main window resize to reposition sidebars
     mainWindow->installEventFilter(this);
@@ -607,6 +609,17 @@ void DockManager::repositionSideBars()
         if (m_mainWindow->toolBarArea(tb) == Qt::TopToolBarArea && tb->isVisible())
             contentTop = qMax(contentTop,
                               tb->mapTo(m_mainWindow, QPoint(0, 0)).y() + tb->height());
+    }
+
+    // Before the window is shown, toolbar/menubar geometry isn't established
+    // yet (contentTop=0). Move sidebars off-screen to prevent them from
+    // rendering at y=0 (above the menu bar). The resize event after show()
+    // will call us again with correct values.
+    if (!m_mainWindow->isVisible()) {
+        m_leftBar->move(-9999, -9999);
+        m_rightBar->move(-9999, -9999);
+        m_bottomBar->move(-9999, -9999);
+        return;
     }
 
     const int statusH = (m_mainWindow->statusBar() && m_mainWindow->statusBar()->isVisible())

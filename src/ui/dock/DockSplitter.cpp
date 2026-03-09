@@ -202,8 +202,10 @@ void DockSplitter::distributeByStretch()
     while (m_stretchFactors.size() < count())
         m_stretchFactors.append(1);
 
+    // Use contentsRect to respect margins (sidebars reserve space via margins).
+    const QRect cr = contentsRect();
     const int total = (orientation() == Qt::Horizontal)
-                      ? width() : height();
+                      ? cr.width() : cr.height();
     const int handleSpace = handleWidth() * (count() - 1);
     const int available = total - handleSpace;
 
@@ -253,8 +255,9 @@ void DockSplitter::restoreFromRatios(const QList<double> &ratios)
     if (ratios.isEmpty() || count() == 0)
         return;
 
+    const QRect cr = contentsRect();
     const int total = (orientation() == Qt::Horizontal)
-                      ? width() : height();
+                      ? cr.width() : cr.height();
     const int handleSpace = handleWidth() * (count() - 1);
     const int available = total - handleSpace;
 
@@ -314,8 +317,10 @@ void DockSplitter::resizeEvent(QResizeEvent *event)
 {
     QSplitter::resizeEvent(event);
     if (m_firstShow && count() > 0) {
+        // Use contentsRect (not event->size()) to respect margins.
+        const QRect cr = contentsRect();
         const int total = (orientation() == Qt::Horizontal)
-                          ? event->size().width() : event->size().height();
+                          ? cr.width() : cr.height();
         if (total > 0) {
             m_firstShow = false;
             distributeByStretch();
