@@ -69,8 +69,8 @@ Split syntaxhighlighter.cpp into per-language files	Create src/editor/languages/
 Add TypeScript-specific syntax highlighting	Implement buildTypeScript() with type annotations, generics, decorators, and TS-specific keywords.
 Add shebang detection	In SyntaxHighlighter::create(), read first line of document. Match #!.*python → Python highlighter, etc.
 Reduce MainWindow responsibilities	✅ Done — Extracted LspBootstrap (owns ClangdManager + LspClient + GoToDef/References/Rename wiring) and BuildDebugBootstrap (owns ToolchainManager + CMakeIntegration + DebugLaunchController + GdbMiAdapter + BuildToolbar + OutputPanel + DebugPanel). AgentPlatformBootstrap already existed. MainWindow delegates creation and internal wiring to these bootstrappers.
-Stabilise LSP completion & hover	End-to-end test: open a .cpp file, trigger completion, verify popup appears. Fix any race conditions in LspEditorBridge.
-Implement Git blame gutter	GitService has the data. Render per-line blame in the editor gutter as a low-friction, high-value feature.
+Stabilise LSP completion & hover	✅ Done — Fixed race condition in LspEditorBridge (didChange before didOpen guard via m_opened flag). Completion, hover, signature help, diagnostics, formatting all functional.
+Implement Git blame gutter	✅ Done — GitService::blame() parses `git blame --porcelain`, EditorView renders author + short hash in gutter. Toggle via View → Toggle Git Blame (Ctrl+Alt+B).
 
 Phase 3 — Feature Completion  Months 2–4
 Goal: Bring the declared features to full implementation. Chat AI panel, plugin marketplace basics.

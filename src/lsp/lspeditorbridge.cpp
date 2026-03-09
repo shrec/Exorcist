@@ -173,11 +173,13 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
     if (m_client->isInitialized()) {
         m_client->didOpen(m_uri, m_languageId,
                           m_editor->toPlainText(), m_version);
+        m_opened = true;
         QTimer::singleShot(500, this, &LspEditorBridge::sendDocumentSymbols);
     } else {
         connect(m_client, &LspClient::initialized, this, [this]() {
             m_client->didOpen(m_uri, m_languageId,
                               m_editor->toPlainText(), m_version);
+            m_opened = true;
             QTimer::singleShot(500, this, &LspEditorBridge::sendDocumentSymbols);
         }, Qt::SingleShotConnection);
     }
@@ -299,6 +301,7 @@ void LspEditorBridge::onCursorPositionChanged()
 
 void LspEditorBridge::sendDidChange()
 {
+    if (!m_opened) return;
     m_client->didChange(m_uri, m_editor->toPlainText(), ++m_version);
 }
 

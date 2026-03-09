@@ -85,6 +85,7 @@ private:
     QPoint           m_hoverGlobalPos;    // mouse position when hover was requested
     int              m_hoverLine = -1;
     int              m_hoverCol  = -1;
+    bool             m_opened     = false;
     QString          m_completionPrefix;
 
 signals:
