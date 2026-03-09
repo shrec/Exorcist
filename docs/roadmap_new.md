@@ -75,8 +75,8 @@ Implement Git blame gutter	✅ Done — GitService::blame() parses `git blame --
 Phase 3 — Feature Completion  Months 2–4
 Goal: Bring the declared features to full implementation. Chat AI panel, plugin marketplace basics.
 Task	Description & Acceptance Criteria
-Implement Chat UI stubs	ChatTranscriptView, ChatTurnWidget, ChatMarkdownWidget — implement these fully. The AgentOrchestrator and providers (Claude, Copilot) already exist; they just need a working UI.
-ProjectBrainService full implementation	BrainContextBuilder, MemorySuggestionEngine, MemoryBrowserPanel — implement persistence layer, connect to agent context.
+Implement Chat UI stubs	✅ Done — ChatTranscriptView, ChatTurnWidget, ChatMarkdownWidget, ChatThinkingWidget, ChatToolInvocationWidget, ChatWorkspaceEditWidget, ChatFollowupsWidget all fully implemented (inline in headers). ChatPanelWidget already integrated in MainWindow replacing the legacy AgentChatPanel.
+ProjectBrainService full implementation	✅ Done — ProjectBrainService persists rules/facts/sessions to .exorcist/ JSON files. BrainContextBuilder generates prompt text. MemorySuggestionEngine extracts facts from turns. MemoryBrowserPanel provides UI for browsing/editing facts, rules, and sessions.
 Tree-sitter migration plan	Research linking tree-sitter as a CMake ExternalProject. Prototype C++ grammar incremental highlighting. Compare output quality to current regex highlighter before committing.
 Remote SSH — end-to-end test	SshSession, SshConnectionManager, RemoteFilePanel — verify complete round-trip: connect → browse → edit → save.
 Extension/plugin browser UI	Allow users to discover and install Lua plugins. Add a PluginGallery panel backed by a simple JSON registry.
