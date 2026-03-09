@@ -104,6 +104,8 @@
 #include "lsp/lspclient.h"
 #include "lsp/lspeditorbridge.h"
 #include "lsp/referencespanel.h"
+#include "bootstrap/lspbootstrap.h"
+#include "bootstrap/builddebugbootstrap.h"
 #include "editor/symboloutlinepanel.h"
 #include "terminal/terminalpanel.h"
 #include "project/projectmanager.h"
@@ -253,21 +255,23 @@ MainWindow::MainWindow(QWidget *parent)
     m_gitService        = new GitService(this);
 
     // LSP — create before setupUi so openFile() can create bridges immediately.
-    m_clangd    = new ClangdManager(this);
-    m_lspClient = new LspClient(m_clangd->transport(), this);
-    connect(m_clangd, &ClangdManager::serverReady, this, [this]() {
+    m_lspBootstrap = new LspBootstrap(this);
+    m_lspBootstrap->initialize();
+    m_clangd    = m_lspBootstrap->clangd();
+    m_lspClient = m_lspBootstrap->lspClient();
+    connect(m_lspBootstrap, &LspBootstrap::lspReady, this, [this]() {
         m_lspClient->initialize(m_currentFolder);
     });
     connect(m_lspClient, &LspClient::initialized,
             this, &MainWindow::onLspInitialized);
 
-    // C/C++ toolchain detection and CMake integration.
-    m_toolchainMgr = new ToolchainManager(this);
-    m_cmakeIntegration = new CMakeIntegration(this);
-    m_cmakeIntegration->setToolchainManager(m_toolchainMgr);
-    m_debugLauncher = new DebugLaunchController(this);
-    m_debugLauncher->setCMakeIntegration(m_cmakeIntegration);
-    m_debugLauncher->setToolchainManager(m_toolchainMgr);
+    // Build/Debug subsystem bootstrap.
+    m_buildDebugBootstrap = new BuildDebugBootstrap(this);
+    m_buildDebugBootstrap->initialize();
+    m_toolchainMgr    = m_buildDebugBootstrap->toolchainManager();
+    m_cmakeIntegration = m_buildDebugBootstrap->cmakeIntegration();
+    m_debugLauncher   = m_buildDebugBootstrap->debugLauncher();
+    m_buildToolbar    = m_buildDebugBootstrap->buildToolbar();
 
     setupToolBar();
     setupUi();
@@ -1519,9 +1523,9 @@ void MainWindow::createDockWidgets()
     m_dockManager->addDockWidget(m_memoryDock, SideBarArea::Right, /*startPinned=*/false);
 
     // ── Debug Panel ───────────────────────────────────────────────────────
-    m_debugAdapter = new GdbMiAdapter(this);
-    m_debugPanel = new DebugPanel(this);
-    m_debugPanel->setAdapter(m_debugAdapter);
+    m_debugAdapter = m_buildDebugBootstrap->debugAdapter();
+    m_debugPanel = m_buildDebugBootstrap->debugPanel();
+    m_debugPanel->setParent(this);
     m_debugDock = new ExDockWidget(tr("Debug"), this);
     m_debugDock->setDockId(QStringLiteral("DebugDock"));
     m_debugDock->setContentWidget(m_debugPanel);
@@ -1529,19 +1533,14 @@ void MainWindow::createDockWidgets()
 
 
     // Navigate to source on stack frame double-click
-    connect(m_debugPanel, &DebugPanel::navigateToSource,
+    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::navigateToSource,
             this, [this](const QString &filePath, int line) {
         navigateToLocation(filePath, line - 1, 0);
     });
 
     // Highlight current stopped line in editor
-    connect(m_debugAdapter, &GdbMiAdapter::stopped,
-            this, [this](int /*threadId*/, DebugStopReason /*reason*/,
-                         const QString &/*desc*/) {
-        m_debugAdapter->requestStackTrace(0);
-    });
-    connect(m_debugAdapter, &GdbMiAdapter::stackTraceReceived,
-            this, [this](int /*threadId*/, const QList<DebugFrame> &frames) {
+    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::debugStopped,
+            this, [this](const QList<DebugFrame> &frames) {
         // Clear previous debug line on all editors
         for (int i = 0; i < m_tabs->count(); ++i) {
             auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
@@ -1562,7 +1561,7 @@ void MainWindow::createDockWidgets()
     });
 
     // Clear debug line on session end
-    connect(m_debugAdapter, &GdbMiAdapter::terminated,
+    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::debugTerminated,
             this, [this]() {
         for (int i = 0; i < m_tabs->count(); ++i) {
             auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
@@ -1574,101 +1573,32 @@ void MainWindow::createDockWidgets()
     // (connected per-tab when tab is opened — see below in openFile)
 
     // ── Build/Run/Debug wiring ────────────────────────────────────────────
-    m_debugLauncher->setDebugAdapter(m_debugAdapter);
-    m_buildToolbar->setCMakeIntegration(m_cmakeIntegration);
-    m_buildToolbar->setToolchainManager(m_toolchainMgr);
-    m_buildToolbar->setDebugAdapter(m_debugAdapter);
+    m_buildDebugBootstrap->wireConnections();
 
-    // Configure → CMake configure
-    connect(m_buildToolbar, &BuildToolbar::configureRequested, this, [this]() {
-        if (m_outputPanel) m_outputPanel->clear();
-        m_cmakeIntegration->configure();
+    // Bootstrap signals → MainWindow UI
+    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::showOutputDock, this, [this]() {
         m_dockManager->showDock(m_outputDock, exdock::SideBarArea::Bottom);
     });
-
-    // After configure succeeds, restart clangd with compile_commands.json
-    // and refresh toolbar targets
-    connect(m_cmakeIntegration, &CMakeIntegration::configureFinished,
-            this, [this](bool success, const QString &) {
-        if (!success) return;
-        // Restart clangd with the new compile_commands.json path
-        const QString ccjson = m_cmakeIntegration->compileCommandsPath();
-        if (!ccjson.isEmpty()) {
-            m_clangd->stop();
-            QStringList args;
-            args << QStringLiteral("--compile-commands-dir=") + QFileInfo(ccjson).absolutePath();
-            m_clangd->start(m_currentFolder, args);
-            statusBar()->showMessage(tr("Clangd restarted with compile_commands.json"), 3000);
-        }
-        // Refresh targets (configure may create build dir with executables)
-        m_buildToolbar->refresh();
-    });
-
-    // Build → CMake build (output goes to Output panel)
-    connect(m_buildToolbar, &BuildToolbar::buildRequested, this, [this]() {
-        if (m_outputPanel) m_outputPanel->clear();
-        m_cmakeIntegration->build();
-        m_dockManager->showDock(m_outputDock, exdock::SideBarArea::Bottom);
-    });
-
-    // Run without debugging (Ctrl+F5)
-    connect(m_buildToolbar, &BuildToolbar::runRequested,
-            this, [this](const QString &exe) {
-        if (exe.isEmpty()) {
-            statusBar()->showMessage(tr("No launch target selected"), 3000);
-            return;
-        }
-        DebugLaunchConfig cfg;
-        cfg.executable = exe;
-        cfg.workingDir = m_currentFolder;
-        m_debugLauncher->startWithoutDebugging(cfg);
+    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::showRunDock, this, [this]() {
         m_dockManager->showDock(m_runDock, exdock::SideBarArea::Bottom);
     });
-
-    // Debug (F5)
-    connect(m_buildToolbar, &BuildToolbar::debugRequested,
-            this, [this](const QString &exe) {
-        if (exe.isEmpty()) {
-            statusBar()->showMessage(tr("No launch target selected"), 3000);
-            return;
-        }
-        DebugLaunchConfig cfg;
-        cfg.executable = exe;
-        cfg.workingDir = m_currentFolder;
-        m_debugLauncher->startDebugging(cfg);
+    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::showDebugDock, this, [this]() {
         m_dockManager->showDock(m_debugDock, exdock::SideBarArea::Bottom);
     });
-
-    // Stop
-    connect(m_buildToolbar, &BuildToolbar::stopRequested, this, [this]() {
-        m_debugLauncher->stopDebugging();
-        if (m_cmakeIntegration->isBuilding())
-            m_cmakeIntegration->cancelBuild();
+    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::statusMessage, this,
+            [this](const QString &msg, int timeout) {
+        statusBar()->showMessage(msg, timeout);
     });
-
-    // Clean
-    connect(m_buildToolbar, &BuildToolbar::cleanRequested, this, [this]() {
-        m_cmakeIntegration->clean();
+    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::restartClangd, this,
+            [this](const QString &compileCommandsDir) {
+        m_clangd->stop();
+        QStringList args;
+        args << QStringLiteral("--compile-commands-dir=") + compileCommandsDir;
+        m_clangd->start(m_currentFolder, args);
+        statusBar()->showMessage(tr("Clangd restarted with compile_commands.json"), 3000);
     });
-
-    // Forward CMake build output to Output panel (with problem matching)
-    connect(m_cmakeIntegration, &CMakeIntegration::buildOutput,
-            this, [this](const QString &line, bool isError) {
-        if (m_outputPanel)
-            m_outputPanel->appendBuildLine(line, isError);
-    });
-
-    // Push build diagnostics to editor after CMake build finishes
-    connect(m_cmakeIntegration, &CMakeIntegration::buildFinished,
-            this, [this](bool, int) {
-        pushBuildDiagnostics();
-    });
-
-    // Forward launch errors to status bar
-    connect(m_debugLauncher, &DebugLaunchController::launchError,
-            this, [this](const QString &msg) {
-        statusBar()->showMessage(tr("Launch error: %1").arg(msg), 5000);
-    });
+    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::buildDiagnosticsReady, this,
+            &MainWindow::pushBuildDiagnostics);
 
     // ── Remote / SSH panel ────────────────────────────────────────────────
     m_sshManager = new SshConnectionManager(this);
@@ -1765,7 +1695,7 @@ void MainWindow::createDockWidgets()
     m_dockManager->addDockWidget(m_mcpDock, SideBarArea::Right, /*startPinned=*/false);
 
     // ── Output / Build panel ──────────────────────────────────────────────
-    m_outputPanel = new OutputPanel(this);
+    m_outputPanel = m_buildDebugBootstrap->outputPanel();
     m_outputDock  = new ExDockWidget(tr("Output"), this);
     m_outputDock->setDockId(QStringLiteral("OutputDock"));
     m_outputDock->setContentWidget(m_outputPanel);
@@ -1995,31 +1925,12 @@ void MainWindow::createDockWidgets()
     m_regexSearch = new RegexSearchEngine(nullptr);
 
     // ── Go-to-Definition (F12) ────────────────────────────────────────────
-    connect(m_lspClient, &LspClient::definitionResult, this,
-            [this](const QString &/*uri*/, const QJsonArray &locations) {
-        if (locations.isEmpty()) {
-            statusBar()->showMessage(tr("No definition found"), 3000);
-            return;
-        }
-        const QJsonObject loc = locations.first().toObject();
-        const QString targetUri = loc.value(QStringLiteral("uri")).toString();
-        const QJsonObject range = loc.value(QStringLiteral("range")).toObject();
-        const QJsonObject start = range.value(QStringLiteral("start")).toObject();
-        const int line = start.value(QStringLiteral("line")).toInt();
-        const int character = start.value(QStringLiteral("character")).toInt();
-
-        QString path = QUrl(targetUri).toLocalFile();
-        if (path.isEmpty()) path = targetUri;
-        navigateToLocation(path, line, character);
-    });
+    connect(m_lspBootstrap, &LspBootstrap::navigateToLocation,
+            this, &MainWindow::navigateToLocation);
 
     // ── Find References ───────────────────────────────────────────────────
-    connect(m_lspClient, &LspClient::referencesResult, this,
-            [this](const QString &/*uri*/, const QJsonArray &locations) {
-        if (locations.isEmpty()) {
-            statusBar()->showMessage(tr("No references found"), 3000);
-            return;
-        }
+    connect(m_lspBootstrap, &LspBootstrap::referencesReady,
+            this, [this](const QJsonArray &locations) {
         if (m_referencesPanel)
             m_referencesPanel->showReferences(tr("Symbol"), locations);
         if (m_referencesDock)
@@ -2027,9 +1938,13 @@ void MainWindow::createDockWidgets()
     });
 
     // ── Rename Symbol ─────────────────────────────────────────────────────
-    connect(m_lspClient, &LspClient::renameResult, this,
-            [this](const QString &/*uri*/, const QJsonObject &workspaceEdit) {
-        applyWorkspaceEdit(workspaceEdit);
+    connect(m_lspBootstrap, &LspBootstrap::workspaceEditRequested,
+            this, &MainWindow::applyWorkspaceEdit);
+
+    // LSP status messages (e.g. "No definition found")
+    connect(m_lspBootstrap, &LspBootstrap::statusMessage,
+            this, [this](const QString &msg, int timeout) {
+        statusBar()->showMessage(msg, timeout);
     });
 
     // When MCP discovers new tools, register them in the ToolRegistry
@@ -2370,6 +2285,7 @@ void MainWindow::openFolder(const QString &path)
             m_runPanel->loadLaunchJson(launchPath);
     }
     m_currentFolder = root;
+    m_buildDebugBootstrap->setWorkingDir(root);
     m_terminal->setWorkingDirectory(root);
 
     // ── Toolchain & CMake detection ───────────────────────────────────────
@@ -2534,6 +2450,7 @@ void MainWindow::newSolution()
         m_searchPanel->setRootPath(root);
         setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
         m_currentFolder = root;
+        m_buildDebugBootstrap->setWorkingDir(root);
         m_terminal->setWorkingDirectory(root);
         m_clangd->start(root);
     }
@@ -2555,6 +2472,7 @@ void MainWindow::openSolutionFile()
         statusBar()->showMessage(tr("Solution: %1").arg(QFileInfo(slnPath).fileName()), 4000);
 
         m_currentFolder = root;
+        m_buildDebugBootstrap->setWorkingDir(root);
         m_terminal->setWorkingDirectory(root);
         m_clangd->start(root);
     }

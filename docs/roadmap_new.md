@@ -1,0 +1,213 @@
+
+EXORCIST
+Code Review · Issue Registry · Development Roadmap
+Version 0.1-alpha  ·  March 2026
+1. Executive Summary
+Exorcist is a fast, cross-platform Qt 6 code editor targeting VS Code-level capabilities without the Electron overhead. The codebase already contains a clean 5-layer architecture, a working piece-table buffer, syntax highlighting for 35+ languages, an LSP client, an AI agent framework, and plugin support via C ABI + LuaJIT.
+
+However, a structural concern emerged during review: of the 233 C++ header files in src/, exactly 114 (49%) have no corresponding .cpp implementation. This means half the declared subsystems are design stubs rather than working code. Before expanding scope further, the project must achieve a clean build baseline.
+
+2. Code Review — Overall Assessment
+
+Aspect	Score	Notes
+Architecture & design vision	9/10	5-layer clean arch, correct dependency direction, SDK boundary
+Core editor (buffer + view)	8/10	PieceTableBuffer, EditorView, minimap — well-structured
+Syntax highlighting	8/10	35+ languages, alternation-pattern optimisation, block-comment states
+LSP integration	7/10	LspClient, ClangdManager, completionpopup, hover — mostly present
+Plugin system (C ABI + Lua)	7/10	Good design; LuaJIT sandbox is proper production-quality
+AI agent framework	5/10	AgentOrchestrator present; ~50 chat UI headers are stubs
+Build completeness	4/10	49% of headers lack implementations — unknown build status
+README vs. reality	3/10	README says "minimal core"; codebase is already very large
+
+3. Detailed Findings
+3.1  Strengths
+The following aspects of the codebase are well-executed and should be preserved as the project matures.
+
+Component	Observation
+Layered architecture	The five-layer model (Core interfaces → Qt bindings → UI/features → SDK → Plugins) enforces correct dependency direction. No plugin can reach MainWindow; no UI can call OS APIs directly. This is the same pattern used by JetBrains IDEs and is the correct foundation for a long-lived editor.
+PieceTableBuffer	Using a piece table as the text buffer is a serious, correct design decision. VS Code uses the same data structure. It enables O(1) inserts/deletes without copying the whole document, which matters for large files and undo/redo.
+Syntax highlighter breadth	35+ languages covered in syntaxhighlighter.cpp (1683 lines), including modern targets like Zig, Elixir, Protobuf, GLSL, and Terraform. The pattern of combining all keywords into a single alternation regex (\b(?:keyword1|keyword2)\b) avoids O(n) regex runs per block, which is the correct optimisation for QSyntaxHighlighter.
+LuaJIT sandbox	The LuaJIT scripting layer has production-quality safety: per-plugin lua_State, custom allocator with 16 MB cap, instruction-count hook at 10M, and blocked ffi/io/os/debug. This is better than most editor plugin sandboxes.
+C ABI plugin interface	The extern "C" ABI in src/sdk/cabi/ means plugins can be written in Rust, Go, Zig, or any language with C FFI. This future-proofs the plugin ecosystem beyond Qt/C++ developers.
+GitHub CI/CD setup	Workflows for CI and release, Docker build environment, SonarQube integration, and Copilot agent instructions show professional open-source project hygiene.
+
+3.2  Issues & Risks
+The following problems are ordered by severity. Each issue includes an estimated effort to resolve.
+
+Severity	Issue	Description & Resolution Path
+CRITICAL	49% of headers are stubs	114 out of 233 headers in src/ have no .cpp implementation. This includes core Chat UI widgets (ChatMarkdownWidget, ChatTranscriptView, ChatTurnWidget, ChatToolInvocationWidget, ~20 more), Agent subsystem types (AgentSession, TrajectoryRecorder, ReviewManager), and infrastructure (MemoryFileEditor, BackgroundCompactor, NetworkMonitor). The project will not compile to a working binary in its current state without significant stub-filling or file removal.
+Effort: High  ·  Estimated time: 2–4 weeks
+CRITICAL	MainWindow is a God Object	mainwindow.h forward-declares 50+ classes. MainWindow is directly responsible for constructing and wiring every subsystem: LSP, Git, Agent, Terminal, Search, Docking, Keymap, Theme, Build, Debug, Remote SSH, MCP, InlineChat, and more. This violates Single Responsibility and will make the class increasingly unmaintainable. Refactoring should introduce a subsystem bootstrapper pattern, delegating construction to dedicated factory/controller classes.
+Effort: Medium  ·  Estimated time: 3–5 days per subsystem
+HIGH	SyntaxHighlighter has a hard ceiling	QSyntaxHighlighter is a line-by-line regex engine. It cannot model: (1) nested string interpolation inside ${...} blocks correctly in Python/Kotlin/Dart, (2) nested block comments /* /* */ */, (3) multi-line strings without state hacks, (4) semantic token differentiation (local variable vs. field vs. type parameter). This is acceptable for v0.1 but will become a user-visible quality gap vs. VS Code as the project grows. Migration to Tree-sitter with incremental parsing is the long-term fix.
+Effort: Low (now)  ·  Estimated time: 2–3 weeks (future milestone)
+HIGH	syntaxhighlighter.cpp is monolithic	All 35+ language builders live in a single 1683-line .cpp file. Adding a new language requires editing this file directly — there is no runtime language registration API. As the language count grows this file will become a maintenance burden. A LanguageRegistry with registration functions and a per-language builder pattern would allow languages to be added as separate files or loaded dynamically.
+Effort: Medium  ·  Estimated time: 2–3 days
+MEDIUM	README misrepresents project scope	The README states the mission is to "start with a robust, minimal core" but the actual codebase includes SSH remote editing, a full AI agent orchestration framework, a Project Brain memory system, a custom docking engine, GDB/MI debug adapter, MCP protocol client, and more. New contributors will be confused by the mismatch. The README should be updated to honestly describe the current scope.
+Effort: Low  ·  Estimated time: Half a day
+MEDIUM	No test coverage for UI subsystems	tests/ contains only 4 test files: PieceTableBuffer, ServiceRegistry, SSEParser, and ThemeManager. There are no tests for EditorView, SyntaxHighlighter highlight correctness, LspClient message parsing, or any agent subsystem. The existing tests are good — but coverage needs to expand before refactoring can proceed safely.
+Effort: Medium  ·  Estimated time: Ongoing
+LOW	TypeScript/TSX uses JavaScript highlighter	The create() factory maps .ts, .tsx, .jsx to buildJavaScript(). This misses TypeScript-specific syntax: type annotations, interface/type alias declarations, angle-bracket generics, decorators with metadata, and as/satisfies/keyof/typeof operators. A dedicated buildTypeScript() function should be added.
+Effort: Low  ·  Estimated time: 1 day
+LOW	No shebang-based language detection	The factory detects language by file extension only. Files like /usr/bin/env python3 shebangs, or extensionless scripts (Makefile, Dockerfile without extension), fall through to plain text. Shebang detection on the first line would improve coverage.
+Effort: Low  ·  Estimated time: Half a day
+
+4. Prioritised Development Roadmap
+Phase 1 — Build Baseline  Weeks 1–3
+Goal: Achieve a clean, compiling, passing-tests build. Nothing else should be started until this is done.
+Task	Description & Acceptance Criteria
+Remove or stub-fill chat UI headers	Decide: implement or delete. Recommend removing agent/chat/*.h stubs that have no .cpp and are not in CMakeLists.txt. Keeps build clean.
+Audit CMakeLists.txt against sources	Ensure every .cpp in CMakeLists.txt exists and compiles. Remove references to missing files. Run cmake --build and fix all errors.
+Fix MainWindow construction order	Verify that all 50+ subsystems constructed in MainWindow actually have complete implementations. Add null-checks or guards for unimplemented services.
+Expand test suite to cover SyntaxHighlighter	Add tests: does C++ keyword highlight correctly? Do block comments span lines? Do Python triple-quotes not break?
+Update README to reflect actual scope	Rewrite opening section. List implemented vs. planned features honestly. Add a BUILD.md with step-by-step instructions.
+
+Phase 2 — Stability & Quality  Weeks 4–8
+Goal: Make the editor reliably usable for daily coding tasks. Focus on the editor core and LSP.
+Task	Description & Acceptance Criteria
+Split syntaxhighlighter.cpp into per-language files	Create src/editor/languages/ directory. Move each buildXxx() function into its own file. Register via a static table in LanguageRegistry.
+Add TypeScript-specific syntax highlighting	Implement buildTypeScript() with type annotations, generics, decorators, and TS-specific keywords.
+Add shebang detection	In SyntaxHighlighter::create(), read first line of document. Match #!.*python → Python highlighter, etc.
+Reduce MainWindow responsibilities	✅ Done — Extracted LspBootstrap (owns ClangdManager + LspClient + GoToDef/References/Rename wiring) and BuildDebugBootstrap (owns ToolchainManager + CMakeIntegration + DebugLaunchController + GdbMiAdapter + BuildToolbar + OutputPanel + DebugPanel). AgentPlatformBootstrap already existed. MainWindow delegates creation and internal wiring to these bootstrappers.
+Stabilise LSP completion & hover	End-to-end test: open a .cpp file, trigger completion, verify popup appears. Fix any race conditions in LspEditorBridge.
+Implement Git blame gutter	GitService has the data. Render per-line blame in the editor gutter as a low-friction, high-value feature.
+
+Phase 3 — Feature Completion  Months 2–4
+Goal: Bring the declared features to full implementation. Chat AI panel, plugin marketplace basics.
+Task	Description & Acceptance Criteria
+Implement Chat UI stubs	ChatTranscriptView, ChatTurnWidget, ChatMarkdownWidget — implement these fully. The AgentOrchestrator and providers (Claude, Copilot) already exist; they just need a working UI.
+ProjectBrainService full implementation	BrainContextBuilder, MemorySuggestionEngine, MemoryBrowserPanel — implement persistence layer, connect to agent context.
+Tree-sitter migration plan	Research linking tree-sitter as a CMake ExternalProject. Prototype C++ grammar incremental highlighting. Compare output quality to current regex highlighter before committing.
+Remote SSH — end-to-end test	SshSession, SshConnectionManager, RemoteFilePanel — verify complete round-trip: connect → browse → edit → save.
+Extension/plugin browser UI	Allow users to discover and install Lua plugins. Add a PluginGallery panel backed by a simple JSON registry.
+
+Phase 4 — Performance & Polish  Months 4+
+Goal: Match VS Code on performance benchmarks. Ship a 1.0 release-candidate.
+Task	Description & Acceptance Criteria
+Tree-sitter full migration	Replace QSyntaxHighlighter entirely. Use tree-sitter incremental parsing on a QThreadPool worker. Apply semantic token colours from LSP textDocument/semanticTokens.
+Benchmark memory and startup time	Target: cold start < 200ms, idle RAM < 80MB for empty project. Profile with Qt's built-in QElapsedTimer and Valgrind massif.
+Multi-root workspace support	Allow opening multiple top-level folders. ProjectManager::openFolder() should support a list. SolutionTreeModel should merge multiple roots.
+Theming marketplace	ThemeManager can load JSON themes. Build a UI to browse/download VS Code-compatible token colour themes from a hosted registry.
+v1.0 release packaging	CPack config for .deb, .rpm, .msi, .dmg. GitHub Actions release workflow producing signed binaries for Linux, Windows, macOS.
+
+
+5. Stub Inventory — Headers Without Implementation
+The following 114 header files currently have no corresponding .cpp. Each must be resolved before the project can achieve a clean build. Recommended actions: Implement (write the .cpp), Delete (remove if not yet needed), or Interface (retain as pure abstract interface — acceptable without .cpp).
+
+Group	Recommended Action	Files
+agent/chat/ — Chat UI Widgets (20 files)	Implement or Delete	•	chatcontentpart.h
+•	chatfollowupswidget.h
+•	chatmarkdownwidget.h
+•	chatpanelwidget (partial)
+•	chatsessionhistorypopup.h
+•	chatsessionmodel.h
+•	chatthemetokens.h
+•	chatthinkingwidget.h
+•	chattoolinvocationwidget.h
+•	chattranscriptview.h
+•	chatturnmodel.h
+•	chatturnwidget.h
+•	chatwelcomewidget.h
+•	chatworkspaceeditwidget.h
+•	toolpresentationformatter.h
+•	chatthemeadapter.h
+•	errorstatewidget.h
+•	promptarchiveexporter.h
+•	toolpresentation.h
+•	reviewmanager.h
+agent/ — Agent Infrastructure (22 files)	Implement or Delete	•	accessibilityhelper.h
+•	agentmodes.h
+•	agentsession.h
+•	apikeymanagerwidget.h
+•	authstatusindicator.h
+•	backgroundcompactor.h
+•	chatthemeadapter.h
+•	citationmanager.h
+•	contextinspector.h
+•	contextscopeconfig.h
+•	domainfilter.h
+•	featureflags.h
+•	iagentplugin.h
+•	iagentsettingspageprovider.h
+•	ichatsessionimporter.h
+•	icontextprovider.h
+•	iproviderauthintegration.h
+•	memoryfileeditor.h
+•	modelconfigwidget.h
+•	modelregistry.h
+•	networkmonitor.h
+•	trajectoryrecorder.h
+•	trajectoryreplaywidget.h
+agent/tools/ — Tool Definitions (8 files)	Implement	•	advancedtools.h
+•	applypatchtool.h
+•	filesystemtools.h
+•	githubmcptools.h
+•	idetools.h
+•	memorytool.h
+•	moretools.h
+•	notebooktools.h
+•	runcommandtool.h
+•	searchworkspacetool.h
+•	semanticsearchtool.h
+•	websearchtool.h
+sdk/ & plugin/ — Interface-only (25 files)	Keep as Interface	•	icommandhandler.h
+•	icommandservice.h
+•	icompletioncontributor.h
+•	idiagnosticsservice.h
+•	ieditorcontributor.h
+•	ieditorservice.h
+•	iformattercontributor.h
+•	igitservice.h
+•	ihostservices.h
+•	ilanguagecontributor.h
+•	ilintercontributor.h
+•	inotificationservice.h
+•	isettingscontributor.h
+•	itaskcontributor.h
+•	itaskservice.h
+•	iterminalservice.h
+•	ithemecontributor.h
+•	itoolbarservice.h
+•	itool.h
+•	itaskcontributor.h
+•	iviewcontributor.h
+•	iviewservice.h
+•	iworkspaceservice.h
+•	permissionguard.h
+•	pluginpermission.h
+Other stubs (misc)	Review individually	•	aiinterface.h
+•	debug/idebugadapter.h
+•	agent/notebookstubs.h
+•	agent/promptfileloader.h
+•	agent/promptfilemanager.h
+•	agent/promptfilepicker.h
+•	editor/mergeconflictresolver.h
+•	editor/multichunkeditor.h
+•	editor/textbuffer.h (base class)
+•	mcp/mcpservermanager.h
+•	mcp/mcptooladapter.h
+•	search/embeddingindex.h
+•	search/gitignorefilter.h
+•	search/regexsearchengine.h
+•	search/workspacechunkindex.h
+
+6. Quick Wins — Low Effort, High Impact
+These items can be completed in a few hours each and will visibly improve the project.
+
+Task	Time	How to do it
+Update README.md	< 1 hour	Replace "minimal core" narrative with honest feature list. Add build instructions.
+Add buildTypeScript()	1–2 hours	Dedicated TS highlighter. Copy buildJavaScript() and add type-specific patterns.
+Add shebang detection	1 hour	Read first line in SyntaxHighlighter::create(). Match #!.*python, #!.*node etc.
+Add .cpp extension → C highlighter	30 min	.c files should use buildCpp() — already works, just verify the mapping.
+Write SyntaxHighlighter tests	2–3 hours	Verify keywords highlight, block comments span correctly, strings don't leak.
+Fix sonar-project.properties	30 min	Update projectKey and projectName to match repository name.
+Add BUILDING.md	1 hour	Document: Qt 6 + CMake + optional LLVM. Platform-specific notes for Windows/macOS/Linux.
+
+7. Final Recommendation
+Exorcist has genuinely excellent bones. The architecture is clean, the core data structures are correct, and the feature breadth is impressive for an early-stage project. But the gap between declared interfaces and working implementations is the primary risk to project credibility and contributor trust.
+
+The single most important action is to achieve a reproducible clean build. A contributor who clones the repo and cannot compile it will not return. Fix the 114 stubs (implement or delete), document the build steps, and get a CI green badge before anything else.
+
+After that, work down the priority list above. The editor core is strong enough to ship a usable v0.1 today — with the LSP, syntax highlighting, terminal, and search already in place. Ship early, iterate fast, and let the AI agent features follow once the foundation is solid.
+
+Document generated by code review — March 2026

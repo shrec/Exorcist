@@ -47,6 +47,7 @@ concrete core classes or MainWindow.
 | **Project Brain** | `agent/projectbrain*` | Persistent workspace knowledge (rules, facts, sessions) | `ProjectBrainService`, `BrainContextBuilder`, `MemorySuggestionEngine` |
 | **Core abstractions** | `core/` | OS interfaces (filesystem, process, terminal, network) | `IFileSystem`, `IProcess`, `ITerminal`, `INetwork` |
 | **Plugin system** | `pluginmanager.*`, `serviceregistry.*` | Plugin loader, typed service resolution | `PluginManager`, `ServiceRegistry` |
+| **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code | `LspBootstrap`, `BuildDebugBootstrap` |
 | **SDK** | `sdk/` | Stable plugin API — typed host services, permissions | `IHostServices`, `HostServices`, `PluginPermission` |
 | **UI framework** | `ui/`, `commandpalette.*`, `thememanager.*` | Command palette, theme engine, keymap, notifications, custom docking | `CommandPalette`, `ThemeManager`, `KeymapManager`, `NotificationToast`, `DockManager`, `ExDockWidget` |
 | **Logger** | `logger.*` | Thread-safe timestamped logging | `Logger` |

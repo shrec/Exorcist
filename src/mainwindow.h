@@ -114,6 +114,8 @@ class BuildToolbar;
 class DebugLaunchController;
 class HostServices;
 class ContributionRegistry;
+class LspBootstrap;
+class BuildDebugBootstrap;
 
 class MainWindow : public QMainWindow
 {
@@ -204,6 +206,7 @@ private:
     ReferencesPanel  *m_referencesPanel;
     SymbolOutlinePanel *m_symbolPanel;
     TerminalPanel   *m_terminal;
+    LspBootstrap     *m_lspBootstrap = nullptr;
     ClangdManager    *m_clangd;
     LspClient        *m_lspClient;
     QString           m_currentFolder;
@@ -290,6 +293,7 @@ private:
     RemoteFilePanel          *m_remotePanel = nullptr;
     exdock::ExDockWidget      *m_remoteDock = nullptr;
     RemoteSyncService        *m_syncService = nullptr;
+    BuildDebugBootstrap      *m_buildDebugBootstrap = nullptr;
     ToolchainManager         *m_toolchainMgr = nullptr;
     CMakeIntegration         *m_cmakeIntegration = nullptr;
     BuildToolbar             *m_buildToolbar = nullptr;

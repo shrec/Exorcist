@@ -118,6 +118,10 @@ add_executable(exorcist WIN32
     agent/agentorchestrator.h
     agent/agentplatformbootstrap.cpp
     agent/agentplatformbootstrap.h
+    bootstrap/lspbootstrap.cpp
+    bootstrap/lspbootstrap.h
+    bootstrap/builddebugbootstrap.cpp
+    bootstrap/builddebugbootstrap.h
     agent/agentproviderregistry.cpp
     agent/agentproviderregistry.h
     agent/agentrequestrouter.cpp
