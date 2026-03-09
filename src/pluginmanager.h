@@ -66,6 +66,9 @@ public:
     /// Fire an event to all Lua plugins.
     void fireLuaEvent(const QString &eventName, const QStringList &args = {});
 
+    /// Get loaded Lua plugin info.
+    QVector<luabridge::LuaPluginInfo> loadedLuaScripts() const;
+
 private:
     bool tryLoadCAbi(const QString &filePath);
 

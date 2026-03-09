@@ -231,6 +231,8 @@ add_executable(exorcist WIN32
     plugininterface.h
     pluginmanager.cpp
     pluginmanager.h
+    plugin/plugingallerypanel.cpp
+    plugin/plugingallerypanel.h
     serviceregistry.cpp
     serviceregistry.h
     thememanager.cpp

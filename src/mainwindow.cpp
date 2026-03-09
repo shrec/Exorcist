@@ -79,6 +79,7 @@
 #include "mcp/mcpclient.h"
 #include "mcp/mcppanel.h"
 #include "mcp/mcptooladapter.h"
+#include "plugin/plugingallerypanel.h"
 #include "thememanager.h"
 #include "editor/diffviewerpanel.h"
 #include "editor/proposededitpanel.h"
@@ -936,6 +937,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     QAction *toggleSettingsAction  = viewMenu->addAction(tr("AI &Settings"));
     QAction *toggleMemoryAction    = viewMenu->addAction(tr("AI &Memory"));
     QAction *toggleMcpAction       = viewMenu->addAction(tr("&MCP Servers"));
+    QAction *togglePluginAction    = viewMenu->addAction(tr("E&xtensions"));
     QAction *toggleOutputAction    = viewMenu->addAction(tr("&Output / Build"));
     QAction *toggleDebugAction     = viewMenu->addAction(tr("&Debug panel"));
     QAction *toggleRemoteAction    = viewMenu->addAction(tr("&Remote / SSH"));
@@ -1009,6 +1011,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleMemoryAction->setChecked(false);
     toggleMcpAction->setCheckable(true);
     toggleMcpAction->setChecked(false);
+    togglePluginAction->setCheckable(true);
+    togglePluginAction->setChecked(false);
     toggleOutputAction->setCheckable(true);
     toggleOutputAction->setChecked(false);
     toggleDebugAction->setCheckable(true);
@@ -1217,6 +1221,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
         if (on) m_memoryBrowser->refresh();
     });
     connect(toggleMcpAction,    &QAction::toggled, this, dockToggle(m_mcpDock));
+    connect(togglePluginAction, &QAction::toggled, this, dockToggle(m_pluginDock));
     connect(toggleOutputAction, &QAction::toggled, this, dockToggle(m_outputDock));
     connect(toggleDebugAction,  &QAction::toggled, this, dockToggle(m_debugDock));
     connect(toggleRemoteAction, &QAction::toggled, this, dockToggle(m_remoteDock));
@@ -1242,6 +1247,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     syncAction(toggleTrajectoryAction, m_trajectoryDock);
     syncAction(toggleMemoryAction,     m_memoryDock);
     syncAction(toggleMcpAction,        m_mcpDock);
+    syncAction(togglePluginAction,     m_pluginDock);
     syncAction(toggleOutputAction,     m_outputDock);
     syncAction(toggleDebugAction,      m_debugDock);
     syncAction(toggleRemoteAction,     m_remoteDock);
@@ -1693,6 +1699,13 @@ void MainWindow::createDockWidgets()
     m_mcpDock->setDockId(QStringLiteral("McpDock"));
     m_mcpDock->setContentWidget(m_mcpPanel);
     m_dockManager->addDockWidget(m_mcpDock, SideBarArea::Right, /*startPinned=*/false);
+
+    // ── Plugin Gallery panel ──────────────────────────────────────────────
+    m_pluginGallery = new PluginGalleryPanel(this);
+    m_pluginDock    = new ExDockWidget(tr("Extensions"), this);
+    m_pluginDock->setDockId(QStringLiteral("PluginDock"));
+    m_pluginDock->setContentWidget(m_pluginGallery);
+    m_dockManager->addDockWidget(m_pluginDock, SideBarArea::Left, /*startPinned=*/false);
 
     // ── Output / Build panel ──────────────────────────────────────────────
     m_outputPanel = m_buildDebugBootstrap->outputPanel();
@@ -3172,6 +3185,10 @@ void MainWindow::loadPlugins()
     m_pluginManager = std::make_unique<PluginManager>();
     const QString pluginDir = QCoreApplication::applicationDirPath() + "/plugins";
     int loaded = m_pluginManager->loadPluginsFrom(pluginDir);
+
+    // Wire plugin gallery panel
+    if (m_pluginGallery)
+        m_pluginGallery->setPluginManager(m_pluginManager.get());
 
     // Create SDK host services for the new plugin interface
     m_hostServices = new HostServices(this, this);

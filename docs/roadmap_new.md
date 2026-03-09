@@ -79,7 +79,7 @@ Implement Chat UI stubs	✅ Done — ChatTranscriptView, ChatTurnWidget, ChatMar
 ProjectBrainService full implementation	✅ Done — ProjectBrainService persists rules/facts/sessions to .exorcist/ JSON files. BrainContextBuilder generates prompt text. MemorySuggestionEngine extracts facts from turns. MemoryBrowserPanel provides UI for browsing/editing facts, rules, and sessions.
 Tree-sitter migration plan	Research linking tree-sitter as a CMake ExternalProject. Prototype C++ grammar incremental highlighting. Compare output quality to current regex highlighter before committing.
 Remote SSH — end-to-end test	SshSession, SshConnectionManager, RemoteFilePanel — verify complete round-trip: connect → browse → edit → save.
-Extension/plugin browser UI	Allow users to discover and install Lua plugins. Add a PluginGallery panel backed by a simple JSON registry.
+Extension/plugin browser UI	✅ Done — PluginGalleryPanel implemented in src/plugin/ with Installed/Available tabs, search filter, detail panel, and install signaling. Integrated as "Extensions" dock in MainWindow with View menu toggle. Backed by JSON registry loading via loadRegistryFromFile().
 
 Phase 4 — Performance & Polish  Months 4+
 Goal: Match VS Code on performance benchmarks. Ship a 1.0 release-candidate.

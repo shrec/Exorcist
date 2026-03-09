@@ -248,3 +248,13 @@ void PluginManager::fireLuaEvent(const QString &eventName, const QStringList &ar
     if (m_luaEngine)
         m_luaEngine->fireEvent(eventName, args);
 }
+
+QVector<luabridge::LuaPluginInfo> PluginManager::loadedLuaScripts() const
+{
+    QVector<luabridge::LuaPluginInfo> result;
+    if (m_luaEngine) {
+        for (const auto &lp : m_luaEngine->plugins())
+            result.append(lp.info);
+    }
+    return result;
+}
