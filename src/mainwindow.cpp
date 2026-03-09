@@ -3295,6 +3295,10 @@ void MainWindow::loadPlugins()
     m_pluginManager->initializeAll(static_cast<IHostServices *>(m_hostServices));
     m_pluginManager->initializeAll(static_cast<QObject *>(m_services.get()));
 
+    // Load Lua script plugins from plugins/lua/ directory
+    const QString luaPluginDir = QCoreApplication::applicationDirPath() + "/plugins/lua";
+    m_pluginManager->loadLuaPluginsFrom(luaPluginDir, m_hostServices);
+
     // Process plugin manifests → wire contributions into the IDE
     for (const auto &lp : m_pluginManager->loadedPlugins()) {
         if (lp.manifest.hasContributions()) {

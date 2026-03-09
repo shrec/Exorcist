@@ -1,6 +1,7 @@
 #include "pluginmanager.h"
 #include "sdk/permissionguard.h"
 #include "sdk/cabi/cabi_bridge.h"
+#include "sdk/luajit/luascriptengine.h"
 
 #include <QDir>
 #include <QFile>
@@ -143,6 +144,9 @@ void PluginManager::shutdownAll()
         delete cp.library;
     }
     m_cabiLoaded.clear();
+
+    // Shutdown Lua script plugins.
+    m_luaEngine.reset();
 }
 
 const QStringList &PluginManager::errors() const
@@ -220,4 +224,20 @@ QList<IAgentProvider *> PluginManager::cabiProviders() const
             result.append(cp.bridge->providers());
     }
     return result;
+}
+
+int PluginManager::loadLuaPluginsFrom(const QString &path, IHostServices *host)
+{
+    m_luaEngine = std::make_unique<luabridge::LuaScriptEngine>(host, this);
+    const int count = m_luaEngine->loadPluginsFrom(path);
+    if (count > 0) {
+        m_luaEngine->initializeAll();
+        m_luaEngine->enableHotReload(path);
+    }
+    return count;
+}
+
+QStringList PluginManager::luaErrors() const
+{
+    return m_luaEngine ? m_luaEngine->errors() : QStringList();
 }

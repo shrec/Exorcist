@@ -162,6 +162,34 @@ it as a Qt `IAgentProvider` through `CAbiProviderAdapter`.
 **Loading**: `PluginManager` tries `QPluginLoader` first (Qt C++ plugins). On failure,
 it resolves `ex_plugin_*` symbols via `QLibrary` and creates a `CAbiPluginBridge`.
 
+### LuaJIT Scripting (`src/sdk/luajit/`)
+
+The LuaJIT layer provides **sandboxed Lua scripting** for lightweight automation
+plugins. Scripts cannot access FFI, io, os, or write to the editor — they are
+restricted to read-only operations and command registration.
+
+| File | Purpose |
+|------|---------|
+| `luascriptengine.h/cpp` | Engine: sandbox, memory limiter, hot reload, event dispatch |
+| `luahostapi.h/cpp` | Binds `IHostServices` into Lua as `ex.*` table hierarchy |
+
+**Key safety features:**
+- Per-plugin `lua_State` (no shared globals)
+- Custom allocator with per-plugin memory cap (default 16 MB)
+- Instruction count hook (10M limit) prevents infinite loops
+- `ffi`, `io`, `os`, `debug`, `package`, `require` all blocked
+- Permission-gated API access from `plugin.json`
+- Hot reload via `QFileSystemWatcher` with 300ms debounce
+- Traceback error handler on all `pcall` invocations
+
+**Lua API surface** (`ex.*`): commands, editor (read), notifications, workspace (read),
+git (read), diagnostics (read), logging, events, runtime/memory query.
+
+**Loading**: `PluginManager::loadLuaPluginsFrom()` scans `plugins/lua/*/` for
+subdirectories containing `plugin.json` + `main.lua`.
+
+See [docs/luajit.md](luajit.md) for full API reference and plugin authoring guide.
+
 ## Plugin Architecture
 
 Plugins implement `IPlugin` (from `plugininterface.h`) and optionally `IAgentPlugin`
@@ -180,6 +208,8 @@ passed during initialization. See `src/sdk/cabi/exorcist_plugin_api.h`.
 | Copilot | `plugins/copilot/` | GitHub Copilot AI provider |
 | Claude | `plugins/claude/` | Anthropic Claude AI provider |
 | Codex | `plugins/codex/` | OpenAI Codex AI provider |
+| Hello World | `plugins/lua/hello-world/` | Sample Lua plugin (commands, events) |
+| Word Count | `plugins/lua/word-count/` | Sample Lua plugin (text analysis) |
 
 Plugin extension interfaces (defined in `src/agent/`):
 

@@ -222,3 +222,28 @@ See [docs/debug.md](debug.md)
 3. Cancelable jobs — every background task has a cancel path
 4. Plugin isolation — exceptions in plugins must not crash the host
 5. Core has no UI dependency — `src/core/` is pure Qt (no Widgets)
+
+---
+
+## Phase 10 — Plugin SDK Tiers  ✅ Done
+
+### C ABI Plugin Layer
+- `exorcist_plugin_api.h` — stable C header with versioned ABI, ~40 host API callbacks
+- `exorcist_sdk.hpp` — C++ header-only wrapper (RAII, no Qt dependency)
+- `cabi_bridge.h/cpp` — host-side bridge: C vtable ↔ Qt/C++ IHostServices
+- AI provider registration via `ExAIProviderVTable` + `CAbiProviderAdapter`
+- PluginManager auto-fallback: QPluginLoader → QLibrary C ABI resolution
+
+### LuaJIT Scripting Runtime
+- LuaJIT v2.1 statically linked, sandboxed per-plugin `lua_State`
+- Custom allocator with per-plugin memory cap (default 16 MB, configurable)
+- Instruction count hook (10M limit) prevents infinite loops
+- Sandbox: FFI, io, os, debug, package, require all blocked
+- Permission-gated `ex.*` API: commands, editor.read, notifications, workspace.read, git.read, diagnostics.read, logging, events
+- `ex.runtime.memoryUsed()` / `memoryLimit()` — runtime memory introspection
+- Event bridge (`ex.events.on/off`) — subscribe to IDE events from Lua
+- Hot reload via QFileSystemWatcher (300ms debounce, per-plugin state reset)
+- Traceback error handler on all pcall invocations
+- 2 sample plugins: hello-world, word-count
+
+See [docs/luajit.md](luajit.md)

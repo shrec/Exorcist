@@ -212,3 +212,69 @@ int32_t ex_plugin_initialize(const ExHostAPI *api) {
     return 1;
 }
 ```
+
+## LuaJIT Script Plugins
+
+For lightweight automation and utilities, Exorcist supports **Lua script plugins**
+powered by LuaJIT v2.1. These run in a hardened sandbox with no file system,
+network, or FFI access.
+
+### Structure
+
+```
+plugins/lua/my-plugin/
+├── plugin.json    # manifest with id, name, permissions, memoryLimit
+└── main.lua       # entry script (must define initialize/shutdown)
+```
+
+### Manifest
+
+```json
+{
+    "id": "org.example.my-plugin",
+    "name": "My Plugin",
+    "version": "1.0.0",
+    "permissions": ["commands", "notifications", "editor.read"],
+    "memoryLimit": 8
+}
+```
+
+### Entry script
+
+```lua
+function initialize()
+    ex.commands.register("myPlugin.run", "My Plugin: Run", function()
+        local file = ex.editor.activeFile() or "(none)"
+        ex.notify.info("Current file: " .. file)
+    end)
+end
+
+function shutdown()
+    ex.log.info("Goodbye!")
+end
+```
+
+### Available API
+
+All functions are under the `ex` global table:
+
+| Module | Functions | Permission |
+|--------|-----------|------------|
+| `ex.commands` | `register(id, title, fn)`, `execute(id)` | `commands` |
+| `ex.editor` | `activeFile()`, `language()`, `selectedText()`, `cursorLine()`, `cursorColumn()` | `editor.read` |
+| `ex.notify` | `info(text)`, `warning(text)`, `error(text)`, `status(text, ms)` | `notifications` |
+| `ex.workspace` | `root()`, `readFile(path)`, `exists(path)` | `workspace.read` |
+| `ex.git` | `isRepo()`, `branch()`, `diff(staged)` | `git.read` |
+| `ex.diagnostics` | `errorCount()`, `warningCount()` | `diagnostics.read` |
+| `ex.log` | `debug(msg)`, `info(msg)`, `warning(msg)`, `error(msg)` | `logging` |
+| `ex.events` | `on(name, fn)`, `off(name)` | `events` |
+| `ex.runtime` | `memoryUsed()`, `memoryLimit()` | *(always available)* |
+
+### Safety
+
+- Per-plugin memory limit (default 16 MB, configurable)
+- Instruction count limit (10M) prevents infinite loops
+- `ffi`, `io`, `os`, `debug`, `package`, `require` all blocked
+- Hot reload on file change (QFileSystemWatcher + 300ms debounce)
+
+Full reference: [docs/luajit.md](luajit.md)

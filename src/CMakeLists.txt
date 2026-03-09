@@ -351,6 +351,10 @@ add_executable(exorcist WIN32
     sdk/cabi/exorcist_sdk.hpp
     sdk/cabi/cabi_bridge.h
     sdk/cabi/cabi_bridge.cpp
+    sdk/luajit/luascriptengine.h
+    sdk/luajit/luascriptengine.cpp
+    sdk/luajit/luahostapi.h
+    sdk/luajit/luahostapi.cpp
 )
 
 target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent libluajit)
@@ -369,5 +373,15 @@ if(WIN32 AND EXORCIST_DEPLOY_QT)
             --compiler-runtime
             "$<TARGET_FILE:exorcist>"
         VERBATIM
+    )
+endif()
+
+# Copy Lua script plugins to build output for testing
+if(EXISTS "${CMAKE_SOURCE_DIR}/plugins/lua")
+    add_custom_command(TARGET exorcist POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/plugins/lua"
+            "$<TARGET_FILE_DIR:exorcist>/plugins/lua"
+        COMMENT "Copying Lua script plugins..."
     )
 endif()

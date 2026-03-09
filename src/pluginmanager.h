@@ -17,6 +17,8 @@ class IAgentProvider;
 class PermissionGuardedHostServices;
 namespace cabi { class CAbiPluginBridge; }
 
+#include "sdk/luajit/luascriptengine.h"
+
 class PluginManager : public QObject
 {
 public:
@@ -55,6 +57,12 @@ public:
     /// Get AI providers from C ABI plugins.
     QList<IAgentProvider *> cabiProviders() const;
 
+    /// Load and initialize Lua script plugins from a directory.
+    int loadLuaPluginsFrom(const QString &path, IHostServices *host);
+
+    /// Errors from Lua script engine.
+    QStringList luaErrors() const;
+
 private:
     bool tryLoadCAbi(const QString &filePath);
 
@@ -62,4 +70,5 @@ private:
     QVector<LoadedCAbiPlugin> m_cabiLoaded;
     QStringList m_errors;
     std::vector<std::unique_ptr<PermissionGuardedHostServices>> m_permGuards;
+    std::unique_ptr<luabridge::LuaScriptEngine> m_luaEngine;
 };

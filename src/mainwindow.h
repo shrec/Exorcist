@@ -12,6 +12,7 @@
 #include "serviceregistry.h"
 
 namespace exdock { class ExDockWidget; class DockManager; }
+namespace luabridge { class LuaScriptEngine; }
 class QDialog;
 class QTabWidget;
 class QTreeView;
@@ -187,8 +188,9 @@ private:
     QLabel *m_branchLabel;
     QLabel *m_copilotStatusLabel;
 
-    std::unique_ptr<PluginManager>   m_pluginManager;
-    std::unique_ptr<ServiceRegistry> m_services;
+    std::unique_ptr<PluginManager>            m_pluginManager;
+    std::unique_ptr<luabridge::LuaScriptEngine> m_luaEngine;
+    std::unique_ptr<ServiceRegistry>            m_services;
     std::unique_ptr<IFileSystem>     m_fileSystem;
     SearchService    *m_searchService;
     AgentOrchestrator *m_agentOrchestrator;
