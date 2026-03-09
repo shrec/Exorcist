@@ -161,13 +161,17 @@ void LspClient::didClose(const QString &uri)
 
 // ── Requests ──────────────────────────────────────────────────────────────────
 
-void LspClient::requestCompletion(const QString &uri, int line, int character)
+void LspClient::requestCompletion(const QString &uri, int line, int character,
+                                  int triggerKind, const QString &triggerChar)
 {
     if (!m_initialized) return;
+    QJsonObject context{{"triggerKind", triggerKind}};
+    if (!triggerChar.isEmpty())
+        context["triggerCharacter"] = triggerChar;
     const int id = sendRequest("textDocument/completion", QJsonObject{
         {"textDocument", QJsonObject{{"uri", uri}}},
         {"position",     QJsonObject{{"line", line}, {"character", character}}},
-        {"context",      QJsonObject{{"triggerKind", 1}}},  // 1 = Invoked
+        {"context",      context},
     });
     m_pending[id] = {"textDocument/completion", uri, line, character};
 }
@@ -202,6 +206,16 @@ void LspClient::requestDefinition(const QString &uri, int line, int character)
     m_pending[id] = {"textDocument/definition", uri, line, character};
 }
 
+void LspClient::requestDeclaration(const QString &uri, int line, int character)
+{
+    if (!m_initialized) return;
+    const int id = sendRequest("textDocument/declaration", QJsonObject{
+        {"textDocument", QJsonObject{{"uri", uri}}},
+        {"position",     QJsonObject{{"line", line}, {"character", character}}},
+    });
+    m_pending[id] = {"textDocument/declaration", uri, line, character};
+}
+
 void LspClient::requestFormatting(const QString &uri, int tabSize, bool insertSpaces)
 {
     if (!m_initialized) return;
@@ -233,6 +247,23 @@ void LspClient::requestRangeFormatting(const QString &uri,
         }},
     });
     m_pending[id] = {"textDocument/rangeFormatting", uri, 0, 0};
+}
+
+void LspClient::requestOnTypeFormatting(const QString &uri, int line,
+                                        int character, const QString &ch,
+                                        int tabSize, bool insertSpaces)
+{
+    if (!m_initialized) return;
+    const int id = sendRequest("textDocument/onTypeFormatting", QJsonObject{
+        {"textDocument", QJsonObject{{"uri", uri}}},
+        {"position",     QJsonObject{{"line", line}, {"character", character}}},
+        {"ch",           ch},
+        {"options", QJsonObject{
+            {"tabSize",      tabSize},
+            {"insertSpaces", insertSpaces},
+        }},
+    });
+    m_pending[id] = {"textDocument/onTypeFormatting", uri, line, character};
 }
 
 void LspClient::requestReferences(const QString &uri, int line, int character,
@@ -311,12 +342,16 @@ void LspClient::handleResponse(int id, const QJsonValue &result,
     }
     else if (req.method == "textDocument/completion") {
         QJsonArray items;
+        bool isIncomplete = false;
         if (result.isArray()) {
             items = result.toArray();
         } else if (result.isObject()) {
-            items = result.toObject()["items"].toArray();
+            const QJsonObject obj = result.toObject();
+            items = obj["items"].toArray();
+            isIncomplete = obj["isIncomplete"].toBool(false);
         }
-        emit completionResult(req.uri, req.line, req.character, items);
+        emit completionResult(req.uri, req.line, req.character,
+                              items, isIncomplete);
     }
     else if (req.method == "textDocument/hover") {
         QString markdown;
@@ -343,7 +378,8 @@ void LspClient::handleResponse(int id, const QJsonValue &result,
                                  result.toObject());
     }
     else if (req.method == "textDocument/formatting" ||
-             req.method == "textDocument/rangeFormatting") {
+             req.method == "textDocument/rangeFormatting" ||
+             req.method == "textDocument/onTypeFormatting") {
         emit formattingResult(req.uri, result.toArray());
     }
     else if (req.method == "textDocument/definition") {
@@ -354,6 +390,15 @@ void LspClient::handleResponse(int id, const QJsonValue &result,
             locations = QJsonArray{result.toObject()};
         }
         emit definitionResult(req.uri, locations);
+    }
+    else if (req.method == "textDocument/declaration") {
+        QJsonArray locations;
+        if (result.isArray()) {
+            locations = result.toArray();
+        } else if (result.isObject()) {
+            locations = QJsonArray{result.toObject()};
+        }
+        emit declarationResult(req.uri, locations);
     }
     else if (req.method == "textDocument/references") {
         emit referencesResult(req.uri, result.toArray());

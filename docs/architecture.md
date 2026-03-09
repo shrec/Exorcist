@@ -32,7 +32,7 @@ concrete core classes.
 | **Editor** | `editor/` | Text editing, syntax highlighting, piece table, minimap | `EditorView`, `SyntaxHighlighter`, `PieceTableBuffer` |
 | **Language Intelligence** | `lsp/` | LSP client, Clangd lifecycle, completion, hover, diagnostics | `LspClient`, `ClangdManager`, `LspEditorBridge` |
 | **Terminal** | `terminal/` | ConPTY/PTY emulator, VT100/xterm, scrollback | `TerminalView`, `TerminalPanel` |
-| **Build System** | `build/` | Task runner, build profiles, problem matchers | `OutputPanel`, `RunPanel`, `TaskProfile` |
+| **Build System** | `build/` | Task runner, build profiles, problem matchers, toolchain detection, CMake integration, build toolbar, debug launch | `OutputPanel`, `RunPanel`, `TaskProfile`, `ToolchainManager`, `CMakeIntegration`, `BuildToolbar`, `DebugLaunchController` |
 | **Source Control** | `git/` | Git status, blame, diff, staging, branches | `GitService`, `GitPanel` |
 | **Search** | `search/` | Workspace search, file search, regex search | `SearchPanel`, `WorkspaceIndexer` |
 | **Project** | `project/` | Solution/project tree, workspace management | `ProjectManager`, `SolutionModel` |

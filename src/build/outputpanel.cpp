@@ -416,6 +416,12 @@ void OutputPanel::appendText(const QString &text, const QColor &color)
     m_output->verticalScrollBar()->setValue(m_output->verticalScrollBar()->maximum());
 }
 
+void OutputPanel::appendBuildLine(const QString &line, bool isError)
+{
+    parseLine(line);
+    appendText(line + QLatin1Char('\n'), isError ? QColor(Qt::red) : QColor());
+}
+
 void OutputPanel::clear()
 {
     m_output->clear();

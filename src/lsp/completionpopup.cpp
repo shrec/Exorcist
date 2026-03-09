@@ -56,11 +56,15 @@ CompletionPopup::CompletionPopup(QWidget *parent)
     setMinimumWidth(300);
     setMaximumHeight(240);
     hide();
+
+    connect(m_list, &QListWidget::itemClicked,
+            this, [this](QListWidgetItem *) { acceptCurrent(); });
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-void CompletionPopup::showForEditor(EditorView *editor, const QJsonArray &items)
+void CompletionPopup::showForEditor(EditorView *editor, const QJsonArray &items,
+                                    bool isIncomplete)
 {
     if (m_editor && m_editor != editor)
         m_editor->removeEventFilter(this);
@@ -69,6 +73,7 @@ void CompletionPopup::showForEditor(EditorView *editor, const QJsonArray &items)
     m_editor->installEventFilter(this);
 
     m_items.clear();
+    m_isIncomplete = isIncomplete;
     for (const QJsonValue &v : items) {
         const QJsonObject obj = v.toObject();
         Item item;
@@ -108,7 +113,7 @@ void CompletionPopup::filterByPrefix(const QString &prefix)
     m_list->clear();
     const QString lp = prefix.toLower();
     for (const Item &item : std::as_const(m_items)) {
-        if (lp.isEmpty() || item.filterText.toLower().startsWith(lp)) {
+        if (lp.isEmpty() || item.filterText.toLower().contains(lp)) {
             auto *wi = new QListWidgetItem(
                 kindLabel(item.kind) + "  " + item.label, m_list);
             wi->setData(Qt::UserRole,     item.insertText);

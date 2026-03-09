@@ -23,8 +23,8 @@ public:
         : QWidget(parent)
     {
         m_layout = new QVBoxLayout(this);
-        m_layout->setContentsMargins(20, 40, 20, 20);
-        m_layout->setSpacing(12);
+        m_layout->setContentsMargins(24, 0, 24, 20);
+        m_layout->setSpacing(10);
         m_layout->setAlignment(Qt::AlignCenter);
 
         showState(State::Default);
@@ -64,13 +64,7 @@ public:
                 State::Offline);
             break;
         case State::NoProvider:
-            buildBannerState(
-                QStringLiteral("\u2699"),
-                tr("No Provider Configured"),
-                tr("Configure an AI provider to get started.\n"
-                   "Copilot, Claude, and Codex plugins are supported."),
-                ChatTheme::FgDimmed,
-                State::NoProvider);
+            buildDefaultWelcome(true);
             break;
         }
     }
@@ -90,48 +84,45 @@ private:
         }
     }
 
-    void buildDefaultWelcome()
+    void buildDefaultWelcome(bool disabled = false)
     {
-        // Icon
+        m_layout->addStretch();
+
+        // Sparkle icon (VS Code uses a ✦ sparkle)
         auto *icon = new QLabel(this);
-        icon->setText(QStringLiteral("\u2728"));
-        icon->setStyleSheet(QStringLiteral("font-size:48px;"));
+        icon->setText(QStringLiteral("\u2726"));
+        icon->setStyleSheet(QStringLiteral("font-size:32px; color:%1;")
+            .arg(disabled ? ChatTheme::FgDimmed : ChatTheme::FgPrimary));
         icon->setAlignment(Qt::AlignCenter);
         m_layout->addWidget(icon);
 
         // Title
-        auto *title = new QLabel(tr("Exorcist AI Assistant"), this);
+        auto *title = new QLabel(disabled ? tr("No Provider Configured") : tr("Ask Copilot"), this);
         title->setStyleSheet(
-            QStringLiteral("color:%1; font-size:18px; font-weight:600;")
-                .arg(ChatTheme::FgPrimary));
+            QStringLiteral("color:%1; font-size:15px; font-weight:600;")
+                .arg(disabled ? ChatTheme::FgDimmed : ChatTheme::FgPrimary));
         title->setAlignment(Qt::AlignCenter);
         m_layout->addWidget(title);
 
         // Subtitle
         auto *subtitle = new QLabel(
-            tr("Ask questions about your code, generate edits,\n"
-               "or let the agent work autonomously."),
+            disabled
+                ? tr("Configure an AI provider to get started.")
+                : tr("Pick a suggestion or just start typing"),
             this);
         subtitle->setWordWrap(true);
         subtitle->setAlignment(Qt::AlignCenter);
         subtitle->setStyleSheet(
-            QStringLiteral("color:%1; font-size:13px;").arg(ChatTheme::FgSecondary));
+            QStringLiteral("color:%1; font-size:12px;").arg(ChatTheme::FgSecondary));
         m_layout->addWidget(subtitle);
 
-        m_layout->addSpacing(16);
+        m_layout->addSpacing(12);
 
-        // Suggestion chips
-        auto *suggestionsLabel = new QLabel(tr("Try asking:"), this);
-        suggestionsLabel->setStyleSheet(
-            QStringLiteral("color:%1; font-size:12px; font-weight:600;")
-                .arg(ChatTheme::FgDimmed));
-        suggestionsLabel->setAlignment(Qt::AlignCenter);
-        m_layout->addWidget(suggestionsLabel);
-
+        // Suggestion chips (VS Code style pills)
         const QStringList suggestions = {
-            tr("Explain this codebase"),
-            tr("Find and fix bugs in this file"),
-            tr("Add unit tests for the selected code"),
+            tr("/explain Explain this codebase"),
+            tr("/fix Find and fix bugs in this file"),
+            tr("/tests Add unit tests for the selected code"),
             tr("Refactor the selected function"),
         };
 
@@ -143,15 +134,17 @@ private:
             btn->setStyleSheet(
                 QStringLiteral("QToolButton {"
                               "  color:%1; background:%2; border:1px solid %3;"
-                              "  border-radius:8px; padding:8px 16px;"
+                              "  border-radius:14px; padding:6px 14px;"
                               "  font-size:12px; text-align:left;"
                               "}"
                               "QToolButton:hover {"
                               "  background:%4; border-color:%5;"
                               "}")
-                    .arg(ChatTheme::FgPrimary, ChatTheme::InputBg,
-                         ChatTheme::Border, ChatTheme::PanelBg,
+                    .arg(disabled ? ChatTheme::FgDimmed : ChatTheme::FgPrimary,
+                         ChatTheme::InputBg,
+                         ChatTheme::Border, ChatTheme::HoverBg,
                          ChatTheme::FgDimmed));
+            btn->setEnabled(!disabled);
             const auto msg = text;
             connect(btn, &QToolButton::clicked, this, [this, msg]() {
                 emit suggestionClicked(msg);

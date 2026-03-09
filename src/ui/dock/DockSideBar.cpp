@@ -19,7 +19,10 @@ DockSideBar::DockSideBar(SideBarArea area, QWidget *parent)
         m_layout = new QHBoxLayout(this);
         setFixedHeight(34);
     }
-    m_layout->setContentsMargins(0, 4, 0, 0);
+    if (vertical)
+        m_layout->setContentsMargins(0, 4, 0, 0);
+    else
+        m_layout->setContentsMargins(4, 0, 0, 0);
     m_layout->setSpacing(4);
     m_layout->addStretch();
 

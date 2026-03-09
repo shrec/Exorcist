@@ -40,10 +40,12 @@ public:
     void didClose(const QString &uri);
 
     // ── Requests (async — results arrive via signals) ─────────────────────
-    void requestCompletion(const QString &uri, int line, int character);
+    void requestCompletion(const QString &uri, int line, int character,
+                           int triggerKind = 1, const QString &triggerChar = {});
     void requestHover(const QString &uri, int line, int character);
     void requestSignatureHelp(const QString &uri, int line, int character);
     void requestDefinition(const QString &uri, int line, int character);
+    void requestDeclaration(const QString &uri, int line, int character);
 
     // Format whole document
     void requestFormatting(const QString &uri, int tabSize = 4,
@@ -53,6 +55,11 @@ public:
                                 int startLine, int startChar,
                                 int endLine,   int endChar,
                                 int tabSize = 4, bool insertSpaces = true);
+
+    // Format on type (triggered by \n, }, ; etc.)
+    void requestOnTypeFormatting(const QString &uri, int line, int character,
+                                 const QString &ch, int tabSize = 4,
+                                 bool insertSpaces = true);
 
     void requestReferences(const QString &uri, int line, int character,
                            bool includeDeclaration = true);
@@ -71,13 +78,14 @@ signals:
 
     // Results — uri matches the request uri
     void completionResult(const QString &uri, int line, int character,
-                          const QJsonArray &items);
+                          const QJsonArray &items, bool isIncomplete);
     void hoverResult(const QString &uri, int line, int character,
                      const QString &markdown);
     void signatureHelpResult(const QString &uri, int line, int character,
                              const QJsonObject &result);
     void formattingResult(const QString &uri, const QJsonArray &textEdits);
     void definitionResult(const QString &uri, const QJsonArray &locations);
+    void declarationResult(const QString &uri, const QJsonArray &locations);
     void referencesResult(const QString &uri, const QJsonArray &locations);
     void renameResult(const QString &uri, const QJsonObject &workspaceEdit);
     void documentSymbolsResult(const QString &uri, const QJsonArray &symbols);

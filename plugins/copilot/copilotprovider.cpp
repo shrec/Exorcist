@@ -557,10 +557,17 @@ ModelInfo CopilotProvider::parseModelJson(const QJsonObject &obj) const
     mi.capabilities.maxOutputTokens         = limits[QLatin1String("max_output_tokens")].toInt(0);
     mi.capabilities.maxContextWindowTokens  = limits[QLatin1String("max_context_window_tokens")].toInt(0);
 
-    // Billing
-    const QJsonObject billing = obj[QLatin1String("billing")].toObject();
+    // Billing — check both "billing" and "policy" keys (API may use either)
+    QJsonObject billing = obj[QLatin1String("billing")].toObject();
+    if (billing.isEmpty())
+        billing = obj[QLatin1String("policy")].toObject();
     mi.billing.isPremium  = billing[QLatin1String("is_premium")].toBool(false);
-    mi.billing.multiplier = billing[QLatin1String("multiplier")].toDouble(1.0);
+    mi.billing.multiplier = billing[QLatin1String("multiplier")].toDouble(0.0);
+
+    // Debug: dump policy object to understand real structure
+    const QJsonObject policy = obj[QLatin1String("policy")].toObject();
+    qCInfo(lcCopilot) << "Model:" << mi.id
+                      << "policy:" << QJsonDocument(policy).toJson(QJsonDocument::Compact);
 
     // Supported endpoints
     for (const auto &ep : obj[QLatin1String("supported_endpoints")].toArray())

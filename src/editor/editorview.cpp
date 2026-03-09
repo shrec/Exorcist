@@ -249,6 +249,7 @@ void EditorView::setMinimapVisible(bool visible)
     m_minimapVisible = visible;
     if (m_minimap)
         m_minimap->setVisible(visible);
+    updateLineNumberAreaWidth(0);   // refresh right viewport margin
 }
 
 void EditorView::setLargeFilePreview(const QString &text, bool isPartial)
@@ -318,7 +319,8 @@ int EditorView::lineNumberAreaWidth() const
 void EditorView::updateLineNumberAreaWidth(int)
 {
     const int w = lineNumberAreaWidth();
-    setViewportMargins(w, 0, 0, 0);
+    const int rightMargin = (m_minimap && m_minimap->isVisible()) ? m_minimap->width() : 0;
+    setViewportMargins(w, 0, rightMargin, 0);
     // setViewportMargins shrinks the viewport but does NOT trigger resizeEvent on
     // the editor, so the LineNumberArea overlay must be repositioned explicitly.
     const QRect cr = contentsRect();
@@ -404,6 +406,13 @@ void EditorView::keyPressEvent(QKeyEvent *event)
     // F12 — Go to Definition
     if (event->key() == Qt::Key_F12 && event->modifiers() == Qt::NoModifier) {
         emit goToDefinitionRequested();
+        event->accept();
+        return;
+    }
+
+    // Ctrl+F12 — Go to Declaration
+    if (event->key() == Qt::Key_F12 && event->modifiers() == Qt::ControlModifier) {
+        emit goToDeclarationRequested();
         event->accept();
         return;
     }
@@ -988,75 +997,162 @@ void EditorView::paintEvent(QPaintEvent *event)
 
 void EditorView::contextMenuEvent(QContextMenuEvent *event)
 {
+    // Move cursor to click position so include detection & LSP work on the right line
+    QTextCursor clickCursor = cursorForPosition(event->pos());
+    if (!textCursor().hasSelection())
+        setTextCursor(clickCursor);
+
     QMenu *menu = createStandardContextMenu();
+    const bool hasSelection = textCursor().hasSelection();
+    const QString lang = m_languageId;
 
-    menu->addSeparator();
+    // Languages that have LSP support (clangd)
+    const bool hasLsp = (lang == QLatin1String("cpp") || lang == QLatin1String("c"));
+    // C/C++ family for #include
+    const bool isCpp  = hasLsp;
 
-    // Go to Definition (F12)
-    QAction *gotoDef = menu->addAction(tr("Go to Definition\tF12"));
-    connect(gotoDef, &QAction::triggered, this, &EditorView::goToDefinitionRequested);
-
-    // Find All References (Shift+F12)
-    QAction *findRefs = menu->addAction(tr("Find All References\tShift+F12"));
-    connect(findRefs, &QAction::triggered, this, &EditorView::findReferencesRequested);
-
-    // Rename Symbol (F2)
-    QAction *rename = menu->addAction(tr("Rename Symbol\tF2"));
-    connect(rename, &QAction::triggered, this, &EditorView::renameSymbolRequested);
-
-    menu->addSeparator();
-
-    // Format Document (Ctrl+Shift+F)
-    QAction *format = menu->addAction(tr("Format Document\tCtrl+Shift+F"));
-    connect(format, &QAction::triggered, this, &EditorView::formatDocumentRequested);
-
-    // Find / Replace (Ctrl+F)
-    QAction *findReplace = menu->addAction(tr("Find / Replace\tCtrl+F"));
-    connect(findReplace, &QAction::triggered, this, &EditorView::showFindBar);
-
-    // Open #include file
-    const QString includePath = includePathUnderCursor();
-    if (!includePath.isEmpty()) {
-        menu->addSeparator();
-        QAction *openInclude = menu->addAction(tr("Open \"%1\"").arg(includePath));
-        connect(openInclude, &QAction::triggered, this, [this, includePath]() {
-            emit openIncludeRequested(includePath);
-        });
-    }
-
-    // AI-powered actions
+    // ── AI actions (top, like VS) ─────────────────────────────────────────
     {
-        menu->addSeparator();
-        QMenu *aiMenu = menu->addMenu(tr("Copilot"));
+        menu->insertSeparator(menu->actions().isEmpty() ? nullptr : menu->actions().first());
+
+        QMenu *aiMenu = new QMenu(tr("Copilot"), menu);
         const QString sel = textCursor().selectedText();
         const QString fp  = property("filePath").toString();
-        const QString lang = property("languageId").toString();
 
         QAction *explainAct = aiMenu->addAction(tr("Explain This"));
         connect(explainAct, &QAction::triggered, this, [this, sel, fp, lang]() {
             emit aiExplainRequested(sel, fp, lang);
         });
-
         QAction *reviewAct = aiMenu->addAction(tr("Review This"));
         connect(reviewAct, &QAction::triggered, this, [this, sel, fp, lang]() {
             emit aiReviewRequested(sel, fp, lang);
         });
-
         QAction *fixAct = aiMenu->addAction(tr("Fix This"));
         connect(fixAct, &QAction::triggered, this, [this, sel, fp, lang]() {
             emit aiFixRequested(sel, fp, lang);
         });
-
         QAction *testAct = aiMenu->addAction(tr("Generate Tests"));
         connect(testAct, &QAction::triggered, this, [this, sel, fp, lang]() {
             emit aiTestRequested(sel, fp, lang);
         });
-
         QAction *docAct = aiMenu->addAction(tr("Add Documentation"));
         connect(docAct, &QAction::triggered, this, [this, sel, fp, lang]() {
             emit aiDocRequested(sel, fp, lang);
         });
+
+        menu->insertMenu(menu->actions().first(), aiMenu);
     }
+
+    menu->addSeparator();
+
+    // ── Navigation (LSP-dependent) ────────────────────────────────────────
+    if (hasLsp) {
+        QAction *gotoDef = menu->addAction(tr("Go to Definition\tF12"));
+        connect(gotoDef, &QAction::triggered, this, &EditorView::goToDefinitionRequested);
+
+        QAction *gotoDecl = menu->addAction(tr("Go to Declaration\tCtrl+F12"));
+        connect(gotoDecl, &QAction::triggered, this, &EditorView::goToDeclarationRequested);
+
+        QAction *peekDef = menu->addAction(tr("Peek Definition\tAlt+F12"));
+        connect(peekDef, &QAction::triggered, this, &EditorView::goToDefinitionRequested);
+
+        QAction *findRefs = menu->addAction(tr("Find All References\tShift+F12"));
+        connect(findRefs, &QAction::triggered, this, &EditorView::findReferencesRequested);
+
+        QAction *rename = menu->addAction(tr("Rename Symbol\tF2"));
+        connect(rename, &QAction::triggered, this, &EditorView::renameSymbolRequested);
+    }
+
+    // Open #include file (C/C++ only)
+    if (isCpp) {
+        const QString includePath = includePathUnderCursor();
+        if (!includePath.isEmpty()) {
+            QAction *openInclude = menu->addAction(tr("Open \"%1\"").arg(includePath));
+            connect(openInclude, &QAction::triggered, this, [this, includePath]() {
+                emit openIncludeRequested(includePath);
+            });
+        }
+    }
+
+    menu->addSeparator();
+
+    // ── Edit operations ───────────────────────────────────────────────────
+    if (hasLsp) {
+        QAction *format = menu->addAction(tr("Format Document\tCtrl+Shift+F"));
+        connect(format, &QAction::triggered, this, &EditorView::formatDocumentRequested);
+    }
+
+    // Toggle Comment (Ctrl+/) — determine comment prefix by language
+    {
+        QString commentPrefix = QStringLiteral("// ");
+        if (lang == QLatin1String("python") || lang == QLatin1String("shellscript")
+            || lang == QLatin1String("yaml") || lang == QLatin1String("cmake")
+            || lang == QLatin1String("ruby") || lang == QLatin1String("powershell"))
+            commentPrefix = QStringLiteral("# ");
+        else if (lang == QLatin1String("html") || lang == QLatin1String("xml"))
+            commentPrefix = QStringLiteral("<!-- ");  // simplified
+        else if (lang == QLatin1String("lua"))
+            commentPrefix = QStringLiteral("-- ");
+        else if (lang == QLatin1String("sql"))
+            commentPrefix = QStringLiteral("-- ");
+
+        const QString pfx = commentPrefix.trimmed(); // "//" or "#" for matching
+
+        QAction *commentAct = menu->addAction(tr("Toggle Comment\tCtrl+/"));
+        connect(commentAct, &QAction::triggered, this, [this, pfx, commentPrefix]() {
+            QTextCursor cur = textCursor();
+            cur.beginEditBlock();
+            int startBlock = document()->findBlock(cur.selectionStart()).blockNumber();
+            int endBlock   = document()->findBlock(cur.selectionEnd()).blockNumber();
+
+            bool allCommented = true;
+            for (int i = startBlock; i <= endBlock; ++i) {
+                const QString text = document()->findBlockByNumber(i).text().trimmed();
+                if (!text.startsWith(pfx)) {
+                    allCommented = false;
+                    break;
+                }
+            }
+
+            for (int i = startBlock; i <= endBlock; ++i) {
+                QTextBlock block = document()->findBlockByNumber(i);
+                QTextCursor bc(block);
+                if (allCommented) {
+                    int pos = block.text().indexOf(pfx);
+                    if (pos >= 0) {
+                        bc.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, pos);
+                        bc.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor, pfx.length());
+                        bc.removeSelectedText();
+                        // Remove trailing space
+                        if (block.text().length() > pos
+                            && block.text().at(pos) == QLatin1Char(' ')) {
+                            QTextCursor sc(block);
+                            sc.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, pos);
+                            sc.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor, 1);
+                            sc.removeSelectedText();
+                        }
+                    }
+                } else {
+                    bc.movePosition(QTextCursor::StartOfBlock);
+                    bc.insertText(commentPrefix);
+                }
+            }
+            cur.endEditBlock();
+        });
+    }
+
+    // Find / Replace (Ctrl+F)
+    QAction *findReplace = menu->addAction(tr("Find / Replace\tCtrl+F"));
+    connect(findReplace, &QAction::triggered, this, &EditorView::showFindBar);
+
+    menu->addSeparator();
+
+    // ── Debug ─────────────────────────────────────────────────────────────
+    QAction *bpAct = menu->addAction(tr("Toggle Breakpoint\tF9"));
+    connect(bpAct, &QAction::triggered, this, [this]() {
+        int line = textCursor().blockNumber() + 1;
+        toggleBreakpoint(line);
+    });
 
     menu->exec(event->globalPos());
     delete menu;

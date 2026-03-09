@@ -111,10 +111,9 @@ private:
     void connectOrchestrator();
     void connectController();
     void connectTranscript();
-    void refreshProviderList();
     void refreshModelList();
-    void setProviderTabActive(const QString &id);
     void showWelcomeOrTranscript();
+    void updateSessionTitle();
     void startRequest(const QString &text, int mode, const QString &slashCmd = {});
     void showChangesBar(int editCount);
     void hideChangesBar();
@@ -135,9 +134,10 @@ private:
 
     // UI
     QVBoxLayout           *m_rootLayout       = nullptr;
-    QWidget               *m_providerTabBar   = nullptr;
-    QHBoxLayout           *m_providerTabLayout= nullptr;
-    QList<QToolButton *>   m_providerTabs;
+    QWidget               *m_headerBar        = nullptr;
+    QLabel                *m_sessionTitleLabel = nullptr;
+    QToolButton           *m_newSessionHeaderBtn = nullptr;
+    QToolButton           *m_gearHeaderBtn    = nullptr;
 
     QStackedWidget        *m_stack            = nullptr;
     ChatWelcomeWidget     *m_welcome          = nullptr;

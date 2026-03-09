@@ -55,7 +55,7 @@ public:
         m_container = new QWidget(this);
         m_layout = new QVBoxLayout(m_container);
         m_layout->setContentsMargins(0, 0, 0, 0);
-        m_layout->setSpacing(0);
+        m_layout->setSpacing(2);
         m_layout->addStretch();  // keeps turns top-aligned
         setWidget(m_container);
 

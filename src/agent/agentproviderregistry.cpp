@@ -26,6 +26,10 @@ void AgentProviderRegistry::registerProvider(IAgentProvider *provider)
 
     provider->setParent(this);
     m_providers.append(provider);
+
+    connect(provider, &IAgentProvider::availabilityChanged,
+            this, &AgentProviderRegistry::providerAvailabilityChanged);
+
     qCInfo(lcProvReg) << "Registered provider:" << provider->id();
     emit providerRegistered(provider->id());
 

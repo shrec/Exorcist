@@ -112,6 +112,7 @@ signals:
     void ghostTextDismissed();
     void manualCompletionRequested();    // Alt+\ manual trigger
     void goToDefinitionRequested();
+    void goToDeclarationRequested();
     void findReferencesRequested();
     void renameSymbolRequested();
     void formatDocumentRequested();

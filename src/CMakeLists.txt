@@ -234,6 +234,14 @@ add_executable(exorcist WIN32
     build/outputpanel.h
     build/runlaunchpanel.cpp
     build/runlaunchpanel.h
+    build/toolchainmanager.cpp
+    build/toolchainmanager.h
+    build/cmakeintegration.cpp
+    build/cmakeintegration.h
+    build/buildtoolbar.cpp
+    build/buildtoolbar.h
+    build/debuglaunchcontroller.cpp
+    build/debuglaunchcontroller.h
     editor/filewatchservice.cpp
     editor/filewatchservice.h
     agent/contextpruner.cpp

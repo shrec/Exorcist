@@ -209,7 +209,7 @@ QRect DockOverlayPanel::computeGeometry(SideBarArea side,
                      prefH);
 
     default:
-        return QRect(mainGeo.left() + 22, mainGeo.top() + 30,
+        return QRect(mainGeo.left() + 34, mainGeo.top() + 30,
                      prefW, prefH);
     }
 }

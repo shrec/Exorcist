@@ -108,6 +108,10 @@
 #include "git/gitpanel.h"
 #include "build/outputpanel.h"
 #include "build/runlaunchpanel.h"
+#include "build/toolchainmanager.h"
+#include "build/cmakeintegration.h"
+#include "build/buildtoolbar.h"
+#include "build/debuglaunchcontroller.h"
 #include "editor/filewatchservice.h"
 #include "agent/contextpruner.h"
 #include "agent/autocompactor.h"
@@ -160,10 +164,15 @@
 #include "agent/tools/githubmcptools.h"
 
 #include <QCloseEvent>
+#include <QContextMenuEvent>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QMouseEvent>
+#include <QProcess>
+#include <QSet>
+#include <QTabBar>
 #include <QUrl>
 #include <QSettings>
 
@@ -247,9 +256,18 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(m_lspClient, &LspClient::initialized,
             this, &MainWindow::onLspInitialized);
+
+    // C/C++ toolchain detection and CMake integration.
+    m_toolchainMgr = new ToolchainManager(this);
+    m_cmakeIntegration = new CMakeIntegration(this);
+    m_cmakeIntegration->setToolchainManager(m_toolchainMgr);
+    m_debugLauncher = new DebugLaunchController(this);
+    m_debugLauncher->setCMakeIntegration(m_cmakeIntegration);
+    m_debugLauncher->setToolchainManager(m_toolchainMgr);
+
+    setupToolBar();
     setupUi();
     setupMenus();
-    setupToolBar();
     setupStatusBar();
 
     // ── Keymap Manager ────────────────────────────────────────────────────
@@ -686,6 +704,9 @@ void MainWindow::setupUi()
     m_tabs->setTabsClosable(true);
     m_tabs->setMovable(true);
 
+    // Middle-click closes tab
+    m_tabs->tabBar()->installEventFilter(this);
+
     m_breadcrumb = new BreadcrumbBar(this);
 
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
@@ -892,6 +913,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     // we use a lambda that defers the addAction until after the constructor.
     QAction *toggleProjectAction   = viewMenu->addAction(tr("&Project panel"));
     QAction *toggleSearchAction    = viewMenu->addAction(tr("&Search panel"));
+    toggleSearchAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F));
     QAction *toggleGitAction       = viewMenu->addAction(tr("&Git panel"));
     QAction *toggleTerminalAction  = viewMenu->addAction(tr("&Terminal panel"));
     QAction *toggleAiAction        = viewMenu->addAction(tr("&AI panel"));
@@ -987,10 +1009,17 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     auto *buildAct = new QAction(tr("&Build"), this);
     buildAct->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B));
     connect(buildAct, &QAction::triggered, this, [this]() {
+        // Prefer CMake integration if available
+        if (m_cmakeIntegration && m_cmakeIntegration->hasCMakeProject()) {
+            if (m_outputPanel) m_outputPanel->clear();
+            m_cmakeIntegration->build();
+            m_dockManager->showDock(m_outputDock, exdock::SideBarArea::Bottom);
+            return;
+        }
+        // Fallback: task profiles
         if (m_outputPanel) {
             m_outputPanel->setWorkingDirectory(m_currentFolder);
             const auto tasks = m_outputPanel->taskProfiles();
-            // Find default task, or fall back to combo selection
             int defaultIdx = -1;
             for (int i = 0; i < tasks.size(); ++i) {
                 if (tasks.at(i).isDefault) { defaultIdx = i; break; }
@@ -1001,7 +1030,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
             }
             auto *combo = m_outputPanel->findChild<QComboBox *>();
             if (combo) {
-                // Trigger the Run button click
                 m_outputPanel->runCommand(combo->currentText());
             }
             m_dockManager->showDock(m_outputDock, exdock::SideBarArea::Bottom);
@@ -1009,10 +1037,29 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     });
     addAction(buildAct);
 
-    // ── Run shortcut (F5) ─────────────────────────────────────────────────
-    auto *runAct = new QAction(tr("&Run"), this);
+    // ── Debug shortcut (F5) ───────────────────────────────────────────────
+    auto *runAct = new QAction(tr("&Debug"), this);
     runAct->setShortcut(QKeySequence(Qt::Key_F5));
     connect(runAct, &QAction::triggered, this, [this]() {
+        // If debugger is running and paused, continue
+        if (m_debugAdapter && m_debugAdapter->isRunning()) {
+            m_debugAdapter->continueExecution();
+            return;
+        }
+        // Prefer CMake-integrated debug launch
+        if (m_cmakeIntegration && m_cmakeIntegration->hasCMakeProject()
+            && m_buildToolbar) {
+            const QString target = m_buildToolbar->selectedTarget();
+            if (!target.isEmpty()) {
+                DebugLaunchConfig cfg;
+                cfg.executable = target;
+                cfg.workingDir = m_currentFolder;
+                m_debugLauncher->startDebugging(cfg);
+                m_dockManager->showDock(m_debugDock, exdock::SideBarArea::Bottom);
+                return;
+            }
+        }
+        // Fallback: run panel
         if (m_runPanel) {
             m_runPanel->setWorkingDirectory(m_currentFolder);
             m_runPanel->launch();
@@ -1021,10 +1068,35 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     });
     addAction(runAct);
 
+    // ── Run without debugging (Ctrl+F5) ───────────────────────────────────
+    auto *runNodebugAct = new QAction(tr("Run &Without Debugging"), this);
+    runNodebugAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
+    connect(runNodebugAct, &QAction::triggered, this, [this]() {
+        if (m_buildToolbar) {
+            const QString target = m_buildToolbar->selectedTarget();
+            if (!target.isEmpty()) {
+                DebugLaunchConfig cfg;
+                cfg.executable = target;
+                cfg.workingDir = m_currentFolder;
+                m_debugLauncher->startWithoutDebugging(cfg);
+                m_dockManager->showDock(m_runDock, exdock::SideBarArea::Bottom);
+                return;
+            }
+        }
+        if (m_runPanel) {
+            m_runPanel->setWorkingDirectory(m_currentFolder);
+            m_runPanel->launch();
+            m_dockManager->showDock(m_runDock, exdock::SideBarArea::Bottom);
+        }
+    });
+    addAction(runNodebugAct);
+
     // ── Stop shortcut (Shift+F5) ──────────────────────────────────────────
     auto *stopRunAct = new QAction(tr("Stop Run"), this);
     stopRunAct->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F5));
     connect(stopRunAct, &QAction::triggered, this, [this]() {
+        if (m_debugLauncher)
+            m_debugLauncher->stopDebugging();
         if (m_runPanel)
             m_runPanel->stopProcess();
     });
@@ -1097,7 +1169,14 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
         };
     };
     connect(toggleProjectAction,  &QAction::toggled, this, dockToggle(m_projectDock));
-    connect(toggleSearchAction,   &QAction::toggled, this, dockToggle(m_searchDock));
+    connect(toggleSearchAction,   &QAction::toggled, this, [this](bool on) {
+        if (on) {
+            m_dockManager->showDock(m_searchDock, m_dockManager->inferSide(m_searchDock));
+            m_searchPanel->activateSearch();
+        } else {
+            m_dockManager->closeDock(m_searchDock);
+        }
+    });
     connect(toggleGitAction,      &QAction::toggled, this, dockToggle(m_gitDock));
     connect(toggleTerminalAction, &QAction::toggled, this, dockToggle(m_terminalDock));
     connect(toggleAiAction,       &QAction::toggled, this, dockToggle(m_aiDock));
@@ -1170,6 +1249,12 @@ void MainWindow::setupToolBar()
     bar->addAction(tr("Save"), this, &MainWindow::saveCurrentTab);
     bar->addSeparator();
     bar->addAction(tr("Folder"), this, [this]() { openFolder(); });
+
+    // ── Build/Run/Debug toolbar ───────────────────────────────────────────
+    auto *buildBar = addToolBar(tr("Build"));
+    buildBar->setMovable(false);
+    m_buildToolbar = new BuildToolbar(this);
+    buildBar->addWidget(m_buildToolbar);
 }
 
 void MainWindow::setupStatusBar()
@@ -1178,7 +1263,7 @@ void MainWindow::setupStatusBar()
     m_encodingLabel   = new QLabel(tr("UTF-8"), this);
     m_backgroundLabel = new QLabel(this);
     m_branchLabel     = new QLabel(this);
-    m_copilotStatusLabel = new QLabel(tr("\u2713 AI Ready"), this);
+    m_copilotStatusLabel = new QLabel(tr("\u2014 No AI"), this);
     m_indexLabel = new QLabel(this);
     m_memoryLabel = new QLabel(this);
 
@@ -1196,7 +1281,7 @@ void MainWindow::setupStatusBar()
     m_indexLabel->setToolTip(tr("Workspace index status"));
     m_memoryLabel->setStyleSheet(labelStyle + QStringLiteral("color:#888;"));
     m_memoryLabel->setToolTip(tr("Process memory (working set)"));
-    m_copilotStatusLabel->setStyleSheet(labelStyle + QStringLiteral("color:#89d185;"));
+    m_copilotStatusLabel->setStyleSheet(labelStyle + QStringLiteral("color:#888;"));
     m_copilotStatusLabel->setCursor(Qt::PointingHandCursor);
     m_copilotStatusLabel->setToolTip(tr("AI Assistant status — click to open AI panel"));
     m_copilotStatusLabel->installEventFilter(this);
@@ -1233,9 +1318,8 @@ void MainWindow::createDockWidgets()
     // ── Create DockManager (takes over centralWidget) ─────────────────────
     m_dockManager = new DockManager(this, this);
 
-    // Reapply dock stylesheet when theme changes
-    connect(m_themeManager, &ThemeManager::themeChanged,
-            m_dockManager, &DockManager::applyDockStyleSheet);
+
+    // (ThemeManager connection deferred — m_themeManager is created later.)
 
     // Build the central editor container (breadcrumb + tab widget) and set
     // it as the center content BEFORE any dock panels are added, so that
@@ -1247,6 +1331,7 @@ void MainWindow::createDockWidgets()
     centralLayout->addWidget(m_breadcrumb);
     centralLayout->addWidget(m_tabs);
     m_dockManager->setCentralContent(centralContainer);
+
 
     // ── Project tree ──────────────────────────────────────────────────────
     m_projectDock = new ExDockWidget(tr("Project"), this);
@@ -1272,6 +1357,12 @@ void MainWindow::createDockWidgets()
     m_searchDock->setDockId(QStringLiteral("SearchDock"));
     m_searchDock->setContentWidget(m_searchPanel);
     m_dockManager->addDockWidget(m_searchDock, SideBarArea::Left, /*startPinned=*/false);
+
+    // Search result → navigate to file:line
+    connect(m_searchPanel, &SearchPanel::resultActivated,
+            this, [this](const QString &filePath, int line, int col) {
+        navigateToLocation(filePath, line - 1, col);  // panel uses 1-based
+    });
 
     m_gitPanel = new GitPanel(m_gitService, this);
     m_gitDock  = new ExDockWidget(tr("Git"), this);
@@ -1349,6 +1440,7 @@ void MainWindow::createDockWidgets()
     m_terminalDock->setContentWidget(m_terminal);
     m_dockManager->addDockWidget(m_terminalDock, SideBarArea::Bottom, /*startPinned=*/true);
 
+
     // ── AI ────────────────────────────────────────────────────────────────
     m_aiDock = new ExDockWidget(tr("AI"), this);
     m_aiDock->setDockId(QStringLiteral("AIDock"));
@@ -1356,6 +1448,7 @@ void MainWindow::createDockWidgets()
     // NOTE: AgentController is wired after it is created in the constructor.
     m_aiDock->setContentWidget(m_chatPanel);
     m_dockManager->addDockWidget(m_aiDock, SideBarArea::Right, /*startPinned=*/false);
+
 
     // ── Symbol outline ────────────────────────────────────────────────────
     m_symbolPanel = new SymbolOutlinePanel(this);
@@ -1426,6 +1519,7 @@ void MainWindow::createDockWidgets()
     m_debugDock->setContentWidget(m_debugPanel);
     m_dockManager->addDockWidget(m_debugDock, SideBarArea::Bottom, /*startPinned=*/false);
 
+
     // Navigate to source on stack frame double-click
     connect(m_debugPanel, &DebugPanel::navigateToSource,
             this, [this](const QString &filePath, int line) {
@@ -1470,6 +1564,103 @@ void MainWindow::createDockWidgets()
 
     // Wire breakpoint from editor to debug panel
     // (connected per-tab when tab is opened — see below in openFile)
+
+    // ── Build/Run/Debug wiring ────────────────────────────────────────────
+    m_debugLauncher->setDebugAdapter(m_debugAdapter);
+    m_buildToolbar->setCMakeIntegration(m_cmakeIntegration);
+    m_buildToolbar->setToolchainManager(m_toolchainMgr);
+    m_buildToolbar->setDebugAdapter(m_debugAdapter);
+
+    // Configure → CMake configure
+    connect(m_buildToolbar, &BuildToolbar::configureRequested, this, [this]() {
+        if (m_outputPanel) m_outputPanel->clear();
+        m_cmakeIntegration->configure();
+        m_dockManager->showDock(m_outputDock, exdock::SideBarArea::Bottom);
+    });
+
+    // After configure succeeds, restart clangd with compile_commands.json
+    // and refresh toolbar targets
+    connect(m_cmakeIntegration, &CMakeIntegration::configureFinished,
+            this, [this](bool success, const QString &) {
+        if (!success) return;
+        // Restart clangd with the new compile_commands.json path
+        const QString ccjson = m_cmakeIntegration->compileCommandsPath();
+        if (!ccjson.isEmpty()) {
+            m_clangd->stop();
+            QStringList args;
+            args << QStringLiteral("--compile-commands-dir=") + QFileInfo(ccjson).absolutePath();
+            m_clangd->start(m_currentFolder, args);
+            statusBar()->showMessage(tr("Clangd restarted with compile_commands.json"), 3000);
+        }
+        // Refresh targets (configure may create build dir with executables)
+        m_buildToolbar->refresh();
+    });
+
+    // Build → CMake build (output goes to Output panel)
+    connect(m_buildToolbar, &BuildToolbar::buildRequested, this, [this]() {
+        if (m_outputPanel) m_outputPanel->clear();
+        m_cmakeIntegration->build();
+        m_dockManager->showDock(m_outputDock, exdock::SideBarArea::Bottom);
+    });
+
+    // Run without debugging (Ctrl+F5)
+    connect(m_buildToolbar, &BuildToolbar::runRequested,
+            this, [this](const QString &exe) {
+        if (exe.isEmpty()) {
+            statusBar()->showMessage(tr("No launch target selected"), 3000);
+            return;
+        }
+        DebugLaunchConfig cfg;
+        cfg.executable = exe;
+        cfg.workingDir = m_currentFolder;
+        m_debugLauncher->startWithoutDebugging(cfg);
+        m_dockManager->showDock(m_runDock, exdock::SideBarArea::Bottom);
+    });
+
+    // Debug (F5)
+    connect(m_buildToolbar, &BuildToolbar::debugRequested,
+            this, [this](const QString &exe) {
+        if (exe.isEmpty()) {
+            statusBar()->showMessage(tr("No launch target selected"), 3000);
+            return;
+        }
+        DebugLaunchConfig cfg;
+        cfg.executable = exe;
+        cfg.workingDir = m_currentFolder;
+        m_debugLauncher->startDebugging(cfg);
+        m_dockManager->showDock(m_debugDock, exdock::SideBarArea::Bottom);
+    });
+
+    // Stop
+    connect(m_buildToolbar, &BuildToolbar::stopRequested, this, [this]() {
+        m_debugLauncher->stopDebugging();
+        if (m_cmakeIntegration->isBuilding())
+            m_cmakeIntegration->cancelBuild();
+    });
+
+    // Clean
+    connect(m_buildToolbar, &BuildToolbar::cleanRequested, this, [this]() {
+        m_cmakeIntegration->clean();
+    });
+
+    // Forward CMake build output to Output panel (with problem matching)
+    connect(m_cmakeIntegration, &CMakeIntegration::buildOutput,
+            this, [this](const QString &line, bool isError) {
+        if (m_outputPanel)
+            m_outputPanel->appendBuildLine(line, isError);
+    });
+
+    // Push build diagnostics to editor after CMake build finishes
+    connect(m_cmakeIntegration, &CMakeIntegration::buildFinished,
+            this, [this](bool, int) {
+        pushBuildDiagnostics();
+    });
+
+    // Forward launch errors to status bar
+    connect(m_debugLauncher, &DebugLaunchController::launchError,
+            this, [this](const QString &msg) {
+        statusBar()->showMessage(tr("Launch error: %1").arg(msg), 5000);
+    });
 
     // ── Remote / SSH panel ────────────────────────────────────────────────
     m_sshManager = new SshConnectionManager(this);
@@ -1521,6 +1712,9 @@ void MainWindow::createDockWidgets()
 
     // ── Theme Manager ─────────────────────────────────────────────────────
     m_themeManager = new ThemeManager(this);
+    // Wire theme → dock stylesheet (deferred from createDockWidgets)
+    connect(m_themeManager, &ThemeManager::themeChanged,
+            m_dockManager, &DockManager::applyDockStyleSheet);
 
     // ── Diff Viewer panel ─────────────────────────────────────────────────
     m_diffViewer = new DiffViewerPanel(this);
@@ -1881,7 +2075,6 @@ void MainWindow::openNewTab()
     int index = m_tabs->addTab(editor, tr("Untitled"));
     m_tabs->setCurrentIndex(index);
     updateEditorStatus(editor);
-    qInfo() << "  openNewTab: done";
 }
 
 
@@ -2033,7 +2226,7 @@ void MainWindow::openFile(const QString &path)
     }
 
     // Set language ID on the editor for inline chat / inline completion
-    const QString langId = editor->property("languageId").toString();
+    const QString langId = LspClient::languageIdForPath(path);
     editor->setLanguageId(langId);
 
     // Ctrl+I inline chat
@@ -2117,6 +2310,7 @@ void MainWindow::openFile(const QString &path)
 
     const QString title = QFileInfo(path).fileName();
     int index = m_tabs->addTab(editor, title);
+    m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
     m_tabs->setCurrentIndex(index);
 
     if (editor->isLargeFilePreview()) {
@@ -2166,7 +2360,87 @@ void MainWindow::openFolder(const QString &path)
     }
     m_currentFolder = root;
     m_terminal->setWorkingDirectory(root);
-    m_clangd->start(root);
+
+    // ── Toolchain & CMake detection ───────────────────────────────────────
+    // Run toolchain detection asynchronously (probes compilers in PATH).
+    // Clangd start is deferred until after CMake detection so we can pass
+    // --compile-commands-dir if compile_commands.json exists in a build dir.
+    QTimer::singleShot(0, this, [this, root]() {
+        m_toolchainMgr->detectAll();
+
+        const auto toolchains = m_toolchainMgr->toolchains();
+        if (!toolchains.isEmpty()) {
+            statusBar()->showMessage(
+                tr("Detected %1 toolchain(s): %2")
+                    .arg(toolchains.size())
+                    .arg(toolchains.first().displayName), 4000);
+        }
+
+        // Set up CMake integration if this is a CMake project
+        QStringList clangdArgs;
+        m_cmakeIntegration->setProjectRoot(root);
+        if (m_cmakeIntegration->hasCMakeProject()) {
+            m_cmakeIntegration->autoDetectConfigs();
+            m_buildToolbar->refresh();
+
+            // Find compile_commands.json — try active config first, then scan
+            QString ccjson = m_cmakeIntegration->compileCommandsPath();
+            if (ccjson.isEmpty()) {
+                // Scan common build dirs for compile_commands.json
+                const QStringList candidates = {
+                    QStringLiteral("build-llvm"), QStringLiteral("build"),
+                    QStringLiteral("build-debug"), QStringLiteral("build-release"),
+                    QStringLiteral("build-ci"), QStringLiteral("cmake-build-debug"),
+                };
+                for (const auto &d : candidates) {
+                    const QString p = root + QLatin1Char('/') + d
+                                    + QStringLiteral("/compile_commands.json");
+                    if (QFileInfo::exists(p)) { ccjson = p; break; }
+                }
+            }
+            if (!ccjson.isEmpty()) {
+                // Point clangd to the directory containing compile_commands.json
+                const QString ccDir = QFileInfo(ccjson).absolutePath();
+                clangdArgs << QStringLiteral("--compile-commands-dir=") + ccDir;
+
+                // Extract include paths for #include file opening
+                QFile ccFile(ccjson);
+                if (ccFile.open(QIODevice::ReadOnly)) {
+                    const QJsonArray arr = QJsonDocument::fromJson(ccFile.readAll()).array();
+                    if (!arr.isEmpty()) {
+                        const QString cmd = arr[0].toObject()[QStringLiteral("command")].toString();
+                        QSet<QString> seen;
+                        // Match -I<path>, -I <path>, -isystem <path>
+                        const auto parts = cmd.split(QLatin1Char(' '));
+                        for (int i = 0; i < parts.size(); ++i) {
+                            QString dir;
+                            if (parts[i].startsWith(QStringLiteral("-isystem")) && i + 1 < parts.size()) {
+                                dir = parts[i + 1];
+                                ++i;
+                            } else if (parts[i].startsWith(QStringLiteral("-I"))) {
+                                dir = parts[i].mid(2);
+                                if (dir.isEmpty() && i + 1 < parts.size()) {
+                                    dir = parts[++i];
+                                }
+                            }
+                            if (!dir.isEmpty() && !seen.contains(dir)) {
+                                seen.insert(dir);
+                                m_includePaths << QDir::cleanPath(dir);
+                            }
+                        }
+                        qWarning() << "Loaded" << m_includePaths.size() << "include paths from compile_commands.json";
+                    }
+                }
+            } else {
+                statusBar()->showMessage(
+                    tr("CMake project detected \u2014 click Configure to generate compile_commands.json"),
+                    6000);
+            }
+        }
+
+        // Start clangd (with compile_commands.json dir if available)
+        m_clangd->start(root, clangdArgs);
+    });
 
     // Load custom workspace theme (.exorcist/theme.json)
     {
@@ -2296,6 +2570,11 @@ void MainWindow::saveCurrentTab()
     EditorView *editor = currentEditor();
     if (!editor) return;
 
+    // Format on save: trigger LSP formatting before writing
+    auto *bridge = editor->findChild<LspEditorBridge *>();
+    if (bridge)
+        bridge->formatDocument();
+
     QString path = editor->property("filePath").toString();
     if (path.isEmpty()) {
         path = QFileDialog::getSaveFileName(this, tr("Save File"));
@@ -2310,7 +2589,9 @@ void MainWindow::saveCurrentTab()
     }
 
     const QString title = QFileInfo(path).fileName();
-    m_tabs->setTabText(m_tabs->currentIndex(), title);
+    const int idx = m_tabs->currentIndex();
+    m_tabs->setTabText(idx, title);
+    m_tabs->setTabToolTip(idx, QDir::toNativeSeparators(path));
     statusBar()->showMessage(tr("Saved %1").arg(title), 3000);
 }
 
@@ -2469,7 +2750,94 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         m_chatPanel->focusInput();
         return true;
     }
+
+    // Middle-click on tab bar → close that tab
+    if (watched == m_tabs->tabBar() && event->type() == QEvent::MouseButtonPress) {
+        auto *me = static_cast<QMouseEvent *>(event);
+        if (me->button() == Qt::MiddleButton) {
+            int idx = m_tabs->tabBar()->tabAt(me->pos());
+            if (idx >= 0) {
+                QWidget *widget = m_tabs->widget(idx);
+                m_tabs->removeTab(idx);
+                if (widget) widget->deleteLater();
+                return true;
+            }
+        }
+    }
+
+    // Right-click context menu on tab bar
+    if (watched == m_tabs->tabBar() && event->type() == QEvent::ContextMenu) {
+        auto *ce = static_cast<QContextMenuEvent *>(event);
+        int idx = m_tabs->tabBar()->tabAt(ce->pos());
+        if (idx >= 0)
+            showTabContextMenu(idx, ce->globalPos());
+        return true;
+    }
+
     return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::showTabContextMenu(int tabIndex, const QPoint &globalPos)
+{
+    QMenu menu(this);
+
+    const QString filePath =
+        m_tabs->widget(tabIndex)->property("filePath").toString();
+    const bool hasFile = !filePath.isEmpty();
+
+    // Save
+    QAction *saveAct = menu.addAction(tr("Save"), this, [this, tabIndex]() {
+        m_tabs->setCurrentIndex(tabIndex);
+        saveCurrentTab();
+    });
+    saveAct->setShortcut(QKeySequence::Save);
+    saveAct->setEnabled(hasFile || m_tabs->widget(tabIndex) != nullptr);
+
+    menu.addSeparator();
+
+    // Close
+    menu.addAction(tr("Close"), this, [this, tabIndex]() {
+        QWidget *w = m_tabs->widget(tabIndex);
+        m_tabs->removeTab(tabIndex);
+        if (w) w->deleteLater();
+    });
+
+    // Close All Tabs
+    menu.addAction(tr("Close All Tabs"), this, [this]() {
+        while (m_tabs->count() > 0) {
+            QWidget *w = m_tabs->widget(0);
+            m_tabs->removeTab(0);
+            if (w) w->deleteLater();
+        }
+    });
+
+    // Close Other Tabs
+    menu.addAction(tr("Close Other Tabs"), this, [this, tabIndex]() {
+        QWidget *keep = m_tabs->widget(tabIndex);
+        for (int i = m_tabs->count() - 1; i >= 0; --i) {
+            if (m_tabs->widget(i) != keep) {
+                QWidget *w = m_tabs->widget(i);
+                m_tabs->removeTab(i);
+                if (w) w->deleteLater();
+            }
+        }
+    });
+
+    menu.addSeparator();
+
+    // Copy Full Path
+    QAction *copyPathAct = menu.addAction(tr("Copy Full Path"), this, [filePath]() {
+        QGuiApplication::clipboard()->setText(QDir::toNativeSeparators(filePath));
+    });
+    copyPathAct->setEnabled(hasFile);
+
+    // Open Containing Folder
+    QAction *openFolderAct = menu.addAction(tr("Open Containing Folder"), this, [filePath]() {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(filePath).absolutePath()));
+    });
+    openFolderAct->setEnabled(hasFile);
+
+    menu.exec(globalPos);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -2489,7 +2857,7 @@ void MainWindow::createLspBridge(EditorView *editor, const QString &path)
     connect(bridge, &LspEditorBridge::navigateToLocation,
             this,   &MainWindow::navigateToLocation);
 
-    // Open #include files: resolve relative to current file, then project root
+    // Open #include files: resolve relative to current file, then src/, then project root
     connect(editor, &EditorView::openIncludeRequested,
             this, [this, path](const QString &includePath) {
         const QFileInfo fi(path);
@@ -2499,11 +2867,26 @@ void MainWindow::createLspBridge(EditorView *editor, const QString &path)
             openFile(QFileInfo(relPath).absoluteFilePath());
             return;
         }
-        // Try relative to project root
+        // Try relative to project root and common subdirectories
         if (!m_currentFolder.isEmpty()) {
-            const QString rootPath = m_currentFolder + "/" + includePath;
-            if (QFileInfo::exists(rootPath)) {
-                openFile(QFileInfo(rootPath).absoluteFilePath());
+            const QStringList searchDirs = {
+                m_currentFolder,
+                m_currentFolder + "/src",
+                m_currentFolder + "/include",
+            };
+            for (const QString &dir : searchDirs) {
+                const QString candidate = dir + "/" + includePath;
+                if (QFileInfo::exists(candidate)) {
+                    openFile(QFileInfo(candidate).absoluteFilePath());
+                    return;
+                }
+            }
+        }
+        // Try include paths from compile_commands.json (Qt, system headers, etc.)
+        for (const QString &dir : m_includePaths) {
+            const QString candidate = dir + "/" + includePath;
+            if (QFileInfo::exists(candidate)) {
+                openFile(QFileInfo(candidate).absoluteFilePath());
                 return;
             }
         }
@@ -2925,6 +3308,36 @@ void MainWindow::loadPlugins()
     if (loaded > 0) {
         statusBar()->showMessage(tr("Loaded %1 plugins").arg(loaded), 4000);
     }
+
+    // Update status bar when provider becomes available
+    connect(m_agentOrchestrator, &AgentOrchestrator::providerAvailabilityChanged,
+            this, [this](bool available) {
+        if (available) {
+            m_copilotStatusLabel->setText(tr("\u2713 AI Ready"));
+            m_copilotStatusLabel->setStyleSheet(QStringLiteral("padding: 0 8px; color:#89d185;"));
+            m_copilotStatusLabel->setToolTip(tr("AI Assistant — connected"));
+        } else {
+            m_copilotStatusLabel->setText(tr("\u26A0 AI Offline"));
+            m_copilotStatusLabel->setStyleSheet(QStringLiteral("padding: 0 8px; color:#f44747;"));
+            m_copilotStatusLabel->setToolTip(tr("AI provider not available — click to configure"));
+        }
+    });
+
+    // Update status bar when provider registers
+    connect(m_agentOrchestrator, &AgentOrchestrator::providerRegistered,
+            this, [this](const QString &) {
+        const auto *active = m_agentOrchestrator->activeProvider();
+        if (active) {
+            if (active->isAvailable()) {
+                m_copilotStatusLabel->setText(tr("\u2713 AI Ready"));
+                m_copilotStatusLabel->setStyleSheet(QStringLiteral("padding: 0 8px; color:#89d185;"));
+            } else {
+                m_copilotStatusLabel->setText(tr("\u2026 Connecting"));
+                m_copilotStatusLabel->setStyleSheet(QStringLiteral("padding: 0 8px; color:#75bfff;"));
+                m_copilotStatusLabel->setToolTip(tr("Connecting to AI provider..."));
+            }
+        }
+    });
 
     // Auto-show AI panel when at least one provider is available
     if (!m_agentOrchestrator->providers().isEmpty()) {

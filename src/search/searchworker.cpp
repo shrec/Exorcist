@@ -3,9 +3,13 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QRegularExpression>
-#include <QTextStream>
 
 #include "searchindex.h"
+
+namespace {
+constexpr int kMaxResults = 5000;       // Stop after this many matches
+constexpr qint64 kMaxFileSize = 1024 * 1024;  // Skip files > 1 MB
+}
 
 SearchWorker::SearchWorker(QObject *parent)
     : QObject(parent),
@@ -21,15 +25,24 @@ void SearchWorker::requestCancel()
 void SearchWorker::run(const QString &rootPath, const SearchQuery &query)
 {
     m_cancel.storeRelease(0);
-    const QStringList candidates = resolveCandidates(rootPath, query);
+
+    // Rebuild file index if root changed
+    if (m_indexRoot != rootPath || !m_index.isReady()) {
+        m_index.build(rootPath);
+        m_indexRoot = rootPath;
+    }
+
+    const QStringList candidates = m_index.allFiles();
 
     QRegularExpression regex;
-    const Qt::CaseSensitivity cs = query.caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
+    const Qt::CaseSensitivity cs = query.caseSensitive
+                                       ? Qt::CaseSensitive
+                                       : Qt::CaseInsensitive;
+
     if (query.mode == SearchMode::Regex) {
         QRegularExpression::PatternOptions opts;
-        if (!query.caseSensitive) {
+        if (!query.caseSensitive)
             opts |= QRegularExpression::CaseInsensitiveOption;
-        }
         regex = QRegularExpression(query.pattern, opts);
         if (!regex.isValid()) {
             emit finished();
@@ -38,39 +51,63 @@ void SearchWorker::run(const QString &rootPath, const SearchQuery &query)
     } else if (query.wholeWord) {
         const QString escaped = QRegularExpression::escape(query.pattern);
         QRegularExpression::PatternOptions opts;
-        if (!query.caseSensitive) {
+        if (!query.caseSensitive)
             opts |= QRegularExpression::CaseInsensitiveOption;
-        }
-        regex = QRegularExpression(QString("\\b%1\\b").arg(escaped), opts);
+        regex = QRegularExpression(QStringLiteral("\\b%1\\b").arg(escaped), opts);
     }
 
+    int totalMatches = 0;
+
     for (const QString &path : candidates) {
-        if (m_cancel.loadAcquire()) {
+        if (m_cancel.loadAcquire() || totalMatches >= kMaxResults)
             break;
-        }
 
         QFile file(path);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (file.size() > kMaxFileSize)
             continue;
-        }
+        if (!file.open(QIODevice::ReadOnly))
+            continue;
 
-        QTextStream stream(&file);
+        // Read file as raw bytes, scan line by line without full QString copy
+        const QByteArray data = file.readAll();
+        file.close();
+
         int lineNumber = 0;
-        while (!stream.atEnd() && !m_cancel.loadAcquire()) {
-            const QString line = stream.readLine();
+        int pos = 0;
+        const int dataSize = data.size();
+
+        while (pos < dataSize && !m_cancel.loadAcquire()
+               && totalMatches < kMaxResults) {
+            // Find end of line
+            int eol = data.indexOf('\n', pos);
+            if (eol < 0) eol = dataSize;
+
+            const int lineLen = eol - pos;
+            // Skip very long lines (minified files, etc.)
+            if (lineLen > 4096) {
+                pos = eol + 1;
+                ++lineNumber;
+                continue;
+            }
+
+            const QString line = QString::fromUtf8(data.constData() + pos, lineLen);
             ++lineNumber;
+            pos = eol + 1;
 
             if (query.mode == SearchMode::Literal && !query.wholeWord) {
-                int index = line.indexOf(query.pattern, 0, cs);
-                while (index >= 0) {
-                    emit matchFound(buildMatch(path, lineNumber, index + 1, line.trimmed()));
-                    index = line.indexOf(query.pattern, index + query.pattern.size(), cs);
+                int idx = line.indexOf(query.pattern, 0, cs);
+                if (idx >= 0) {
+                    emit matchFound(buildMatch(path, lineNumber, idx + 1,
+                                               line.trimmed()));
+                    ++totalMatches;
                 }
             } else {
-                QRegularExpressionMatchIterator it = regex.globalMatch(line);
-                while (it.hasNext()) {
-                    const QRegularExpressionMatch match = it.next();
-                    emit matchFound(buildMatch(path, lineNumber, match.capturedStart() + 1, line.trimmed()));
+                const QRegularExpressionMatch m = regex.match(line);
+                if (m.hasMatch()) {
+                    emit matchFound(buildMatch(path, lineNumber,
+                                               m.capturedStart() + 1,
+                                               line.trimmed()));
+                    ++totalMatches;
                 }
             }
         }
@@ -79,26 +116,14 @@ void SearchWorker::run(const QString &rootPath, const SearchQuery &query)
     emit finished();
 }
 
-QStringList SearchWorker::resolveCandidates(const QString &rootPath, const SearchQuery &query)
-{
-    if (m_indexRoot != rootPath || !m_index.isReady()) {
-        m_index.build(rootPath);
-        m_indexRoot = rootPath;
-    }
-
-    if (query.mode == SearchMode::Literal) {
-        return m_index.candidateFiles(query.pattern, query.caseSensitive);
-    }
-
-    return m_index.allFiles();
-}
-
-SearchMatch SearchWorker::buildMatch(const QString &path, int lineNumber, int column, const QString &preview) const
+SearchMatch SearchWorker::buildMatch(const QString &path, int lineNumber,
+                                     int column, const QString &preview) const
 {
     SearchMatch match;
     match.filePath = path;
     match.line = lineNumber;
     match.column = column;
-    match.preview = preview;
+    // Truncate long preview lines
+    match.preview = preview.length() > 200 ? preview.left(200) + "..." : preview;
     return match;
 }

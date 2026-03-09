@@ -23,10 +23,9 @@ public:
     explicit ChatFollowupsWidget(QWidget *parent = nullptr)
         : QWidget(parent)
     {
-        m_layout = new QHBoxLayout(this);
+        m_layout = new QVBoxLayout(this);
         m_layout->setContentsMargins(0, 6, 0, 2);
-        m_layout->setSpacing(6);
-        m_layout->addStretch();
+        m_layout->setSpacing(2);
     }
 
     void setFollowups(const QVector<ChatContentPart::FollowupItem> &items)
@@ -51,7 +50,6 @@ public:
             });
             m_layout->addWidget(btn);
         }
-        m_layout->addStretch();
     }
 
 signals:
@@ -62,28 +60,19 @@ private:
     {
         return QStringLiteral(
             "QToolButton {"
-            "  background: %1;"
-            "  color: %2;"
-            "  border: 1px solid %3;"
-            "  border-radius: 12px;"
-            "  padding: 4px 12px;"
+            "  background: transparent;"
+            "  color: %1;"
+            "  border: none;"
+            "  padding: 2px 0px;"
             "  font-size: 12px;"
+            "  text-align: left;"
             "}"
             "QToolButton:hover {"
-            "  background: %4;"
-            "  border-color: %5;"
-            "}"
-            "QToolButton:pressed {"
-            "  background: %6;"
-            "}"
-            "QToolButton:focus {"
-            "  outline: 1px solid %7;"
+            "  color: %2;"
+            "  text-decoration: underline;"
             "}")
-            .arg(ChatTheme::SecondaryBtnBg, ChatTheme::SecondaryBtnFg,
-                 ChatTheme::Border, ChatTheme::SecondaryBtnHover,
-                 ChatTheme::FgDimmed, ChatTheme::SecondaryBtnBg,
-                 ChatTheme::FocusOutline);
+            .arg(ChatTheme::LinkBlue, ChatTheme::AccentBlue);
     }
 
-    QHBoxLayout *m_layout = nullptr;
+    QVBoxLayout *m_layout = nullptr;
 };

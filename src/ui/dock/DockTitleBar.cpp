@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QStyleOption>
 #include <QToolButton>
 
 namespace exdock {
@@ -97,7 +98,12 @@ void DockTitleBar::mouseDoubleClickEvent(QMouseEvent *event)
 
 void DockTitleBar::paintEvent(QPaintEvent *)
 {
-    // Handled by stylesheet (exdock-title-bar)
+    // QWidget subclasses must explicitly paint styled background
+    // for QSS properties (background, border) to take effect.
+    QStyleOption opt;
+    opt.initFrom(this);
+    QPainter p(this);
+    style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
 }
 
 } // namespace exdock

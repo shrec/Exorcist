@@ -11,7 +11,7 @@ DockTabBar::DockTabBar(DockArea *area, QWidget *parent)
     : QTabBar(parent), m_area(area)
 {
     setObjectName(QStringLiteral("exdock-tabbar"));
-    setMovable(true);
+    setMovable(false);
     setTabsClosable(false);  // VS-style: close via title bar or context menu
     setExpanding(false);
     setElideMode(Qt::ElideRight);

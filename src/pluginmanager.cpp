@@ -45,6 +45,7 @@ int PluginManager::loadPluginsFrom(const QString &path)
         }
 
         m_loaded.push_back({plugin, loader});
+
     }
 
     return m_loaded.size();

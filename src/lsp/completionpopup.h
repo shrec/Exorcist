@@ -24,13 +24,17 @@ public:
     explicit CompletionPopup(QWidget *parent = nullptr);
 
     // Show at cursor position in `editor`, fill with LSP completion items.
-    void showForEditor(EditorView *editor, const QJsonArray &items);
+    void showForEditor(EditorView *editor, const QJsonArray &items,
+                       bool isIncomplete = false);
 
     // Update the visible list when the user has typed more chars since show().
     void filterByPrefix(const QString &prefix);
 
     bool isVisible() const;
     void dismiss();
+
+    // True when the last server response was incomplete (more results available).
+    bool lastResponseIncomplete() const { return m_isIncomplete; }
 
 signals:
     // Emitted when user accepts an item. insertText is what should be inserted.
@@ -54,4 +58,5 @@ private:
         int     kind = 0;  // LSP CompletionItemKind
     };
     QVector<Item> m_items;
+    bool m_isIncomplete = false;
 };

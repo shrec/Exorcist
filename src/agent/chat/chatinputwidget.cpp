@@ -17,6 +17,7 @@
 #include <QListWidget>
 #include <QMimeData>
 #include <QPlainTextEdit>
+#include <QProgressBar>
 #include <QSignalBlocker>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -40,7 +41,7 @@ void ChatInputWidget::setupUi()
         "QToolButton:hover { background: %4; color: %5; }"
         "QToolButton:focus { outline: 1px solid %6; }"
         "QToolButton#sendBtn {"
-        "  background: %7; color: %8; padding: 4px 10px; border-radius: %2px;"
+        "  background: %7; color: %8; padding: 0 8px; border-radius: %2px;"
         "  font-size: 14px; }"
         "QToolButton#sendBtn:hover  { background: %9; }"
         "QToolButton#sendBtn:pressed { background: %10; }"
@@ -52,22 +53,12 @@ void ChatInputWidget::setupUi()
         "  color: %13; font-size: 16px; font-weight: 300; padding: 2px 6px; }"
         "QToolButton#historyBtn {"
         "  color: %13; font-size: %3px; padding: 2px 6px; }"
-        "QComboBox {"
-        "  background: transparent; border: none; color: %13;"
-        "  font-size: %14px; padding: 2px 4px; }"
-        "QComboBox:hover { color: %5; }"
-        "QComboBox:disabled { color: %12; }"
-        "QComboBox::drop-down { border: none; width: 12px; }"
-        "QComboBox::down-arrow { border: none; }"
-        "QComboBox QAbstractItemView {"
-        "  background: %15; color: %5; border: 1px solid %16;"
-        "  selection-background-color: %17; outline: none; }"
         "QPlainTextEdit {"
         "  background: transparent; border: none; border-radius: 0;"
-        "  color: %5; font-size: %3px; padding: 4px 4px 4px 8px; }"
+        "  color: %5; font-size: %3px; padding: 2px 4px 2px 8px; }"
         "QListWidget {"
-        "  background: %15; border: 1px solid %16; color: %5; }"
-        "QListWidget::item { padding: 5px 10px; font-size: %14px; }"
+        "  background: %14; border: 1px solid %15; color: %5; }"
+        "QListWidget::item { padding: 5px 10px; font-size: %16px; }"
         "QListWidget::item:hover, QListWidget::item:selected { background: %17; }")
         .arg(ChatTheme::FgSecondary)                 // %1
         .arg(ChatTheme::RadiusMedium)                // %2
@@ -78,20 +69,20 @@ void ChatInputWidget::setupUi()
         .arg(ChatTheme::ButtonBg)                    // %7
         .arg(ChatTheme::ButtonFg)                    // %8
         .arg(ChatTheme::ButtonHover)                 // %9
-        .arg(ChatTheme::ButtonPressed)               // %10 (new pressed state)
+        .arg(ChatTheme::ButtonPressed)               // %10
         .arg(ChatTheme::DisabledBg)                  // %11
         .arg(ChatTheme::DisabledFg)                  // %12
-        .arg(ChatTheme::FgDimmed)                    // %13 — was #858585
-        .arg(ChatTheme::SmallFont)                   // %14
-        .arg(ChatTheme::ScrollTrack)                 // %15 — dropdown bg
-        .arg(ChatTheme::Border)                      // %16
-        .arg(ChatTheme::ListSelection));             // %17
+        .arg(ChatTheme::FgDimmed)                    // %13
+        .arg(ChatTheme::ScrollTrack)                 // %14
+        .arg(ChatTheme::Border)                      // %15
+        .arg(ChatTheme::SmallFont)                   // %16
+        .arg(ChatTheme::ListSelection));              // %17
 
     // ── Input editor ──────────────────────────────────────────────────────
     m_input = new QPlainTextEdit(this);
-    m_input->setPlaceholderText(tr("Ask Copilot or type / for commands"));
+    m_input->setPlaceholderText(tr("Ask anything, @ to mention, # to attach"));
     m_input->setAccessibleName(tr("Chat message input"));
-    m_input->setMinimumHeight(60);
+    m_input->setMinimumHeight(32);
     m_input->setMaximumHeight(180);
     m_input->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     m_input->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -99,7 +90,7 @@ void ChatInputWidget::setupUi()
     m_input->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     connect(m_input->document(), &QTextDocument::contentsChanged, this, [this]() {
         const int docH = int(m_input->document()->size().height()) + 12;
-        m_input->setFixedHeight(qBound(60, docH, 180));
+        m_input->setFixedHeight(qBound(32, docH, 180));
     });
     m_input->installEventFilter(this);
 
@@ -109,6 +100,7 @@ void ChatInputWidget::setupUi()
     m_sendBtn->setObjectName("sendBtn");
     m_sendBtn->setToolTip(tr("Send  (Enter)"));
     m_sendBtn->setAccessibleName(tr("Send message"));
+    m_sendBtn->setFixedSize(22, 22);
     connect(m_sendBtn, &QToolButton::clicked, this, &ChatInputWidget::onSendClicked);
 
     m_cancelBtn = new QToolButton(this);
@@ -116,16 +108,18 @@ void ChatInputWidget::setupUi()
     m_cancelBtn->setObjectName("cancelBtn");
     m_cancelBtn->setToolTip(tr("Cancel request"));
     m_cancelBtn->setAccessibleName(tr("Cancel request"));
+    m_cancelBtn->setFixedSize(22, 22);
     m_cancelBtn->setEnabled(false);
     connect(m_cancelBtn, &QToolButton::clicked, this, &ChatInputWidget::cancelRequested);
 
     m_attachBtn = new QToolButton(this);
-    m_attachBtn->setText(QStringLiteral("\u2295"));
+    m_attachBtn->setText(QStringLiteral("+"));
     m_attachBtn->setObjectName("attachBtn");
     m_attachBtn->setToolTip(tr("Attach file or image"));
     m_attachBtn->setAccessibleName(tr("Attach file or image"));
+    m_attachBtn->setFixedSize(22, 22);
     m_attachBtn->setStyleSheet(QStringLiteral(
-        "QToolButton#attachBtn { color:%1; font-size:14px; padding:2px 5px;"
+        "QToolButton#attachBtn { color:%1; font-size:14px; padding:0;"
         "  background:transparent; border:none; border-radius:3px; }"
         "QToolButton#attachBtn:hover { background:%2; color:%3; }")
         .arg(ChatTheme::FgDimmed, ChatTheme::HoverBg, ChatTheme::FgPrimary));
@@ -137,50 +131,43 @@ void ChatInputWidget::setupUi()
             addAttachment(p);
     });
 
-    auto *inputBtns = new QVBoxLayout;
-    inputBtns->setSpacing(2);
-    inputBtns->setContentsMargins(0, 0, 0, 0);
-    inputBtns->addWidget(m_sendBtn);
-    inputBtns->addWidget(m_cancelBtn);
-
     auto *inputRow = new QHBoxLayout;
-    inputRow->setContentsMargins(4, 6, 4, 2);
-    inputRow->setSpacing(4);
-    inputRow->addWidget(m_attachBtn);
+    inputRow->setContentsMargins(2, 2, 2, 0);
+    inputRow->setSpacing(0);
     inputRow->addWidget(m_input, 1);
-    inputRow->addLayout(inputBtns);
 
-    // ── Mode buttons ──────────────────────────────────────────────────────
-    m_askBtn = new QToolButton(this);
-    m_editBtn = new QToolButton(this);
-    m_agentBtn = new QToolButton(this);
-    m_askBtn->setText(tr("Ask"));
-    m_editBtn->setText(tr("Edit"));
-    m_agentBtn->setText(tr("Agent"));
-    m_askBtn->setToolTip(tr("Ask \u2014 chat about code"));
-    m_editBtn->setToolTip(tr("Edit \u2014 safe targeted changes"));
-    m_agentBtn->setToolTip(tr("Agent \u2014 full tool autonomy"));
-    m_askBtn->setAccessibleName(tr("Ask mode"));
-    m_editBtn->setAccessibleName(tr("Edit mode"));
-    m_agentBtn->setAccessibleName(tr("Agent mode"));
+    // ── Mode dropdown (VS Code style) ─────────────────────────────────────
+    m_modeCombo = new QComboBox(this);
+    m_modeCombo->addItem(tr("Ask"));
+    m_modeCombo->addItem(tr("Edit"));
+    m_modeCombo->addItem(QStringLiteral("\u25C7 ") + tr("Agent"));
+    m_modeCombo->setCurrentIndex(0);
+    m_modeCombo->setToolTip(tr("Chat mode"));
+    m_modeCombo->setAccessibleName(tr("Chat mode selector"));
+    m_modeCombo->setMinimumWidth(55);
+    m_modeCombo->setFixedHeight(22);
+    m_modeCombo->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+    m_modeCombo->setStyleSheet(QStringLiteral(
+        "QComboBox { background:%1; border:1px solid %2;"
+        "  border-radius:3px; color:%3; font-size:%4px; padding:2px 14px 2px 6px; }"
+        "QComboBox:hover { color:%5; border-color:%6; }"
+        "QComboBox::drop-down { subcontrol-origin:padding;"
+        "  subcontrol-position:center right; border:none; width:14px; }"
+        "QComboBox::down-arrow { image:none; }"
+        "QComboBox QAbstractItemView { background:%7; color:%5;"
+        "  border:1px solid %2; selection-background-color:%8; outline:none; }")
+        .arg(ChatTheme::HoverBg, ChatTheme::Border)
+        .arg(ChatTheme::FgPrimary)
+        .arg(ChatTheme::SmallFont)
+        .arg(ChatTheme::FgPrimary, ChatTheme::FgDimmed,
+             ChatTheme::ScrollTrack, ChatTheme::ListSelection));
+    connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int idx) { setCurrentMode(idx); });
 
-    auto *modeContainer = new QWidget(this);
-    modeContainer->setObjectName("modeContainer");
-    modeContainer->setStyleSheet(QStringLiteral(
-        "QWidget#modeContainer { background:%1; border:1px solid %2;"
-        "  border-radius:%3px; }")
-        .arg(ChatTheme::SideBarBg, ChatTheme::Border)
-        .arg(ChatTheme::RadiusMedium));
-    auto *modeLayout = new QHBoxLayout(modeContainer);
-    modeLayout->setContentsMargins(1, 1, 1, 1);
-    modeLayout->setSpacing(0);
-    modeLayout->addWidget(m_askBtn);
-    modeLayout->addWidget(m_editBtn);
-    modeLayout->addWidget(m_agentBtn);
-
-    connect(m_askBtn, &QToolButton::clicked, this, [this]() { setCurrentMode(0); });
-    connect(m_editBtn, &QToolButton::clicked, this, [this]() { setCurrentMode(1); });
-    connect(m_agentBtn, &QToolButton::clicked, this, [this]() { setCurrentMode(2); });
+    // Keep old buttons for API compat but hidden
+    m_askBtn = new QToolButton(this);   m_askBtn->hide();
+    m_editBtn = new QToolButton(this);  m_editBtn->hide();
+    m_agentBtn = new QToolButton(this); m_agentBtn->hide();
 
     // ── Bottom bar ────────────────────────────────────────────────────────
     m_newSessionBtn = new QToolButton(this);
@@ -188,6 +175,7 @@ void ChatInputWidget::setupUi()
     m_newSessionBtn->setObjectName("newSessionBtn");
     m_newSessionBtn->setToolTip(tr("New session (clears conversation)"));
     m_newSessionBtn->setAccessibleName(tr("New chat session"));
+    m_newSessionBtn->hide(); // managed by parent header bar
     connect(m_newSessionBtn, &QToolButton::clicked,
             this, &ChatInputWidget::newSessionRequested);
 
@@ -196,13 +184,32 @@ void ChatInputWidget::setupUi()
     m_historyBtn->setObjectName("historyBtn");
     m_historyBtn->setToolTip(tr("Session history"));
     m_historyBtn->setAccessibleName(tr("Session history"));
+    m_historyBtn->hide(); // managed by parent header bar
     connect(m_historyBtn, &QToolButton::clicked,
             this, &ChatInputWidget::historyRequested);
 
     m_modelCombo = new QComboBox(this);
-    m_modelCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_modelCombo->setMinimumWidth(60);
+    m_modelCombo->setFixedHeight(22);
+    m_modelCombo->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     m_modelCombo->setToolTip(tr("Select model"));
     m_modelCombo->setAccessibleName(tr("Model selection"));
+    m_modelCombo->setPlaceholderText(tr("Model"));
+    m_modelCombo->setStyleSheet(QStringLiteral(
+        "QComboBox { background:transparent; border:none;"
+        "  color:%1; font-size:%2px; padding:2px 14px 2px 6px; }"
+        "QComboBox:hover { color:%3; }"
+        "QComboBox:disabled { color:%4; }"
+        "QComboBox::drop-down { subcontrol-origin:padding;"
+        "  subcontrol-position:center right; border:none; width:14px; }"
+        "QComboBox::down-arrow { image:none; }"
+        "QComboBox QAbstractItemView { background:%5; color:%3;"
+        "  border:1px solid %6; selection-background-color:%7; outline:none; }")
+        .arg(ChatTheme::FgSecondary)
+        .arg(ChatTheme::SmallFont)
+        .arg(ChatTheme::FgPrimary, ChatTheme::DisabledFg,
+             ChatTheme::ScrollTrack, ChatTheme::Border,
+             ChatTheme::ListSelection));
     connect(m_modelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int idx) {
         if (idx >= 0) {
@@ -215,9 +222,10 @@ void ChatInputWidget::setupUi()
     m_ctxBtn->setText(QStringLiteral("{ }"));
     m_ctxBtn->setObjectName("ctxBtn");
     m_ctxBtn->setToolTip(tr("Context window usage"));
+    m_ctxBtn->setFixedHeight(22);
     m_ctxBtn->setStyleSheet(QStringLiteral(
         "QToolButton#ctxBtn { color:%1; font-size:%2px; font-family:monospace;"
-        "  padding:2px 5px; background:transparent; border:none; border-radius:%3px; }"
+        "  padding:0 5px; background:transparent; border:none; border-radius:%3px; }"
         "QToolButton#ctxBtn:hover { background:%4; color:%5; }"
         "QToolButton#ctxBtn:checked { background:%4; color:%5; }")
         .arg(ChatTheme::FgDimmed)
@@ -230,13 +238,16 @@ void ChatInputWidget::setupUi()
     });
 
     auto *bottomBar = new QHBoxLayout;
-    bottomBar->setContentsMargins(6, 2, 6, 4);
-    bottomBar->setSpacing(4);
-    bottomBar->addWidget(modeContainer);
-    bottomBar->addWidget(m_modelCombo, 1);
+    bottomBar->setContentsMargins(4, 0, 4, 3);
+    bottomBar->setSpacing(3);
+    bottomBar->addWidget(m_attachBtn);
+    bottomBar->addWidget(m_modeCombo);
+    bottomBar->addSpacing(2);
+    bottomBar->addWidget(m_modelCombo);
+    bottomBar->addStretch();
     bottomBar->addWidget(m_ctxBtn);
-    bottomBar->addWidget(m_historyBtn);
-    bottomBar->addWidget(m_newSessionBtn);
+    bottomBar->addWidget(m_sendBtn);
+    bottomBar->addWidget(m_cancelBtn);
 
     // ── Attachment chips bar ──────────────────────────────────────────────
     m_attachBar = new QWidget(this);
@@ -260,13 +271,14 @@ void ChatInputWidget::setupUi()
 
     // ── Input block container ─────────────────────────────────────────────
     auto *inputBlock = new QWidget(this);
+    m_inputBlock = inputBlock;
     inputBlock->setObjectName("inputBlock");
     inputBlock->setStyleSheet(QStringLiteral(
         "QWidget#inputBlock { background:%1; border:1px solid %2;"
-        "  border-radius:%3px; margin:4px 8px 8px 8px; }"
+        "  border-radius:%3px; }"
         "QWidget#inputBlock QPlainTextEdit {"
         "  background:transparent; border:none; border-radius:0; }")
-        .arg(ChatTheme::ScrollTrack, ChatTheme::Border)
+        .arg(ChatTheme::InputBg, ChatTheme::Border)
         .arg(ChatTheme::RadiusLarge));
     auto *inputBlockLayout = new QVBoxLayout(inputBlock);
     inputBlockLayout->setContentsMargins(0, 0, 0, 0);
@@ -323,21 +335,32 @@ void ChatInputWidget::setupUi()
     connect(m_input->document(), &QTextDocument::contentsChanged,
             this, &ChatInputWidget::onTextChanged);
 
+    // ── Streaming progress bar ───────────────────────────────────────
+    m_streamingBar = new QProgressBar(this);
+    m_streamingBar->setFixedHeight(2);
+    m_streamingBar->setRange(0, 0);
+    m_streamingBar->setTextVisible(false);
+    m_streamingBar->setStyleSheet(QStringLiteral(
+        "QProgressBar { background:transparent; border:none; max-height:2px; }"
+        "QProgressBar::chunk { background:%1; }")
+        .arg(ChatTheme::ProgressBlue));
+    m_streamingBar->hide();
+
     // ── Root layout ───────────────────────────────────────────────────────
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(0, 0, 0, 0);
+    root->setContentsMargins(8, 2, 8, 6);
     root->setSpacing(0);
     root->addWidget(m_contextStrip);
     root->addWidget(m_attachBar);
+    root->addWidget(m_streamingBar);
     root->addWidget(inputBlock);
 
     // ── Tab order ─────────────────────────────────────────────────────────
-    setTabOrder(m_input, m_sendBtn);
-    setTabOrder(m_sendBtn, m_modelCombo);
-    setTabOrder(m_modelCombo, m_historyBtn);
-    setTabOrder(m_historyBtn, m_newSessionBtn);
+    setTabOrder(m_input, m_modeCombo);
+    setTabOrder(m_modeCombo, m_modelCombo);
+    setTabOrder(m_modelCombo, m_sendBtn);
 
-    setModeButtonActive(0);
+    m_modeCombo->setCurrentIndex(0);
 }
 
 // ── Public accessors ──────────────────────────────────────────────────────────
@@ -394,18 +417,21 @@ void ChatInputWidget::addModel(const QString &id, const QString &displayName,
 {
     QSignalBlocker blocker(m_modelCombo);
     QString label = displayName.isEmpty() ? id : displayName;
-    if (multiplier > 1.0)
-        label += QStringLiteral("  %1x").arg(multiplier, 0, 'g', 2);
+    // Show rate multiplier from server so user knows the cost
+    if (multiplier > 0.0)
+        label += QStringLiteral("  %1x").arg(multiplier, 0, 'g', 3);
+    label += QStringLiteral(" \u25BE");  // visual arrow since drop-down is hidden
     m_modelCombo->addItem(label, id);
 
     const int idx = m_modelCombo->count() - 1;
+    QString tip = displayName.isEmpty() ? id : displayName;
+    if (multiplier > 0.0)
+        tip += QStringLiteral("\n") + tr("Rate multiplier: %1x").arg(multiplier, 0, 'g', 3);
+    if (isPremium)
+        tip += QStringLiteral("\n") + tr("Premium model — uses premium requests");
+    m_modelCombo->setItemData(idx, tip, Qt::ToolTipRole);
+
     if (isPremium || multiplier > 1.0) {
-        QString tip = displayName.isEmpty() ? id : displayName;
-        if (multiplier > 1.0)
-            tip += QStringLiteral("\n") + tr("Rate is counted at %1x.").arg(multiplier, 0, 'g', 2);
-        if (isPremium)
-            tip += QStringLiteral("\n") + tr("Premium model");
-        m_modelCombo->setItemData(idx, tip, Qt::ToolTipRole);
         m_modelCombo->setItemData(idx, QColor(QLatin1String(ChatTheme::PremiumFg)),
                                   Qt::ForegroundRole);
     }
@@ -433,6 +459,12 @@ void ChatInputWidget::setStreamingState(bool streaming)
 {
     m_sendBtn->setEnabled(!streaming);
     m_cancelBtn->setEnabled(streaming);
+    if (m_streamingBar) {
+        if (streaming)
+            m_streamingBar->show();
+        else
+            m_streamingBar->hide();
+    }
 }
 
 void ChatInputWidget::setInputEnabled(bool enabled)
@@ -645,27 +677,8 @@ void ChatInputWidget::onTextChanged()
 
 void ChatInputWidget::setModeButtonActive(int mode)
 {
-    const auto style = [](bool active) -> QString {
-        if (active)
-            return QStringLiteral(
-                "QToolButton { background:%1; color:%2; border:none;"
-                " padding:2px 10px; font-size:%3px; border-radius:3px; }"
-                "QToolButton:focus { outline:1px solid %4; }")
-                .arg(ChatTheme::AccentBlue, ChatTheme::ButtonFg)
-                .arg(ChatTheme::SmallFont)
-                .arg(ChatTheme::FocusOutline);
-        return QStringLiteral(
-            "QToolButton { background:transparent; color:%1; border:none;"
-            " padding:2px 10px; font-size:%2px; border-radius:3px; }"
-            "QToolButton:hover { color:%3; background:%4; }"
-            "QToolButton:focus { outline:1px solid %5; }")
-            .arg(ChatTheme::FgDimmed)
-            .arg(ChatTheme::SmallFont)
-            .arg(ChatTheme::FgPrimary, ChatTheme::HoverBg, ChatTheme::FocusOutline);
-    };
-    m_askBtn->setStyleSheet(style(mode == 0));
-    m_editBtn->setStyleSheet(style(mode == 1));
-    m_agentBtn->setStyleSheet(style(mode == 2));
+    QSignalBlocker blocker(m_modeCombo);
+    m_modeCombo->setCurrentIndex(mode);
 }
 
 // ── Slash / mention menu ──────────────────────────────────────────────────────
@@ -830,6 +843,27 @@ bool ChatInputWidget::eventFilter(QObject *obj, QEvent *ev)
                 }
                 return true;
             }
+        }
+    }
+    if (obj == m_input) {
+        if (ev->type() == QEvent::FocusIn) {
+            if (m_inputBlock)
+                m_inputBlock->setStyleSheet(QStringLiteral(
+                    "QWidget#inputBlock { background:%1; border:1px solid %2;"
+                    "  border-radius:%3px; }"
+                    "QWidget#inputBlock QPlainTextEdit {"
+                    "  background:transparent; border:none; border-radius:0; }")
+                    .arg(ChatTheme::InputBg, ChatTheme::InputFocusBorder)
+                    .arg(ChatTheme::RadiusLarge));
+        } else if (ev->type() == QEvent::FocusOut) {
+            if (m_inputBlock)
+                m_inputBlock->setStyleSheet(QStringLiteral(
+                    "QWidget#inputBlock { background:%1; border:1px solid %2;"
+                    "  border-radius:%3px; }"
+                    "QWidget#inputBlock QPlainTextEdit {"
+                    "  background:transparent; border:none; border-radius:0; }")
+                    .arg(ChatTheme::InputBg, ChatTheme::Border)
+                    .arg(ChatTheme::RadiusLarge));
         }
     }
     return QWidget::eventFilter(obj, ev);

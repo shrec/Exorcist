@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QPushButton>
 
+
 BreadcrumbBar::BreadcrumbBar(QWidget *parent)
     : QWidget(parent)
 {
@@ -30,6 +31,7 @@ void BreadcrumbBar::setFilePath(const QString &absPath, const QString &rootPath)
         rel = QDir(rootPath).relativeFilePath(absPath);
 
     const QStringList parts = rel.split('/', Qt::SkipEmptyParts);
+	
 
     // Build cumulative paths for each segment
     QString cumulative = rootPath.isEmpty() ? QString() : rootPath;

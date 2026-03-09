@@ -180,6 +180,42 @@ See [docs/debug.md](debug.md)
 
 ---
 
+## Phase 9 — C++ Development Pipeline  ✅ Done
+- **ToolchainManager** (`src/build/toolchainmanager.h/.cpp`) — local toolchain detection
+  - Detects compilers (gcc, g++, clang, clang++, cl.exe) via PATH scanning
+  - MSVC detection via `vswhere.exe` (Visual Studio Installer)
+  - Debugger detection (gdb, lldb)
+  - Build system detection (cmake, ninja, make, msbuild)
+  - Target triple extraction (`-dumpmachine`) + clangd path resolution
+  - Toolchain classification: GCC, Clang, MSVC, MinGW, LlvmMinGW
+  - MSYS2 / LLVM MinGW path probing on Windows
+- **CMakeIntegration** (`src/build/cmakeintegration.h/.cpp`) — CMake project lifecycle
+  - Preset detection (CMakePresets.json / CMakeUserPresets.json)
+  - Auto-detect existing build directories with CMakeCache.txt parsing
+  - Configure / Build / Clean lifecycle via async QProcess
+  - Target discovery from build output
+  - compile_commands.json path management for clangd
+  - Default Debug/Release configs with Ninja generator if available
+- **BuildToolbar** (`src/build/buildtoolbar.h/.cpp`) — visual Build/Run/Debug toolbar
+  - Configuration combo (Debug/Release/presets)
+  - Target combo (discovered executables)
+  - Configure / Build / Run / Debug / Stop / Clean buttons
+  - Status label with build state feedback
+  - Styled buttons (green Run, blue Debug, red Stop)
+- **DebugLaunchController** (`src/build/debuglaunchcontroller.h/.cpp`) — build-before-debug pipeline
+  - F5: Build (if configured) → launch debugger (gdb/lldb from toolchain)
+  - Ctrl+F5: Build → run without debugger
+  - Shift+F5: Stop debugging / running process
+  - Debugger path auto-resolution from ToolchainManager
+- **MainWindow integration** — keyboard shortcuts, toolbar, openFolder wiring
+  - Ctrl+Shift+B: CMake build (with task profile fallback)
+  - F5: Debug (continue if running, CMake debug launch with fallback)
+  - Ctrl+F5: Run without debugging
+  - Shift+F5: Stop (debugLauncher + runPanel)
+  - openFolder: async toolchain detection, CMake auto-detect configs, toolbar refresh, compile_commands.json status
+
+---
+
 ## Architecture invariants (never break these)
 1. Typing never blocks — all analysis/IO is async or in a worker thread
 2. Snapshot model — parsers/formatters work on a text copy, not live buffer

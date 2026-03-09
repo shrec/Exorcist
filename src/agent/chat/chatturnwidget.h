@@ -40,13 +40,13 @@ public:
         , m_turnId(turn.id)
     {
         auto *root = new QVBoxLayout(this);
-        root->setContentsMargins(12, 8, 12, 8);
+        root->setContentsMargins(6, 4, 20, 4);
         root->setSpacing(0);
 
         // ── User Request ──────────────────────────────────────────────
         auto *userSection = new QWidget(this);
         auto *userLayout = new QVBoxLayout(userSection);
-        userLayout->setContentsMargins(0, 0, 0, 6);
+        userLayout->setContentsMargins(0, 0, 0, 4);
         userLayout->setSpacing(2);
 
         // Header: avatar + name + time
@@ -54,11 +54,14 @@ public:
         userHeader->setContentsMargins(0, 0, 0, 0);
         userHeader->setSpacing(6);
 
-        auto *userAvatar = new QLabel(QStringLiteral("\U0001F464"), this);
-        userAvatar->setFixedSize(20, 20);
+        auto *userAvatar = new QLabel(QStringLiteral("U"), this);
+        userAvatar->setFixedSize(ChatTheme::AvatarSize, ChatTheme::AvatarSize);
         userAvatar->setAlignment(Qt::AlignCenter);
         userAvatar->setStyleSheet(
-            QStringLiteral("font-size:14px;"));
+            QStringLiteral("font-size:10px; font-weight:700; background:%1;"
+                          " border-radius:%2px; color:white;")
+                .arg(ChatTheme::AvatarUserBg)
+                .arg(ChatTheme::AvatarRadius));
 
         auto *userName = new QLabel(tr("You"), this);
         userName->setStyleSheet(
@@ -78,7 +81,7 @@ public:
         // User message body (with optional slash command pill)
         if (!turn.slashCommand.isEmpty()) {
             auto *msgRow = new QHBoxLayout;
-            msgRow->setContentsMargins(26, 0, 0, 0);
+            msgRow->setContentsMargins(22, 0, 0, 0);
             msgRow->setSpacing(6);
 
             auto *pill = new QLabel(this);
@@ -105,7 +108,7 @@ public:
             userMsg->setTextFormat(Qt::PlainText);
             userMsg->setText(turn.userMessage);
             userMsg->setStyleSheet(
-                QStringLiteral("color:%1; font-size:13px; padding-left:26px;")
+                QStringLiteral("color:%1; font-size:13px; padding-left:22px;")
                     .arg(ChatTheme::FgPrimary));
             userLayout->addWidget(userMsg);
         }
@@ -113,7 +116,7 @@ public:
         // Attachments
         if (!turn.attachmentNames.isEmpty()) {
             auto *attRow = new QHBoxLayout;
-            attRow->setContentsMargins(26, 2, 0, 0);
+            attRow->setContentsMargins(22, 2, 0, 0);
             attRow->setSpacing(4);
             for (const auto &name : turn.attachmentNames) {
                 auto *chip = new QLabel(this);
@@ -131,7 +134,7 @@ public:
         // Context references (badges)
         if (!turn.references.isEmpty()) {
             auto *refRow = new QHBoxLayout;
-            refRow->setContentsMargins(26, 2, 0, 0);
+            refRow->setContentsMargins(22, 2, 0, 0);
             refRow->setSpacing(4);
             for (const auto &ref : turn.references) {
                 auto *badge = new QLabel(this);
@@ -164,29 +167,27 @@ public:
         }
 
         root->addWidget(userSection);
-
-        // ── Separator ─────────────────────────────────────────────────
-        auto *sep = new QWidget(this);
-        sep->setFixedHeight(1);
-        sep->setStyleSheet(
-            QStringLiteral("background:%1;").arg(ChatTheme::Border));
-        root->addWidget(sep);
+        root->addSpacing(6);
 
         // ── Assistant Response ────────────────────────────────────────
         m_responseSection = new QWidget(this);
         auto *respLayout = new QVBoxLayout(m_responseSection);
-        respLayout->setContentsMargins(0, 6, 0, 0);
+        respLayout->setContentsMargins(0, 4, 0, 0);
         respLayout->setSpacing(0);
 
         // Header: avatar + name + model info
         auto *assistHeader = new QHBoxLayout;
-        assistHeader->setContentsMargins(0, 0, 0, 4);
+        assistHeader->setContentsMargins(0, 0, 0, 2);
         assistHeader->setSpacing(6);
 
-        auto *assistAvatar = new QLabel(QStringLiteral("\u2728"), this);
-        assistAvatar->setFixedSize(20, 20);
+        auto *assistAvatar = new QLabel(QStringLiteral("\u2726"), this);
+        assistAvatar->setFixedSize(ChatTheme::AvatarSize, ChatTheme::AvatarSize);
         assistAvatar->setAlignment(Qt::AlignCenter);
-        assistAvatar->setStyleSheet(QStringLiteral("font-size:14px;"));
+        assistAvatar->setStyleSheet(
+            QStringLiteral("font-size:10px; font-weight:700; background:%1;"
+                          " border-radius:%2px; color:white;")
+                .arg(ChatTheme::AvatarAiBg)
+                .arg(ChatTheme::AvatarRadius));
 
         auto *assistName = new QLabel(tr("Copilot"), this);
         assistName->setStyleSheet(
@@ -208,7 +209,7 @@ public:
         // Content parts container
         m_partsContainer = new QWidget(this);
         m_partsLayout = new QVBoxLayout(m_partsContainer);
-        m_partsLayout->setContentsMargins(26, 0, 0, 0);
+        m_partsLayout->setContentsMargins(22, 0, 0, 0);
         m_partsLayout->setSpacing(2);
         respLayout->addWidget(m_partsContainer);
 
@@ -220,11 +221,11 @@ public:
         m_feedbackRow = new QWidget(this);
         m_feedbackRow->hide();
         auto *fbLayout = new QHBoxLayout(m_feedbackRow);
-        fbLayout->setContentsMargins(26, 4, 0, 2);
+        fbLayout->setContentsMargins(22, 4, 0, 2);
         fbLayout->setSpacing(4);
 
         m_thumbUpBtn = new QToolButton(this);
-        m_thumbUpBtn->setText(QStringLiteral("\U0001F44D"));
+        m_thumbUpBtn->setText(QStringLiteral("\u25B2"));
         m_thumbUpBtn->setToolTip(tr("Helpful"));
         m_thumbUpBtn->setAccessibleName(tr("Mark as helpful"));
         m_thumbUpBtn->setStyleSheet(feedbackBtnStyle());
@@ -233,7 +234,7 @@ public:
         });
 
         m_thumbDownBtn = new QToolButton(this);
-        m_thumbDownBtn->setText(QStringLiteral("\U0001F44E"));
+        m_thumbDownBtn->setText(QStringLiteral("\u25BC"));
         m_thumbDownBtn->setToolTip(tr("Not helpful"));
         m_thumbDownBtn->setAccessibleName(tr("Mark as not helpful"));
         m_thumbDownBtn->setStyleSheet(feedbackBtnStyle());
@@ -242,7 +243,7 @@ public:
         });
 
         auto *copyResponseBtn = new QToolButton(this);
-        copyResponseBtn->setText(QStringLiteral("\U0001F4CB"));
+        copyResponseBtn->setText(QStringLiteral("\u2398"));
         copyResponseBtn->setToolTip(tr("Copy response"));
         copyResponseBtn->setStyleSheet(feedbackBtnStyle());
         connect(copyResponseBtn, &QToolButton::clicked, this, [this]() {
@@ -259,7 +260,7 @@ public:
         });
 
         auto *retryBtn = new QToolButton(this);
-        retryBtn->setText(QStringLiteral("\U0001F504"));
+        retryBtn->setText(QStringLiteral("\u21BB"));
         retryBtn->setToolTip(tr("Retry"));
         retryBtn->setStyleSheet(feedbackBtnStyle());
         connect(retryBtn, &QToolButton::clicked, this, [this]() {
@@ -583,12 +584,14 @@ private:
     {
         return QStringLiteral(
             "QToolButton { background:transparent; border:none;"
-            " font-size:14px; padding:2px 6px; }"
-            "QToolButton:hover { background:%1; border-radius:4px; }"
+            " font-size:12px; padding:2px 6px; color:%4; }")
+            .arg(ChatTheme::FgDimmed)
+          + QStringLiteral(
+            "QToolButton:hover { background:%1; border-radius:4px; color:%4; }"
             "QToolButton:pressed { background:%3; border-radius:4px; }"
             "QToolButton:focus { outline:1px solid %2; border-radius:4px; }")
             .arg(ChatTheme::InputBg, ChatTheme::FocusOutline,
-                 ChatTheme::SecondaryBtnHover);
+                 ChatTheme::SecondaryBtnHover, ChatTheme::FgPrimary);
     }
 
     bool eventFilter(QObject *obj, QEvent *event) override

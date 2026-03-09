@@ -48,7 +48,7 @@ private slots:
     void onDocumentChanged();
     void onCursorPositionChanged();
     void onCompletionResult(const QString &uri, int line, int character,
-                            const QJsonArray &items);
+                            const QJsonArray &items, bool isIncomplete);
     void onHoverResult(const QString &uri, int line, int character,
                        const QString &markdown);
     void onSignatureHelpResult(const QString &uri, int line, int character,
@@ -56,6 +56,7 @@ private slots:
     void onDiagnosticsPublished(const QString &uri, const QJsonArray &diags);
     void onFormattingResult(const QString &uri, const QJsonArray &edits);
     void onDefinitionResult(const QString &uri, const QJsonArray &locations);
+    void onDeclarationResult(const QString &uri, const QJsonArray &locations);
     void onReferencesResult(const QString &uri, const QJsonArray &locations);
     void onRenameResult(const QString &uri, const QJsonObject &workspaceEdit);
     void onDocumentSymbolsResult(const QString &uri, const QJsonArray &symbols);
@@ -67,6 +68,7 @@ private:
     void sendDidChange();
     void triggerCompletion();
     bool isCompletionTrigger(QChar ch) const;
+    bool isFormatOnTypeTrigger(QChar ch) const;
 
     EditorView      *m_editor;
     LspClient       *m_client;

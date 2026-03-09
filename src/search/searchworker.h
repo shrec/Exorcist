@@ -24,8 +24,8 @@ signals:
     void finished();
 
 private:
-    QStringList resolveCandidates(const QString &rootPath, const SearchQuery &query);
-    SearchMatch buildMatch(const QString &path, int lineNumber, int column, const QString &preview) const;
+    SearchMatch buildMatch(const QString &path, int lineNumber, int column,
+                           const QString &preview) const;
 
     QAtomicInt m_cancel;
     class SearchIndex m_index;

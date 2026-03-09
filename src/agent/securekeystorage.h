@@ -22,16 +22,16 @@ public:
     explicit SecureKeyStorage(QObject *parent = nullptr);
 
     /// Store a key. Returns true on success.
-    bool storeKey(const QString &service, const QString &key);
+    Q_INVOKABLE bool storeKey(const QString &service, const QString &key);
 
     /// Retrieve a key. Returns empty string if not found.
-    QString retrieveKey(const QString &service) const;
+    Q_INVOKABLE QString retrieveKey(const QString &service) const;
 
     /// Delete a key. Returns true on success.
-    bool deleteKey(const QString &service);
+    Q_INVOKABLE bool deleteKey(const QString &service);
 
     /// Check if a key exists.
-    bool hasKey(const QString &service) const;
+    Q_INVOKABLE bool hasKey(const QString &service) const;
 
     /// List all stored service names.
     QStringList services() const;

@@ -2,6 +2,7 @@
 
 #include <QLabel>
 #include <QPropertyAnimation>
+#include <QScrollArea>
 #include <QTextEdit>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -61,7 +62,7 @@ public:
         headerRow->addWidget(m_toggleBtn);
         layout->addLayout(headerRow);
 
-        // Content area
+        // Content area (scrollable, max 200px)
         m_contentLabel = new QLabel(this);
         m_contentLabel->setWordWrap(true);
         m_contentLabel->setTextFormat(Qt::RichText);
@@ -69,7 +70,16 @@ public:
             QStringLiteral("color:%1; font-size:12px; margin-top:4px;"
                           " white-space:pre-wrap;")
                 .arg(ChatTheme::ThinkingFg));
-        layout->addWidget(m_contentLabel);
+        auto *contentScroll = new QScrollArea(this);
+        contentScroll->setWidgetResizable(true);
+        contentScroll->setFrameShape(QFrame::NoFrame);
+        contentScroll->setMaximumHeight(200);
+        contentScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        contentScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        contentScroll->setStyleSheet(
+            QStringLiteral("QScrollArea { background:transparent; border:none; }"));
+        contentScroll->setWidget(m_contentLabel);
+        layout->addWidget(contentScroll);
     }
 
     void setThinkingText(const QString &text, bool streaming = false)

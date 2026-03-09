@@ -57,13 +57,14 @@ public:
     {
         m_rawMarkdown = md;
         if (streaming) {
-            // During streaming, show escaped text with cursor
-            const QString safe = md.toHtmlEscaped()
-                .replace(QStringLiteral("\n"), QStringLiteral("<br>"));
-            m_browser->setHtml(
-                QStringLiteral("<span style='color:%1;white-space:pre-wrap;'>%2</span>"
-                               "<span style='color:%3;'>\u2587</span>")
-                    .arg(ChatTheme::FgPrimary, safe, ChatTheme::AccentBlue));
+            // Render real markdown during streaming, with a blinking cursor
+            const auto rendered = MarkdownRenderer::toHtmlWithActions(md);
+            m_lastBlocks = rendered.codeBlocks;
+            // Append streaming cursor to rendered HTML
+            QString html = rendered.html;
+            html += QStringLiteral("<span style='color:%1;'>\u2587</span>")
+                        .arg(ChatTheme::AccentBlue);
+            m_browser->setHtml(html);
         } else {
             const auto rendered = MarkdownRenderer::toHtmlWithActions(md);
             m_lastBlocks = rendered.codeBlocks;
@@ -117,11 +118,12 @@ private:
     {
         return QStringLiteral(
             "body { color:%1; font-family:%2; font-size:%3px; line-height:1.4; }"
-            "pre { background:%4; padding:10px 12px; border-radius:0 0 4px 4px;"
+            "pre { background:%4; padding:10px 12px; border-radius:0 0 2px 2px;"
+            "  border-left:3px solid #0e639c;"
             "  font-family:%5; font-size:14px; margin:0 0 6px 0; white-space:pre-wrap; }"
-            "code { color:%6; font-family:%5; font-size:12px;"
+            "code { color:%6; font-family:%5; font-size:13px;"
             "  background:%7; padding:1px 4px; border-radius:3px; }"
-            ".code-header { background:%8; border-radius:4px 4px 0 0;"
+            ".code-header { background:%8; border-radius:2px 2px 0 0;"
             "  padding:4px 10px; margin:6px 0 0 0; font-size:11px; color:%9; }"
             ".code-lang { color:%10; font-weight:600; }"
             ".code-header-actions a { color:%10; font-size:11px; margin-left:8px; }"

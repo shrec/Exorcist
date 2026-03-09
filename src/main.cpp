@@ -33,6 +33,24 @@ void applyDarkTheme(QApplication &app)
     palette.setColor(QPalette::HighlightedText, QColor(0, 0, 0));
 
     app.setPalette(palette);
+
+    // Style scrollbars — Fusion QPalette alone renders them nearly invisible
+    app.setStyleSheet(QStringLiteral(
+        "QScrollBar:vertical {"
+        "  background: #1e1e1e; width: 12px; margin: 0; }"
+        "QScrollBar::handle:vertical {"
+        "  background: #5a5a5a; min-height: 20px; border-radius: 3px; margin: 2px; }"
+        "QScrollBar::handle:vertical:hover { background: #787878; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }"
+        "QScrollBar:horizontal {"
+        "  background: #1e1e1e; height: 12px; margin: 0; }"
+        "QScrollBar::handle:horizontal {"
+        "  background: #5a5a5a; min-width: 20px; border-radius: 3px; margin: 2px; }"
+        "QScrollBar::handle:horizontal:hover { background: #787878; }"
+        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }"
+        "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }"
+    ));
 }
 
 void loadTranslator(QApplication &app)

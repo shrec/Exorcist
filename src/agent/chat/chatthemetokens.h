@@ -130,10 +130,10 @@ namespace ChatTheme
 
     // ── Spacing ───────────────────────────────────────────────────────────
     inline constexpr int RadiusSmall = 2;
-    inline constexpr int RadiusMedium= 4;
-    inline constexpr int RadiusLarge = 8;
+    inline constexpr int RadiusMedium= 2;
+    inline constexpr int RadiusLarge = 4;
     inline constexpr int Padding     = 10;
-    inline constexpr int AvatarSize  = 24;
-    inline constexpr int AvatarRadius= 12;
+    inline constexpr int AvatarSize  = 16;
+    inline constexpr int AvatarRadius= 4;
 
 } // namespace ChatTheme

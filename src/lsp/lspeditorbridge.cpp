@@ -74,6 +74,8 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
             this, &LspEditorBridge::onFormattingResult);
     connect(m_client, &LspClient::definitionResult,
             this, &LspEditorBridge::onDefinitionResult);
+    connect(m_client, &LspClient::declarationResult,
+            this, &LspEditorBridge::onDeclarationResult);
     connect(m_client, &LspClient::referencesResult,
             this, &LspEditorBridge::onReferencesResult);
     connect(m_client, &LspClient::renameResult,
@@ -143,6 +145,11 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
         const QTextCursor cur = m_editor->textCursor();
         m_client->requestDefinition(m_uri, cur.blockNumber(),
                                     cur.positionInBlock());
+    });
+    connect(m_editor, &EditorView::goToDeclarationRequested, this, [this]() {
+        const QTextCursor cur = m_editor->textCursor();
+        m_client->requestDeclaration(m_uri, cur.blockNumber(),
+                                     cur.positionInBlock());
     });
     connect(m_editor, &EditorView::findReferencesRequested, this, [this]() {
         const QTextCursor cur = m_editor->textCursor();
@@ -227,7 +234,20 @@ void LspEditorBridge::onDocumentChanged()
         const QTextCursor cur = m_editor->textCursor();
         QTextCursor word = cur;
         word.select(QTextCursor::WordUnderCursor);
-        m_completion->filterByPrefix(word.selectedText());
+        const QString prefix = word.selectedText();
+
+        if (m_completion->lastResponseIncomplete()) {
+            // Server indicated more results exist — re-request instead of
+            // filtering locally so clangd can return a more relevant set.
+            m_changeTimer->stop();
+            sendDidChange();
+            const QTextCursor tc = m_editor->textCursor();
+            m_client->requestCompletion(m_uri, tc.blockNumber(),
+                                        tc.positionInBlock(),
+                                        3); // TriggerForIncompleteCompletions
+        } else {
+            m_completion->filterByPrefix(prefix);
+        }
     }
 
     // Check trigger characters for auto-completion
@@ -238,7 +258,11 @@ void LspEditorBridge::onDocumentChanged()
         if (isCompletionTrigger(prevChar)) {
             m_changeTimer->stop();
             sendDidChange();   // flush immediately before requesting
-            triggerCompletion();
+            // triggerKind 2 = TriggerCharacter, pass the actual trigger
+            const QTextCursor tc = m_editor->textCursor();
+            m_client->requestCompletion(m_uri, tc.blockNumber(),
+                                        tc.positionInBlock(),
+                                        2, QString(prevChar));
         }
         // Signature help on '('
         if (prevChar == '(') {
@@ -247,6 +271,17 @@ void LspEditorBridge::onDocumentChanged()
             const int line = cur.blockNumber();
             const int col  = cur.positionInBlock();
             m_client->requestSignatureHelp(m_uri, line, col);
+        }
+
+        // Format on type: \n, }, ;
+        if (isFormatOnTypeTrigger(prevChar)) {
+            m_changeTimer->stop();
+            sendDidChange();
+            m_formatReqVersion = m_version;
+            const QTextCursor tc = m_editor->textCursor();
+            m_client->requestOnTypeFormatting(
+                m_uri, tc.blockNumber(), tc.positionInBlock(),
+                QString(prevChar));
         }
     }
 }
@@ -277,9 +312,10 @@ void LspEditorBridge::triggerCompletion()
 
 bool LspEditorBridge::isCompletionTrigger(QChar ch) const
 {
-    // C++ triggers: . -> ::
+    // C++ triggers: . -> :: < " (for #include)
     if (m_languageId == "cpp" || m_languageId == "c")
-        return ch == '.' || ch == '>';
+        return ch == '.' || ch == '>' || ch == ':' || ch == '<' || ch == '"'
+               || ch == '/';
     // Python
     if (m_languageId == "python")
         return ch == '.';
@@ -287,14 +323,22 @@ bool LspEditorBridge::isCompletionTrigger(QChar ch) const
     return ch == '.';
 }
 
+bool LspEditorBridge::isFormatOnTypeTrigger(QChar ch) const
+{
+    if (m_languageId == "cpp" || m_languageId == "c")
+        return ch == '\n' || ch == '}' || ch == ';';
+    return ch == '\n';
+}
+
 // ── LSP result slots ──────────────────────────────────────────────────────────
 
 void LspEditorBridge::onCompletionResult(const QString &uri, int /*line*/,
                                          int /*character*/,
-                                         const QJsonArray &items)
+                                         const QJsonArray &items,
+                                         bool isIncomplete)
 {
     if (uri != m_uri || items.isEmpty()) return;
-    m_completion->showForEditor(m_editor, items);
+    m_completion->showForEditor(m_editor, items, isIncomplete);
 }
 
 void LspEditorBridge::onHoverResult(const QString &uri, int /*line*/,
@@ -357,6 +401,28 @@ void LspEditorBridge::onDefinitionResult(const QString &uri,
     const QJsonObject loc = locations[0].toObject();
 
     // LSP allows both Location {uri, range} and LocationLink {targetUri, targetSelectionRange}
+    const QString targetUri = loc.contains("targetUri")
+        ? loc["targetUri"].toString()
+        : loc["uri"].toString();
+    const QJsonObject range = loc.contains("targetSelectionRange")
+        ? loc["targetSelectionRange"].toObject()
+        : loc["range"].toObject();
+
+    const QString filePath = QUrl(targetUri).toLocalFile();
+    if (filePath.isEmpty()) return;
+
+    const int line = range["start"].toObject()["line"].toInt();
+    const int col  = range["start"].toObject()["character"].toInt();
+    emit navigateToLocation(filePath, line, col);
+}
+
+void LspEditorBridge::onDeclarationResult(const QString &uri,
+                                          const QJsonArray &locations)
+{
+    if (uri != m_uri || locations.isEmpty()) return;
+
+    const QJsonObject loc = locations[0].toObject();
+
     const QString targetUri = loc.contains("targetUri")
         ? loc["targetUri"].toString()
         : loc["uri"].toString();

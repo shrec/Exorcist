@@ -569,11 +569,16 @@ void DockManager::finishDrag(const QPoint &globalPos)
     // Update preferred side
     it->preferredSide = dropZone;
 
-    // Pin to new side
+    // Set state BEFORE addDockWidget to prevent reentrant duplicates
+    // (matches pinDock pattern — see comment there).
+    it->state = DockState::Docked;
+    dock->setState(DockState::Docked);
+
     auto *newArea = createDockArea(dropZone);
     newArea->addDockWidget(dock);
-    it->state = DockState::Docked;
+    dock->show();
 
+    repositionSideBars();
     emit dockPinned(dock);
 }
 
@@ -612,8 +617,8 @@ void DockManager::repositionSideBars()
     const int contentBottom = winH - statusH;
     const int contentHeight = contentBottom - contentTop;
 
-    const int sideW = 22;
-    const int barH  = 22;
+    const int sideW = 34;
+    const int barH  = 34;
 
     // Left sidebar — full content height
     m_leftBar->setGeometry(0, contentTop, sideW, contentHeight);

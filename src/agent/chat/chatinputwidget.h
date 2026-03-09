@@ -10,6 +10,7 @@ class QHBoxLayout;
 class QLabel;
 class QListWidget;
 class QPlainTextEdit;
+class QProgressBar;
 class QToolButton;
 class QVBoxLayout;
 class AgentOrchestrator;
@@ -63,6 +64,7 @@ public:
     void clearAttachments();
 
     // ── Model combo management ────────────────────────────────────────────
+    QComboBox *modelCombo() const { return m_modelCombo; }
     void setModels(const QStringList &models, const QString &current);
     void clearModels();
     void addModel(const QString &id, const QString &displayName,
@@ -119,7 +121,8 @@ private:
     QToolButton    *m_cancelBtn  = nullptr;
     QToolButton    *m_attachBtn  = nullptr;
 
-    // Mode buttons
+    // Mode
+    QComboBox      *m_modeCombo  = nullptr;
     QToolButton    *m_askBtn     = nullptr;
     QToolButton    *m_editBtn    = nullptr;
     QToolButton    *m_agentBtn   = nullptr;
@@ -150,6 +153,10 @@ private:
 
     // Workspace file provider
     std::function<QStringList()> m_workspaceFileFn;
+
+    // Input block + streaming bar
+    QWidget      *m_inputBlock    = nullptr;
+    QProgressBar *m_streamingBar  = nullptr;
 
     int m_staticSlashCount = 0;
 };

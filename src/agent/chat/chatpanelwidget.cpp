@@ -61,32 +61,68 @@ void ChatPanelWidget::buildUi()
     setStyleSheet(
         QStringLiteral("ChatPanelWidget { background:%1; }").arg(ChatTheme::PanelBg));
 
-    // ── Provider tab bar ──────────────────────────────────────────────
-    m_providerTabBar = new QWidget(this);
-    m_providerTabLayout = new QHBoxLayout(m_providerTabBar);
-    m_providerTabLayout->setContentsMargins(8, 4, 8, 4);
-    m_providerTabLayout->setSpacing(4);
-    m_providerTabLayout->addStretch();
+    // ── Header bar (session title + actions) ─────────────────────────
+    m_headerBar = new QWidget(this);
+    m_headerBar->setStyleSheet(
+        QStringLiteral("background:%1; border-bottom:1px solid %2;")
+            .arg(ChatTheme::SideBarBg, ChatTheme::Border));
+    auto *headerLayout = new QHBoxLayout(m_headerBar);
+    headerLayout->setContentsMargins(10, 4, 6, 4);
+    headerLayout->setSpacing(4);
 
-    // Gear icon to open settings dialog
-    auto *gearBtn = new QToolButton(m_providerTabBar);
-    gearBtn->setText(QStringLiteral("\u2699"));
-    gearBtn->setToolTip(tr("AI Settings"));
-    gearBtn->setAccessibleName(tr("AI Settings"));
-    gearBtn->setStyleSheet(
+    m_sessionTitleLabel = new QLabel(this);
+    m_sessionTitleLabel->setStyleSheet(
+        QStringLiteral("color:%1; font-size:12px; font-weight:600;")
+            .arg(ChatTheme::FgPrimary));
+    m_sessionTitleLabel->setTextFormat(Qt::PlainText);
+    m_sessionTitleLabel->setText(tr("Copilot"));
+
+    headerLayout->addWidget(m_sessionTitleLabel, 1);
+
+    auto *historyHeaderBtn = new QToolButton(m_headerBar);
+    historyHeaderBtn->setText(QStringLiteral("\u2630"));
+    historyHeaderBtn->setToolTip(tr("Session History"));
+    historyHeaderBtn->setAccessibleName(tr("Session history"));
+    historyHeaderBtn->setStyleSheet(
         QStringLiteral("QToolButton { background:transparent; color:%1; border:none;"
-                       " font-size:16px; padding:2px 6px; border-radius:%3px; }"
-                       "QToolButton:hover { color:%2; background:%4; }"
-                       "QToolButton:pressed { background:%5; }"
-                       "QToolButton:focus { outline:1px solid %6; }")
-            .arg(ChatTheme::FgSecondary, ChatTheme::FgPrimary)
-            .arg(ChatTheme::RadiusMedium)
-            .arg(ChatTheme::HoverBg, ChatTheme::SecondaryBtnHover,
-                 ChatTheme::FocusOutline));
-    connect(gearBtn, &QToolButton::clicked, this, &ChatPanelWidget::settingsRequested);
-    m_providerTabLayout->addWidget(gearBtn);
+                       " font-size:13px; padding:2px 6px; border-radius:%2px; }"
+                       "QToolButton:hover { color:%3; background:%4; }")
+            .arg(ChatTheme::FgSecondary, QString::number(ChatTheme::RadiusMedium),
+                 ChatTheme::FgPrimary, ChatTheme::HoverBg));
+    connect(historyHeaderBtn, &QToolButton::clicked,
+            this, &ChatPanelWidget::onShowHistory);
+    headerLayout->addWidget(historyHeaderBtn);
 
-    m_rootLayout->addWidget(m_providerTabBar);
+    m_newSessionHeaderBtn = new QToolButton(m_headerBar);
+    m_newSessionHeaderBtn->setText(QStringLiteral("+"));
+    m_newSessionHeaderBtn->setToolTip(tr("New Chat"));
+    m_newSessionHeaderBtn->setAccessibleName(tr("New chat session"));
+    m_newSessionHeaderBtn->setStyleSheet(
+        QStringLiteral("QToolButton { background:transparent; color:%1; border:none;"
+                       " font-size:16px; font-weight:300; padding:2px 6px;"
+                       " border-radius:%2px; }"
+                       "QToolButton:hover { color:%3; background:%4; }")
+            .arg(ChatTheme::FgSecondary, QString::number(ChatTheme::RadiusMedium),
+                 ChatTheme::FgPrimary, ChatTheme::HoverBg));
+    connect(m_newSessionHeaderBtn, &QToolButton::clicked,
+            this, &ChatPanelWidget::onNewSession);
+    headerLayout->addWidget(m_newSessionHeaderBtn);
+
+    m_gearHeaderBtn = new QToolButton(m_headerBar);
+    m_gearHeaderBtn->setText(QStringLiteral("\u2699"));
+    m_gearHeaderBtn->setToolTip(tr("AI Settings"));
+    m_gearHeaderBtn->setAccessibleName(tr("AI Settings"));
+    m_gearHeaderBtn->setStyleSheet(
+        QStringLiteral("QToolButton { background:transparent; color:%1; border:none;"
+                       " font-size:14px; padding:2px 6px; border-radius:%2px; }"
+                       "QToolButton:hover { color:%3; background:%4; }")
+            .arg(ChatTheme::FgSecondary, QString::number(ChatTheme::RadiusMedium),
+                 ChatTheme::FgPrimary, ChatTheme::HoverBg));
+    connect(m_gearHeaderBtn, &QToolButton::clicked,
+            this, &ChatPanelWidget::settingsRequested);
+    headerLayout->addWidget(m_gearHeaderBtn);
+
+    m_rootLayout->addWidget(m_headerBar);
 
     // ── Changes bar (hidden by default) ──────────────────────────────
     m_changesBar = new QWidget(this);
@@ -235,8 +271,13 @@ void ChatPanelWidget::connectOrchestrator()
             this, &ChatPanelWidget::onResponseError);
     connect(m_orchestrator, &AgentOrchestrator::modelsChanged,
             this, &ChatPanelWidget::refreshModelList);
+    connect(m_orchestrator, &AgentOrchestrator::providerAvailabilityChanged,
+            this, [this](bool) {
+        showWelcomeOrTranscript();
+        refreshModelList();
+    });
 
-    refreshProviderList();
+    refreshModelList();
 }
 
 void ChatPanelWidget::connectController()
@@ -489,58 +530,22 @@ void ChatPanelWidget::attachDiagnostics(const QList<AgentDiagnostic> &diagnostic
 void ChatPanelWidget::onProviderRegistered(const QString &id)
 {
     Q_UNUSED(id)
-    refreshProviderList();
+    refreshModelList();
+    showWelcomeOrTranscript();
 }
 
 void ChatPanelWidget::onProviderRemoved(const QString &id)
 {
     Q_UNUSED(id)
-    refreshProviderList();
+    refreshModelList();
+    showWelcomeOrTranscript();
 }
 
 void ChatPanelWidget::onActiveProviderChanged(const QString &id)
 {
-    setProviderTabActive(id);
+    Q_UNUSED(id)
     refreshModelList();
-}
-
-void ChatPanelWidget::refreshProviderList()
-{
-    // Clear existing tabs
-    for (auto *btn : m_providerTabs)
-        btn->deleteLater();
-    m_providerTabs.clear();
-
-    // Remove stretch and rebuild
-    while (m_providerTabLayout->count() > 0)
-        m_providerTabLayout->takeAt(0);
-
-    const auto providers = m_orchestrator->providers();
-    for (auto *prov : providers) {
-        auto *btn = new QToolButton(m_providerTabBar);
-        btn->setText(prov->displayName());
-        btn->setCheckable(true);
-        btn->setStyleSheet(
-            QStringLiteral("QToolButton { color:%1; background:transparent; border:none;"
-                          " padding:4px 10px; font-size:12px; border-radius:4px; }"
-                          "QToolButton:checked { background:%2; color:%3; }"
-                          "QToolButton:hover { background:%4; }")
-                .arg(ChatTheme::FgDimmed, ChatTheme::AccentFg,
-                     ChatTheme::ButtonFg, ChatTheme::InputBg));
-        const auto provId = prov->id();
-        connect(btn, &QToolButton::clicked, this, [this, provId]() {
-            m_orchestrator->setActiveProvider(provId);
-        });
-        m_providerTabLayout->addWidget(btn);
-        m_providerTabs.append(btn);
-    }
-
-    m_providerTabLayout->addStretch();
-
-    if (const auto *active = m_orchestrator->activeProvider())
-        setProviderTabActive(active->id());
-
-    refreshModelList();
+    showWelcomeOrTranscript();
 }
 
 void ChatPanelWidget::refreshModelList()
@@ -564,13 +569,6 @@ void ChatPanelWidget::refreshModelList()
     m_inputWidget->setCurrentModel(active->currentModel());
 }
 
-void ChatPanelWidget::setProviderTabActive(const QString &id)
-{
-    const auto providers = m_orchestrator->providers();
-    for (int i = 0; i < m_providerTabs.size() && i < providers.size(); ++i)
-        m_providerTabs[i]->setChecked(providers[i]->id() == id);
-}
-
 void ChatPanelWidget::showWelcomeOrTranscript()
 {
     if (m_sessionModel->isEmpty()) {
@@ -586,6 +584,17 @@ void ChatPanelWidget::showWelcomeOrTranscript()
         m_stack->setCurrentWidget(m_welcome);
     } else {
         m_stack->setCurrentWidget(m_transcript);
+    }
+    updateSessionTitle();
+}
+
+void ChatPanelWidget::updateSessionTitle()
+{
+    if (m_sessionModel->isEmpty()) {
+        m_sessionTitleLabel->setText(tr("Copilot"));
+    } else {
+        const QString title = m_sessionModel->title();
+        m_sessionTitleLabel->setText(title.isEmpty() ? tr("Copilot") : title);
     }
 }
 
@@ -706,6 +715,7 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
         if (title.length() > 50)
             title = title.left(47) + QStringLiteral("...");
         m_sessionModel->setTitle(title);
+        updateSessionTitle();
     }
 
     m_stack->setCurrentWidget(m_transcript);
@@ -1042,6 +1052,7 @@ void ChatPanelWidget::onNewSession()
     showWelcomeOrTranscript();
     m_inputWidget->setStreaming(false);
     m_inputWidget->clear();
+    updateSessionTitle();
 }
 
 void ChatPanelWidget::persistCompletedTurn(int turnIndex)

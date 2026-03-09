@@ -36,6 +36,7 @@ public:
                           const QString &remoteCmd,
                           const QString &remoteWorkDir = {});
     void appendText(const QString &text, const QColor &color = {});
+    void appendBuildLine(const QString &line, bool isError = false);
     void clear();
 
     // Task profile management

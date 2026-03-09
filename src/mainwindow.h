@@ -107,6 +107,10 @@ class GdbMiAdapter;
 class SshConnectionManager;
 class RemoteFilePanel;
 class RemoteSyncService;
+class ToolchainManager;
+class CMakeIntegration;
+class BuildToolbar;
+class DebugLaunchController;
 
 class MainWindow : public QMainWindow
 {
@@ -143,6 +147,7 @@ private:
     void saveSettings();
     void closeEvent(QCloseEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void showTabContextMenu(int tabIndex, const QPoint &globalPos);
 
     QTreeView        *m_fileTree;
     QTabWidget       *m_tabs;
@@ -188,6 +193,7 @@ private:
     ClangdManager    *m_clangd;
     LspClient        *m_lspClient;
     QString           m_currentFolder;
+    QStringList       m_includePaths;       // from compile_commands.json
     QMetaObject::Connection m_cursorConn;   // tracks current editor cursor signal
     InlineCompletionEngine *m_inlineEngine;
     InlineChatWidget       *m_inlineChat = nullptr;
@@ -270,6 +276,10 @@ private:
     RemoteFilePanel          *m_remotePanel = nullptr;
     exdock::ExDockWidget      *m_remoteDock = nullptr;
     RemoteSyncService        *m_syncService = nullptr;
+    ToolchainManager         *m_toolchainMgr = nullptr;
+    CMakeIntegration         *m_cmakeIntegration = nullptr;
+    BuildToolbar             *m_buildToolbar = nullptr;
+    DebugLaunchController    *m_debugLauncher = nullptr;
 
     void updateDiffRanges(EditorView *editor);
     void onLspInitialized();
