@@ -29,7 +29,8 @@ Unlike Electron-based editors, Exorcist compiles to a single native binary with 
 ## Features
 
 ### Editor
-- **Syntax highlighting** for 30+ languages (C/C++, Python, JavaScript, TypeScript, Rust, Go, C#, Java, Kotlin, Swift, Ruby, PHP, Dart, Lua, SQL, and more)
+- **Syntax highlighting** for 41 languages (C/C++, Python, JavaScript, TypeScript, Rust, Go, C#, Java, Kotlin, Scala, Swift, Dart, Ruby, PHP, Lua, Perl, R, Haskell, Elixir, Zig, SQL, HTML/XML, CSS/SCSS, Shell, PowerShell, Batch, YAML, TOML, JSON, INI, Env, Markdown, CMake, Makefile, Dockerfile, QMake, GLSL/HLSL, GraphQL, Protobuf, Terraform/HCL, and Visual Studio Solution)
+- **Shebang detection** — extensionless scripts matched by `#!` line (Python, Node, Bash, Ruby, Perl, Lua, Elixir)
 - **Large file support** — lazy chunked loading for files of any size
 - **Minimap** sidebar for quick navigation
 - **Breadcrumb** navigation bar
@@ -259,7 +260,7 @@ cmake --build build
 
 ## Stats
 
-- **209 source files** · **~29,000 lines of C++**
+- **391 source files** · **~57,000 lines of C++**
 - **Qt 6 Widgets** — single required dependency
 - **MIT License** — fully open source
 

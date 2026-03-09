@@ -20,6 +20,19 @@ add_executable(exorcist WIN32
     editor/largefileloader.h
     editor/syntaxhighlighter.cpp
     editor/syntaxhighlighter.h
+    editor/languages/langcommon.h
+    editor/languages/langcommon.cpp
+    editor/languages/langbuilders.h
+    editor/languages/lang_cpp.cpp
+    editor/languages/lang_python.cpp
+    editor/languages/lang_javascript.cpp
+    editor/languages/lang_web.cpp
+    editor/languages/lang_jvm.cpp
+    editor/languages/lang_systems.cpp
+    editor/languages/lang_scripting.cpp
+    editor/languages/lang_shell.cpp
+    editor/languages/lang_data.cpp
+    editor/languages/lang_config.cpp
     editor/textbuffer.h
     editor/piecetablebuffer.cpp
     editor/piecetablebuffer.h
