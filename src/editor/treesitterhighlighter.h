@@ -4,6 +4,7 @@
 #include <QTextCharFormat>
 #include <QHash>
 #include <QString>
+#include <QVector>
 
 #ifdef EXORCIST_HAS_TREESITTER
 #include <tree_sitter/api.h>
@@ -33,16 +34,27 @@ protected:
 private:
     void onContentsChange(int position, int charsRemoved, int charsAdded);
     void fullParse();
-    void applyHighlighting(uint32_t startByte, uint32_t endByte);
+    void buildBlockByteOffsets();
     void visitNode(TSNode node, uint32_t startByte, uint32_t endByte);
     QTextCharFormat formatForNodeType(const char *type, bool isNamed) const;
     void buildFormatMap();
+
+    // Byte↔char conversion helpers — no heap allocation.
+    // charOffset is in Qt code units (UTF-16); for BMP-only content this equals
+    // the Unicode code point count. 4-byte UTF-8 sequences (supplementary chars)
+    // map to 2 Qt code units (surrogate pair).
+    static uint32_t charToByteOffset(const QByteArray &utf8, int charOffset);
+    static int      byteToCharOffset(const QByteArray &utf8, uint32_t byteOffset);
+#ifdef EXORCIST_HAS_TREESITTER
+    static TSPoint  byteToPoint(const QByteArray &utf8, uint32_t byteOffset);
+#endif
 
 #ifdef EXORCIST_HAS_TREESITTER
     TSParser *m_parser = nullptr;
     TSTree   *m_tree   = nullptr;
 #endif
-    QByteArray m_sourceUtf8;
+    QByteArray        m_sourceUtf8;
+    QVector<uint32_t> m_blockByteOffsets; // byte offset of each block's first char in m_sourceUtf8
     QHash<QString, QTextCharFormat> m_formatMap;
     bool m_parsing = false;
 };

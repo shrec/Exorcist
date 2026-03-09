@@ -1908,12 +1908,6 @@ void MainWindow::createDockWidgets()
     });
     m_networkMonitor->start();
 
-    // ── Telemetry Manager ─────────────────────────────────────────────────
-    m_telemetry = new TelemetryManager(this);
-
-    // ── Citation Manager ──────────────────────────────────────────────────
-    m_citationManager = new CitationManager(this);
-
     // ── MCP Server Manager ────────────────────────────────────────────────
     m_mcpServerManager = new MCPServerManager(this);
 
@@ -1929,33 +1923,6 @@ void MainWindow::createDockWidgets()
             [this](int count) {
         if (m_indexLabel) m_indexLabel->setText(tr("%1 chunks indexed").arg(count));
     });
-
-    // ── Model Config Widget ───────────────────────────────────────────────
-    m_modelConfig = new ModelConfigWidget(nullptr);
-
-    // ── Context Inspector ─────────────────────────────────────────────────
-    m_contextInspector = new ContextInspector(nullptr);
-
-    // ── Tool Call Trace ───────────────────────────────────────────────────
-    m_toolCallTrace = new ToolCallTrace(nullptr);
-
-    // ── Trajectory Replay Widget ──────────────────────────────────────────
-    m_trajectoryReplay = new TrajectoryReplayWidget(nullptr);
-
-    // ── Prompt Archive Exporter ───────────────────────────────────────────
-    m_promptArchive = new PromptArchiveExporter(nullptr);
-
-    // ── Batch 7 ───────────────────────────────────────────────────────────
-    m_memoryFileEditor = new MemoryFileEditor(nullptr);
-    m_bgCompactor = new BackgroundCompactor(nullptr);
-    m_errorState = new ErrorStateWidget(nullptr);
-    m_setupTestsWizard = new SetupTestsWizard(nullptr);
-    m_renameIntegration = new RenameIntegration(nullptr);
-    m_accessibilityHelper = new AccessibilityHelper(nullptr);
-    m_toolToggleManager = new ToolToggleManager(nullptr);
-    m_contextScopeConfig = new ContextScopeConfig(nullptr);
-    m_embeddingIndex = new EmbeddingIndex(nullptr);
-    m_regexSearch = new RegexSearchEngine(nullptr);
 
     // ── Go-to-Definition (F12) ────────────────────────────────────────────
     connect(m_lspBootstrap, &LspBootstrap::navigateToLocation,
@@ -2469,7 +2436,7 @@ void MainWindow::newSolution()
     }
 
     QString slnPath = QFileDialog::getSaveFileName(this, tr("Save Solution"),
-                                                   QDir::currentPath(), tr("Exorcist Solution (*.exsln)"));
+                                                   m_currentFolder, tr("Exorcist Solution (*.exsln)"));
     if (slnPath.isEmpty()) {
         return;
     }
@@ -2492,7 +2459,7 @@ void MainWindow::newSolution()
 void MainWindow::openSolutionFile()
 {
     const QString slnPath = QFileDialog::getOpenFileName(this, tr("Open Solution"),
-                                                        QDir::currentPath(), tr("Exorcist Solution (*.exsln)"));
+                                                        m_currentFolder, tr("Exorcist Solution (*.exsln)"));
     if (slnPath.isEmpty()) {
         return;
     }

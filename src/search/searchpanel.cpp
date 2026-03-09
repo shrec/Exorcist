@@ -17,7 +17,7 @@
 
 SearchPanel::SearchPanel(SearchService *service, QWidget *parent)
     : QWidget(parent),
-      m_rootPath(QDir::currentPath()),
+      m_rootPath(QString{}), // populated via setRootPath() when a folder is opened
       m_service(service),
       m_input(new QLineEdit(this)),
       m_includeFilter(new QLineEdit(this)),

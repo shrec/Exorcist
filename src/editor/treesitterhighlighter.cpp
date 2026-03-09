@@ -3,6 +3,62 @@
 #include <QTextDocument>
 #include <QTextBlock>
 
+// ── Byte↔char conversion helpers ────────────────────────────────────────────
+//
+// UTF-8 encoding rules:
+//   0xxxxxxx              → 1 byte  = 1 Qt char
+//   110xxxxx 10xxxxxx     → 2 bytes = 1 Qt char
+//   1110xxxx 10xxxxxx×2   → 3 bytes = 1 Qt char
+//   11110xxx 10xxxxxx×3   → 4 bytes = 2 Qt chars (surrogate pair in UTF-16)
+//
+// charOffset is always in Qt UTF-16 code units (QString::length() units).
+
+uint32_t TreeSitterHighlighter::charToByteOffset(const QByteArray &utf8, int charOffset)
+{
+    const char *data = utf8.constData();
+    const int   size = utf8.size();
+    int qtChars = 0;
+    int i = 0;
+    while (i < size && qtChars < charOffset) {
+        const unsigned char c = static_cast<unsigned char>(data[i]);
+        if (c < 0x80)        { ++i; ++qtChars; }          // ASCII
+        else if (c < 0xE0)   { i += 2; ++qtChars; }       // 2-byte
+        else if (c < 0xF0)   { i += 3; ++qtChars; }       // 3-byte
+        else                  { i += 4; qtChars += 2; }    // 4-byte → surrogate pair
+    }
+    return static_cast<uint32_t>(qMin(i, size));
+}
+
+int TreeSitterHighlighter::byteToCharOffset(const QByteArray &utf8, uint32_t byteOffset)
+{
+    const char *data = utf8.constData();
+    const int   end  = qMin(static_cast<int>(byteOffset), utf8.size());
+    int qtChars = 0;
+    int i = 0;
+    while (i < end) {
+        const unsigned char c = static_cast<unsigned char>(data[i]);
+        if (c < 0x80)        { ++i; ++qtChars; }
+        else if (c < 0xE0)   { i += 2; ++qtChars; }
+        else if (c < 0xF0)   { i += 3; ++qtChars; }
+        else                  { i += 4; qtChars += 2; }
+    }
+    return qtChars;
+}
+
+TSPoint TreeSitterHighlighter::byteToPoint(const QByteArray &utf8, uint32_t byteOffset)
+{
+    const char *data = utf8.constData();
+    const int   end  = qMin(static_cast<int>(byteOffset), utf8.size());
+    uint32_t row = 0, col = 0;
+    for (int i = 0; i < end; ++i) {
+        if (data[i] == '\n') { ++row; col = 0; }
+        else                   ++col;
+    }
+    return {row, col};
+}
+
+// ── Main implementation ──────────────────────────────────────────────────────
+
 #ifdef EXORCIST_HAS_TREESITTER
 
 TreeSitterHighlighter::TreeSitterHighlighter(QTextDocument *doc)
@@ -54,44 +110,62 @@ void TreeSitterHighlighter::fullParse()
     m_tree = ts_parser_parse_string(m_parser, nullptr,
                                     m_sourceUtf8.constData(),
                                     static_cast<uint32_t>(m_sourceUtf8.size()));
+    buildBlockByteOffsets();
+}
+
+void TreeSitterHighlighter::buildBlockByteOffsets()
+{
+    m_blockByteOffsets.clear();
+    if (!document())
+        return;
+
+    uint32_t bytePos = 0;
+    for (QTextBlock blk = document()->begin(); blk.isValid(); blk = blk.next()) {
+        m_blockByteOffsets.append(bytePos);
+        // block.text() excludes the paragraph separator; add the byte count
+        // of the block text + 1 for the '\n' stored in m_sourceUtf8 (all but last block).
+        bytePos += static_cast<uint32_t>(blk.text().toUtf8().size());
+        if (blk.next().isValid())
+            ++bytePos; // '\n' separator
+    }
 }
 
 void TreeSitterHighlighter::onContentsChange(int position, int charsRemoved, int charsAdded)
 {
-    if (m_parsing || !m_tree)
+    if (m_parsing || !m_tree || !m_parser)
         return;
 
-    // Compute byte offsets in old UTF-8 source
-    const QString before = document()->toPlainText();
-    const QByteArray oldUtf8 = m_sourceUtf8;
-    const QByteArray newUtf8 = before.toUtf8();
+    // m_sourceUtf8 still holds the OLD source at this point.
+    const uint32_t startByte  = charToByteOffset(m_sourceUtf8, position);
+    const uint32_t oldEndByte = charToByteOffset(m_sourceUtf8, position + charsRemoved);
 
-    // Map character position to byte offset in old source
-    uint32_t startByte = document()->toPlainText().left(position).toUtf8().size();
-    // Careful: we need to track old vs new for the edit
-    // For simplicity, convert char counts to rough byte estimates
-    // then do a full reparse — tree-sitter will still be incremental
-    // because we supply the old tree
+    // Fetch the new text and compute the new end byte.
+    const QByteArray newUtf8  = document()->toPlainText().toUtf8();
+    const uint32_t newEndByte = charToByteOffset(newUtf8, position + charsAdded);
 
-    // Compute old end byte and new end byte
-    uint32_t oldEndByte = startByte;
-    {
-        // charsRemoved characters starting at position in old text
-        // We already have the new text, so reconstruct the old segment length:
-        // old text from [position..position+charsRemoved] → UTF-8 length
-        // We don't have old text easily, so approximate from oldUtf8
-        // A simpler approach: just reparse fully with old tree hint
-    }
+    // Tell tree-sitter exactly what changed BEFORE reparsing.
+    // Without this call the old tree's byte ranges are stale and incremental
+    // parsing produces incorrect results.
+    TSInputEdit edit;
+    edit.start_byte    = startByte;
+    edit.old_end_byte  = oldEndByte;
+    edit.new_end_byte  = newEndByte;
+    edit.start_point   = byteToPoint(m_sourceUtf8, startByte);
+    edit.old_end_point = byteToPoint(m_sourceUtf8, oldEndByte);
+    edit.new_end_point = byteToPoint(newUtf8, newEndByte);
+    ts_tree_edit(m_tree, &edit);
 
+    // Update source, then reparse incrementally using the edited tree.
     m_sourceUtf8 = newUtf8;
 
     TSTree *oldTree = m_tree;
-
-    // Provide the old tree for incremental parsing
     m_tree = ts_parser_parse_string(m_parser, oldTree,
                                     m_sourceUtf8.constData(),
                                     static_cast<uint32_t>(m_sourceUtf8.size()));
     ts_tree_delete(oldTree);
+
+    // Rebuild the per-block byte offset cache for the next highlightBlock() cycle.
+    buildBlockByteOffsets();
 }
 
 void TreeSitterHighlighter::highlightBlock(const QString &text)
@@ -102,14 +176,16 @@ void TreeSitterHighlighter::highlightBlock(const QString &text)
 
     m_parsing = true;
 
-    const QTextBlock block = currentBlock();
-    const int blockPos = block.position();
-    const int blockLen = block.length();
+    const QTextBlock block   = currentBlock();
+    const int        blockNum = block.blockNumber();
 
-    // Convert character positions to byte offsets
-    const QString docText = document()->toPlainText();
-    const uint32_t startByte = docText.left(blockPos).toUtf8().size();
-    const uint32_t endByte   = docText.left(blockPos + blockLen).toUtf8().size();
+    // Use the precomputed table — avoids toPlainText() on every block.
+    const uint32_t startByte = (blockNum < m_blockByteOffsets.size())
+                               ? m_blockByteOffsets[blockNum]
+                               : static_cast<uint32_t>(m_sourceUtf8.size());
+    const uint32_t endByte   = (blockNum + 1 < m_blockByteOffsets.size())
+                               ? m_blockByteOffsets[blockNum + 1]
+                               : static_cast<uint32_t>(m_sourceUtf8.size());
 
     TSNode root = ts_tree_root_node(m_tree);
     visitNode(root, startByte, endByte);
@@ -122,44 +198,36 @@ void TreeSitterHighlighter::visitNode(TSNode node, uint32_t startByte, uint32_t 
     const uint32_t nodeStart = ts_node_start_byte(node);
     const uint32_t nodeEnd   = ts_node_end_byte(node);
 
-    // Skip nodes completely outside our range
+    // Skip nodes completely outside our range.
     if (nodeEnd <= startByte || nodeStart >= endByte)
         return;
 
-    const char *type = ts_node_type(node);
-    const bool isNamed = ts_node_is_named(node);
+    const char *type     = ts_node_type(node);
+    const bool  isNamed  = ts_node_is_named(node);
 
-    // Apply format for leaf nodes (or named nodes without formatted children)
     const uint32_t childCount = ts_node_child_count(node);
     if (childCount == 0) {
         QTextCharFormat fmt = formatForNodeType(type, isNamed);
         if (fmt.isValid()) {
-            // Convert byte offsets to character offsets within the block
-            const QTextBlock block = currentBlock();
-            const int blockCharPos = block.position();
-            const QString docText = document()->toPlainText();
+            const int blockCharPos = currentBlock().position();
 
-            // Clamp to block range
             const uint32_t clampedStart = qMax(nodeStart, startByte);
-            const uint32_t clampedEnd   = qMin(nodeEnd, endByte);
+            const uint32_t clampedEnd   = qMin(nodeEnd,   endByte);
 
-            // Convert byte offsets to character offsets
-            const int charStart = QString::fromUtf8(m_sourceUtf8.constData(), clampedStart).length();
-            const int charEnd   = QString::fromUtf8(m_sourceUtf8.constData(), clampedEnd).length();
+            // Allocation-free byte→char conversion.
+            const int charStart = byteToCharOffset(m_sourceUtf8, clampedStart);
+            const int charEnd   = byteToCharOffset(m_sourceUtf8, clampedEnd);
 
             const int relStart = charStart - blockCharPos;
             const int relLen   = charEnd - charStart;
 
-            if (relStart >= 0 && relLen > 0) {
+            if (relStart >= 0 && relLen > 0)
                 setFormat(relStart, relLen, fmt);
-            }
         }
     }
 
-    // Recurse into children
-    for (uint32_t i = 0; i < childCount; ++i) {
+    for (uint32_t i = 0; i < childCount; ++i)
         visitNode(ts_node_child(node, i), startByte, endByte);
-    }
 }
 
 QTextCharFormat TreeSitterHighlighter::formatForNodeType(const char *type, bool isNamed) const
@@ -274,7 +342,8 @@ void TreeSitterHighlighter::buildFormatMap()
 
 #else // !EXORCIST_HAS_TREESITTER
 
-// Stub implementation when tree-sitter is not available
+// Stub implementations when tree-sitter is not compiled in.
+// The byte↔char helpers above are compiled unconditionally (no tree-sitter types used).
 
 TreeSitterHighlighter::TreeSitterHighlighter(QTextDocument *doc)
     : QSyntaxHighlighter(doc)
@@ -289,7 +358,7 @@ void TreeSitterHighlighter::reparse() {}
 void TreeSitterHighlighter::highlightBlock(const QString &) {}
 void TreeSitterHighlighter::onContentsChange(int, int, int) {}
 void TreeSitterHighlighter::fullParse() {}
-void TreeSitterHighlighter::applyHighlighting(uint32_t, uint32_t) {}
+void TreeSitterHighlighter::buildBlockByteOffsets() {}
 void TreeSitterHighlighter::visitNode(TSNode, uint32_t, uint32_t) {}
 QTextCharFormat TreeSitterHighlighter::formatForNodeType(const char *, bool) const { return {}; }
 void TreeSitterHighlighter::buildFormatMap() {}

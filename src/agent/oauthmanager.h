@@ -135,7 +135,7 @@ private:
                 "<p>You can close this tab and return to Exorcist IDE.</p>"
                 "</body></html>";
             socket->write(html);
-            socket->flush();
+            socket->waitForBytesWritten(0);
             socket->close();
             socket->deleteLater();
 
