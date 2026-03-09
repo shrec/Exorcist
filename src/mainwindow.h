@@ -50,6 +50,7 @@ class McpClient;
 class McpPanel;
 class PluginGalleryPanel;
 class ThemeManager;
+class ThemeGalleryPanel;
 class DiffViewerPanel;
 class ProposedEditPanel;
 class BreadcrumbBar;
@@ -185,6 +186,7 @@ private:
     exdock::ExDockWidget *m_memoryDock;
     exdock::ExDockWidget *m_mcpDock;
     exdock::ExDockWidget *m_pluginDock;
+    exdock::ExDockWidget *m_themeDock;
 
     QLabel *m_posLabel;
     QLabel *m_encodingLabel;
@@ -193,6 +195,7 @@ private:
     QLabel *m_copilotStatusLabel;
 
     PluginGalleryPanel *m_pluginGallery = nullptr;
+    ThemeGalleryPanel  *m_themeGallery = nullptr;
     std::unique_ptr<PluginManager>            m_pluginManager;
     std::unique_ptr<luabridge::LuaScriptEngine> m_luaEngine;
     std::unique_ptr<ServiceRegistry>            m_services;

@@ -49,7 +49,7 @@ concrete core classes or MainWindow.
 | **Plugin system** | `pluginmanager.*`, `serviceregistry.*`, `plugin/` | Plugin loader, typed service resolution, extension gallery | `PluginManager`, `ServiceRegistry`, `PluginGalleryPanel` |
 | **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code | `LspBootstrap`, `BuildDebugBootstrap` |
 | **SDK** | `sdk/` | Stable plugin API — typed host services, permissions | `IHostServices`, `HostServices`, `PluginPermission` |
-| **UI framework** | `ui/`, `commandpalette.*`, `thememanager.*` | Command palette, theme engine, keymap, notifications, custom docking | `CommandPalette`, `ThemeManager`, `KeymapManager`, `NotificationToast`, `DockManager`, `ExDockWidget` |
+| **UI framework** | `ui/`, `commandpalette.*`, `thememanager.*` | Command palette, theme engine with token colors, keymap, notifications, custom docking, theme gallery | `CommandPalette`, `ThemeManager`, `KeymapManager`, `NotificationToast`, `DockManager`, `ExDockWidget`, `ThemeGalleryPanel` |
 | **Logger** | `logger.*` | Thread-safe timestamped logging | `Logger` |
 
 ## Core interfaces (`src/core/`)

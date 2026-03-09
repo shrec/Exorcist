@@ -187,6 +187,8 @@ add_executable(exorcist WIN32
     ui/notificationtoast.h
     ui/settingsdialog.cpp
     ui/settingsdialog.h
+    ui/themegallerypanel.cpp
+    ui/themegallerypanel.h
     ui/keymapmanager.cpp
     ui/keymapmanager.h
     ui/keymapdialog.cpp

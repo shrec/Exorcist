@@ -30,6 +30,7 @@ static const struct { const char *name; QPalette::ColorRole role; } s_roleMap[] 
 ThemeManager::ThemeManager(QObject *parent)
     : QObject(parent)
 {
+    buildDefaultTokenFormats();
 }
 
 void ThemeManager::setTheme(Theme theme)
@@ -103,6 +104,26 @@ bool ThemeManager::loadCustomTheme(const QString &path, QString *error)
 
     m_customPalette  = p;
     m_hasCustomTheme = true;
+
+    // Parse metadata
+    m_themeName    = obj.value(QLatin1String("name")).toString();
+    m_themeAuthor  = obj.value(QLatin1String("author")).toString();
+    m_themeVersion = obj.value(QLatin1String("version")).toString();
+
+    // Parse editor token colours
+    const QJsonObject tokens = obj.value(QLatin1String("tokenColors")).toObject();
+    if (!tokens.isEmpty()) {
+        buildDefaultTokenFormats(); // reset to defaults first
+        for (auto it = tokens.begin(); it != tokens.end(); ++it) {
+            const QColor c(it.value().toString());
+            if (c.isValid() && m_tokenFormats.contains(it.key())) {
+                QTextCharFormat fmt = m_tokenFormats.value(it.key());
+                fmt.setForeground(c);
+                m_tokenFormats[it.key()] = fmt;
+            }
+        }
+    }
+
     return true;
 }
 
@@ -159,4 +180,28 @@ void ThemeManager::applyCustom()
     auto *app = qApp;
     app->setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     app->setPalette(m_customPalette);
+}
+
+QTextCharFormat ThemeManager::tokenFormat(const QString &tokenName) const
+{
+    return m_tokenFormats.value(tokenName);
+}
+
+void ThemeManager::buildDefaultTokenFormats()
+{
+    auto makeFmt = [](const QColor &fg, bool bold = false) {
+        QTextCharFormat fmt;
+        fmt.setForeground(fg);
+        if (bold) fmt.setFontWeight(QFont::Bold);
+        return fmt;
+    };
+
+    m_tokenFormats[QStringLiteral("keyword")]  = makeFmt(QColor(0x56, 0x9c, 0xd6), true);
+    m_tokenFormats[QStringLiteral("type")]     = makeFmt(QColor(0x4e, 0xc9, 0xb0));
+    m_tokenFormats[QStringLiteral("string")]   = makeFmt(QColor(0xce, 0x91, 0x78));
+    m_tokenFormats[QStringLiteral("comment")]  = makeFmt(QColor(0x6a, 0x99, 0x55));
+    m_tokenFormats[QStringLiteral("number")]   = makeFmt(QColor(0xb5, 0xce, 0xa8));
+    m_tokenFormats[QStringLiteral("preproc")]  = makeFmt(QColor(0xc5, 0x86, 0xc0));
+    m_tokenFormats[QStringLiteral("function")] = makeFmt(QColor(0xdc, 0xdc, 0xaa));
+    m_tokenFormats[QStringLiteral("special")]  = makeFmt(QColor(0x9c, 0xdc, 0xfe));
 }

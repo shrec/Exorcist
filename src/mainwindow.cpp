@@ -91,6 +91,7 @@
 #include "agent/iagentplugin.h"
 #include "ui/notificationtoast.h"
 #include "ui/settingsdialog.h"
+#include "ui/themegallerypanel.h"
 #include "ui/keymapmanager.h"
 #include "ui/keymapdialog.h"
 #include "ui/dock/DockManager.h"
@@ -943,6 +944,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     QAction *toggleMemoryAction    = viewMenu->addAction(tr("AI &Memory"));
     QAction *toggleMcpAction       = viewMenu->addAction(tr("&MCP Servers"));
     QAction *togglePluginAction    = viewMenu->addAction(tr("E&xtensions"));
+    QAction *toggleThemeAction     = viewMenu->addAction(tr("&Themes"));
     QAction *toggleOutputAction    = viewMenu->addAction(tr("&Output / Build"));
     QAction *toggleDebugAction     = viewMenu->addAction(tr("&Debug panel"));
     QAction *toggleRemoteAction    = viewMenu->addAction(tr("&Remote / SSH"));
@@ -1018,6 +1020,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleMcpAction->setChecked(false);
     togglePluginAction->setCheckable(true);
     togglePluginAction->setChecked(false);
+    toggleThemeAction->setCheckable(true);
+    toggleThemeAction->setChecked(false);
     toggleOutputAction->setCheckable(true);
     toggleOutputAction->setChecked(false);
     toggleDebugAction->setCheckable(true);
@@ -1227,6 +1231,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     });
     connect(toggleMcpAction,    &QAction::toggled, this, dockToggle(m_mcpDock));
     connect(togglePluginAction, &QAction::toggled, this, dockToggle(m_pluginDock));
+    connect(toggleThemeAction,  &QAction::toggled, this, dockToggle(m_themeDock));
     connect(toggleOutputAction, &QAction::toggled, this, dockToggle(m_outputDock));
     connect(toggleDebugAction,  &QAction::toggled, this, dockToggle(m_debugDock));
     connect(toggleRemoteAction, &QAction::toggled, this, dockToggle(m_remoteDock));
@@ -1253,6 +1258,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     syncAction(toggleMemoryAction,     m_memoryDock);
     syncAction(toggleMcpAction,        m_mcpDock);
     syncAction(togglePluginAction,     m_pluginDock);
+    syncAction(toggleThemeAction,      m_themeDock);
     syncAction(toggleOutputAction,     m_outputDock);
     syncAction(toggleDebugAction,      m_debugDock);
     syncAction(toggleRemoteAction,     m_remoteDock);
@@ -1664,6 +1670,14 @@ void MainWindow::createDockWidgets()
     // Wire theme → dock stylesheet (deferred from createDockWidgets)
     connect(m_themeManager, &ThemeManager::themeChanged,
             m_dockManager, &DockManager::applyDockStyleSheet);
+
+    // ── Theme Gallery panel ───────────────────────────────────────────────
+    m_themeGallery = new ThemeGalleryPanel(this);
+    m_themeGallery->setThemeManager(m_themeManager);
+    m_themeDock = new ExDockWidget(tr("Themes"), this);
+    m_themeDock->setDockId(QStringLiteral("ThemeDock"));
+    m_themeDock->setContentWidget(m_themeGallery);
+    m_dockManager->addDockWidget(m_themeDock, SideBarArea::Left, /*startPinned=*/false);
 
     // ── Diff Viewer panel ─────────────────────────────────────────────────
     m_diffViewer = new DiffViewerPanel(this);
