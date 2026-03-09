@@ -715,10 +715,13 @@ void MainWindow::setupUi()
 
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
         QWidget *widget = m_tabs->widget(index);
+        const QString closedPath = widget ? widget->property("filePath").toString() : QString();
         m_tabs->removeTab(index);
         if (widget) {
             widget->deleteLater();
         }
+        if (!closedPath.isEmpty())
+            m_pluginManager->fireLuaEvent(QStringLiteral("editor.close"), {closedPath});
     });
     connect(m_tabs, &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
 
@@ -2328,6 +2331,8 @@ void MainWindow::openFile(const QString &path)
     // Watch for external changes
     if (m_fileWatcher && !path.isEmpty())
         m_fileWatcher->watchFile(path);
+
+    m_pluginManager->fireLuaEvent(QStringLiteral("editor.open"), {path});
 }
 
 void MainWindow::openFolder(const QString &path)
@@ -2598,6 +2603,7 @@ void MainWindow::saveCurrentTab()
     m_tabs->setTabText(idx, title);
     m_tabs->setTabToolTip(idx, QDir::toNativeSeparators(path));
     statusBar()->showMessage(tr("Saved %1").arg(title), 3000);
+    m_pluginManager->fireLuaEvent(QStringLiteral("editor.save"), {path});
 }
 
 // ── Command palette ───────────────────────────────────────────────────────────

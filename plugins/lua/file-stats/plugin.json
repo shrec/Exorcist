@@ -1,0 +1,17 @@
+{
+    "id": "org.exorcist.file-stats",
+    "name": "File Stats",
+    "version": "1.0.0",
+    "description": "Displays comprehensive file statistics — line counts, language detection, encoding info.",
+    "author": "Exorcist Team",
+    "entry": "main.lua",
+    "permissions": [
+        "commands",
+        "notifications",
+        "editor.read",
+        "workspace.read",
+        "logging",
+        "events"
+    ],
+    "memoryLimit": 8
+}

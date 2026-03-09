@@ -1,0 +1,17 @@
+{
+    "id": "org.exorcist.save-guard",
+    "name": "Save Guard",
+    "version": "1.0.0",
+    "description": "Tracks save activity and highlights TODO/FIXME markers on save.",
+    "author": "Exorcist Team",
+    "entry": "main.lua",
+    "permissions": [
+        "commands",
+        "notifications",
+        "editor.read",
+        "workspace.read",
+        "logging",
+        "events"
+    ],
+    "memoryLimit": 8
+}

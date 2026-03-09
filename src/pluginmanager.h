@@ -63,6 +63,9 @@ public:
     /// Errors from Lua script engine.
     QStringList luaErrors() const;
 
+    /// Fire an event to all Lua plugins.
+    void fireLuaEvent(const QString &eventName, const QStringList &args = {});
+
 private:
     bool tryLoadCAbi(const QString &filePath);
 

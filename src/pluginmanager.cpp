@@ -241,3 +241,9 @@ QStringList PluginManager::luaErrors() const
 {
     return m_luaEngine ? m_luaEngine->errors() : QStringList();
 }
+
+void PluginManager::fireLuaEvent(const QString &eventName, const QStringList &args)
+{
+    if (m_luaEngine)
+        m_luaEngine->fireEvent(eventName, args);
+}

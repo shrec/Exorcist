@@ -1,0 +1,15 @@
+{
+    "id": "org.exorcist.quick-insert",
+    "name": "Quick Insert",
+    "version": "1.0.0",
+    "description": "Insert timestamps, separators, and file headers via commands.",
+    "author": "Exorcist Team",
+    "entry": "main.lua",
+    "permissions": [
+        "commands",
+        "notifications",
+        "editor.read",
+        "logging"
+    ],
+    "memoryLimit": 4
+}

@@ -1,0 +1,17 @@
+{
+    "id": "org.exorcist.git-reminder",
+    "name": "Git Reminder",
+    "version": "1.0.0",
+    "description": "Reminds you to commit after accumulating unsaved work.",
+    "author": "Exorcist Team",
+    "entry": "main.lua",
+    "permissions": [
+        "commands",
+        "notifications",
+        "editor.read",
+        "git.read",
+        "logging",
+        "events"
+    ],
+    "memoryLimit": 4
+}
