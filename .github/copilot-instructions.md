@@ -78,24 +78,30 @@ Optional extensions that users can install, enable, or disable independently:
 - **Header guards**: `#pragma once` — no `#ifndef` guards.
 - **Ownership (ZERO TOLERANCE)**:
   - **`delete` is ABSOLUTELY FORBIDDEN.** Never write `delete` anywhere. Period.
-  - **`new` is FORBIDDEN** except in ONE case: constructing a `QObject`-derived class with an explicit Qt parent (e.g., `new QLabel(parent)`). Qt's parent-child tree guarantees automatic cleanup — this is the ONLY acceptable bare `new`.
-  - **For non-QObject heap allocations**: use `std::make_unique<T>(...)` or `std::make_shared<T>(...)`. Never `new T(...)` into a raw pointer.
-  - **Member ownership**: non-QObject members that own heap memory MUST be `std::unique_ptr` or `std::shared_ptr`. Raw owning pointers are a bug.
-  - **No ambiguous ownership.** Every heap allocation must have exactly one clear, automatic owner. If you can't point to the owner, the code is wrong.
+  - **`new` is FORBIDDEN.** No exceptions by default. Smart pointers manage all lifetime.
+  - **Default rule**: use `std::make_unique<T>(...)` or `std::make_shared<T>(...)` for ALL heap allocations — including QObject-derived classes.
+  - **Member ownership**: all members that own heap memory MUST be `std::unique_ptr` or `std::shared_ptr`. Raw owning pointers are a bug.
+  - **No ambiguous ownership.** Every heap allocation must have exactly one clear, automatic owner.
   - **Allowed patterns:**
     ```cpp
-    auto *label = new QLabel(parent);              // ✅ Qt parent owns it
+    auto widget = std::make_unique<QLabel>();       // ✅ unique_ptr owns it
     auto widget = std::make_unique<MyPlainObj>();   // ✅ unique_ptr owns it
     m_buffer = std::make_shared<Buffer>();          // ✅ shared_ptr owns it
     ```
   - **Forbidden patterns:**
     ```cpp
-    auto *obj = new MyClass();         // ❌ raw new without Qt parent
-    auto *obj = new MyClass;           // ❌ same
-    delete ptr;                        // ❌ never, under any circumstances
+    auto *obj = new MyClass();         // ❌ FORBIDDEN
+    auto *obj = new MyClass;           // ❌ FORBIDDEN
+    new QLabel(parent);                // ❌ FORBIDDEN without explicit permission
+    delete ptr;                        // ❌ FORBIDDEN always
     MyClass *m_thing = new MyClass();  // ❌ raw owning pointer member
     ```
-  - **This rule has NO exceptions.** If you think you need a raw `new` without a Qt parent, you are wrong — redesign.
+  - **Edge cases require explicit user permission.** If a specific situation genuinely requires bare `new` (e.g., a Qt API that only accepts a raw pointer with parent ownership), you MUST:
+    1. Stop and explain to the user WHY bare `new` is needed in this specific case.
+    2. Show the exact line of code you want to write.
+    3. Wait for explicit user approval before writing it.
+    4. If the user says no, find an alternative design using smart pointers.
+  - **Never assume permission.** Never silently write `new`. Never batch it into a larger change hoping it goes unnoticed. Each bare `new` usage requires its own separate approval.
 - **Includes**: Minimal in headers; prefer forward declarations. Group: Qt headers → std headers → project headers.
 - **Error reporting**: Output `QString *error` parameters for fallible operations (see `IFileSystem`).
 - **User-facing strings**: Wrap in `tr()` for translation support.
