@@ -29,14 +29,17 @@ jobs:
           host: windows
           target: desktop
           arch: win64_llvm_mingw
-          tools: tools_llvm_mingw
           cache: true
 
-      - name: Add llvm-mingw to PATH
+      - name: Install llvm-mingw toolchain
         shell: pwsh
         run: |
-          $llvm = Get-ChildItem "$env:IQTA_TOOLS" -Filter "llvm-mingw*" -Directory | Select-Object -First 1
-          "$($llvm.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          Invoke-WebRequest `
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/20240726/llvm-mingw-20240726-ucrt-x86_64.zip" `
+            -OutFile llvm-mingw.zip
+          Expand-Archive llvm-mingw.zip -DestinationPath D:\llvm-mingw
+          $dir = (Get-ChildItem D:\llvm-mingw -Directory | Select-Object -First 1).FullName
+          "$dir\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Configure
         run: cmake --preset release -DCMAKE_RC_COMPILER=llvm-windres
@@ -129,7 +132,7 @@ jobs:
 
       - name: Build AppImage
         env:
-          QMAKE: ${{ env.QT_ROOT_DIR }}/bin/qmake
+          QMAKE: $QT_ROOT_DIR/bin/qmake
           OUTPUT: Exorcist-${{ github.ref_name }}-linux-x86_64.AppImage
         run: |
           ./linuxdeploy-x86_64.AppImage \

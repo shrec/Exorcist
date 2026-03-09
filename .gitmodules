@@ -1,0 +1,4 @@
+[submodule "third_party/luajit"]
+	path = third_party/luajit
+	url = https://github.com/LuaJIT/LuaJIT.git
+	branch = v2.1
