@@ -63,7 +63,7 @@ void *LuaScriptEngine::limitedAlloc(void *ud, void *ptr, size_t osize, size_t ns
 
 // ── Instruction hook ─────────────────────────────────────────────────────────
 
-void LuaScriptEngine::instructionHook(lua_State *L, void * /*ar*/)
+void LuaScriptEngine::instructionHook(lua_State *L, lua_Debug * /*ar*/)
 {
     luaL_error(L, "script exceeded instruction limit (%d)", kMaxInstructions);
 }
@@ -164,8 +164,7 @@ void LuaScriptEngine::applySandbox(lua_State *L, uint32_t /*permissions*/)
     lua_setglobal(L, "require");
 
     // ── Set instruction count hook ───────────────────────────────────────
-    lua_sethook(L, reinterpret_cast<lua_Hook>(instructionHook),
-                LUA_MASKCOUNT, kMaxInstructions);
+    lua_sethook(L, instructionHook, LUA_MASKCOUNT, kMaxInstructions);
 }
 
 // ── Host API registration (delegated to luahostapi.h) ────────────────────────
@@ -228,9 +227,9 @@ int LuaScriptEngine::loadPluginsFrom(const QString &path)
 
         // Parse optional memoryLimit from manifest (in MB, default 16).
         const int memLimitMB = obj.value("memoryLimit").toInt(16);
-        lp.memory.limit = static_cast<size_t>(memLimitMB) * 1024 * 1024;
+        lp.memory->limit = static_cast<size_t>(memLimitMB) * 1024 * 1024;
 
-        lua_State *L = createSandboxedState(permFlags, &lp.memory);
+        lua_State *L = createSandboxedState(permFlags, lp.memory.get());
         if (!L) {
             m_errors << QString("Failed to create Lua state for %1").arg(info.id);
             continue;
@@ -264,13 +263,13 @@ int LuaScriptEngine::loadPluginsFrom(const QString &path)
         }
 
         lp.L = L;
-        m_plugins.append(lp);
+        m_plugins.push_back(std::move(lp));
 
         qInfo("[LuaJIT] Loaded script plugin: %s (%s)",
               qUtf8Printable(info.id), qUtf8Printable(info.name));
     }
 
-    return m_plugins.size();
+    return static_cast<int>(m_plugins.size());
 }
 
 // ── Initialize all ───────────────────────────────────────────────────────────
@@ -390,13 +389,13 @@ bool LuaScriptEngine::reloadSinglePlugin(LoadedLuaPlugin &lp)
     }
 
     // Reset memory tracking.
-    const size_t savedLimit = lp.memory.limit;
-    lp.memory = MemoryBudget{};
-    lp.memory.limit = savedLimit;
+    const size_t savedLimit = lp.memory->limit;
+    *lp.memory = MemoryBudget{};
+    lp.memory->limit = savedLimit;
     lp.initialized = false;
 
     // Re-create sandboxed state.
-    lua_State *L = createSandboxedState(lp.permissions, &lp.memory);
+    lua_State *L = createSandboxedState(lp.permissions, lp.memory.get());
     if (!L) {
         m_errors << QString("Failed to recreate Lua state for %1").arg(lp.info.id);
         return false;

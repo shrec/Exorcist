@@ -19,7 +19,7 @@ if(EXORCIST_USE_LLVM)
     find_package(LLVM CONFIG REQUIRED)
 endif()
 
-add_subdirectory(third_party/luajit)
+add_subdirectory(cmake/luajit)
 add_subdirectory(src)
 add_subdirectory(plugins)
 

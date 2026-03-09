@@ -112,7 +112,8 @@ void PluginManager::initializeAll(IHostServices *host)
 
 void PluginManager::initializeAll(QObject *services)
 {
-    for (const LoadedPlugin &lp : m_loaded) {
+    for (int i = 0; i < m_loaded.size(); ++i) {
+        const LoadedPlugin &lp = m_loaded[i];
         try {
             lp.instance->initialize(services);
         } catch (const std::exception &e) {

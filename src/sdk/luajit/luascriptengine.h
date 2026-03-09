@@ -9,7 +9,11 @@
 #include <QStringList>
 #include <QTimer>
 
+#include <memory>
+#include <vector>
+
 struct lua_State;
+struct lua_Debug;
 class IHostServices;
 
 namespace luabridge {
@@ -71,7 +75,7 @@ struct LoadedLuaPlugin
     lua_State    *L = nullptr;    // sandboxed state
     uint32_t      permissions = 0;
     bool          initialized = false;
-    MemoryBudget  memory;         // per-plugin memory tracking
+    std::unique_ptr<MemoryBudget> memory = std::make_unique<MemoryBudget>();
 };
 
 // ── LuaScriptEngine ─────────────────────────────────────────────────────────
@@ -118,7 +122,7 @@ public:
     const QStringList &errors() const { return m_errors; }
 
     /// Get list of loaded plugins.
-    const QList<LoadedLuaPlugin> &plugins() const { return m_plugins; }
+    const std::vector<LoadedLuaPlugin> &plugins() const { return m_plugins; }
 
 private:
     /// Create a sandboxed lua_State with only whitelisted globals.
@@ -135,7 +139,7 @@ private:
     static uint32_t parsePermissions(const QStringList &permStrings);
 
     /// Instruction count hook — aborts runaway scripts.
-    static void instructionHook(lua_State *L, void *ar);
+    static void instructionHook(lua_State *L, lua_Debug *ar);
 
     /// Custom allocator with per-plugin memory limit.
     /// Signature matches lua_Alloc: void*(void *ud, void *ptr, size_t osize, size_t nsize)
@@ -155,7 +159,7 @@ private:
     QString m_pluginsDir;
 
     IHostServices         *m_host;
-    QList<LoadedLuaPlugin>  m_plugins;
+    std::vector<LoadedLuaPlugin>  m_plugins;
     QStringList             m_errors;
     QFileSystemWatcher      m_watcher;
     QTimer                  m_reloadDebounce;

@@ -720,7 +720,7 @@ void MainWindow::setupUi()
         if (widget) {
             widget->deleteLater();
         }
-        if (!closedPath.isEmpty())
+        if (!closedPath.isEmpty() && m_pluginManager)
             m_pluginManager->fireLuaEvent(QStringLiteral("editor.close"), {closedPath});
     });
     connect(m_tabs, &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
@@ -2332,7 +2332,8 @@ void MainWindow::openFile(const QString &path)
     if (m_fileWatcher && !path.isEmpty())
         m_fileWatcher->watchFile(path);
 
-    m_pluginManager->fireLuaEvent(QStringLiteral("editor.open"), {path});
+    if (m_pluginManager)
+        m_pluginManager->fireLuaEvent(QStringLiteral("editor.open"), {path});
 }
 
 void MainWindow::openFolder(const QString &path)
@@ -2603,7 +2604,8 @@ void MainWindow::saveCurrentTab()
     m_tabs->setTabText(idx, title);
     m_tabs->setTabToolTip(idx, QDir::toNativeSeparators(path));
     statusBar()->showMessage(tr("Saved %1").arg(title), 3000);
-    m_pluginManager->fireLuaEvent(QStringLiteral("editor.save"), {path});
+    if (m_pluginManager)
+        m_pluginManager->fireLuaEvent(QStringLiteral("editor.save"), {path});
 }
 
 // ── Command palette ───────────────────────────────────────────────────────────
