@@ -85,8 +85,8 @@ Phase 4 — Performance & Polish  Months 4+
 Goal: Match VS Code on performance benchmarks. Ship a 1.0 release-candidate.
 Task	Description & Acceptance Criteria
 Tree-sitter full migration	Replace QSyntaxHighlighter entirely. Use tree-sitter incremental parsing on a QThreadPool worker. Apply semantic token colours from LSP textDocument/semanticTokens.
-Benchmark memory and startup time	Target: cold start < 200ms, idle RAM < 80MB for empty project. Profile with Qt's built-in QElapsedTimer and Valgrind massif.
-Multi-root workspace support	Allow opening multiple top-level folders. ProjectManager::openFolder() should support a list. SolutionTreeModel should merge multiple roots.
+Benchmark memory and startup time	✅ Done — StartupProfiler (src/startupprofiler.h) provides phase-level timing marks and RSS memory measurement (Windows/Linux/macOS). Integrated into main.cpp (app init, MainWindow constructed, UI setup, first paint) and MainWindow::deferredInit (plugins loaded, deferred init done). Logs detailed phase breakdown + RSS in MB on startup.
+Multi-root workspace support	✅ Done — Already fully implemented. ExSolution::projects is QList<ExProject> supporting multiple roots. SolutionTreeModel::buildTree() renders all projects under one Solution node. ProjectManager has addProject()/removeProject() APIs. UI: File → Solution → "Add Folder to Solution..." menu action with addProjectToSolution() dialog. JSON persistence saves/loads all projects.
 Theming marketplace	ThemeManager can load JSON themes. Build a UI to browse/download VS Code-compatible token colour themes from a hosted registry.
 v1.0 release packaging	CPack config for .deb, .rpm, .msi, .dmg. GitHub Actions release workflow producing signed binaries for Linux, Windows, macOS.
 

@@ -235,6 +235,7 @@ add_executable(exorcist WIN32
     plugin/plugingallerypanel.h
     serviceregistry.cpp
     serviceregistry.h
+    startupprofiler.h
     thememanager.cpp
     thememanager.h
     core/ifilesystem.h

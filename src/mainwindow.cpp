@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 
+#include "startupprofiler.h"
+
 #include <QAction>
 #include <QDialog>
 #include <QDirIterator>
@@ -278,6 +280,7 @@ MainWindow::MainWindow(QWidget *parent)
     setupUi();
     setupMenus();
     setupStatusBar();
+    StartupProfiler::instance().mark(QStringLiteral("UI setup"));
 
     // ── Keymap Manager ────────────────────────────────────────────────────
     m_keymapManager = new KeymapManager(this);
@@ -685,6 +688,7 @@ MainWindow::MainWindow(QWidget *parent)
 void MainWindow::deferredInit()
 {
     loadPlugins();
+    StartupProfiler::instance().mark(QStringLiteral("plugins loaded"));
 
     // Restore dock layout from DockManager JSON state.
     {
@@ -702,6 +706,7 @@ void MainWindow::deferredInit()
     const QString lastFolder = s.value(QStringLiteral("lastFolder")).toString();
     if (!lastFolder.isEmpty() && QDir(lastFolder).exists())
         openFolder(lastFolder);
+    StartupProfiler::instance().mark(QStringLiteral("deferred init done"));
 }
 
 // ── UI setup ────────────────────────────────────────────────────────────────

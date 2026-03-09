@@ -1,6 +1,5 @@
 #include <QApplication>
 #include <QCoreApplication>
-#include <QElapsedTimer>
 #include <QFont>
 #include <QIcon>
 #include <QLocale>
@@ -11,6 +10,7 @@
 
 #include "logger.h"
 #include "mainwindow.h"
+#include "startupprofiler.h"
 
 namespace
 {
@@ -75,8 +75,7 @@ void loadTranslator(QApplication &app)
 
 int main(int argc, char *argv[])
 {
-    QElapsedTimer startupTimer;
-    startupTimer.start();
+    StartupProfiler::instance().begin();
 
     QApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("Exorcist"));
@@ -88,17 +87,20 @@ int main(int argc, char *argv[])
     app.setFont(QFont(QStringLiteral("Segoe UI"), 10));
     applyDarkTheme(app);
     loadTranslator(app);
+    StartupProfiler::instance().mark(QStringLiteral("app init + theme"));
 
     MainWindow window;
+    StartupProfiler::instance().mark(QStringLiteral("MainWindow constructed"));
     window.showMaximized();
 
     // Defer heavy init (plugins, last folder) to after first paint.
     QTimer::singleShot(0, &window, &MainWindow::deferredInit);
 
-    // Log time-to-first-paint after the event loop processes the initial
+    // Log startup profile after the event loop processes the initial
     // show/paint events (singleShot 0 fires once the queue is drained).
-    QTimer::singleShot(0, [&startupTimer]() {
-        qInfo() << "Startup: first paint in" << startupTimer.elapsed() << "ms";
+    QTimer::singleShot(0, []() {
+        StartupProfiler::instance().mark(QStringLiteral("first paint"));
+        StartupProfiler::instance().finish();
     });
 
     const int ret = app.exec();
