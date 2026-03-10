@@ -56,6 +56,10 @@ set(LUAJIT_DEFINES
 if(WIN32)
     list(APPEND LUAJIT_DEFINES _CRT_SECURE_NO_WARNINGS)
 endif()
+if(UNIX AND NOT APPLE)
+    list(APPEND LUAJIT_DEFINES LUAJIT_UNWIND_EXTERNAL)
+    set(LUAJIT_UNWIND_FLAGS -funwind-tables)
+endif()
 
 # ── Step 1: Build minilua (host tool) ──────────────────────────────────────
 add_executable(minilua ${LUAJIT_DIR}/host/minilua.c)
@@ -243,6 +247,7 @@ target_compile_options(libluajit PRIVATE
     -O2 -fomit-frame-pointer
     -U_FORTIFY_SOURCE
     -fno-stack-protector
+    ${LUAJIT_UNWIND_FLAGS}
 )
 
 set_target_properties(libluajit PROPERTIES
