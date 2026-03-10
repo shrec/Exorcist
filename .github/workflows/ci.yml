@@ -143,3 +143,80 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+  #  Coverage - Codecov
+  # ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
+  coverage:
+    name: Coverage (Codecov)
+    runs-on: ubuntu-24.04
+    needs: [build-linux]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev clang llvm
+
+      - name: Install Qt ${{ env.QT_VERSION }}
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          cache: true
+
+      - name: Configure (coverage)
+        run: >
+          cmake --preset ci
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_FLAGS="-fprofile-instr-generate -fcoverage-mapping"
+          -DCMAKE_CXX_FLAGS="-fprofile-instr-generate -fcoverage-mapping"
+          -DCMAKE_EXE_LINKER_FLAGS="-fprofile-instr-generate"
+        env:
+          CC: clang
+          CXX: clang++
+
+      - name: Build
+        run: cmake --build build-ci --parallel
+        env:
+          CC: clang
+          CXX: clang++
+
+      - name: Test
+        run: xvfb-run -a ctest --test-dir build-ci --output-on-failure --parallel 4
+        env:
+          QT_QPA_PLATFORM: offscreen
+          LLVM_PROFILE_FILE: build-ci/coverage-%p.profraw
+
+      - name: Generate coverage report
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          raw=(build-ci/coverage-*.profraw)
+          if [ ${#raw[@]} -eq 0 ]; then
+            echo "No coverage data generated."
+            exit 0
+          fi
+          llvm-profdata merge -sparse "${raw[@]}" -o build-ci/coverage.profdata
+          if [ ! -f build-ci/src/exorcist ]; then
+            echo "Main binary not found, skipping coverage export."
+            exit 0
+          fi
+          llvm-cov export \
+            -format=lcov \
+            --instr-profile=build-ci/coverage.profdata \
+            build-ci/src/exorcist \
+            > build-ci/coverage.lcov
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: build-ci/coverage.lcov
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

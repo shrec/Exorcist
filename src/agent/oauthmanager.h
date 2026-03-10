@@ -1,10 +1,18 @@
 #pragma once
 
+#include <QCryptographicHash>
 #include <QDesktopServices>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QObject>
 #include <QTcpServer>
+#include <QTcpSocket>
 #include <QTimer>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QUuid>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,12 +43,20 @@ public:
     /// Set OAuth client ID (from GitHub App settings)
     void setClientId(const QString &clientId) { m_clientId = clientId; }
 
+    /// Set OAuth client secret (optional for PKCE public clients)
+    void setClientSecret(const QString &clientSecret) { m_clientSecret = clientSecret; }
+
     /// Set OAuth scopes (space-separated)
     void setScopes(const QString &scopes) { m_scopes = scopes; }
 
     /// Start the OAuth login flow — opens browser
     bool startLogin()
     {
+        if (m_clientId.isEmpty()) {
+            emit loginFailed(tr("Missing OAuth client ID"));
+            return false;
+        }
+
         // Start local callback server
         if (!m_callbackServer->listen(QHostAddress::LocalHost, 0)) {
             emit loginFailed(tr("Failed to start local callback server"));
@@ -49,6 +65,8 @@ public:
 
         m_port = m_callbackServer->serverPort();
         m_state = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        m_codeVerifier = createCodeVerifier();
+        m_codeChallenge = createCodeChallenge(m_codeVerifier);
 
         connect(m_callbackServer, &QTcpServer::newConnection,
                 this, &OAuthManager::handleCallback);
@@ -59,11 +77,14 @@ public:
             "?client_id=%1"
             "&redirect_uri=http://localhost:%2/callback"
             "&scope=%3"
-            "&state=%4")
+            "&state=%4"
+            "&code_challenge=%5"
+            "&code_challenge_method=S256")
             .arg(m_clientId)
             .arg(m_port)
             .arg(m_scopes)
-            .arg(m_state);
+            .arg(m_state)
+            .arg(m_codeChallenge);
 
         // Timeout after 2 minutes
         QTimer::singleShot(120000, this, [this] {
@@ -118,6 +139,68 @@ signals:
     void tokenRefreshed(const QString &newToken);
 
 private:
+    QString createCodeVerifier() const
+    {
+        const QByteArray bytes = QUuid::createUuid().toRfc4122()
+                                     + QUuid::createUuid().toRfc4122();
+        return QString::fromLatin1(bytes.toHex());
+    }
+
+    QString createCodeChallenge(const QString &verifier) const
+    {
+        const QByteArray hash =
+            QCryptographicHash::hash(verifier.toUtf8(), QCryptographicHash::Sha256);
+        const QByteArray b64 = hash.toBase64(QByteArray::Base64UrlEncoding
+                                             | QByteArray::OmitTrailingEquals);
+        return QString::fromLatin1(b64);
+    }
+
+    void exchangeCodeForToken(const QString &code)
+    {
+        if (!m_network) {
+            m_network = new QNetworkAccessManager(this);
+        }
+
+        QUrl url(QStringLiteral("https://github.com/login/oauth/access_token"));
+        QNetworkRequest req(url);
+        req.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QStringLiteral("application/x-www-form-urlencoded"));
+        req.setRawHeader("Accept", "application/json");
+
+        QUrlQuery body;
+        body.addQueryItem(QStringLiteral("client_id"), m_clientId);
+        if (!m_clientSecret.isEmpty())
+            body.addQueryItem(QStringLiteral("client_secret"), m_clientSecret);
+        body.addQueryItem(QStringLiteral("code"), code);
+        body.addQueryItem(QStringLiteral("redirect_uri"),
+                          QStringLiteral("http://localhost:%1/callback").arg(m_port));
+        body.addQueryItem(QStringLiteral("state"), m_state);
+        body.addQueryItem(QStringLiteral("code_verifier"), m_codeVerifier);
+
+        QNetworkReply *reply = m_network->post(req, body.toString(QUrl::FullyEncoded).toUtf8());
+        connect(reply, &QNetworkReply::finished, this, [this, reply] {
+            const QByteArray raw = reply->readAll();
+            const QJsonDocument doc = QJsonDocument::fromJson(raw);
+            const QJsonObject obj = doc.object();
+            const QString token = obj.value(QStringLiteral("access_token")).toString();
+            const QString error = obj.value(QStringLiteral("error_description")).toString();
+            reply->deleteLater();
+
+            if (!error.isEmpty()) {
+                emit loginFailed(error);
+                return;
+            }
+
+            if (token.isEmpty()) {
+                emit loginFailed(tr("OAuth token exchange failed"));
+                return;
+            }
+
+            m_accessToken = token;
+            emit loginSucceeded(token);
+        });
+    }
+
     void handleCallback()
     {
         auto *socket = m_callbackServer->nextPendingConnection();
@@ -177,19 +260,20 @@ private:
                 return;
             }
 
-            // In a full implementation, exchange code for token via HTTP POST
-            // POST https://github.com/login/oauth/access_token
-            // For now, emit the code — the AuthManager can handle the exchange
             m_authCode = code;
-            emit loginSucceeded(code);
+            exchangeCodeForToken(code);
         });
     }
 
     QTcpServer *m_callbackServer = nullptr;
+    QNetworkAccessManager *m_network = nullptr;
     QString m_clientId;
+    QString m_clientSecret;
     QString m_scopes = QStringLiteral("read:user");
     QString m_state;
     QString m_accessToken;
     QString m_authCode;
+    QString m_codeVerifier;
+    QString m_codeChallenge;
     quint16 m_port = 0;
 };
