@@ -161,7 +161,7 @@ static KeybindingContribution parseKeybinding(const QJsonObject &o)
     k.commandId = o[QLatin1String("commandId")].toString();
     k.key       = o[QLatin1String("key")].toString();
     k.mac       = o[QLatin1String("mac")].toString();
-    k.linux     = o[QLatin1String("linux")].toString();
+    k.linuxKey  = o[QLatin1String("linux")].toString();
     k.when      = o[QLatin1String("when")].toString();
     return k;
 }

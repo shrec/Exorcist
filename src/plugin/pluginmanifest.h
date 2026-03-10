@@ -127,7 +127,7 @@ struct KeybindingContribution
     QString commandId;     // references a CommandContribution::id
     QString key;           // "Ctrl+Shift+P"
     QString mac;           // macOS override: "Cmd+Shift+P"
-    QString linux;         // Linux override (optional)
+    QString linuxKey;      // Linux override (optional)
     QString when;          // context condition
 };
 
