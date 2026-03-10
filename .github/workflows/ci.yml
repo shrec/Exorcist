@@ -19,6 +19,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install system dependencies
         run: |
@@ -60,6 +62,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Qt ${{ env.QT_VERSION }}
         uses: jurplel/install-qt-action@v4
@@ -111,6 +115,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # full history for blame & new-code detection
+          submodules: recursive
 
       - name: Install system dependencies
         run: |
@@ -154,6 +159,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install system dependencies
         run: |
