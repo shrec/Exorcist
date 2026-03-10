@@ -12,6 +12,7 @@
 #
 cmake_minimum_required(VERSION 3.21)
 project(luajit C)
+enable_language(ASM)
 
 # LuaJIT is pure C — disable Qt's AUTOMOC/AUTOUIC/AUTORCC which the parent
 # project enables globally.  Without this, AUTOMOC adds a spurious
@@ -166,6 +167,10 @@ add_custom_command(
     DEPENDS buildvm
     COMMENT "buildvm → lj_vm"
 )
+
+if(NOT WIN32)
+    set_source_files_properties(${LJVM_OUT} PROPERTIES LANGUAGE ASM)
+endif()
 
 add_custom_command(
     OUTPUT  ${GEN_DIR}/lj_bcdef.h
