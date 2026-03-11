@@ -14,16 +14,23 @@
 // Directories to always skip regardless of .gitignore
 static const QSet<QString> kDefaultIgnoreDirs = {
     QStringLiteral(".git"),
-    QStringLiteral("node_modules"),
-    QStringLiteral("__pycache__"),
     QStringLiteral(".cache"),
+    QStringLiteral(".claude"),
+    QStringLiteral(".exorcist"),
+    QStringLiteral(".next"),
     QStringLiteral(".vs"),
     QStringLiteral(".vscode"),
+    QStringLiteral("__pycache__"),
     QStringLiteral("build"),
+    QStringLiteral("build-ci"),
     QStringLiteral("build-llvm"),
+    QStringLiteral("build-release"),
+    QStringLiteral("CMakeFiles"),
     QStringLiteral("dist"),
+    QStringLiteral("node_modules"),
     QStringLiteral("out"),
-    QStringLiteral(".next"),
+    QStringLiteral("ReserchRepos"),
+    QStringLiteral("vendor"),
 };
 
 // File extensions to index (source code + config — not binary)
@@ -358,11 +365,19 @@ void WorkspaceIndexer::loadGitignore(const QString &rootPath)
         QString line = in.readLine().trimmed();
         if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
             continue;
-        // Simple patterns: directory names or extension globs
+
+        // Strip leading / (root-anchored — our paths are already relative)
+        if (line.startsWith(QLatin1Char('/')))
+            line = line.mid(1);
+
+        // Strip trailing / (directory marker)
+        if (line.endsWith(QLatin1Char('/')))
+            line.chop(1);
+
+        if (line.isEmpty())
+            continue;
+
         if (!line.contains(QLatin1Char('*')) && !line.contains(QLatin1Char('?'))) {
-            // Treat as exact directory/file name
-            if (line.endsWith(QLatin1Char('/')))
-                line.chop(1);
             m_ignoreExact.insert(line);
         } else {
             m_ignorePatterns << line;
@@ -379,14 +394,18 @@ bool WorkspaceIndexer::shouldIgnore(const QString &relativePath) const
             return true;
     }
 
-    // Check glob patterns (simple *.ext matching)
-    const QString fileName = parts.last();
+    // Check glob patterns against appropriate targets
     for (const QString &pattern : m_ignorePatterns) {
         if (pattern.startsWith(QStringLiteral("*."))) {
-            // Extension pattern
-            const QString ext = pattern.mid(2);
-            if (fileName.endsWith(QLatin1Char('.') + ext))
+            // Extension glob — match against filename only
+            if (QDir::match(pattern, parts.last()))
                 return true;
+        } else {
+            // Directory/name glob — match against each path component
+            for (const QString &part : parts) {
+                if (QDir::match(pattern, part))
+                    return true;
+            }
         }
     }
 
