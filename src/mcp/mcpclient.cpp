@@ -167,11 +167,12 @@ void McpClient::onProcessReadyRead(const QString &name)
     state.buffer.append(state.process->readAllStandardOutput());
 
     // MCP uses newline-delimited JSON-RPC messages
+    int consumed = 0;
     while (true) {
-        const int nlPos = state.buffer.indexOf('\n');
+        const int nlPos = state.buffer.indexOf('\n', consumed);
         if (nlPos < 0) break;
-        const QByteArray line = state.buffer.left(nlPos).trimmed();
-        state.buffer.remove(0, nlPos + 1);
+        const QByteArray line = state.buffer.mid(consumed, nlPos - consumed).trimmed();
+        consumed = nlPos + 1;
 
         if (line.isEmpty()) continue;
         QJsonParseError parseErr;
@@ -179,6 +180,8 @@ void McpClient::onProcessReadyRead(const QString &name)
         if (doc.isNull()) continue;
         handleMessage(name, doc.object());
     }
+    if (consumed > 0)
+        state.buffer.remove(0, consumed);
 }
 
 void McpClient::onProcessFinished(const QString &name, int exitCode)

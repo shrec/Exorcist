@@ -293,14 +293,17 @@ void GdbMiAdapter::onReadyRead()
 {
     m_lineBuffer += QString::fromUtf8(m_process.readAllStandardOutput());
 
+    int consumed = 0;
     while (true) {
-        const int nl = m_lineBuffer.indexOf(QLatin1Char('\n'));
+        const int nl = m_lineBuffer.indexOf(QLatin1Char('\n'), consumed);
         if (nl < 0) break;
-        const QString line = m_lineBuffer.left(nl).trimmed();
-        m_lineBuffer.remove(0, nl + 1);
+        const QString line = m_lineBuffer.mid(consumed, nl - consumed).trimmed();
+        consumed = nl + 1;
         if (!line.isEmpty())
             parseMiLine(line);
     }
+    if (consumed > 0)
+        m_lineBuffer.remove(0, consumed);
 }
 
 void GdbMiAdapter::parseMiLine(const QString &line)

@@ -1029,8 +1029,10 @@ void AgentChatPanel::onSend()
     if (raw.isEmpty() && m_attachments.isEmpty())
         return;
 
-    // Push to input history for Up/Down navigation
+    // Push to input history for Up/Down navigation (cap at 100)
     if (!raw.isEmpty()) {
+        if (m_inputHistory.size() >= 100)
+            m_inputHistory.removeFirst();
         m_inputHistory.append(raw);
         m_historyIndex = -1;
     }
@@ -1121,8 +1123,10 @@ void AgentChatPanel::onSend()
     // Effective prompt = user text + any attached file contents
     const QString effectiveText = attachContext.isEmpty() ? text : (text + attachContext);
 
-    // Record user message in conversation history
+    // Record user message in conversation history (cap at 200 to prevent OOM)
     m_conversationHistory.append({AgentMessage::Role::User, effectiveText});
+    if (m_conversationHistory.size() > 200)
+        m_conversationHistory.removeFirst();
 
     m_pendingRequestId  = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_pendingAccum.clear();
@@ -1237,6 +1241,10 @@ void AgentChatPanel::onResponseDelta(const QString &requestId, const QString &ch
 
     m_pendingAccum += chunk;
 
+    // Safety cap: truncate streaming accumulator at 512 KB
+    if (m_pendingAccum.size() > 512 * 1024)
+        m_pendingAccum.truncate(512 * 1024);
+
     // Finalize any live thinking bubble before starting the response stream
     if (m_thinkingStreamStarted)
         finalizeThinkingBubble();
@@ -1317,8 +1325,11 @@ void AgentChatPanel::onResponseFinished(const QString &requestId,
     // Store raw response text for copy button
     m_aiMessages.append(responseText);
 
-    if (!responseText.isEmpty())
+    if (!responseText.isEmpty()) {
         m_conversationHistory.append({AgentMessage::Role::Assistant, responseText});
+        if (m_conversationHistory.size() > 200)
+            m_conversationHistory.removeFirst();
+    }
 
     // Save assistant message in Ask mode (agent mode saves via AgentController)
     if (!AgentModes::usesAgentLoop(m_currentMode) && m_sessionStore
@@ -2010,7 +2021,11 @@ void AgentChatPanel::showSessionHistory()
                 m_aiMessages.clear();
                 m_userMsgCount = 0;
                 m_messageCount = 0;
-                for (const auto &pair : sess.messages) {
+                // Cap restored messages at last 200 to prevent excessive memory use
+                const auto &msgs = sess.messages;
+                const int start = qMax(0, msgs.size() - 200);
+                for (int i = start; i < msgs.size(); ++i) {
+                    const auto &pair = msgs[i];
                     if (pair.first == QLatin1String("user")) {
                         m_userMessages.append(pair.second);
                         m_conversationHistory.append({AgentMessage::Role::User, pair.second});

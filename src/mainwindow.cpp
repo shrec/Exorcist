@@ -125,6 +125,7 @@
 #include "project/solutiontreemodel.h"
 #include "git/gitservice.h"
 #include "git/gitpanel.h"
+#include "github/ghbootstrap.h"
 #include "build/outputpanel.h"
 #include "build/runlaunchpanel.h"
 #include "build/toolchainmanager.h"
@@ -1641,6 +1642,8 @@ void MainWindow::setupMenus()
         m_currentFolder.clear();
         m_clangd->stop();
         m_gitService->setWorkingDirectory({});
+        if (auto *ghBoot = findChild<GhBootstrap *>(QStringLiteral("GhBootstrap")))
+            ghBoot->setWorkingDirectory({});
         m_searchPanel->setRootPath({});
         m_terminal->setWorkingDirectory({});
         setWindowTitle(tr("Exorcist"));
@@ -1651,6 +1654,8 @@ void MainWindow::setupMenus()
         m_currentFolder.clear();
         m_clangd->stop();
         m_gitService->setWorkingDirectory({});
+        if (auto *ghBoot = findChild<GhBootstrap *>(QStringLiteral("GhBootstrap")))
+            ghBoot->setWorkingDirectory({});
         m_searchPanel->setRootPath({});
         m_terminal->setWorkingDirectory({});
         if (m_fileWatcher) m_fileWatcher->unwatchAll();
@@ -2326,6 +2331,13 @@ void MainWindow::createDockWidgets()
         m_chatPanel->focusInput();
         m_dockManager->showDock(m_aiDock, exdock::SideBarArea::Right);
     });
+
+    // ── GitHub CLI ────────────────────────────────────────────────────────
+    {
+        auto *ghBoot = new GhBootstrap(this);
+        ghBoot->setObjectName(QStringLiteral("GhBootstrap"));
+        ghBoot->initialize(m_dockManager, this);
+    }
 
     // ── Terminal ──────────────────────────────────────────────────────────
     m_terminal     = new TerminalPanel(this);
@@ -3128,6 +3140,8 @@ void MainWindow::openFolder(const QString &path)
 
     const bool hasSolution = m_projectManager->openFolder(folder);
     m_gitService->setWorkingDirectory(folder);
+    if (auto *ghBoot = findChild<GhBootstrap *>(QStringLiteral("GhBootstrap")))
+        ghBoot->setWorkingDirectory(folder);
     const QString root = m_projectManager->activeSolutionDir();
     m_searchPanel->setRootPath(root);
     setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
@@ -3308,6 +3322,8 @@ void MainWindow::newSolution()
     if (m_projectManager->createSolution(name, slnPath)) {
         const QString root = m_projectManager->activeSolutionDir();
         m_gitService->setWorkingDirectory(root);
+        if (auto *ghBoot = findChild<GhBootstrap *>(QStringLiteral("GhBootstrap")))
+            ghBoot->setWorkingDirectory(root);
         m_searchPanel->setRootPath(root);
         setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
         m_currentFolder = root;
@@ -3328,6 +3344,8 @@ void MainWindow::openSolutionFile()
     if (m_projectManager->openSolution(slnPath)) {
         const QString root = m_projectManager->activeSolutionDir();
         m_gitService->setWorkingDirectory(root);
+        if (auto *ghBoot = findChild<GhBootstrap *>(QStringLiteral("GhBootstrap")))
+            ghBoot->setWorkingDirectory(root);
         m_searchPanel->setRootPath(root);
         setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
         statusBar()->showMessage(tr("Solution: %1").arg(QFileInfo(slnPath).fileName()), 4000);

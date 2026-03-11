@@ -102,6 +102,12 @@ add_executable(exorcist WIN32
     git/gitservice.h
     git/gitpanel.cpp
     git/gitpanel.h
+    github/ghservice.cpp
+    github/ghservice.h
+    github/ghpanel.cpp
+    github/ghpanel.h
+    github/ghbootstrap.cpp
+    github/ghbootstrap.h
     editor/symboloutlinepanel.cpp
     editor/symboloutlinepanel.h
     terminal/terminalscreen.cpp

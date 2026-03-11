@@ -119,14 +119,21 @@ void TreeSitterHighlighter::buildBlockByteOffsets()
     if (!document())
         return;
 
-    uint32_t bytePos = 0;
-    for (QTextBlock blk = document()->begin(); blk.isValid(); blk = blk.next()) {
-        m_blockByteOffsets.append(bytePos);
-        // block.text() excludes the paragraph separator; add the byte count
-        // of the block text + 1 for the '\n' stored in m_sourceUtf8 (all but last block).
-        bytePos += static_cast<uint32_t>(blk.text().toUtf8().size());
-        if (blk.next().isValid())
-            ++bytePos; // '\n' separator
+    const int blockCount = document()->blockCount();
+    m_blockByteOffsets.reserve(blockCount);
+
+    // Walk the cached m_sourceUtf8 to compute per-block byte offsets
+    // without calling blk.text().toUtf8() per block (avoids O(n) allocations).
+    const char *src = m_sourceUtf8.constData();
+    const int   len = m_sourceUtf8.size();
+    int bytePos = 0;
+    for (int b = 0; b < blockCount; ++b) {
+        m_blockByteOffsets.append(static_cast<uint32_t>(bytePos));
+        // Scan to next '\n' or end
+        while (bytePos < len && src[bytePos] != '\n')
+            ++bytePos;
+        if (bytePos < len)
+            ++bytePos; // skip '\n'
     }
 }
 
