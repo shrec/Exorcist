@@ -47,6 +47,10 @@ public:
     /// Mark a turn as finished.
     void finishTurn(int turnIndex, int state);
 
+    /// Set token usage info on a completed turn.
+    void setTokenUsage(int turnIndex, int promptTokens,
+                       int completionTokens, int totalTokens);
+
     /// Clear all turns (new session).
     void clearSession();
 
@@ -72,8 +76,63 @@ public:
     /// Set suggestion chips on the welcome screen.
     void setWelcomeSuggestions(const QJsonArray &suggestions);
 
-    /// Set tool count badge.
+    /// Set tool count badge (welcome + input toolbar).
     void setToolCount(int count);
+
+    // ── Input Area Control ──────────────────────────────────────────────────
+
+    /// Set the textarea content.
+    void setInputText(const QString &text);
+
+    /// Focus the textarea.
+    void focusInput();
+
+    /// Clear textarea and attachment chips.
+    void clearInput();
+
+    /// Toggle streaming state (send/cancel, progress, disable input).
+    void setStreamingState(bool streaming);
+
+    /// Enable/disable the input area.
+    void setInputEnabled(bool enabled);
+
+    /// Set available slash commands.
+    void setSlashCommands(const QJsonArray &commands);
+
+    /// Set active mode (0=Ask, 1=Edit, 2=Agent).
+    void setMode(int mode);
+
+    /// Set the model list. Each item: {id, displayName, premium, thinking, vision, tools}.
+    void setModels(const QJsonArray &modelList);
+
+    /// Set the currently selected model by id.
+    void setCurrentModel(const QString &id);
+
+    /// Clear the model list.
+    void clearModels();
+
+    /// Add a single model entry.
+    void addModel(const QJsonObject &modelInfo);
+
+    /// Show/hide the thinking toggle button.
+    void setThinkingVisible(bool visible);
+
+    // ── Header / Changes Bar ────────────────────────────────────────────────
+
+    /// Update the session title in the header.
+    void setSessionTitle(const QString &title);
+
+    /// Show the changes bar with a file count.
+    void showChangesBar(int editCount);
+
+    /// Hide the changes bar.
+    void hideChangesBar();
+
+    // ── Attachment Chips ────────────────────────────────────────────────────
+
+    void addAttachmentChip(const QString &name, int index);
+    void removeAttachmentChip(int index);
+    void clearAttachmentChips();
 
 signals:
     // ── JS → C++ (user actions) ─────────────────────────────────────────────
@@ -95,7 +154,20 @@ signals:
 
     // Code block actions
     void copyCodeRequested(const QString &code);
-    void applyCodeRequested(const QString &code, const QString &language);
+    void applyCodeRequested(const QString &code, const QString &language, const QString &filePath);
+    void runCodeRequested(const QString &code, const QString &language);
+
+    // ── Input area signals ──────────────────────────────────────────────────
+    void sendRequested(const QString &text, int mode);
+    void cancelRequested();
+    void modeChanged(int mode);
+    void modelSelected(const QString &modelId);
+    void newSessionRequested();
+    void historyRequested();
+    void settingsRequested();
+    void attachFileRequested();
+    void removeAttachmentRequested(int index);
+    void thinkingToggled(bool enabled);
 
 private:
     /// Evaluate JS, escaping the string parameter safely.

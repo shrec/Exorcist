@@ -1,7 +1,11 @@
 #include "chatpanelwidget.h"
 
+#include <QClipboard>
 #include <QComboBox>
+#include <QDir>
 #include <QEventLoop>
+#include <QFileInfo>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -27,7 +31,9 @@
 #include "../promptvariables.h"
 #include "../sessionstore.h"
 
+#ifndef EXORCIST_HAS_ULTRALIGHT
 #include "chatinputwidget.h"
+#endif
 #include "chatsessionhistorypopup.h"
 #include "chatsessionmodel.h"
 #include "chatthemetokens.h"
@@ -67,6 +73,231 @@ void ChatPanelWidget::buildUi()
     m_rootLayout = new QVBoxLayout(this);
     m_rootLayout->setContentsMargins(0, 0, 0, 0);
     m_rootLayout->setSpacing(0);
+
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    // ── Full-HTML path: single Ultralight WebView fills the entire panel ────
+    m_ultralightView = new exorcist::UltralightWidget(this);
+    m_jsBridge = new exorcist::ChatJSBridge(m_ultralightView, this);
+
+    {
+        auto loadRes = [](const QString &path) -> QString {
+            QFile f(path);
+            if (!f.open(QIODevice::ReadOnly)) {
+                qWarning("ChatPanel: failed to load resource %s", qPrintable(path));
+                return {};
+            }
+            return QString::fromUtf8(f.readAll());
+        };
+        const QString css        = loadRes(QStringLiteral(":/chat/chat.css"));
+        const QString markdownJs = loadRes(QStringLiteral(":/chat/markdown.js"));
+        const QString chatJs     = loadRes(QStringLiteral(":/chat/chat.js"));
+        qWarning("ChatPanel: css=%d bytes, markdownJs=%d bytes, chatJs=%d bytes",
+                 css.size(), markdownJs.size(), chatJs.size());
+
+        // DEBUG: test with minimal HTML to isolate crash
+        const QString htmlTest = QStringLiteral(
+            "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+            "</head><body><h1>Test</h1>"
+            "<script>var ChatApp = {setSlashCommands:function(){},clearModels:function(){},"
+            "showWelcome:function(){},setTheme:function(){},setToolCount:function(){},"
+            "setCurrentModel:function(){},addModel:function(){},setMode:function(){}};</script>"
+            "</body></html>");
+        Q_UNUSED(css) Q_UNUSED(markdownJs) Q_UNUSED(chatJs)
+
+        const QString htmlOrig = QStringLiteral(
+            "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+            "<style>%1</style></head><body>"
+            "<div class='chat-panel'>"
+            // ── Header ──
+            "<div class='chat-header' id='chatHeader'>"
+            "  <span class='session-title' id='sessionTitle'>Copilot</span>"
+            "  <div class='header-actions'>"
+            "    <button class='header-btn' id='historyBtn' title='Session History'>&#x2630;</button>"
+            "    <button class='header-btn' id='newSessionBtn' title='New Chat'>+</button>"
+            "    <button class='header-btn' id='settingsBtn' title='AI Settings'>&#x2699;</button>"
+            "  </div>"
+            "</div>"
+            // ── Changes bar (hidden) ──
+            "<div class='changes-bar' id='changesBar' style='display:none'>"
+            "  <span class='changes-label' id='changesLabel'></span>"
+            "  <button class='changes-btn primary' id='keepAllBtn'>Keep All</button>"
+            "  <button class='changes-btn secondary' id='undoAllBtn'>Undo All</button>"
+            "</div>"
+            // ── Content area ──
+            "<div class='chat-content'>"
+            "<div class='interactive-session'>"
+            "<div id='welcome' class='welcome'>"
+            "  <div class='welcome-icon'>"
+            "    <svg width='36' height='36' viewBox='0 0 24 24' fill='none'>"
+            "      <path d='M12 2L14.09 8.26L20 9.27L15.55 13.97L16.91 20L12 16.9L7.09 20L8.45 13.97L4 9.27L9.91 8.26L12 2Z' fill='currentColor' opacity='0.5'/>"
+            "    </svg>"
+            "  </div>"
+            "  <h2 class='welcome-title'>Ask Copilot</h2>"
+            "  <p class='welcome-subtitle'>Ask a question or type <span class='kbd'>/</span> for commands</p>"
+            "  <div id='welcome-suggestions' class='welcome-suggestions'></div>"
+            "  <div id='welcome-tool-count' class='welcome-tool-count'></div>"
+            "</div>"
+            "<div id='transcript' class='interactive-list' style='display:none;' role='log'></div>"
+            "</div>"
+            "</div>"
+            // ── Input area ──
+            "<div class='chat-input-part' id='inputPart'>"
+            "  <div class='attach-chip-bar' id='attachChipBar' style='display:none'></div>"
+            "  <div class='input-editor-wrapper' id='inputWrapper'>"
+            "    <textarea id='chatInput' rows='1'"
+            "      placeholder='Ask anything, @ to mention, / for commands'></textarea>"
+            "  </div>"
+            "  <div class='input-toolbar' id='inputToolbar'>"
+            "    <div class='toolbar-left'>"
+            "      <button class='attach-btn' id='attachBtn' title='Attach file'>"
+            "        <svg width='14' height='14' viewBox='0 0 16 16'>"
+            "          <path d='M11.5 1A3.5 3.5 0 0115 4.5v6a5.5 5.5 0 01-11 0V4a3 3 0 016 0v6.5a1.5 1.5 0 01-3 0V4h1v6.5a.5.5 0 001 0V4a2 2 0 00-4 0v6.5a2.5 2.5 0 005 0V4.5A2.5 2.5 0 0011.5 2h0A2.5 2.5 0 0014 4.5v6a4.5 4.5 0 01-9 0V4h1v6.5a3.5 3.5 0 007 0v-6A1.5 1.5 0 0011.5 3h0z' fill='currentColor'/>"
+            "        </svg>"
+            "      </button>"
+            "      <div class='mode-selector' id='modeSelector'>"
+            "        <button class='mode-btn active' data-mode='0'>Ask</button>"
+            "        <button class='mode-btn' data-mode='1'>Edit</button>"
+            "        <button class='mode-btn' data-mode='2'>Agent</button>"
+            "      </div>"
+            "      <button class='model-picker-btn' id='modelBtn'>"
+            "        <span id='modelLabel'>Model</span> &#x25BE;"
+            "      </button>"
+            "    </div>"
+            "    <div class='toolbar-right'>"
+            "      <button class='thinking-btn' id='thinkingBtn' title='Extended Thinking'"
+            "        style='display:none'>&#x1F4AD;</button>"
+            "      <span class='tool-count' id='inputToolCount'></span>"
+            "      <button class='send-btn' id='sendBtn' title='Send (Enter)'>"
+            "        <svg width='14' height='14' viewBox='0 0 16 16'>"
+            "          <path d='M1 1.91L1.78 1.5L15 8L1.78 14.5L1 14.09L3.95 8L1 1.91Z'"
+            "            fill='currentColor'/>"
+            "        </svg>"
+            "      </button>"
+            "      <button class='cancel-btn' id='cancelBtn' title='Cancel'"
+            "        style='display:none'>"
+            "        <svg width='14' height='14' viewBox='0 0 16 16'>"
+            "          <rect x='3' y='3' width='10' height='10' rx='1' fill='currentColor'/>"
+            "        </svg>"
+            "      </button>"
+            "    </div>"
+            "  </div>"
+            "  <div class='streaming-progress' id='streamingBar' style='display:none'></div>"
+            "</div>"
+            // ── Popups ──
+            "<div class='autocomplete-popup' id='slashPopup' style='display:none'></div>"
+            "<div class='model-popup' id='modelPopup' style='display:none'></div>"
+            "</div>"
+            "<script>%2</script>"
+            "<script>%3</script>"
+            "</body></html>")
+            .arg(css, markdownJs, chatJs);
+        // Write HTML to temp file and load via file:// URL
+        // (ulViewLoadHTML crashes in ulUpdate — Ultralight 1.4 beta bug)
+        {
+            const QString tmpPath = QDir::tempPath() + QStringLiteral("/exorcist_chat.html");
+            QFile tmpFile(tmpPath);
+            if (tmpFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                tmpFile.write(htmlOrig.toUtf8());
+                tmpFile.close();
+            }
+            const QString fileUrl = QStringLiteral("file:///") + tmpPath;
+            fprintf(stderr, "[UL] loading via URL: %s\n", qPrintable(fileUrl)); fflush(stderr);
+            m_ultralightView->loadURL(fileUrl);
+        }
+        Q_UNUSED(htmlTest)
+    }
+
+    // Apply theme once DOM is ready
+    connect(m_ultralightView, &exorcist::UltralightWidget::domReady,
+            this, [this]() {
+        QJsonObject theme;
+        const bool dark = ChatTheme::isDark();
+        theme[QStringLiteral("panelBg")]       = dark ? ChatTheme::PanelBg : ChatTheme::L_PanelBg;
+        theme[QStringLiteral("editorBg")]      = dark ? ChatTheme::EditorBg : ChatTheme::L_EditorBg;
+        theme[QStringLiteral("fgPrimary")]     = dark ? ChatTheme::FgPrimary : ChatTheme::L_FgPrimary;
+        theme[QStringLiteral("fgSecondary")]   = dark ? ChatTheme::FgSecondary : ChatTheme::L_FgSecondary;
+        theme[QStringLiteral("fgDimmed")]      = dark ? ChatTheme::FgDimmed : ChatTheme::L_FgDimmed;
+        theme[QStringLiteral("fgBright")]      = dark ? ChatTheme::FgBright : ChatTheme::L_FgBright;
+        theme[QStringLiteral("border")]        = dark ? ChatTheme::Border : ChatTheme::L_Border;
+        theme[QStringLiteral("sepLine")]       = dark ? ChatTheme::SepLine : ChatTheme::L_SepLine;
+        theme[QStringLiteral("hoverBg")]       = dark ? ChatTheme::HoverBg : ChatTheme::L_HoverBg;
+        theme[QStringLiteral("codeBg")]        = dark ? ChatTheme::CodeBg : ChatTheme::L_CodeBg;
+        theme[QStringLiteral("codeHeaderBg")]  = dark ? ChatTheme::CodeHeaderBg : ChatTheme::L_CodeHeaderBg;
+        theme[QStringLiteral("thinkingBg")]    = dark ? ChatTheme::ThinkingBg : ChatTheme::L_ThinkingBg;
+        theme[QStringLiteral("thinkingBorder")]= dark ? ChatTheme::ThinkingBorder : ChatTheme::L_ThinkingBorder;
+        theme[QStringLiteral("thinkingFg")]    = dark ? ChatTheme::ThinkingFg : ChatTheme::L_ThinkingFg;
+        theme[QStringLiteral("scrollTrack")]   = dark ? ChatTheme::ScrollTrack : ChatTheme::L_ScrollTrack;
+        theme[QStringLiteral("scrollThumb")]   = dark ? ChatTheme::ScrollHandle : ChatTheme::L_ScrollHandle;
+        m_jsBridge->setTheme(theme);
+    });
+
+    m_rootLayout->addWidget(m_ultralightView, 1);
+
+    // ── Wire JS→C++ signals for input, header, changes bar ─────────
+    connect(m_jsBridge, &exorcist::ChatJSBridge::sendRequested,
+            this, &ChatPanelWidget::onSend);
+    connect(m_jsBridge, &exorcist::ChatJSBridge::cancelRequested,
+            this, &ChatPanelWidget::onCancel);
+    connect(m_jsBridge, &exorcist::ChatJSBridge::newSessionRequested,
+            this, &ChatPanelWidget::onNewSession);
+    connect(m_jsBridge, &exorcist::ChatJSBridge::historyRequested,
+            this, &ChatPanelWidget::onShowHistory);
+    connect(m_jsBridge, &exorcist::ChatJSBridge::settingsRequested,
+            this, &ChatPanelWidget::settingsRequested);
+    connect(m_jsBridge, &exorcist::ChatJSBridge::modeChanged,
+            this, [this](int mode) {
+        m_currentMode = mode;
+        if (m_agentController) {
+            m_agentController->setSystemPrompt(AgentModes::systemPromptForMode(mode));
+            m_agentController->setMaxToolPermission(AgentModes::maxPermissionForMode(mode));
+        }
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::modelSelected,
+            this, [this](const QString &modelId) {
+        if (auto *active = m_orchestrator->activeProvider())
+            active->setModel(modelId);
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::thinkingToggled,
+            this, [this](bool enabled) {
+        m_thinkingEnabled = enabled;
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::attachFileRequested,
+            this, [this]() {
+        // TODO: open QFileDialog, store attachment, call addAttachmentChip
+    });
+
+    // Welcome / sign-in
+    connect(m_jsBridge, &exorcist::ChatJSBridge::suggestionClicked,
+            this, [this](const QString &msg) {
+        m_jsBridge->setInputText(msg);
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::signInRequested,
+            this, [this] {
+        if (auto *active = m_orchestrator->activeProvider())
+            active->initialize();
+    });
+
+    // Slash commands
+    {
+        QJsonArray cmds;
+        const QStringList names = {
+            QStringLiteral("/explain"), QStringLiteral("/fix"),
+            QStringLiteral("/tests"),   QStringLiteral("/review"),
+            QStringLiteral("/refactor"),QStringLiteral("/doc"),
+            QStringLiteral("/generate"),QStringLiteral("/edit"),
+            QStringLiteral("/search"),  QStringLiteral("/new"),
+            QStringLiteral("/compact"),
+        };
+        for (const auto &n : names) {
+            QJsonObject o;
+            o[QStringLiteral("name")] = n;
+            cmds.append(o);
+        }
+        m_jsBridge->setSlashCommands(cmds);
+    }
+
+#else
+    // ── Qt-widget path ──────────────────────────────────────────────
 
     setStyleSheet(
         QStringLiteral("ChatPanelWidget { background:%1; }").arg(ChatTheme::pick(ChatTheme::PanelBg, ChatTheme::L_PanelBg)));
@@ -202,66 +433,6 @@ void ChatPanelWidget::buildUi()
     m_rootLayout->addWidget(m_changesBar);
 
     // ── Main content area: welcome / transcript ─────────────────────
-#ifdef EXORCIST_HAS_ULTRALIGHT
-    m_ultralightView = new exorcist::UltralightWidget(this);
-    m_jsBridge = new exorcist::ChatJSBridge(m_ultralightView, this);
-
-    // Load chat HTML from embedded resources
-    {
-        QString html;
-        auto loadRes = [](const QString &path) -> QString {
-            QFile f(path);
-            return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
-        };
-        const QString css = loadRes(QStringLiteral(":/chat/chat.css"));
-        const QString markdownJs = loadRes(QStringLiteral(":/chat/markdown.js"));
-        const QString chatJs = loadRes(QStringLiteral(":/chat/chat.js"));
-
-        html = QStringLiteral(
-            "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-            "<style>%1</style></head><body>"
-            "<div id='welcome' class='welcome'>"
-            "  <div class='welcome-icon'>&#10024;</div>"
-            "  <h2 class='welcome-title'>Ask Copilot</h2>"
-            "  <p class='welcome-subtitle'>Ask a question or type <span class='kbd'>/</span> for commands</p>"
-            "  <div id='welcome-suggestions' class='welcome-suggestions'></div>"
-            "  <div id='welcome-tool-count' class='welcome-tool-count'></div>"
-            "</div>"
-            "<div id='transcript' class='transcript' style='display:none;' role='log'></div>"
-            "<script>%2</script>"
-            "<script>%3</script>"
-            "</body></html>")
-            .arg(css, markdownJs, chatJs);
-        m_ultralightView->loadHTML(html);
-    }
-
-    // Apply theme once DOM is ready
-    connect(m_ultralightView, &exorcist::UltralightWidget::domReady,
-            this, [this]() {
-        // Build theme JSON from ChatThemeTokens
-        QJsonObject theme;
-        const bool dark = ChatTheme::isDark();
-        theme[QStringLiteral("panelBg")]       = dark ? ChatTheme::PanelBg : ChatTheme::L_PanelBg;
-        theme[QStringLiteral("editorBg")]      = dark ? ChatTheme::EditorBg : ChatTheme::L_EditorBg;
-        theme[QStringLiteral("fgPrimary")]     = dark ? ChatTheme::FgPrimary : ChatTheme::L_FgPrimary;
-        theme[QStringLiteral("fgSecondary")]   = dark ? ChatTheme::FgSecondary : ChatTheme::L_FgSecondary;
-        theme[QStringLiteral("fgDimmed")]      = dark ? ChatTheme::FgDimmed : ChatTheme::L_FgDimmed;
-        theme[QStringLiteral("fgBright")]      = dark ? ChatTheme::FgBright : ChatTheme::L_FgBright;
-        theme[QStringLiteral("border")]        = dark ? ChatTheme::Border : ChatTheme::L_Border;
-        theme[QStringLiteral("sepLine")]       = dark ? ChatTheme::SepLine : ChatTheme::L_SepLine;
-        theme[QStringLiteral("hoverBg")]       = dark ? ChatTheme::HoverBg : ChatTheme::L_HoverBg;
-        theme[QStringLiteral("codeBg")]        = dark ? ChatTheme::CodeBg : ChatTheme::L_CodeBg;
-        theme[QStringLiteral("codeHeaderBg")]  = dark ? ChatTheme::CodeHeaderBg : ChatTheme::L_CodeHeaderBg;
-        theme[QStringLiteral("thinkingBg")]    = dark ? ChatTheme::ThinkingBg : ChatTheme::L_ThinkingBg;
-        theme[QStringLiteral("thinkingBorder")]= dark ? ChatTheme::ThinkingBorder : ChatTheme::L_ThinkingBorder;
-        theme[QStringLiteral("thinkingFg")]    = dark ? ChatTheme::ThinkingFg : ChatTheme::L_ThinkingFg;
-        theme[QStringLiteral("scrollTrack")]   = dark ? ChatTheme::ScrollTrack : ChatTheme::L_ScrollTrack;
-        theme[QStringLiteral("scrollThumb")]   = dark ? ChatTheme::ScrollHandle : ChatTheme::L_ScrollHandle;
-        m_jsBridge->setTheme(theme);
-    });
-
-    m_rootLayout->addWidget(m_ultralightView, 1);
-#else
     m_stack = new QStackedWidget(this);
 
     m_welcome = new ChatWelcomeWidget(m_stack);
@@ -271,27 +442,10 @@ void ChatPanelWidget::buildUi()
     m_stack->addWidget(m_transcript);
 
     m_rootLayout->addWidget(m_stack, 1);
-#endif
 
     // ── Input widget ─────────────────────────────────────────────────
     m_inputWidget = new ChatInputWidget(this);
     m_rootLayout->addWidget(m_inputWidget);
-
-    // Populate the slash-command autocomplete popup.
-    // Must match what resolveSlashCommand() handles.
-    m_inputWidget->setSlashCommands({
-        QStringLiteral("/explain"),
-        QStringLiteral("/fix"),
-        QStringLiteral("/tests"),
-        QStringLiteral("/review"),
-        QStringLiteral("/refactor"),
-        QStringLiteral("/doc"),
-        QStringLiteral("/generate"),
-        QStringLiteral("/edit"),
-        QStringLiteral("/search"),
-        QStringLiteral("/new"),
-        QStringLiteral("/compact"),
-    });
 
     // ── Wire input signals ───────────────────────────────────────────
     connect(m_inputWidget, &ChatInputWidget::sendRequested,
@@ -319,17 +473,6 @@ void ChatPanelWidget::buildUi()
     });
 
     // Wire welcome / transcript
-#ifdef EXORCIST_HAS_ULTRALIGHT
-    connect(m_jsBridge, &exorcist::ChatJSBridge::suggestionClicked,
-            this, [this](const QString &msg) {
-        m_inputWidget->setInputText(msg);
-    });
-    connect(m_jsBridge, &exorcist::ChatJSBridge::signInRequested,
-            this, [this] {
-        if (auto *active = m_orchestrator->activeProvider())
-            active->initialize();
-    });
-#else
     connect(m_welcome, &ChatWelcomeWidget::suggestionClicked,
             this, [this](const QString &msg) {
         m_inputWidget->setInputText(msg);
@@ -344,7 +487,7 @@ void ChatPanelWidget::buildUi()
         if (auto *active = m_orchestrator->activeProvider())
             active->initialize();
     });
-#endif
+#endif // EXORCIST_HAS_ULTRALIGHT
 
     connectTranscript();
 }
@@ -475,6 +618,36 @@ void ChatPanelWidget::connectTranscript()
         if (m_insertAtCursorFn)
             m_insertAtCursorFn(code);
     });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::copyCodeRequested,
+            this, [](const QString &code) {
+        QGuiApplication::clipboard()->setText(code);
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::applyCodeRequested,
+            this, [this](const QString &code, const QString &, const QString &filePath) {
+        QString target = filePath.trimmed();
+        if (!target.isEmpty() && QFileInfo(target).isRelative() && !m_workspaceRoot.isEmpty())
+            target = QDir(m_workspaceRoot).filePath(target);
+        if (target.isEmpty())
+            target = m_activeFilePath;
+
+        if (!target.isEmpty()) {
+            QSaveFile f(target);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                f.write(code.toUtf8());
+                f.commit();
+                emit openFileRequested(target);
+                return;
+            }
+        }
+
+        if (m_insertAtCursorFn)
+            m_insertAtCursorFn(code);
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::runCodeRequested,
+            this, [this](const QString &code, const QString &) {
+        if (m_runInTerminalFn)
+            m_runInTerminalFn(code);
+    });
     connect(m_jsBridge, &exorcist::ChatJSBridge::retryRequested,
             this, [this](const QString &turnId) {
         for (int i = 0; i < m_sessionModel->turnCount(); ++i) {
@@ -517,9 +690,32 @@ void ChatPanelWidget::connectTranscript()
         else showChangesBar(m_pendingPatches.size());
     });
     connect(m_jsBridge, &exorcist::ChatJSBridge::keepAllRequested,
-            this, [this]() { m_keepBtn->click(); });
+            this, [this]() {
+        m_pendingPatches.clear();
+        hideChangesBar();
+    });
     connect(m_jsBridge, &exorcist::ChatJSBridge::undoAllRequested,
-            this, [this]() { m_undoBtn->click(); });
+            this, [this]() {
+        if (m_pendingPatches.isEmpty()) {
+            hideChangesBar();
+            return;
+        }
+        if (m_agentController) {
+            const auto *session = m_agentController->session();
+            if (session) {
+                const auto &snaps = session->fileSnapshots();
+                for (auto it = snaps.begin(); it != snaps.end(); ++it) {
+                    QSaveFile f(it.key());
+                    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                        f.write(it.value().toUtf8());
+                        f.commit();
+                    }
+                }
+            }
+        }
+        m_pendingPatches.clear();
+        hideChangesBar();
+    });
 #else
     connect(m_transcript, &ChatTranscriptView::followupClicked,
             this, &ChatPanelWidget::onFollowupClicked);
@@ -684,6 +880,12 @@ void ChatPanelWidget::setSessionStore(SessionStore *store)
                 for (const auto &msg : last.messages) {
                     if (msg.first == QLatin1String("user")) {
                         m_sessionModel->beginTurn(msg.second);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+                        {
+                            int idx = m_sessionModel->turnCount() - 1;
+                            m_jsBridge->addTurn(idx, m_sessionModel->turn(idx).toJson());
+                        }
+#endif
                         m_conversationHistory.append({AgentMessage::Role::User, msg.second});
                     } else {
                         ChatContentPart part;
@@ -721,17 +923,29 @@ void ChatPanelWidget::setEditorContext(const QString &filePath,
 
 void ChatPanelWidget::focusInput()
 {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->focusInput();
+#else
     m_inputWidget->focusInput();
+#endif
 }
 
 void ChatPanelWidget::setInputText(const QString &text)
 {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->setInputText(text);
+#else
     m_inputWidget->setInputText(text);
+#endif
 }
 
 void ChatPanelWidget::setInputEnabled(bool enabled)
 {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->setInputEnabled(enabled);
+#else
     m_inputWidget->setEnabled(enabled);
+#endif
 }
 
 void ChatPanelWidget::attachSelection(const QString &text, const QString &filePath,
@@ -747,6 +961,7 @@ void ChatPanelWidget::attachSelection(const QString &text, const QString &filePa
 void ChatPanelWidget::attachDiagnostics(const QList<AgentDiagnostic> &diagnostics)
 {
     m_pendingDiagnostics = diagnostics;
+#ifndef EXORCIST_HAS_ULTRALIGHT
     if (!diagnostics.isEmpty()) {
         QStringList lines;
         for (const auto &d : diagnostics) {
@@ -757,6 +972,7 @@ void ChatPanelWidget::attachDiagnostics(const QList<AgentDiagnostic> &diagnostic
             lines.join(QLatin1Char('\n')),
             diagnostics.size());
     }
+#endif
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -786,11 +1002,63 @@ void ChatPanelWidget::onActiveProviderChanged(const QString &id)
 
 void ChatPanelWidget::refreshModelList()
 {
-    m_inputWidget->clearModels();
     const auto *active = m_orchestrator->activeProvider();
-    if (!active)
+    if (!active) {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+        m_jsBridge->clearModels();
+#else
+        m_inputWidget->clearModels();
+#endif
         return;
+    }
 
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->clearModels();
+    const auto infoList = active->modelInfoList();
+    if (!infoList.isEmpty()) {
+        for (const auto &mi : infoList) {
+            bool premium = mi.billing.isPremium;
+            double mult  = mi.billing.multiplier;
+            if (mult <= 0.0 && m_modelRegistry) {
+                const ModelInfo reg = m_modelRegistry->model(mi.id);
+                if (!reg.id.isEmpty()) {
+                    premium = reg.billing.isPremium;
+                    mult    = reg.billing.multiplier;
+                }
+            }
+            QJsonObject obj;
+            obj[QStringLiteral("id")]       = mi.id;
+            obj[QStringLiteral("name")]     = mi.name;
+            obj[QStringLiteral("premium")]  = premium;
+            obj[QStringLiteral("mult")]     = mult;
+            obj[QStringLiteral("thinking")] = mi.capabilities.thinking;
+            obj[QStringLiteral("vision")]   = mi.capabilities.vision;
+            obj[QStringLiteral("tools")]    = mi.capabilities.toolCalls;
+            m_jsBridge->addModel(obj);
+        }
+    } else {
+        const auto models = active->availableModels();
+        for (const auto &m : models) {
+            QJsonObject obj;
+            obj[QStringLiteral("id")]   = m;
+            obj[QStringLiteral("name")] = m;
+            if (m_modelRegistry) {
+                const ModelInfo info = m_modelRegistry->model(m);
+                if (!info.id.isEmpty()) {
+                    obj[QStringLiteral("name")]     = info.name;
+                    obj[QStringLiteral("premium")]  = info.billing.isPremium;
+                    obj[QStringLiteral("mult")]     = info.billing.multiplier;
+                    obj[QStringLiteral("thinking")] = info.capabilities.thinking;
+                    obj[QStringLiteral("vision")]   = info.capabilities.vision;
+                    obj[QStringLiteral("tools")]    = info.capabilities.toolCalls;
+                }
+            }
+            m_jsBridge->addModel(obj);
+        }
+    }
+    m_jsBridge->setCurrentModel(active->currentModel());
+#else
+    m_inputWidget->clearModels();
     const auto infoList = active->modelInfoList();
     if (!infoList.isEmpty()) {
         for (const auto &mi : infoList) {
@@ -830,6 +1098,7 @@ void ChatPanelWidget::refreshModelList()
         }
     }
     m_inputWidget->setCurrentModel(active->currentModel());
+#endif
 }
 
 void ChatPanelWidget::showWelcomeOrTranscript()
@@ -865,18 +1134,24 @@ void ChatPanelWidget::showWelcomeOrTranscript()
 
 void ChatPanelWidget::setToolCount(int count)
 {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->setToolCount(count);
+#else
     if (m_inputWidget)
         m_inputWidget->setToolCount(count);
+#endif
 }
 
 void ChatPanelWidget::updateSessionTitle()
 {
-    if (m_sessionModel->isEmpty()) {
-        m_sessionTitleLabel->setText(tr("Copilot"));
-    } else {
-        const QString title = m_sessionModel->title();
-        m_sessionTitleLabel->setText(title.isEmpty() ? tr("Copilot") : title);
-    }
+    const QString title = m_sessionModel->isEmpty()
+        ? tr("Copilot")
+        : (m_sessionModel->title().isEmpty() ? tr("Copilot") : m_sessionModel->title());
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->setSessionTitle(title);
+#else
+    m_sessionTitleLabel->setText(title);
+#endif
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -897,10 +1172,26 @@ void ChatPanelWidget::onSend(const QString &text, int mode)
     const auto *active = m_orchestrator->activeProvider();
     if (!active || !active->isAvailable()) {
         // Show error in transcript
-        if (m_sessionModel->isEmpty())
+        if (m_sessionModel->isEmpty()) {
             m_sessionModel->beginTurn(text);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+            {
+                int idx = m_sessionModel->turnCount() - 1;
+                m_jsBridge->addTurn(idx, m_sessionModel->turn(idx).toJson());
+            }
+#endif
+        }
         m_sessionModel->errorTurn(
             tr("No available provider. Select or configure a provider first."));
+#ifdef EXORCIST_HAS_ULTRALIGHT
+        {
+            int idx = m_sessionModel->turnCount() - 1;
+            const auto &turn = m_sessionModel->turn(idx);
+            if (!turn.parts.isEmpty())
+                m_jsBridge->addContentPart(idx, turn.parts.last().toJson());
+            m_jsBridge->finishTurn(idx, static_cast<int>(ChatTurnModel::State::Error));
+        }
+#endif
         showWelcomeOrTranscript();
 #ifndef EXORCIST_HAS_ULTRALIGHT
         m_stack->setCurrentWidget(m_transcript);
@@ -940,9 +1231,10 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
     const QString providerId = prov ? prov->id() : QString();
 
     // Collect attachments from input widget before they are cleared
-    const auto &inputAtts = m_inputWidget->attachments();
     QStringList attachmentNames;
     QList<Attachment> reqAttachments;
+#ifndef EXORCIST_HAS_ULTRALIGHT
+    const auto &inputAtts = m_inputWidget->attachments();
     for (const auto &a : inputAtts) {
         attachmentNames << a.name;
         Attachment att;
@@ -955,6 +1247,7 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
         }
         reqAttachments.append(att);
     }
+#endif
 
     m_sessionModel->beginTurn(text, attachmentNames, mode, modelId, providerId, slashCmd);
 
@@ -1002,6 +1295,10 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
     }
 
 #ifdef EXORCIST_HAS_ULTRALIGHT
+    {
+        int idx = m_sessionModel->turnCount() - 1;
+        m_jsBridge->addTurn(idx, m_sessionModel->turn(idx).toJson());
+    }
     m_jsBridge->showTranscript();
     // Ultralight auto-scrolls via JS
 #else
@@ -1012,10 +1309,10 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
     m_pendingRequestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_pendingIntent = AgentIntent::Chat;
 
-    m_inputWidget->setStreaming(true);
 #ifdef EXORCIST_HAS_ULTRALIGHT
-    m_jsBridge->setStreamingActive(true);
+    m_jsBridge->setStreamingState(true);
 #else
+    m_inputWidget->setStreaming(true);
     m_transcript->setStreamingActive(true);
 #endif
 
@@ -1043,7 +1340,13 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
         }
 
         // Pass current reasoning effort from settings (only if thinking toggle is on)
-        if (m_inputWidget->isThinkingEnabled()) {
+        const bool thinkOn =
+#ifdef EXORCIST_HAS_ULTRALIGHT
+            m_thinkingEnabled;
+#else
+            m_inputWidget->isThinkingEnabled();
+#endif
+        if (thinkOn) {
             QSettings s;
             s.beginGroup(QStringLiteral("AI"));
             const int idx = s.value(QStringLiteral("reasoningEffort"), 2).toInt();
@@ -1112,13 +1415,21 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
     req.diagnostics         = m_pendingDiagnostics;
     req.attachments         = reqAttachments;
     // Read reasoning effort from settings, but only apply if thinking toggle is on
-    if (m_inputWidget->isThinkingEnabled()) {
-        QSettings s;
-        s.beginGroup(QStringLiteral("AI"));
-        const int idx = s.value(QStringLiteral("reasoningEffort"), 2).toInt();
-        s.endGroup();
-        static const char *levels[] = {"low", "medium", "high"};
-        req.reasoningEffort = QString::fromLatin1(levels[qBound(0, idx, 2)]);
+    {
+        const bool thinkOn2 =
+#ifdef EXORCIST_HAS_ULTRALIGHT
+            m_thinkingEnabled;
+#else
+            m_inputWidget->isThinkingEnabled();
+#endif
+        if (thinkOn2) {
+            QSettings s;
+            s.beginGroup(QStringLiteral("AI"));
+            const int idx = s.value(QStringLiteral("reasoningEffort"), 2).toInt();
+            s.endGroup();
+            static const char *levels[] = {"low", "medium", "high"};
+            req.reasoningEffort = QString::fromLatin1(levels[qBound(0, idx, 2)]);
+        }
     }
     m_pendingDiagnostics.clear();
 
@@ -1155,10 +1466,10 @@ void ChatPanelWidget::onCancel()
     }
 
     m_pendingRequestId.clear();
-    m_inputWidget->setStreaming(false);
 #ifdef EXORCIST_HAS_ULTRALIGHT
-    m_jsBridge->setStreamingActive(false);
+    m_jsBridge->setStreamingState(false);
 #else
+    m_inputWidget->setStreaming(false);
     m_transcript->setStreamingActive(false);
 #endif
 }
@@ -1210,10 +1521,10 @@ void ChatPanelWidget::onResponseFinished(const QString &requestId,
         return;
 
     m_pendingRequestId.clear();
-    m_inputWidget->setStreaming(false);
 #ifdef EXORCIST_HAS_ULTRALIGHT
-    m_jsBridge->setStreamingActive(false);
+    m_jsBridge->setStreamingState(false);
 #else
+    m_inputWidget->setStreaming(false);
     m_transcript->setStreamingActive(false);
 #endif
 
@@ -1289,7 +1600,10 @@ void ChatPanelWidget::onResponseFinished(const QString &requestId,
     int idx = m_sessionModel->turnCount() - 1;
 #ifdef EXORCIST_HAS_ULTRALIGHT
     m_jsBridge->finishTurn(idx, static_cast<int>(ChatTurnModel::State::Complete));
-    // Token usage not yet shown in HTML view
+    if (response.totalTokens > 0)
+        m_jsBridge->setTokenUsage(idx, response.promptTokens,
+                                  response.completionTokens,
+                                  response.totalTokens);
 #else
     if (auto *w = m_transcript->turnWidget(idx)) {
         w->finishTurn(ChatTurnModel::State::Complete);
@@ -1310,10 +1624,10 @@ void ChatPanelWidget::onResponseError(const QString &requestId,
         return;
 
     m_pendingRequestId.clear();
-    m_inputWidget->setStreaming(false);
 #ifdef EXORCIST_HAS_ULTRALIGHT
-    m_jsBridge->setStreamingActive(false);
+    m_jsBridge->setStreamingState(false);
 #else
+    m_inputWidget->setStreaming(false);
     m_transcript->setStreamingActive(false);
 #endif
 
@@ -1371,7 +1685,11 @@ void ChatPanelWidget::onResponseError(const QString &requestId,
 
 void ChatPanelWidget::onFollowupClicked(const QString &message)
 {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->setInputText(message);
+#else
     m_inputWidget->setInputText(message);
+#endif
     onSend(message, m_currentMode);
 }
 
@@ -1443,13 +1761,14 @@ void ChatPanelWidget::onNewSession()
 
     hideChangesBar();
     showWelcomeOrTranscript();
-    m_inputWidget->setStreaming(false);
 #ifdef EXORCIST_HAS_ULTRALIGHT
-    m_jsBridge->setStreamingActive(false);
+    m_jsBridge->setStreamingState(false);
+    m_jsBridge->clearInput();
 #else
+    m_inputWidget->setStreaming(false);
     m_transcript->setStreamingActive(false);
-#endif
     m_inputWidget->clear();
+#endif
     updateSessionTitle();
 }
 
@@ -1499,7 +1818,11 @@ void ChatPanelWidget::restoreSession(const QString &sessionId,
     if (effectiveMode >= 0 && effectiveMode <= 2) {
         m_currentMode = effectiveMode;
         m_sessionModel->setMode(effectiveMode);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+        m_jsBridge->setMode(effectiveMode);
+#else
         m_inputWidget->setCurrentMode(effectiveMode);
+#endif
     }
     if (!modelId.isEmpty())
         m_sessionModel->setSelectedModel(modelId);
@@ -1515,6 +1838,9 @@ void ChatPanelWidget::restoreSession(const QString &sessionId,
 
         // Add content parts to model and transcript
         int idx = m_sessionModel->turnCount() - 1;
+#ifdef EXORCIST_HAS_ULTRALIGHT
+        m_jsBridge->addTurn(idx, m_sessionModel->turn(idx).toJson());
+#endif
 
         for (const auto &part : turn.parts) {
             m_sessionModel->appendPart(part);
@@ -1612,6 +1938,12 @@ void ChatPanelWidget::onShowHistory()
                 for (const auto &msg : session.messages) {
                     if (msg.first == QLatin1String("user")) {
                         m_sessionModel->beginTurn(msg.second);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+                        {
+                            int idx = m_sessionModel->turnCount() - 1;
+                            m_jsBridge->addTurn(idx, m_sessionModel->turn(idx).toJson());
+                        }
+#endif
                         m_conversationHistory.append({AgentMessage::Role::User, msg.second});
                     } else if (msg.first == QLatin1String("assistant")) {
                         if (m_sessionModel->isEmpty())
@@ -1675,8 +2007,8 @@ void ChatPanelWidget::onShowHistory()
     }
     m_historyPopup->setSessions(entries);
 
-    // Position above the input widget
-    const QPoint pos = m_inputWidget->mapToGlobal(QPoint(0, -400));
+    // Position above the bottom of the panel
+    const QPoint pos = mapToGlobal(QPoint(0, height() - 400));
     m_historyPopup->showAt(pos);
 }
 
@@ -1686,16 +2018,24 @@ void ChatPanelWidget::onShowHistory()
 
 void ChatPanelWidget::showChangesBar(int editCount)
 {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->showChangesBar(editCount);
+#else
     m_changesLabel->setText(
         tr("%1 file%2 changed")
             .arg(editCount)
             .arg(editCount == 1 ? "" : "s"));
     m_changesBar->show();
+#endif
 }
 
 void ChatPanelWidget::hideChangesBar()
 {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->hideChangesBar();
+#else
     m_changesBar->hide();
+#endif
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

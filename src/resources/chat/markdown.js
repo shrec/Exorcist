@@ -18,18 +18,40 @@ var MarkdownRenderer = (function() {
             .replace(/"/g, '&quot;');
     }
 
-    // Render a fenced code block with header + actions
-    function renderCodeBlock(lang, code, blockIndex) {
-        var langLabel = lang ? escapeHtml(lang).toUpperCase() : 'TEXT';
+    // Render a fenced code block — VS Code interactive-result-code-block structure
+    function isShellLang(lang) {
+        if (!lang) return false;
+        var l = lang.toLowerCase();
+        return (l === 'sh' || l === 'bash' || l === 'shell' || l === 'zsh' ||
+                l === 'pwsh' || l === 'powershell' || l === 'bat' || l === 'cmd');
+    }
+
+    function basename(path) {
+        if (!path) return '';
+        var p = path.replace(/\\/g, '/');
+        var parts = p.split('/');
+        return parts[parts.length - 1] || path;
+    }
+
+    function renderCodeBlock(lang, code, blockIndex, filePath) {
+        var label = filePath ? basename(filePath) : (lang ? escapeHtml(lang) : 'text');
+        var labelTitle = filePath ? escapeHtml(filePath) : '';
         var escapedCode = escapeHtml(code);
         var id = 'code-block-' + blockIndex;
+        var fileAttr = filePath ? (' data-file="' + escapeHtml(filePath) + '"') : '';
+        var langAttr = lang ? (' data-lang="' + escapeHtml(lang) + '"') : '';
+        var runBtn = isShellLang(lang)
+            ? '<button class="code-action-btn" onclick="ChatApp._runCode(\\'' + id + '\\')" title="Run">&#x25B6; Run</button>'
+            : '';
 
-        return '<div class="code-block-wrapper" id="' + id + '">' +
-            '<div class="code-block-header">' +
-                '<span class="code-block-lang">' + langLabel + '</span>' +
+        return '<div class="interactive-result-code-block" id="' + id + '"' + fileAttr + langAttr + '>' +
+            '<div class="code-block-toolbar">' +
+                '<span class="code-block-lang-label" title="' + labelTitle + '">' + label + '</span>' +
                 '<div class="code-block-actions">' +
-                    '<button class="code-action-btn" onclick="ChatApp._copyCode(\'' + id + '\')" title="Copy">Copy</button>' +
-                    '<button class="code-action-btn" onclick="ChatApp._insertCode(\'' + id + '\')" title="Insert at Cursor">Insert</button>' +
+                    '<button class="code-action-btn" onclick="ChatApp._applyCode(\\'' + id + '\\')" title="Apply">&#x2199; Apply</button>' +
+                    '<button class="code-action-btn" onclick="ChatApp._copyCode(\\'' + id + '\\')" title="Copy">&#x2398; Copy</button>' +
+                    '<button class="code-action-btn" onclick="ChatApp._insertCode(\\'' + id + '\\')" title="Insert at Cursor">&#x2913; Insert</button>' +
+                    runBtn +
                 '</div>' +
             '</div>' +
             '<div class="code-block-body"><pre><code class="language-' + escapeHtml(lang || 'text') + '">' +
@@ -53,6 +75,7 @@ var MarkdownRenderer = (function() {
         var inBlockquote = false;
         var inTable = false;
         var tableRows = [];
+        var codeBlockFile = '';
 
         for (var i = 0; i < lines.length; i++) {
             var line = lines[i];
@@ -67,14 +90,21 @@ var MarkdownRenderer = (function() {
                 inCodeBlock = true;
                 codeBlockLang = RegExp.$1 || '';
                 codeBlockContent = '';
+                codeBlockFile = '';
                 continue;
             }
 
             if (inCodeBlock) {
                 if (line === '```') {
-                    html += renderCodeBlock(codeBlockLang, codeBlockContent, codeBlockIndex++);
+                    html += renderCodeBlock(codeBlockLang, codeBlockContent, codeBlockIndex++, codeBlockFile);
                     inCodeBlock = false;
                 } else {
+                    if (!codeBlockContent) {
+                        if (/^[^\\s].*\\.[A-Za-z0-9]+$/.test(line.trim())) {
+                            codeBlockFile = line.trim();
+                            continue;
+                        }
+                    }
                     if (codeBlockContent) codeBlockContent += '\n';
                     codeBlockContent += line;
                 }
@@ -206,7 +236,7 @@ var MarkdownRenderer = (function() {
         // Close any open structures
         if (inCodeBlock) {
             // Streaming: code block still being typed
-            html += renderCodeBlock(codeBlockLang, codeBlockContent, codeBlockIndex++);
+            html += renderCodeBlock(codeBlockLang, codeBlockContent, codeBlockIndex++, codeBlockFile);
         }
         if (inList) html += '</' + listType + '>';
         if (inBlockquote) html += '</blockquote>';
@@ -234,9 +264,9 @@ var MarkdownRenderer = (function() {
             }
         }
 
-        // Add streaming cursor
+        // Add VS Code–style animated ellipsis streaming indicator
         if (streaming) {
-            html += '<span class="streaming-cursor">\u2587</span>';
+            html += '<span class="chat-animated-ellipsis"></span>';
         }
 
         return html;

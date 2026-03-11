@@ -89,7 +89,61 @@ ChatJSBridge::ChatJSBridge(UltralightWidget *view, QObject *parent)
         [this](const QJsonValue &v) {
             const auto obj = v.toObject();
             emit applyCodeRequested(obj.value(QStringLiteral("code")).toString(),
-                                    obj.value(QStringLiteral("language")).toString());
+                                    obj.value(QStringLiteral("language")).toString(),
+                                    obj.value(QStringLiteral("filePath")).toString());
+        });
+
+    m_view->registerJSCallback(QStringLiteral("runCode"),
+        [this](const QJsonValue &v) {
+            const auto obj = v.toObject();
+            emit runCodeRequested(obj.value(QStringLiteral("code")).toString(),
+                                  obj.value(QStringLiteral("language")).toString());
+        });
+
+    // ── Input area signals ──────────────────────────────────────────────────
+
+    m_view->registerJSCallback(QStringLiteral("sendRequested"),
+        [this](const QJsonValue &v) {
+            const auto obj = v.toObject();
+            emit sendRequested(obj.value(QStringLiteral("text")).toString(),
+                               obj.value(QStringLiteral("mode")).toInt());
+        });
+
+    m_view->registerJSCallback(QStringLiteral("cancelRequested"),
+        [this](const QJsonValue &) { emit cancelRequested(); });
+
+    m_view->registerJSCallback(QStringLiteral("modeChanged"),
+        [this](const QJsonValue &v) {
+            emit modeChanged(v.toObject().value(QStringLiteral("mode")).toInt());
+        });
+
+    m_view->registerJSCallback(QStringLiteral("modelSelected"),
+        [this](const QJsonValue &v) {
+            emit modelSelected(v.toObject().value(QStringLiteral("modelId")).toString());
+        });
+
+    m_view->registerJSCallback(QStringLiteral("newSessionRequested"),
+        [this](const QJsonValue &) { emit newSessionRequested(); });
+
+    m_view->registerJSCallback(QStringLiteral("historyRequested"),
+        [this](const QJsonValue &) { emit historyRequested(); });
+
+    m_view->registerJSCallback(QStringLiteral("settingsRequested"),
+        [this](const QJsonValue &) { emit settingsRequested(); });
+
+    m_view->registerJSCallback(QStringLiteral("attachFileRequested"),
+        [this](const QJsonValue &) { emit attachFileRequested(); });
+
+    m_view->registerJSCallback(QStringLiteral("removeAttachment"),
+        [this](const QJsonValue &v) {
+            emit removeAttachmentRequested(
+                v.toObject().value(QStringLiteral("index")).toInt());
+        });
+
+    m_view->registerJSCallback(QStringLiteral("thinkingToggled"),
+        [this](const QJsonValue &v) {
+            emit thinkingToggled(
+                v.toObject().value(QStringLiteral("enabled")).toBool());
         });
 }
 
@@ -139,6 +193,14 @@ void ChatJSBridge::finishTurn(int turnIndex, int state)
     callJS(QStringLiteral("ChatApp.finishTurn(%1, %2)").arg(turnIndex).arg(state));
 }
 
+void ChatJSBridge::setTokenUsage(int turnIndex, int promptTokens,
+                                 int completionTokens, int totalTokens)
+{
+    callJS(QStringLiteral("ChatApp.setTokenUsage(%1, %2, %3, %4)")
+               .arg(turnIndex).arg(promptTokens)
+               .arg(completionTokens).arg(totalTokens));
+}
+
 void ChatJSBridge::clearSession()
 {
     callJS(QStringLiteral("ChatApp.clearSession()"));
@@ -186,6 +248,112 @@ void ChatJSBridge::setWelcomeSuggestions(const QJsonArray &suggestions)
 void ChatJSBridge::setToolCount(int count)
 {
     callJS(QStringLiteral("ChatApp.setToolCount(%1)").arg(count));
+}
+
+// ── Input Area Control ───────────────────────────────────────────────────────
+
+void ChatJSBridge::setInputText(const QString &text)
+{
+    callJS(QStringLiteral("ChatApp.setInputText(%1)").arg(jsonEscape(text)));
+}
+
+void ChatJSBridge::focusInput()
+{
+    callJS(QStringLiteral("ChatApp.focusInput()"));
+}
+
+void ChatJSBridge::clearInput()
+{
+    callJS(QStringLiteral("ChatApp.clearInput()"));
+}
+
+void ChatJSBridge::setStreamingState(bool streaming)
+{
+    callJS(QStringLiteral("ChatApp.setStreamingState(%1)")
+               .arg(streaming ? QStringLiteral("true") : QStringLiteral("false")));
+}
+
+void ChatJSBridge::setInputEnabled(bool enabled)
+{
+    callJS(QStringLiteral("ChatApp.setInputEnabled(%1)")
+               .arg(enabled ? QStringLiteral("true") : QStringLiteral("false")));
+}
+
+void ChatJSBridge::setSlashCommands(const QJsonArray &commands)
+{
+    const QString json = QString::fromUtf8(
+        QJsonDocument(commands).toJson(QJsonDocument::Compact));
+    callJS(QStringLiteral("ChatApp.setSlashCommands(%1)").arg(json));
+}
+
+void ChatJSBridge::setMode(int mode)
+{
+    callJS(QStringLiteral("ChatApp.setMode(%1)").arg(mode));
+}
+
+void ChatJSBridge::setModels(const QJsonArray &modelList)
+{
+    const QString json = QString::fromUtf8(
+        QJsonDocument(modelList).toJson(QJsonDocument::Compact));
+    callJS(QStringLiteral("ChatApp.setModels(%1)").arg(json));
+}
+
+void ChatJSBridge::setCurrentModel(const QString &id)
+{
+    callJS(QStringLiteral("ChatApp.setCurrentModel(%1)").arg(jsonEscape(id)));
+}
+
+void ChatJSBridge::clearModels()
+{
+    callJS(QStringLiteral("ChatApp.clearModels()"));
+}
+
+void ChatJSBridge::addModel(const QJsonObject &modelInfo)
+{
+    const QString json = QString::fromUtf8(
+        QJsonDocument(modelInfo).toJson(QJsonDocument::Compact));
+    callJS(QStringLiteral("ChatApp.addModel(%1)").arg(json));
+}
+
+void ChatJSBridge::setThinkingVisible(bool visible)
+{
+    callJS(QStringLiteral("ChatApp.setThinkingVisible(%1)")
+               .arg(visible ? QStringLiteral("true") : QStringLiteral("false")));
+}
+
+// ── Header / Changes Bar ─────────────────────────────────────────────────────
+
+void ChatJSBridge::setSessionTitle(const QString &title)
+{
+    callJS(QStringLiteral("ChatApp.setSessionTitle(%1)").arg(jsonEscape(title)));
+}
+
+void ChatJSBridge::showChangesBar(int editCount)
+{
+    callJS(QStringLiteral("ChatApp.showChangesBar(%1)").arg(editCount));
+}
+
+void ChatJSBridge::hideChangesBar()
+{
+    callJS(QStringLiteral("ChatApp.hideChangesBar()"));
+}
+
+// ── Attachment Chips ─────────────────────────────────────────────────────────
+
+void ChatJSBridge::addAttachmentChip(const QString &name, int index)
+{
+    callJS(QStringLiteral("ChatApp.addAttachmentChip(%1, %2)")
+               .arg(jsonEscape(name)).arg(index));
+}
+
+void ChatJSBridge::removeAttachmentChip(int index)
+{
+    callJS(QStringLiteral("ChatApp.removeAttachmentChip(%1)").arg(index));
+}
+
+void ChatJSBridge::clearAttachmentChips()
+{
+    callJS(QStringLiteral("ChatApp.clearAttachmentChips()"));
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
