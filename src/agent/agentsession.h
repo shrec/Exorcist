@@ -184,6 +184,9 @@ public:
     // ── Conversation history (for model context) ──────────────────────────
     const QList<AgentMessage> &messages() const { return m_messages; }
 
+    /// Pre-populate conversation history (e.g. when restoring a saved session).
+    void setMessages(const QList<AgentMessage> &msgs) { m_messages = msgs; }
+
     // ── All patches across all turns ──────────────────────────────────────
     QList<PatchProposal> allPatches() const
     {

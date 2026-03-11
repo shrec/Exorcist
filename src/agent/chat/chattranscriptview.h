@@ -48,14 +48,16 @@ public:
                           "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
                           "  height:0; background:none;"
                           "}")
-                .arg(ChatTheme::PanelBg, ChatTheme::ScrollTrack,
-                     ChatTheme::ScrollThumb, ChatTheme::ScrollHandleHover,
-                     ChatTheme::ScrollHandlePressed));
+                .arg(ChatTheme::pick(ChatTheme::PanelBg, ChatTheme::L_PanelBg),
+                     ChatTheme::pick(ChatTheme::ScrollTrack, ChatTheme::L_ScrollTrack),
+                     ChatTheme::pick(ChatTheme::ScrollThumb, ChatTheme::L_ScrollThumb),
+                     ChatTheme::pick(ChatTheme::ScrollHandleHover, ChatTheme::L_ScrollHandleHover),
+                     ChatTheme::pick(ChatTheme::ScrollHandlePressed, ChatTheme::L_ScrollHandlePressed)));
 
         m_container = new QWidget(this);
         m_layout = new QVBoxLayout(m_container);
-        m_layout->setContentsMargins(0, 0, 0, 0);
-        m_layout->setSpacing(2);
+        m_layout->setContentsMargins(0, 4, 0, 4);
+        m_layout->setSpacing(4);
         m_layout->addStretch();  // keeps turns top-aligned
         setWidget(m_container);
 
@@ -68,6 +70,12 @@ public:
                 this, &ChatTranscriptView::onTurnCompleted);
         connect(m_model, &ChatSessionModel::sessionCleared,
                 this, &ChatTranscriptView::onSessionCleared);
+
+        // Detect user scrolling away during streaming
+        connect(verticalScrollBar(), &QScrollBar::sliderPressed, this, [this]() {
+            if (m_streaming)
+                m_userScrolledAway = true;
+        });
 
         // Build widgets for existing turns
         for (int i = 0; i < m_model->turnCount(); ++i)
@@ -86,6 +94,39 @@ public:
         QTimer::singleShot(0, this, [this]() {
             verticalScrollBar()->setValue(verticalScrollBar()->maximum());
         });
+    }
+
+    void setStreamingActive(bool active)
+    {
+        m_streaming = active;
+        if (active) {
+            // During streaming, poll-scroll every 80ms to keep up with content growth.
+            // QTimer::singleShot(0) alone isn't enough because QTextBrowser resize
+            // happens asynchronously after document contentsChanged.
+            if (!m_scrollTimer) {
+                m_scrollTimer = new QTimer(this);
+                m_scrollTimer->setInterval(80);
+                connect(m_scrollTimer, &QTimer::timeout, this, [this]() {
+                    if (!m_streaming) {
+                        m_scrollTimer->stop();
+                        return;
+                    }
+                    if (m_userScrolledAway)
+                        return;
+                    verticalScrollBar()->setValue(verticalScrollBar()->maximum());
+                });
+            }
+            m_userScrolledAway = false;
+            m_scrollTimer->start();
+        } else {
+            if (m_scrollTimer)
+                m_scrollTimer->stop();
+            // Final scroll after streaming ends
+            QTimer::singleShot(50, this, [this]() {
+                if (!m_userScrolledAway)
+                    verticalScrollBar()->setValue(verticalScrollBar()->maximum());
+            });
+        }
     }
 
     // ── Streaming convenience ─────────────────────────────────────────
@@ -117,14 +158,16 @@ public:
     void updateToolState(int turnIndex, const QString &callId,
                          const ChatContentPart &part)
     {
-        if (auto *w = turnWidget(turnIndex))
+        if (auto *w = turnWidget(turnIndex)) {
             w->updateToolState(callId, part);
+            autoScroll();
+        }
     }
 
 signals:
     void followupClicked(const QString &message);
     void feedbackGiven(const QString &turnId, bool helpful);
-    void toolConfirmed(const QString &callId, bool allowed);
+    void toolConfirmed(const QString &callId, int approval);
     void fileClicked(const QString &path);
     void codeActionRequested(const QUrl &url);
     void insertCodeRequested(const QString &code);
@@ -210,12 +253,21 @@ private:
 
     void autoScroll()
     {
-        auto *sb = verticalScrollBar();
-        // Auto-scroll only if the user is near the bottom already
-        if (sb->value() >= sb->maximum() - 100)
-            scrollToBottom();
+        if (m_streaming) {
+            // Streaming scroll is handled by the poll timer
+            return;
+        }
+        // Non-streaming: single deferred scroll
+        QTimer::singleShot(30, this, [this]() {
+            auto *sb = verticalScrollBar();
+            if (sb->value() >= sb->maximum() - 200)
+                sb->setValue(sb->maximum());
+        });
     }
 
+    bool    m_streaming        = false;
+    bool    m_userScrolledAway = false;
+    QTimer *m_scrollTimer      = nullptr;
     ChatSessionModel                *m_model     = nullptr;
     QWidget                         *m_container = nullptr;
     QVBoxLayout                     *m_layout    = nullptr;

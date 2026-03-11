@@ -157,19 +157,21 @@ void OllamaProvider::sendRequest(const AgentRequest &request)
     }
 
     // Build user message with context
-    QString userContent = request.userPrompt;
-    if (!request.activeFilePath.isEmpty()) {
-        userContent = QStringLiteral("File: %1 (language: %2)\n")
-                          .arg(request.activeFilePath, request.languageId);
-        if (!request.selectedText.isEmpty())
-            userContent += QStringLiteral("Selected code:\n```\n%1\n```\n\n").arg(request.selectedText);
-        userContent += request.userPrompt;
-    }
+    if (request.appendUserMessage) {
+        QString userContent = request.userPrompt;
+        if (!request.activeFilePath.isEmpty()) {
+            userContent = QStringLiteral("File: %1 (language: %2)\n")
+                              .arg(request.activeFilePath, request.languageId);
+            if (!request.selectedText.isEmpty())
+                userContent += QStringLiteral("Selected code:\n```\n%1\n```\n\n").arg(request.selectedText);
+            userContent += request.userPrompt;
+        }
 
-    messages.append(QJsonObject{
-        {QStringLiteral("role"),    QStringLiteral("user")},
-        {QStringLiteral("content"), userContent}
-    });
+        messages.append(QJsonObject{
+            {QStringLiteral("role"),    QStringLiteral("user")},
+            {QStringLiteral("content"), userContent}
+        });
+    }
 
     // POST /api/chat (Ollama native streaming API)
     const QJsonObject body{

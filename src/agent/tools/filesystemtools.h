@@ -225,7 +225,10 @@ public:
         if (!m_fs->writeTextFile(path, content, &error))
             return {false, {}, {}, error};
 
-        return {true, {},
+        QJsonObject data;
+        data[QStringLiteral("filePath")] = path;
+
+        return {true, data,
                 QStringLiteral("Successfully wrote %1 bytes to %2")
                     .arg(content.size()).arg(path), {}};
     }

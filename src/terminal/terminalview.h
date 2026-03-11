@@ -24,6 +24,7 @@ public:
     explicit TerminalView(TerminalScreen *screen, QWidget *parent = nullptr);
 
     void scrollToBottom();
+    QString selectedText() const;
 
 signals:
     void inputData(const QByteArray &data);   // keyboard / paste → PTY
@@ -51,7 +52,6 @@ private:
     void    updateScrollbar();
     QPoint  pixelToCell(const QPoint &pos) const;
     bool    isCellSelected(int col, int absRow) const;
-    QString selectedText() const;
     void    setFontSize(int pointSize);
     void    showFindBar();
     void    hideFindBar();

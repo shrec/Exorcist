@@ -15,6 +15,8 @@
 #include <QUrlQuery>
 #include <QUuid>
 
+#include <memory>
+
 // ─────────────────────────────────────────────────────────────────────────────
 // OAuthManager — handles OAuth login flow for GitHub Copilot.
 //
@@ -36,8 +38,9 @@ class OAuthManager : public QObject
 public:
     explicit OAuthManager(QObject *parent = nullptr)
         : QObject(parent)
+        , m_callbackServer(std::make_unique<QTcpServer>(this))
+        , m_network(std::make_unique<QNetworkAccessManager>(this))
     {
-        m_callbackServer = new QTcpServer(this);
     }
 
     /// Set OAuth client ID (from GitHub App settings)
@@ -68,7 +71,7 @@ public:
         m_codeVerifier = createCodeVerifier();
         m_codeChallenge = createCodeChallenge(m_codeVerifier);
 
-        connect(m_callbackServer, &QTcpServer::newConnection,
+        connect(m_callbackServer.get(), &QTcpServer::newConnection,
                 this, &OAuthManager::handleCallback);
 
         // Build authorization URL
@@ -157,10 +160,6 @@ private:
 
     void exchangeCodeForToken(const QString &code)
     {
-        if (!m_network) {
-            m_network = new QNetworkAccessManager(this);
-        }
-
         QUrl url(QStringLiteral("https://github.com/login/oauth/access_token"));
         QNetworkRequest req(url);
         req.setHeader(QNetworkRequest::ContentTypeHeader,
@@ -177,7 +176,7 @@ private:
         body.addQueryItem(QStringLiteral("state"), m_state);
         body.addQueryItem(QStringLiteral("code_verifier"), m_codeVerifier);
 
-        QNetworkReply *reply = m_network->post(req, body.toString(QUrl::FullyEncoded).toUtf8());
+        QNetworkReply *reply = m_network->post(req, body.toString(QUrl::FullyEncoded).toUtf8()); // Qt parent-owns reply
         connect(reply, &QNetworkReply::finished, this, [this, reply] {
             const QByteArray raw = reply->readAll();
             const QJsonDocument doc = QJsonDocument::fromJson(raw);
@@ -218,7 +217,7 @@ private:
                 "<p>You can close this tab and return to Exorcist IDE.</p>"
                 "</body></html>";
             socket->write(html);
-            socket->waitForBytesWritten(0);
+            socket->waitForBytesWritten(3000);
             socket->close();
             socket->deleteLater();
 
@@ -265,8 +264,8 @@ private:
         });
     }
 
-    QTcpServer *m_callbackServer = nullptr;
-    QNetworkAccessManager *m_network = nullptr;
+    std::unique_ptr<QTcpServer> m_callbackServer;
+    std::unique_ptr<QNetworkAccessManager> m_network;
     QString m_clientId;
     QString m_clientSecret;
     QString m_scopes = QStringLiteral("read:user");

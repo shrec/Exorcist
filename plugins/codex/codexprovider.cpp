@@ -198,10 +198,12 @@ void CodexProvider::sendRequest(const AgentRequest &request)
         });
     }
 
-    messages.append(QJsonObject{
-        {QStringLiteral("role"),    QStringLiteral("user")},
-        {QStringLiteral("content"), buildUserContent(request)}
-    });
+    if (request.appendUserMessage) {
+        messages.append(QJsonObject{
+            {QStringLiteral("role"),    QStringLiteral("user")},
+            {QStringLiteral("content"), buildUserContent(request)}
+        });
+    }
 
     const QJsonObject body{
         {QStringLiteral("model"),    m_model},

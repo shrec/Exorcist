@@ -306,6 +306,13 @@ void CopilotProvider::handleTokenReply(QNetworkReply *reply)
             return;
         }
 
+        // Transient network errors (DNS, timeout, etc.): keep current token
+        // alive and retry on the next refresh cycle — don't flicker availability.
+        if (m_token.isValid() && !m_token.isExpired(QDateTime::currentSecsSinceEpoch())) {
+            qCInfo(lcCopilot) << "Token refresh failed but current token still valid, keeping available";
+            return;
+        }
+
         // No refresh token or refresh already tried — clear and re-auth
         qCWarning(lcCopilot) << "Cannot recover, clearing saved auth";
         clearSavedAuth();
@@ -342,8 +349,10 @@ void CopilotProvider::handleTokenReply(QNetworkReply *reply)
     if (endpoints.contains(QLatin1String("api")))
         m_token.setApiEndpoint(endpoints[QLatin1String("api")].toString());
 
+    const bool wasAvailable = m_available;
     m_available = m_token.isValid();
-    emit availabilityChanged(m_available);
+    if (m_available != wasAvailable)
+        emit availabilityChanged(m_available);
 
     qCInfo(lcCopilot) << "Copilot token obtained, available:" << m_available
                       << "sku:" << m_token.sku()
@@ -606,15 +615,28 @@ void CopilotProvider::sendRequest(const AgentRequest &request)
         return;
     }
 
-    // Refresh token if needed
+    // Refresh token if needed — queue the request and auto-retry after refresh
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     if (m_token.isExpired(now)) {
+        m_lastRequest = request;
+        m_retryCount  = 0;
         refreshCopilotToken();
-        AgentError err;
-        err.requestId = request.requestId;
-        err.code      = AgentError::Code::Unknown;
-        err.message   = tr("Copilot token expired; refreshing. Please retry.");
-        emit responseError(request.requestId, err);
+        // Wait for token refresh, then auto-retry
+        auto *conn = new QMetaObject::Connection;
+        *conn = connect(this, &CopilotProvider::availabilityChanged,
+                        this, [this, conn](bool available) {
+            disconnect(*conn);
+            delete conn;
+            if (available && !m_lastRequest.requestId.isEmpty())
+                sendRequest(m_lastRequest);
+            else if (!available) {
+                AgentError err;
+                err.requestId = m_lastRequest.requestId;
+                err.code      = AgentError::Code::AuthError;
+                err.message   = tr("Token refresh failed. Please re-authenticate.");
+                emit responseError(m_lastRequest.requestId, err);
+            }
+        });
         return;
     }
 
@@ -716,10 +738,12 @@ void CopilotProvider::sendResponsesApi(const AgentRequest &request)
     input.prepend(systemMsg);
 
     // User message
-    QJsonObject userMsg;
-    userMsg[QStringLiteral("role")]    = QStringLiteral("user");
-    userMsg[QStringLiteral("content")] = buildUserContent(request);
-    input.append(userMsg);
+    if (request.appendUserMessage) {
+        QJsonObject userMsg;
+        userMsg[QStringLiteral("role")]    = QStringLiteral("user");
+        userMsg[QStringLiteral("content")] = buildUserContent(request);
+        input.append(userMsg);
+    }
 
     // Build tools array — only if model supports tool calls
     const ModelInfo mi = currentModelInfo();
@@ -825,33 +849,35 @@ QJsonArray CopilotProvider::buildMessages(const AgentRequest &request) const
     }
 
     // Current user message — with vision content array if images attached
-    if (!request.attachments.isEmpty()) {
-        QJsonArray contentArray;
-        contentArray.append(QJsonObject{
-            {QStringLiteral("type"), QStringLiteral("text")},
-            {QStringLiteral("text"), buildUserContent(request)}
-        });
-        for (const auto &att : request.attachments) {
-            if (att.type == Attachment::Type::Image && !att.data.isEmpty()) {
-                const QString b64 = QString::fromLatin1(att.data.toBase64());
-                contentArray.append(QJsonObject{
-                    {QStringLiteral("type"), QStringLiteral("image_url")},
-                    {QStringLiteral("image_url"), QJsonObject{
-                        {QStringLiteral("url"),
-                         QStringLiteral("data:%1;base64,%2").arg(att.mimeType, b64)}
-                    }}
-                });
+    if (request.appendUserMessage) {
+        if (!request.attachments.isEmpty()) {
+            QJsonArray contentArray;
+            contentArray.append(QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("text")},
+                {QStringLiteral("text"), buildUserContent(request)}
+            });
+            for (const auto &att : request.attachments) {
+                if (att.type == Attachment::Type::Image && !att.data.isEmpty()) {
+                    const QString b64 = QString::fromLatin1(att.data.toBase64());
+                    contentArray.append(QJsonObject{
+                        {QStringLiteral("type"), QStringLiteral("image_url")},
+                        {QStringLiteral("image_url"), QJsonObject{
+                            {QStringLiteral("url"),
+                             QStringLiteral("data:%1;base64,%2").arg(att.mimeType, b64)}
+                        }}
+                    });
+                }
             }
+            messages.append(QJsonObject{
+                {QStringLiteral("role"),    QStringLiteral("user")},
+                {QStringLiteral("content"), contentArray}
+            });
+        } else {
+            messages.append(QJsonObject{
+                {QStringLiteral("role"),    QStringLiteral("user")},
+                {QStringLiteral("content"), buildUserContent(request)}
+            });
         }
-        messages.append(QJsonObject{
-            {QStringLiteral("role"),    QStringLiteral("user")},
-            {QStringLiteral("content"), contentArray}
-        });
-    } else {
-        messages.append(QJsonObject{
-            {QStringLiteral("role"),    QStringLiteral("user")},
-            {QStringLiteral("content"), buildUserContent(request)}
-        });
     }
 
     return messages;
@@ -1230,8 +1256,8 @@ void CopilotProvider::handleSseDone()
 
 void CopilotProvider::retryOrFail(int httpStatus, const QString &errorMsg)
 {
-    // Only retry on 429 (rate limited) or 5xx (server error)
-    const bool retryable = (httpStatus == 429 || httpStatus >= 500);
+    // Retry on 429 (rate limited), 5xx (server error), or 0 (network failure)
+    const bool retryable = (httpStatus == 0 || httpStatus == 429 || httpStatus >= 500);
 
     if (retryable && m_retryCount < kMaxRetries) {
         ++m_retryCount;

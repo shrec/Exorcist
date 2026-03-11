@@ -20,6 +20,7 @@ enum class AgentIntent
     TerminalAssist,
     CreateFile,
     CodeReview,
+    GenerateCode,      // /generate — produce new code from description
 };
 
 // ── Capabilities ──────────────────────────────────────────────────────────────
@@ -169,6 +170,11 @@ struct AgentRequest
 
     // Image/file attachments for vision models
     QList<Attachment>    attachments;
+
+    // When false, the provider should NOT append a user message at the end.
+    // Used for agent tool-continuation calls where history already ends with
+    // assistant/tool messages and no extra user message should be injected.
+    bool appendUserMessage = true;
 };
 
 // ── Response types ────────────────────────────────────────────────────────────

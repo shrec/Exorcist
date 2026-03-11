@@ -22,6 +22,10 @@ public:
         QDateTime createdAt;
         QVector<QPair<QString, QString>> messages; // {role, text}
         QJsonArray completeTurns;  // full turn JSON (from turn.complete events)
+        int mode = 0;          // 0=Ask, 1=Edit, 2=Agent (from session.start)
+        QString title;         // session title (from session.title)
+        QString modelId;       // model used (from session.start)
+        QString providerId;    // provider used (from session.start)
         bool isEmpty() const { return messages.isEmpty() && completeTurns.isEmpty(); }
     };
 
@@ -32,6 +36,7 @@ public:
     void recordToolCall(const QString &id, const QString &name,
                         const QJsonObject &args, bool ok, const QString &result);
     void recordSessionEnd(const QString &id);
+    void setSessionTitle(const QString &id, const QString &title);
 
     void recordCompleteTurn(const QString &id, const QJsonObject &turnJson);
 
@@ -60,8 +65,6 @@ public:
     QString renameSession(const QString &path, const QString &newName);
     void deleteSession(const QString &path);
     QStringList searchSessions(const QString &query, int max = 20) const;
-    void setSessionTitle(const QString &id, const QString &title);
-
     // ── Export ────────────────────────────────────────────────────────────
     bool exportToMarkdown(const QString &sessionPath, const QString &outputPath) const;
     bool exportToJson(const QString &sessionPath, const QString &outputPath) const;
@@ -73,3 +76,5 @@ private:
     static QString sanitizeName(const QString &name);
     QString m_dir;
 };
+
+using ChatSession = SessionStore::ChatSession;

@@ -518,4 +518,95 @@ void LuaScriptEngine::fireEvent(const QString &eventName, const QStringList &arg
     }
 }
 
+// ── Ad-hoc script execution ──────────────────────────────────────────────────
+// Creates a temporary sandboxed state, overrides print() to capture output,
+// runs the script, and tears everything down.
+
+LuaScriptEngine::AdhocResult LuaScriptEngine::executeAdhoc(const QString &script)
+{
+    AdhocResult result;
+
+    // Create a temporary memory budget (16 MB).
+    auto budget = std::make_unique<MemoryBudget>();
+
+    // Create a fresh sandboxed state — no host API, bare sandbox.
+    lua_State *L = createSandboxedState(0, budget.get());
+    if (!L) {
+        result.error = QStringLiteral("Failed to create Lua state.");
+        return result;
+    }
+
+    // ── Override print() to capture output ───────────────────────────────
+    // Store a string buffer in the registry for the print function.
+    auto *outputBuf = new QString();  // raw pointer stored in registry lightuserdata
+    lua_pushlightuserdata(L, outputBuf);
+    lua_setfield(L, LUA_REGISTRYINDEX, "_adhoc_output");
+
+    lua_pushcfunction(L, [](lua_State *Ls) -> int {
+        lua_getfield(Ls, LUA_REGISTRYINDEX, "_adhoc_output");
+        auto *buf = static_cast<QString *>(lua_touserdata(Ls, -1));
+        lua_pop(Ls, 1);
+        if (!buf) return 0;
+
+        const int n = lua_gettop(Ls);
+        for (int i = 1; i <= n; ++i) {
+            if (i > 1) *buf += QLatin1Char('\t');
+            const char *s = lua_tostring(Ls, i);
+            *buf += s ? QString::fromUtf8(s) : QStringLiteral("nil");
+        }
+        *buf += QLatin1Char('\n');
+        return 0;
+    });
+    lua_setglobal(L, "print");
+
+    // ── Load and execute script ──────────────────────────────────────────
+    const QByteArray scriptUtf8 = script.toUtf8();
+    const int loadErr = luaL_loadbuffer(L, scriptUtf8.constData(),
+                                        static_cast<size_t>(scriptUtf8.size()),
+                                        "=adhoc");
+    if (loadErr != 0) {
+        result.error = QString::fromUtf8(lua_tostring(L, -1));
+        lua_close(L);
+        delete outputBuf;
+        return result;
+    }
+
+    // Push traceback handler below the chunk.
+    const int base = lua_gettop(L);
+    lua_pushcfunction(L, [](lua_State *Ls) -> int {
+        const char *msg = lua_tostring(Ls, 1);
+        if (msg)
+            luaL_traceback(Ls, Ls, msg, 1);
+        else
+            lua_pushliteral(Ls, "(no error message)");
+        return 1;
+    });
+    lua_insert(L, base);  // move error handler below chunk
+
+    const int execErr = lua_pcall(L, 0, 1, base);
+    lua_remove(L, base);  // remove error handler
+
+    if (execErr != 0) {
+        result.error = QString::fromUtf8(lua_tostring(L, -1));
+        lua_pop(L, 1);
+    } else {
+        result.ok = true;
+        // Capture return value.
+        if (!lua_isnil(L, -1)) {
+            const char *rv = lua_tostring(L, -1);
+            if (rv) result.returnValue = QString::fromUtf8(rv);
+        }
+        lua_pop(L, 1);
+    }
+
+    result.output = *outputBuf;
+    if (result.output.endsWith(QLatin1Char('\n')))
+        result.output.chop(1);
+    result.memoryUsedBytes = static_cast<int>(budget->used);
+
+    lua_close(L);
+    delete outputBuf;
+    return result;
+}
+
 } // namespace luabridge

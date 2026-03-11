@@ -30,6 +30,7 @@ public:
 
     // ── Identity ──────────────────────────────────────────────────────────
     QString id() const { return m_id; }
+    void setId(const QString &id) { m_id = id; }
     QDateTime createdAt() const { return m_createdAt; }
 
     QString title() const { return m_title; }

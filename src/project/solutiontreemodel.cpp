@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QBrush>
+#include <QSet>
 #include <memory>
 
 #include "projectmanager.h"
@@ -17,6 +18,8 @@ SolutionTreeModel::SolutionTreeModel(ProjectManager *pm, GitService *git, QObjec
     buildTree();
     connect(m_projectManager, &ProjectManager::solutionChanged,
             this, &SolutionTreeModel::rebuildFromSolution);
+    connect(&m_watcher, &QFileSystemWatcher::directoryChanged,
+            this, &SolutionTreeModel::onDirectoryChanged);
 }
 
 SolutionTreeModel::~SolutionTreeModel()
@@ -184,6 +187,8 @@ void SolutionTreeModel::refreshGitOverlays()
 void SolutionTreeModel::rebuildFromSolution()
 {
     beginResetModel();
+    const auto watched = m_watcher.directories();
+    if (!watched.isEmpty()) m_watcher.removePaths(watched);
     clearTree();
     buildTree();
     endResetModel();
@@ -266,6 +271,112 @@ void SolutionTreeModel::fetchChildren(TreeNode *node)
     }
 
     node->childrenFetched = true;
+
+    // Watch this directory for changes
+    if (!node->path.isEmpty() && !m_watcher.directories().contains(node->path))
+        m_watcher.addPath(node->path);
+}
+
+void SolutionTreeModel::onDirectoryChanged(const QString &path)
+{
+    TreeNode *node = findNodeByPath(m_root.get(), QDir::cleanPath(path));
+    if (!node || !node->childrenFetched) return;
+    refreshNode(node);
+}
+
+void SolutionTreeModel::refreshDirectory(const QModelIndex &index)
+{
+    TreeNode *node = nodeFromIndex(index);
+    if (!node) return;
+    if (node->kind != TreeNode::Dir && node->kind != TreeNode::Project &&
+        node->kind != TreeNode::Solution)
+        return;
+    if (!node->childrenFetched) return;
+    refreshNode(node);
+}
+
+void SolutionTreeModel::refreshNode(TreeNode *node)
+{
+    if (!node || node->path.isEmpty()) return;
+
+    QDir dir(node->path);
+    const QFileInfoList entries = dir.entryInfoList(
+        QDir::AllEntries | QDir::NoDotAndDotDot,
+        QDir::DirsFirst | QDir::Name);
+
+    // Build set of current disk entries
+    QSet<QString> diskPaths;
+    for (const QFileInfo &info : entries)
+        diskPaths.insert(info.absoluteFilePath());
+
+    // Build set of existing model entries
+    QSet<QString> modelPaths;
+    for (const auto &child : node->children)
+        modelPaths.insert(child->path);
+
+    const QModelIndex parentIndex = indexForNode(node);
+
+    // Remove entries no longer on disk (iterate backwards)
+    for (int i = static_cast<int>(node->children.size()) - 1; i >= 0; --i) {
+        if (!diskPaths.contains(node->children[i]->path)) {
+            beginRemoveRows(parentIndex, i, i);
+            // Unwatch removed directories
+            if (node->children[i]->kind == TreeNode::Dir &&
+                m_watcher.directories().contains(node->children[i]->path))
+                m_watcher.removePath(node->children[i]->path);
+            node->children.erase(node->children.begin() + i);
+            endRemoveRows();
+        }
+    }
+
+    // Add new entries from disk
+    for (const QFileInfo &info : entries) {
+        if (modelPaths.contains(info.absoluteFilePath())) continue;
+
+        // Find sorted insertion position (dirs first, then by name)
+        const bool isNewDir = info.isDir();
+        int insertPos = 0;
+        for (int i = 0; i < static_cast<int>(node->children.size()); ++i) {
+            const auto &existing = node->children[i];
+            const bool existingIsDir = (existing->kind == TreeNode::Dir ||
+                                        existing->kind == TreeNode::Project);
+            if (isNewDir && !existingIsDir) break;
+            if (!isNewDir && existingIsDir) { insertPos = i + 1; continue; }
+            if (info.fileName().compare(existing->name, Qt::CaseInsensitive) < 0) break;
+            insertPos = i + 1;
+        }
+
+        auto child = std::make_unique<TreeNode>();
+        child->kind = isNewDir ? TreeNode::Dir : TreeNode::File;
+        child->name = info.fileName();
+        child->path = info.absoluteFilePath();
+        child->parent = node;
+
+        beginInsertRows(parentIndex, insertPos, insertPos);
+        node->children.insert(node->children.begin() + insertPos, std::move(child));
+        endInsertRows();
+    }
+}
+
+SolutionTreeModel::TreeNode *SolutionTreeModel::findNodeByPath(
+    TreeNode *root, const QString &path) const
+{
+    if (!root) return nullptr;
+    if (QDir::cleanPath(root->path) == path) return root;
+    for (const auto &child : root->children) {
+        if (TreeNode *found = findNodeByPath(child.get(), path))
+            return found;
+    }
+    return nullptr;
+}
+
+QModelIndex SolutionTreeModel::indexForNode(TreeNode *node) const
+{
+    if (!node || node == m_root.get()) return {};
+    TreeNode *parent = node->parent;
+    if (!parent) return {};
+    const int row = childIndex(parent, node);
+    return createIndex(row, 0, node);
 }
 
 QColor SolutionTreeModel::gitColorForPath(const QString &path) const

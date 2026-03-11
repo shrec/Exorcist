@@ -45,6 +45,25 @@ AgentController::~AgentController()
         m_store->recordSessionEnd(m_session->id());
 }
 
+void AgentController::setToolConfirmationCallback(ConfirmToolFn fn)
+{
+    m_confirmFn = fn;
+
+    // Forward to the centralised approval service so it can show UI
+    if (m_approvalService && fn) {
+        m_approvalService->setConfirmCallback(
+            [fn](const QString &toolName, const QJsonObject &args,
+                 const QString &description) -> ToolApprovalService::Decision {
+                auto result = fn(toolName, args, description);
+                switch (result) {
+                case ToolApproval::AllowOnce:  return ToolApprovalService::Decision::AllowOnce;
+                case ToolApproval::AllowAlways: return ToolApprovalService::Decision::AllowAlways;
+                default:                        return ToolApprovalService::Decision::Deny;
+                }
+            });
+    }
+}
+
 // ── Session management ────────────────────────────────────────────────────────
 
 void AgentController::newSession(bool agentMode)
@@ -145,8 +164,10 @@ void AgentController::sendModelRequest()
 {
     IAgentProvider *provider = m_orchestrator->activeProvider();
     if (!provider || !provider->isAvailable()) {
-        finishTurn({});
-        emit turnError(tr("No available provider."));
+        const QString errMsg = tr("AI provider is not available. The connection may have been lost temporarily. "
+                                  "Please try again.");
+        emit turnError(errMsg);
+        finishTurn(errMsg);
         return;
     }
 
@@ -163,6 +184,22 @@ void AgentController::sendModelRequest()
     req.languageId          = m_languageId;
     req.conversationHistory = m_session->messages();
     req.attachments         = m_attachments;
+    req.reasoningEffort     = m_reasoningEffort;
+
+    if (m_currentStepCount == 0) {
+        // First call of the turn: beginTurn already added the User message to
+        // m_messages, but the provider will add it again via buildUserContent()
+        // with file-context enrichment. Remove the duplicate from history.
+        if (!req.conversationHistory.isEmpty() &&
+            req.conversationHistory.last().role == AgentMessage::Role::User) {
+            req.conversationHistory.removeLast();
+        }
+    } else {
+        // Subsequent call (after tool execution): the history already contains
+        // the user message in the right position followed by assistant/tool
+        // messages. Don't let the provider append another user message.
+        req.appendUserMessage = false;
+    }
     if (!m_systemPrompt.trimmed().isEmpty() && m_session->turnCount() == 1) {
         bool hasSystem = false;
         for (const auto &msg : req.conversationHistory) {
@@ -316,9 +353,11 @@ void AgentController::sendModelRequest()
         }
     }
 
-    // In agent mode, attach available tools
+    // In agent mode, attach available tools — send ALL tool definitions
+    // so the model knows everything available. Permission enforcement
+    // happens at execution time via ToolApprovalService.
     if (m_session->agentMode() && m_toolRegistry) {
-        req.tools = m_toolRegistry->definitions(m_maxPermission);
+        req.tools = m_toolRegistry->definitions(AgentToolPermission::Dangerous);
     }
 
     // Build context asynchronously if provider supports it
@@ -496,31 +535,12 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls)
             ++approvedCount;
     }
 
-    // ── Phase 2: Execute tools ────────────────────────────────────────────
-    if (approvedCount > 1) {
-        // Parallel execution for multiple approved tools
-        QAtomicInt remaining(approvedCount);
-        QEventLoop loop;
-
-        for (int i = 0; i < work.size(); ++i) {
-            if (work[i].denied)
-                continue;
-            auto *runnable = QRunnable::create(
-                [&work, i, &remaining, &loop, this]() {
-                    work[i].result = executeSingleTool(work[i].tc);
-                    if (remaining.fetchAndSubRelaxed(1) == 1)
-                        QMetaObject::invokeMethod(&loop, "quit",
-                                                  Qt::QueuedConnection);
-                });
-            QThreadPool::globalInstance()->start(runnable);
-        }
-        loop.exec();
-    } else {
-        // Sequential execution (single tool or zero)
-        for (auto &w : work) {
-            if (!w.denied)
-                w.result = executeSingleTool(w.tc);
-        }
+    // ── Phase 2: Execute tools (sequential) ─────────────────────────────
+    // Sequential execution avoids nested QEventLoop issues that cause crashes
+    // when combined with the tool confirmation callback's event loop.
+    for (auto &w : work) {
+        if (!w.denied)
+            w.result = executeSingleTool(w.tc);
     }
 
     // ── Phase 3: Record results & emit signals (main thread) ──────────────

@@ -33,6 +33,12 @@ struct ToolSpec
     AgentToolPermission permission = AgentToolPermission::ReadOnly;
     int            timeoutMs  = 30000;
     bool           cancellable = true;
+
+    // Context filtering: when non-empty, this tool is only available
+    // when the workspace contains files matching one of these contexts.
+    // Examples: {"python"}, {"cpp", "c"}, {"web", "typescript"}.
+    // Empty list = universal tool, always available.
+    QStringList    contexts;
 };
 
 // ── Tool execution result ─────────────────────────────────────────────────────
@@ -136,18 +142,37 @@ public:
         return defs;
     }
 
-    /// Definitions filtered by permission level
+    /// Definitions filtered by permission level and active contexts
     QList<ToolDefinition> definitions(AgentToolPermission maxLevel) const
     {
         QList<ToolDefinition> defs;
         for (const auto &[name, t] : m_tools) {
             if (m_disabled.contains(name))
                 continue;
-            if (static_cast<int>(t->spec().permission) <= static_cast<int>(maxLevel))
-                defs.append(toolToDefinition(t.get()));
+            const ToolSpec &sp = t->spec();
+            if (static_cast<int>(sp.permission) > static_cast<int>(maxLevel))
+                continue;
+            // Context filtering: universal tools (empty contexts) always pass;
+            // managed tools pass only if at least one context is active.
+            if (!sp.contexts.isEmpty() && !m_activeContexts.isEmpty()) {
+                bool match = false;
+                for (const QString &ctx : sp.contexts) {
+                    if (m_activeContexts.contains(ctx)) { match = true; break; }
+                }
+                if (!match) continue;
+            }
+            defs.append(toolToDefinition(t.get()));
         }
         return defs;
     }
+
+    // ── Context management ────────────────────────────────────────────────
+
+    /// Set active language/framework contexts detected from workspace.
+    /// Only tools whose contexts intersect these (or have empty contexts)
+    /// will be included in definitions().
+    void setActiveContexts(const QSet<QString> &contexts) { m_activeContexts = contexts; }
+    QSet<QString> activeContexts() const { return m_activeContexts; }
 
     /// Enable/disable individual tools
     void setDisabledTools(const QSet<QString> &names) { m_disabled = names; }
@@ -181,4 +206,5 @@ private:
     };
     std::unordered_map<QString, std::unique_ptr<ITool>, QStringHash> m_tools;
     QSet<QString> m_disabled;
+    QSet<QString> m_activeContexts;   // e.g. {"python", "cpp", "web"}
 };

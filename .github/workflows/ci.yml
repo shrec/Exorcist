@@ -120,7 +120,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgl1-mesa-dev clang
+          sudo apt-get install -y ninja-build libgl1-mesa-dev clang llvm xvfb
 
       - name: Install Qt ${{ env.QT_VERSION }}
         uses: jurplel/install-qt-action@v4
@@ -131,23 +131,64 @@ jobs:
           arch: linux_gcc_64
           cache: true
 
-      - name: Configure
-        run: cmake --preset ci   # CMAKE_EXPORT_COMPILE_COMMANDS=ON → build-ci/compile_commands.json
+      - name: Install build-wrapper
+        run: |
+          curl -sSLo build-wrapper-linux-x86-64.zip "https://sonarcloud.io/static/cpp/build-wrapper-linux-x86-64.zip"
+          unzip -o build-wrapper-linux-x86-64.zip
+          echo "$(ls -d build-wrapper-linux-x86-64-*)" >> $GITHUB_PATH
+
+      - name: Configure (Debug + coverage)
+        run: >
+          cmake --preset ci
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_FLAGS="-fprofile-instr-generate -fcoverage-mapping"
+          -DCMAKE_CXX_FLAGS="-fprofile-instr-generate -fcoverage-mapping"
+          -DCMAKE_EXE_LINKER_FLAGS="-fprofile-instr-generate"
         env:
           CC: clang
           CXX: clang++
 
-      - name: Build
-        run: cmake --build build-ci --parallel
+      - name: Build (with build-wrapper for CFamily analysis)
+        run: build-wrapper-linux-x86-64 --out-dir bw-output cmake --build build-ci --parallel
         env:
           CC: clang
           CXX: clang++
 
-      - name: SonarQube scan
+      - name: Test (coverage)
+        run: |
+          xvfb-run -a ctest --test-dir build-ci --output-on-failure --parallel 4 || true
+        env:
+          QT_QPA_PLATFORM: offscreen
+          LLVM_PROFILE_FILE: build-ci/coverage-%p.profraw
+
+      - name: Generate coverage for SonarCloud
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          raw=(build-ci/coverage-*.profraw)
+          if [ ${#raw[@]} -eq 0 ]; then
+            echo "No coverage data — skipping."
+            touch build-ci/coverage-report.txt
+            exit 0
+          fi
+          llvm-profdata merge -sparse "${raw[@]}" -o build-ci/coverage.profdata
+          if [ ! -f build-ci/src/exorcist ]; then
+            echo "Binary not found — skipping."
+            touch build-ci/coverage-report.txt
+            exit 0
+          fi
+          llvm-cov show \
+            --instr-profile=build-ci/coverage.profdata \
+            build-ci/src/exorcist \
+            > build-ci/coverage-report.txt
+
+      - name: SonarCloud scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_HOST_URL: "https://sonarcloud.io"
 
   # ДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДДД
   #  Coverage - Codecov

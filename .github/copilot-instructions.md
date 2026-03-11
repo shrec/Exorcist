@@ -153,3 +153,14 @@ Documentation is **not optional** and must be maintained **alongside** implement
 - Follow the phased roadmap in [docs/roadmap.md](docs/roadmap.md) — do not skip phases.
 - Commit messages: imperative mood, max 72 chars subject (`Add file search`, not `Added file search`).
 - No `using namespace` in headers. Acceptable in `.cpp` files for `Qt` namespaces only.
+
+## MainWindow God Object — FREEZE (STRICT)
+
+`MainWindow` currently has ~120+ member variables. This is known tech debt **scheduled for a dedicated decomposition session**.
+
+### Rules until decomposition
+1. **Do NOT add new member variables to `MainWindow`.** If a new feature needs state, put it in its own class/manager and access it through `ServiceRegistry` or a dedicated bootstrap object.
+2. **Do NOT add new methods to `MainWindow`** that belong in a subsystem. Wire through callbacks or services instead.
+3. **Do NOT refactor `MainWindow` piecemeal.** Decomposition must happen as a focused task with a clear plan (extract `EditorManager`, `DockBootstrap`, `BuildDebugBootstrap`, etc.), not ad-hoc member moves.
+4. **Allowed:** Bug fixes that touch existing `MainWindow` code, and wiring new callbacks in the existing agent platform bootstrap section.
+5. **Target:** Reduce from ~120 members to <80 by extracting cohesive manager classes. This is a Phase 12 task.

@@ -11,7 +11,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     message(FATAL_ERROR "Exorcist requires a 64-bit toolchain.")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Concurrent)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Concurrent Sql)
 
 option(EXORCIST_USE_LLVM "Enable LLVM integration stubs" OFF)
 option(EXORCIST_DEPLOY_QT "Run windeployqt after build on Windows" ON)

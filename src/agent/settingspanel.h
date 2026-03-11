@@ -23,6 +23,7 @@ public:
 
     int contextTokenLimit() const;
     int maxSteps() const;
+    QString reasoningEffortString() const;
     QStringList disabledCompletionLanguages() const;
     QString customEndpoint() const;
     QString customApiKey() const;

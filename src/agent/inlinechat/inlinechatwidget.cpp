@@ -1,6 +1,6 @@
 #include "inlinechatwidget.h"
 #include "../agentorchestrator.h"
-#include "../markdownrenderer.h"
+#include "../../ui/markdownrenderer.h"
 
 #include <QHBoxLayout>
 #include <QKeyEvent>

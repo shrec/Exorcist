@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QJsonObject>
+
 #include "../toolpresentation.h"
 #include "chatcontentpart.h"
 
@@ -53,6 +55,90 @@ inline ChatContentPart toolResultToPart(const QString &toolName,
     part.toolInput = input;
     part.toolOutput = output;
     return part;
+}
+
+/// Extract a human-readable description from tool arguments.
+/// Returns empty string if no meaningful description can be built.
+inline QString descriptionFromArgs(const QString &toolName, const QJsonObject &args)
+{
+    // run_in_terminal / run_command: prefer explanation, fall back to command
+    if (toolName == QLatin1String("run_in_terminal")
+        || toolName == QLatin1String("run_command")) {
+        const QString expl = args.value(QLatin1String("explanation")).toString();
+        if (!expl.isEmpty()) return expl;
+        const QString cmd = args.value(QLatin1String("command")).toString();
+        if (!cmd.isEmpty()) {
+            const QString trimmed = cmd.length() > 80
+                ? cmd.left(77) + QStringLiteral("\u2026") : cmd;
+            return QStringLiteral("`%1`").arg(trimmed);
+        }
+    }
+
+    // read_file
+    if (toolName == QLatin1String("read_file")) {
+        const QString fp = args.value(QLatin1String("filePath")).toString();
+        if (!fp.isEmpty()) {
+            // Show just the filename or last path component
+            const int sep = fp.lastIndexOf(QLatin1Char('/'));
+            const int bsep = fp.lastIndexOf(QLatin1Char('\\'));
+            const int idx = qMax(sep, bsep);
+            return idx >= 0 ? fp.mid(idx + 1) : fp;
+        }
+    }
+
+    // create_file
+    if (toolName == QLatin1String("create_file")) {
+        const QString fp = args.value(QLatin1String("filePath")).toString();
+        if (!fp.isEmpty()) {
+            const int sep = fp.lastIndexOf(QLatin1Char('/'));
+            const int bsep = fp.lastIndexOf(QLatin1Char('\\'));
+            const int idx = qMax(sep, bsep);
+            return idx >= 0 ? fp.mid(idx + 1) : fp;
+        }
+    }
+
+    // edit_file / replace_string_in_file
+    if (toolName == QLatin1String("replace_string_in_file")
+        || toolName == QLatin1String("edit_file")) {
+        const QString fp = args.value(QLatin1String("filePath")).toString();
+        if (!fp.isEmpty()) {
+            const int sep = fp.lastIndexOf(QLatin1Char('/'));
+            const int bsep = fp.lastIndexOf(QLatin1Char('\\'));
+            const int idx = qMax(sep, bsep);
+            return idx >= 0 ? fp.mid(idx + 1) : fp;
+        }
+    }
+
+    // grep_search / semantic_search
+    if (toolName == QLatin1String("grep_search")
+        || toolName == QLatin1String("semantic_search")
+        || toolName == QLatin1String("codebase_search")) {
+        const QString query = args.value(QLatin1String("query")).toString();
+        if (!query.isEmpty()) {
+            const QString trimmed = query.length() > 60
+                ? query.left(57) + QStringLiteral("\u2026") : query;
+            return QStringLiteral("\u201C%1\u201D").arg(trimmed);
+        }
+    }
+
+    // file_search
+    if (toolName == QLatin1String("file_search")) {
+        const QString query = args.value(QLatin1String("query")).toString();
+        if (!query.isEmpty()) return query;
+    }
+
+    // list_dir
+    if (toolName == QLatin1String("list_dir")) {
+        const QString path = args.value(QLatin1String("path")).toString();
+        if (!path.isEmpty()) {
+            const int sep = path.lastIndexOf(QLatin1Char('/'));
+            const int bsep = path.lastIndexOf(QLatin1Char('\\'));
+            const int idx = qMax(sep, bsep);
+            return idx >= 0 ? path.mid(idx + 1) : path;
+        }
+    }
+
+    return {};
 }
 
 } // namespace ToolPresentationFormatter

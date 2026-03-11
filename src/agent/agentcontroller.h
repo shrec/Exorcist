@@ -87,6 +87,8 @@ public:
 
     void setBrainContextBuilder(BrainContextBuilder *b) { m_brainBuilder = b; }
 
+    void setReasoningEffort(const QString &effort) { m_reasoningEffort = effort; }
+
     /// Tool approval result from user confirmation dialog.
     enum class ToolApproval { Deny, AllowOnce, AllowAlways };
 
@@ -95,7 +97,8 @@ public:
     using ConfirmToolFn = std::function<ToolApproval(const QString &toolName,
                                             const QJsonObject &args,
                                             const QString &description)>;
-    void setToolConfirmationCallback(ConfirmToolFn fn) { m_confirmFn = std::move(fn); }
+    void setToolConfirmationCallback(ConfirmToolFn fn);
+
 
     /// Clear the per-session "always allow" list (e.g. on new session).
     void clearAlwaysAllowedTools() { m_alwaysAllowedTools.clear(); }
@@ -153,6 +156,7 @@ private:
     BrainContextBuilder *m_brainBuilder = nullptr;
     ConfirmToolFn        m_confirmFn;
     QSet<QString>        m_alwaysAllowedTools;
+    QString              m_reasoningEffort;
 
     // Editor context for current turn
     QString m_activeFilePath;

@@ -231,6 +231,16 @@ int SettingsPanel::maxSteps() const
     return m_maxSteps->value();
 }
 
+QString SettingsPanel::reasoningEffortString() const
+{
+    switch (m_reasoningEffort->currentIndex()) {
+    case 0: return QStringLiteral("low");
+    case 1: return QStringLiteral("medium");
+    case 2: return QStringLiteral("high");
+    default: return QStringLiteral("high");
+    }
+}
+
 QStringList SettingsPanel::disabledCompletionLanguages() const
 {
     const QString text = m_disabledLangs->text().trimmed();

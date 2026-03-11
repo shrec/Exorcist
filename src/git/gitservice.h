@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QHash>
+#include <functional>
 
 class QFileSystemWatcher;
 class QTimer;
@@ -59,15 +60,30 @@ public:
     /// Return file contents at HEAD (empty on error/untracked).
     QString showAtHead(const QString &absFilePath) const;
 
+    // ── Async variants (Manifesto #2: never block UI thread) ─────────
+    /// Async blame — result delivered via blameReady signal.
+    void blameAsync(const QString &absFilePath);
+    /// Async diff — result delivered via diffReady signal.
+    void diffAsync(const QString &filePath = {});
+    /// Async showAtHead — result delivered via showAtHeadReady signal.
+    void showAtHeadAsync(const QString &absFilePath);
+
 signals:
     void statusRefreshed();
     void branchChanged(const QString &branch);
+    void blameReady(const QString &filePath, const QList<BlameEntry> &entries);
+    void diffReady(const QString &filePath, const QString &diff);
+    void showAtHeadReady(const QString &filePath, const QString &content);
 
 private:
     void refresh();
+    void refreshAsync();
     bool runGit(const QStringList &args, QString *out);
+    void runGitAsync(const QStringList &args,
+                     std::function<void(bool ok, const QString &output)> callback);
     QString toRelativePath(const QString &absPath) const;
     void resetWatcher();
+    static QList<BlameEntry> parseBlameOutput(const QString &out);
 
     QString m_gitRoot;
     QString m_branch;

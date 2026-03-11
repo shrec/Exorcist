@@ -155,6 +155,11 @@ QString TerminalWidget::recentOutput(int maxLines) const
     return m_screen ? m_screen->recentText(maxLines) : QString();
 }
 
+QString TerminalWidget::selectedText() const
+{
+    return m_view ? m_view->selectedText() : QString();
+}
+
 // ── Show event ────────────────────────────────────────────────────────────────
 
 void TerminalWidget::showEvent(QShowEvent *event)

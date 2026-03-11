@@ -278,7 +278,22 @@ See [docs/luajit.md](luajit.md)
 | AI chat (optional) | ✅ | Claude/Copilot/Codex/Ollama plugins |
 
 ### Remaining dogfood tasks
-- [ ] Self-hosting session: open `D:\Dev\Exorcist`, configure llvm-clang preset, build, run, verify
+- [x] Self-hosting session: open `D:\Dev\Exorcist`, configure llvm-clang preset, build, run, verify
+  - Startup: **774ms**, RSS: **116.7 MB** at boot → **265 MB** stable after LSP/plugins
+  - LSP (clangd): initialized, 3 include paths from compile_commands.json
+  - Copilot: authenticated, 15+ models available (Claude Opus 4.6, Sonnet 4.6, GPT-5.x, Gemini 3, Grok)
+  - 6 Lua script plugins loaded, 79 agent tools registered
+  - Session restore: 50+ JSONL session files, auto-restore with mode/title preservation
+  - No crashes, no OOM — **stable at 265 MB** (VS Code: 800MB–2GB for same project)
 - [ ] Document pain points and file issues
-- [ ] OAuthManager token exchange stub → real implementation
-- [ ] MainWindow god object further decomposition (129 members → target <80)
+- [x] OAuthManager bare `new` → `std::unique_ptr`, PKCE flow complete
+- [ ] MainWindow god object further decomposition (120+ members → target <80) — **deferred to Phase 12**
+
+### Selfdogfood tool parity — completed
+- [x] 79 agent tools registered (74 core + terminal_selection, terminal_last_command, test_failure, run_ide_command)
+- [x] MCP auto-bridge covers Docker/Browser/Pylance tools via `McpToolAdapter`
+- [x] Session auto-restore on startup (last session loads into chat panel, mode/title preserved)
+- [x] 3 agent modes: Ask (read-only), Edit (safe mutate), Agent (autonomous loop)
+- [x] SonarCloud CI: build-wrapper + coverage instrumentation + ReserchRepos excluded
+- [x] `run_ide_command` tool — agent can list and execute any registered IDE command
+- [x] MainWindow god object **FREEZE rule** added to copilot-instructions.md (decomposition deferred to Phase 12)

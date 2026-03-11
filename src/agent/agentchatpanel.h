@@ -4,13 +4,14 @@
 #include <QQueue>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QTextCursor>
 #include <QWidget>
 
 #include <functional>
 
 #include "../aiinterface.h"
 #include "agentsession.h"
-#include "markdownrenderer.h"
+#include "../ui/markdownrenderer.h"
 #include "sessionstore.h"
 
 class QComboBox;
@@ -211,12 +212,13 @@ private:
     QString m_thinkingAccum;
     AgentIntent m_pendingIntent = AgentIntent::Chat;
 
-    // Live streaming state
-    int  m_streamAnchorPos = 0;   // document char position just before AI bubble
-    bool m_streamStarted   = false;
+    // Live streaming state — uses QTextCursor bookmarks that
+    // automatically track position as the document is modified.
+    QTextCursor m_streamCursor;    // bookmark: start of streaming AI bubble
+    bool m_streamStarted = false;
 
     // Live thinking state (streams thinking into chat area)
-    int  m_thinkingAnchorPos = 0;
+    QTextCursor m_thinkingCursor;  // bookmark: start of thinking block
     bool m_thinkingStreamStarted = false;
 
     // Working section state (VS Code-style tool activity display)
@@ -228,11 +230,14 @@ private:
         QString result;       // brief result text (e.g. "63 results")
     };
     QList<WorkingStep> m_workingSteps;
-    int  m_workingSectionAnchor = 0;
+    QTextCursor m_workingCursor;   // bookmark: start of working section
     bool m_workingSectionActive = false;
 
     // Message queue — holds text of messages sent while a request is in flight
     QQueue<QString> m_msgQueue;
+
+    // Agent-mode streaming connections (disconnected on new request or cancel)
+    QList<QMetaObject::Connection> m_agentConns;
 
     // Proposed patches waiting for user confirmation (Keep / Undo)
     QList<PatchProposal> m_pendingPatches;

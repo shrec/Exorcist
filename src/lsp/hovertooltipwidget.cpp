@@ -1,5 +1,5 @@
 #include "hovertooltipwidget.h"
-#include "../agent/markdownrenderer.h"
+#include "../ui/markdownrenderer.h"
 
 #include <QApplication>
 #include <QEvent>

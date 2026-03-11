@@ -154,7 +154,9 @@ void BuildToolbar::setDebugAdapter(IDebugAdapter *adapter)
 
 void BuildToolbar::refresh()
 {
-    // Populate config combo
+    // Block signals while repopulating to prevent spurious currentIndexChanged(0)
+    // which would reset the saved active config to the first item.
+    m_configCombo->blockSignals(true);
     m_configCombo->clear();
     if (m_cmake) {
         const auto configs = m_cmake->buildConfigs();
@@ -170,6 +172,7 @@ void BuildToolbar::refresh()
         for (const auto &t : targets)
             m_targetCombo->addItem(QFileInfo(t).fileName(), t);
     }
+    m_configCombo->blockSignals(false);
 }
 
 int BuildToolbar::selectedConfigIndex() const

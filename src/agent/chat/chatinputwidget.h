@@ -68,9 +68,12 @@ public:
     void setModels(const QStringList &models, const QString &current);
     void clearModels();
     void addModel(const QString &id, const QString &displayName,
-                  bool isPremium = false, double multiplier = 1.0);
+                  bool isPremium = false, double multiplier = 1.0,
+                  bool thinking = false, bool vision = false,
+                  bool toolCalls = false);
     void setCurrentModel(const QString &id);
     QString selectedModel() const;
+    bool isThinkingEnabled() const;
 
     // ── Input state ───────────────────────────────────────────────────────
     void setStreamingState(bool streaming);
@@ -87,6 +90,12 @@ public:
     // ── Context info ──────────────────────────────────────────────────────
     void setContextInfo(const QString &info);
     void setContextTokenCount(int tokens);
+
+    // ── Tool count indicator ─────────────────────────────────────────────
+    void setToolCount(int count);
+
+    // ── Placeholder (mode-sensitive) ─────────────────────────────────────
+    void updatePlaceholder();
 
 signals:
     void sendRequested(const QString &text, int mode);
@@ -111,6 +120,7 @@ private:
     void hideMentionMenu();
     void rebuildAttachChips();
     void setModeButtonActive(int mode);
+    void updateThinkingBtnVisibility();
     bool eventFilter(QObject *obj, QEvent *ev) override;
     void dragEnterEvent(QDragEnterEvent *ev) override;
     void dropEvent(QDropEvent *ev) override;
@@ -132,6 +142,8 @@ private:
     QToolButton    *m_newSessionBtn = nullptr;
     QToolButton    *m_historyBtn    = nullptr;
     QComboBox      *m_modelCombo    = nullptr;
+    QToolButton    *m_thinkingBtn   = nullptr;
+    QToolButton    *m_toolsBtn      = nullptr;
     QToolButton    *m_ctxBtn        = nullptr;
 
     // Context strip

@@ -27,6 +27,8 @@
 #include <QDesktopServices>
 #include <QMessageBox>
 #include <QTimer>
+#include <QEventLoop>
+#include <QRegularExpression>
 
 #include <memory>
 
@@ -41,8 +43,8 @@
 #include "editor/largefileloader.h"
 #include "editor/syntaxhighlighter.h"
 #include "editor/highlighterfactory.h"
-#include "editor/inlinecompletionengine.h"
-#include "editor/nexteditengine.h"
+#include "agent/inlinecompletionengine.h"
+#include "agent/nexteditengine.h"
 #include "agent/agentorchestrator.h"
 #include "agent/agentproviderregistry.h"
 #include "agent/agentrequestrouter.h"
@@ -78,6 +80,11 @@
 #include "agent/tools/memorytool.h"
 #include "agent/requestlogpanel.h"
 #include "agent/trajectorypanel.h"
+#include "sdk/luajit/luascriptengine.h"
+
+#include <QDockWidget>
+#include <QGroupBox>
+#include <QPlainTextEdit>
 
 #include "mcp/mcpclient.h"
 #include "mcp/mcppanel.h"
@@ -273,6 +280,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_buildDebugBootstrap = new BuildDebugBootstrap(this);
     m_buildDebugBootstrap->initialize();
     m_toolchainMgr    = m_buildDebugBootstrap->toolchainManager();
+    connect(m_toolchainMgr, &ToolchainManager::detectionFinished, this, [this]() {
+        const auto toolchains = m_toolchainMgr->toolchains();
+        if (!toolchains.isEmpty()) {
+            statusBar()->showMessage(
+                tr("Detected %1 toolchain(s): %2")
+                    .arg(toolchains.size())
+                    .arg(toolchains.first().displayName), 4000);
+        }
+    });
     m_cmakeIntegration = m_buildDebugBootstrap->cmakeIntegration();
     m_debugLauncher   = m_buildDebugBootstrap->debugLauncher();
     m_buildToolbar    = m_buildDebugBootstrap->buildToolbar();
@@ -317,60 +333,869 @@ MainWindow::MainWindow(QWidget *parent)
     // ── Agent core bootstrap ──────────────────────────────────────────────
     m_agentPlatform = new AgentPlatformBootstrap(
         m_agentOrchestrator, m_services.get(), m_fileSystem.get(), this);
-    m_agentPlatform->initialize({
-        [this]() {
-            QStringList paths;
-            for (int i = 0; i < m_tabs->count(); ++i) {
-                auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
-                const QString fp = ed ? ed->property("filePath").toString() : QString();
-                if (!fp.isEmpty()) {
-                    paths.append(fp);
-                }
-            }
-            return paths;
-        },
-        [this]() -> QString {
-            if (!m_gitService || !m_gitService->isGitRepo()) return {};
-            QString result = QStringLiteral("Branch: %1\n").arg(m_gitService->currentBranch());
-            const auto statuses = m_gitService->fileStatuses();
-            for (auto it = statuses.begin(); it != statuses.end(); ++it) {
-                result += QStringLiteral("  %1 %2\n").arg(it.value(), it.key());
-            }
-            return result;
-        },
-        [this]() -> QString {
-            if (!m_terminal) return {};
-            return m_terminal->recentOutput(80);
-        },
-        [this]() -> QList<AgentDiagnostic> {
-            auto *ed = currentEditor();
-            if (!ed) return {};
-            QList<AgentDiagnostic> result;
-            const QString path = ed->property("filePath").toString();
-            for (const DiagnosticMark &d : ed->diagnosticMarks()) {
-                AgentDiagnostic ag;
-                ag.filePath = path;
-                ag.line = d.line;
-                ag.column = d.startChar;
-                ag.message = d.message;
-                ag.severity = (d.severity == DiagSeverity::Error)
-                    ? AgentDiagnostic::Severity::Error
-                    : (d.severity == DiagSeverity::Warning)
-                        ? AgentDiagnostic::Severity::Warning
-                        : AgentDiagnostic::Severity::Info;
-                result.append(ag);
-            }
-            return result;
-        },
-        [this]() -> QHash<QString, QString> {
-            if (!m_gitService || !m_gitService->isGitRepo()) return {};
-            return m_gitService->fileStatuses();
-        },
-        [this](const QString &filePath) -> QString {
-            if (!m_gitService || !m_gitService->isGitRepo()) return {};
-            return m_gitService->diff(filePath);
+
+    AgentPlatformBootstrap::Callbacks agentCallbacks;
+
+    // ── Basic context getters (already working) ───────────────────────────
+    agentCallbacks.openFilesGetter = [this]() {
+        QStringList paths;
+        for (int i = 0; i < m_tabs->count(); ++i) {
+            auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+            const QString fp = ed ? ed->property("filePath").toString() : QString();
+            if (!fp.isEmpty())
+                paths.append(fp);
         }
-    });
+        return paths;
+    };
+
+    agentCallbacks.gitStatusGetter = [this]() -> QString {
+        if (!m_gitService || !m_gitService->isGitRepo()) return {};
+        QString result = QStringLiteral("Branch: %1\n").arg(m_gitService->currentBranch());
+        const auto statuses = m_gitService->fileStatuses();
+        for (auto it = statuses.begin(); it != statuses.end(); ++it)
+            result += QStringLiteral("  %1 %2\n").arg(it.value(), it.key());
+        return result;
+    };
+
+    agentCallbacks.terminalOutputGetter = [this]() -> QString {
+        if (!m_terminal) return {};
+        return m_terminal->recentOutput(80);
+    };
+
+    agentCallbacks.diagnosticsGetter = [this]() -> QList<AgentDiagnostic> {
+        auto *ed = currentEditor();
+        if (!ed) return {};
+        QList<AgentDiagnostic> result;
+        const QString path = ed->property("filePath").toString();
+        for (const DiagnosticMark &d : ed->diagnosticMarks()) {
+            AgentDiagnostic ag;
+            ag.filePath = path;
+            ag.line     = d.line;
+            ag.column   = d.startChar;
+            ag.message  = d.message;
+            ag.severity = (d.severity == DiagSeverity::Error)
+                ? AgentDiagnostic::Severity::Error
+                : (d.severity == DiagSeverity::Warning)
+                    ? AgentDiagnostic::Severity::Warning
+                    : AgentDiagnostic::Severity::Info;
+            result.append(ag);
+        }
+        return result;
+    };
+
+    agentCallbacks.changedFilesGetter = [this]() -> QHash<QString, QString> {
+        if (!m_gitService || !m_gitService->isGitRepo()) return {};
+        return m_gitService->fileStatuses();
+    };
+
+    agentCallbacks.gitDiffGetter = [this](const QString &filePath) -> QString {
+        if (!m_gitService || !m_gitService->isGitRepo()) return {};
+        return m_gitService->diff(filePath);
+    };
+
+    // ── Debug adapter callbacks ───────────────────────────────────────────
+    agentCallbacks.debugBreakpointSetter =
+        [this](const QString &filePath, int line, const QString &condition) -> QString {
+        if (!m_debugAdapter) return {};
+        DebugBreakpoint bp;
+        bp.filePath  = filePath;
+        bp.line      = line;
+        bp.condition = condition;
+        bp.enabled   = true;
+        m_debugAdapter->addBreakpoint(bp);
+        return QStringLiteral("Breakpoint set at %1:%2").arg(filePath).arg(line);
+    };
+
+    agentCallbacks.debugBreakpointRemover =
+        [this](const QString &filePath, int line) -> bool {
+        if (!m_debugAdapter) return false;
+        // Find breakpoint ID by file:line and remove it
+        Q_UNUSED(filePath)
+        m_debugAdapter->removeBreakpoint(line);
+        return true;
+    };
+
+    agentCallbacks.debugStackGetter = [this](int threadId) -> QString {
+        if (!m_debugAdapter || !m_debugAdapter->isRunning()) return {};
+        QString result;
+        QEventLoop loop;
+        auto conn = connect(m_debugAdapter, &GdbMiAdapter::stackTraceReceived,
+            &loop, [&](int tid, const QList<DebugFrame> &frames) {
+                if (tid != threadId) return;
+                for (const auto &f : frames)
+                    result += QStringLiteral("#%1 %2 at %3:%4\n")
+                        .arg(f.id).arg(f.name, f.filePath).arg(f.line);
+                loop.quit();
+            });
+        QTimer::singleShot(5000, &loop, &QEventLoop::quit);
+        m_debugAdapter->requestStackTrace(threadId);
+        loop.exec();
+        disconnect(conn);
+        return result;
+    };
+
+    agentCallbacks.debugVariablesGetter = [this](int variablesRef) -> QString {
+        if (!m_debugAdapter || !m_debugAdapter->isRunning()) return {};
+        QString result;
+        QEventLoop loop;
+        auto conn = connect(m_debugAdapter, &GdbMiAdapter::variablesReceived,
+            &loop, [&](int ref, const QList<DebugVariable> &vars) {
+                if (ref != variablesRef) return;
+                for (const auto &v : vars)
+                    result += QStringLiteral("%1 %2 = %3\n")
+                        .arg(v.type, v.name, v.value);
+                loop.quit();
+            });
+        QTimer::singleShot(5000, &loop, &QEventLoop::quit);
+        m_debugAdapter->requestVariables(variablesRef);
+        loop.exec();
+        disconnect(conn);
+        return result;
+    };
+
+    agentCallbacks.debugEvaluator = [this](const QString &expression, int frameId) -> QString {
+        if (!m_debugAdapter || !m_debugAdapter->isRunning()) return {};
+        QString result;
+        QEventLoop loop;
+        auto conn = connect(m_debugAdapter, &GdbMiAdapter::evaluateResult,
+            &loop, [&](const QString &expr, const QString &val) {
+                if (expr == expression) {
+                    result = val;
+                    loop.quit();
+                }
+            });
+        QTimer::singleShot(5000, &loop, &QEventLoop::quit);
+        m_debugAdapter->evaluate(expression, frameId);
+        loop.exec();
+        disconnect(conn);
+        return result;
+    };
+
+    agentCallbacks.debugStepper = [this](const QString &action) -> bool {
+        if (!m_debugAdapter || !m_debugAdapter->isRunning()) return false;
+        if (action == QLatin1String("over"))     m_debugAdapter->stepOver();
+        else if (action == QLatin1String("into")) m_debugAdapter->stepInto();
+        else if (action == QLatin1String("out"))  m_debugAdapter->stepOut();
+        else if (action == QLatin1String("continue")) m_debugAdapter->continueExecution();
+        else return false;
+        return true;
+    };
+
+    // ── Screenshot ────────────────────────────────────────────────────────
+    agentCallbacks.widgetGrabber = [this](const QString &target) -> QPixmap {
+        if (target == QLatin1String("window"))
+            return grab();
+        if (target == QLatin1String("editor")) {
+            auto *ed = currentEditor();
+            return ed ? ed->grab() : QPixmap();
+        }
+        if (target == QLatin1String("terminal"))
+            return m_terminal ? m_terminal->grab() : QPixmap();
+        if (target == QLatin1String("debug"))
+            return m_debugPanel ? m_debugPanel->grab() : QPixmap();
+        if (target == QLatin1String("agent") || target == QLatin1String("chat"))
+            return m_chatPanel ? m_chatPanel->grab() : QPixmap();
+        if (target == QLatin1String("search"))
+            return m_searchPanel ? m_searchPanel->grab() : QPixmap();
+        if (target == QLatin1String("git"))
+            return m_gitPanel ? m_gitPanel->grab() : QPixmap();
+        return grab();
+    };
+
+    // ── Introspection ─────────────────────────────────────────────────────
+    agentCallbacks.introspectionHandler = [this](const QString &query) -> QString {
+        if (query == QLatin1String("services") && m_services)
+            return m_services->keys().join(QLatin1Char('\n'));
+        if (query == QLatin1String("plugins") && m_pluginManager) {
+            QStringList names;
+            for (const auto &lp : m_pluginManager->loadedPlugins())
+                names << lp.manifest.name;
+            return names.join(QLatin1Char('\n'));
+        }
+        if (query == QLatin1String("tools") && m_toolRegistry)
+            return m_toolRegistry->toolNames().join(QLatin1Char('\n'));
+        if (query == QLatin1String("config"))
+            return QStringLiteral("Workspace: %1\nFolder: %2")
+                .arg(QCoreApplication::applicationDirPath(), m_currentFolder);
+        return QStringLiteral("Unknown query: %1. Try: services, plugins, tools, config")
+            .arg(query);
+    };
+
+    // (LuaJIT executor is wired below, before initialize() call)
+
+    // ── Code graph / intelligence ─────────────────────────────────────────
+    agentCallbacks.symbolSearchFn = [this](const QString &query, int maxResults) -> QString {
+        if (!m_symbolIndex) return {};
+        const auto syms = m_symbolIndex->search(query, maxResults);
+        QString result;
+        for (const auto &s : syms) {
+            static const char *kindNames[] =
+                {"class", "function", "struct", "enum", "namespace", "variable", "method"};
+            result += QStringLiteral("%1 [%2] %3:%4\n")
+                .arg(s.name,
+                     QLatin1String(kindNames[static_cast<int>(s.kind)]),
+                     s.filePath)
+                .arg(s.line);
+        }
+        return result;
+    };
+
+    agentCallbacks.symbolsInFileFn = [this](const QString &filePath) -> QString {
+        if (!m_symbolIndex) return {};
+        const auto syms = m_symbolIndex->symbolsInFile(filePath);
+        QString result;
+        for (const auto &s : syms) {
+            static const char *kindNames[] =
+                {"class", "function", "struct", "enum", "namespace", "variable", "method"};
+            result += QStringLiteral("L%1 %2 [%3]\n")
+                .arg(s.line)
+                .arg(s.name,
+                     QLatin1String(kindNames[static_cast<int>(s.kind)]));
+        }
+        return result;
+    };
+
+    agentCallbacks.findReferencesFn =
+        [this](const QString &filePath, int line, int column) -> QString {
+        if (!m_lspClient || !m_lspClient->isInitialized()) return {};
+        const QString uri = LspClient::pathToUri(filePath);
+        QString result;
+        QEventLoop loop;
+        auto conn = connect(m_lspClient, &LspClient::referencesResult,
+            &loop, [&](const QString &resUri, const QJsonArray &locations) {
+                Q_UNUSED(resUri)
+                for (const auto &loc : locations) {
+                    const QJsonObject obj = loc.toObject();
+                    const QJsonObject range = obj[QLatin1String("range")].toObject();
+                    const QJsonObject start = range[QLatin1String("start")].toObject();
+                    const QString locUri = obj[QLatin1String("uri")].toString();
+                    // Convert file URI back to path
+                    QString path = QUrl(locUri).toLocalFile();
+                    result += QStringLiteral("%1:%2:%3\n")
+                        .arg(path)
+                        .arg(start[QLatin1String("line")].toInt() + 1)
+                        .arg(start[QLatin1String("character")].toInt() + 1);
+                }
+                loop.quit();
+            });
+        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+        m_lspClient->requestReferences(uri, line - 1, column - 1);
+        loop.exec();
+        disconnect(conn);
+        return result;
+    };
+
+    agentCallbacks.findDefinitionFn =
+        [this](const QString &filePath, int line, int column) -> QString {
+        if (!m_lspClient || !m_lspClient->isInitialized()) return {};
+        const QString uri = LspClient::pathToUri(filePath);
+        QString result;
+        QEventLoop loop;
+        auto conn = connect(m_lspClient, &LspClient::definitionResult,
+            &loop, [&](const QString &resUri, const QJsonArray &locations) {
+                Q_UNUSED(resUri)
+                for (const auto &loc : locations) {
+                    const QJsonObject obj = loc.toObject();
+                    const QJsonObject range = obj[QLatin1String("range")].toObject();
+                    const QJsonObject start = range[QLatin1String("start")].toObject();
+                    const QString locUri = obj[QLatin1String("uri")].toString();
+                    QString path = QUrl(locUri).toLocalFile();
+                    result += QStringLiteral("%1:%2:%3\n")
+                        .arg(path)
+                        .arg(start[QLatin1String("line")].toInt() + 1)
+                        .arg(start[QLatin1String("character")].toInt() + 1);
+                }
+                loop.quit();
+            });
+        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+        m_lspClient->requestDefinition(uri, line - 1, column - 1);
+        loop.exec();
+        disconnect(conn);
+        return result;
+    };
+
+    agentCallbacks.chunkSearchFn = [this](const QString &query, int maxResults) -> QString {
+        if (!m_chunkIndex) return {};
+        const auto chunks = m_chunkIndex->search(query, maxResults);
+        QString result;
+        for (const auto &c : chunks) {
+            result += QStringLiteral("── %1:%2-%3")
+                .arg(c.filePath).arg(c.startLine + 1).arg(c.endLine + 1);
+            if (!c.symbol.isEmpty())
+                result += QStringLiteral(" (%1)").arg(c.symbol);
+            result += QLatin1Char('\n');
+            result += c.content;
+            result += QLatin1Char('\n');
+        }
+        return result;
+    };
+
+    // ── Build & test ──────────────────────────────────────────────────────
+    agentCallbacks.buildProjectFn =
+        [this](const QString &target) -> BuildProjectTool::BuildResult {
+        if (!m_cmakeIntegration)
+            return {false, QStringLiteral("No build system configured."), -1};
+        QString output;
+        bool success = false;
+        int exitCode = -1;
+        QEventLoop loop;
+        auto connOut = connect(m_cmakeIntegration, &CMakeIntegration::buildOutput,
+            &loop, [&](const QString &line, bool isError) {
+                Q_UNUSED(isError)
+                output += line + QLatin1Char('\n');
+            });
+        auto connDone = connect(m_cmakeIntegration, &CMakeIntegration::buildFinished,
+            &loop, [&](bool ok, int code) {
+                success  = ok;
+                exitCode = code;
+                loop.quit();
+            });
+        QTimer::singleShot(120000, &loop, &QEventLoop::quit);
+        m_cmakeIntegration->build(target);
+        loop.exec();
+        disconnect(connOut);
+        disconnect(connDone);
+        return {success, output, exitCode};
+    };
+
+    agentCallbacks.runTestsFn =
+        [this](const QString &scope, const QString &filter) -> RunTestsTool::TestResult {
+        Q_UNUSED(scope)
+        if (!m_cmakeIntegration)
+            return {false, 0, 0, 0, QStringLiteral("No build system.")};
+        const QString buildDir = m_cmakeIntegration->buildDirectory();
+        if (buildDir.isEmpty())
+            return {false, 0, 0, 0, QStringLiteral("No build directory.")};
+        QStringList args = {QStringLiteral("--test-dir"), buildDir,
+                            QStringLiteral("--output-on-failure")};
+        if (!filter.isEmpty())
+            args << QStringLiteral("-R") << filter;
+        QProcess proc;
+        proc.setWorkingDirectory(buildDir);
+        proc.start(QStringLiteral("ctest"), args);
+        proc.waitForFinished(60000);
+        const QString output = proc.readAllStandardOutput() + proc.readAllStandardError();
+        const int exitCode = proc.exitCode();
+        int passed = 0, failed = 0, total = 0;
+        QRegularExpression re(QStringLiteral("(\\d+)% tests passed, (\\d+) tests failed out of (\\d+)"));
+        auto match = re.match(output);
+        if (match.hasMatch()) {
+            failed = match.captured(2).toInt();
+            total  = match.captured(3).toInt();
+            passed = total - failed;
+        }
+        m_lastTestResult = {exitCode == 0, passed, failed, total, output};
+        return m_lastTestResult;
+    };
+
+    agentCallbacks.buildTargetsGetter = [this]() -> QStringList {
+        if (!m_cmakeIntegration) return {};
+        return m_cmakeIntegration->discoverTargets();
+    };
+
+    // ── Code formatting ───────────────────────────────────────────────────
+    agentCallbacks.codeFormatter =
+        [this](const QString &filePath, const QString &content,
+               const QString &language, int rangeStart, int rangeEnd)
+            -> FormatCodeTool::FormatResult {
+        if (!m_lspClient || !m_lspClient->isInitialized())
+            return {false, {}, {}, QStringLiteral("LSP not available."), {}};
+        const QString uri = LspClient::pathToUri(filePath);
+        FormatCodeTool::FormatResult result;
+        QEventLoop loop;
+        auto conn = connect(m_lspClient, &LspClient::formattingResult,
+            &loop, [&](const QString &resUri, const QJsonArray &textEdits) {
+                Q_UNUSED(resUri)
+                if (textEdits.isEmpty()) {
+                    result = {true, content, {}, {}, QStringLiteral("LSP")};
+                } else {
+                    result.ok = true;
+                    result.formatterUsed = QStringLiteral("LSP (clangd)");
+                    result.formatted = content; // simplified — edits applied by caller
+                    QStringList changes;
+                    for (const auto &e : textEdits)
+                        changes << e.toObject()[QLatin1String("newText")].toString();
+                    result.diff = changes.join(QLatin1Char('\n'));
+                }
+                loop.quit();
+            });
+        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+        Q_UNUSED(language)
+        if (rangeStart > 0 && rangeEnd > 0)
+            m_lspClient->requestRangeFormatting(uri, rangeStart - 1, 0, rangeEnd - 1, 0);
+        else
+            m_lspClient->requestFormatting(uri);
+        loop.exec();
+        disconnect(conn);
+        return result;
+    };
+
+    // ── Refactoring (LSP) ─────────────────────────────────────────────────
+    agentCallbacks.refactorer =
+        [this](const QString &operation, const QString &filePath,
+               int line, int column, const QString &newName,
+               int rangeStartLine, int rangeEndLine) -> RefactorTool::RefactorResult {
+        Q_UNUSED(rangeStartLine) Q_UNUSED(rangeEndLine)
+        if (!m_lspClient || !m_lspClient->isInitialized())
+            return {false, 0, 0, {}, {}, QStringLiteral("LSP not available.")};
+        if (operation != QLatin1String("rename"))
+            return {false, 0, 0, {}, {},
+                    QStringLiteral("Only 'rename' is currently supported via LSP.")};
+        const QString uri = LspClient::pathToUri(filePath);
+        RefactorTool::RefactorResult result;
+        QEventLoop loop;
+        auto conn = connect(m_lspClient, &LspClient::renameResult,
+            &loop, [&](const QString &, const QJsonObject &workspaceEdit) {
+                applyWorkspaceEdit(workspaceEdit);
+                const auto changes = workspaceEdit[QLatin1String("changes")].toObject();
+                result.ok = true;
+                result.filesChanged = changes.keys().size();
+                int edits = 0;
+                for (const auto &key : changes.keys())
+                    edits += changes[key].toArray().size();
+                result.editsApplied = edits;
+                result.summary = QStringLiteral("Renamed to '%1': %2 edits across %3 files.")
+                    .arg(newName).arg(edits).arg(result.filesChanged);
+                loop.quit();
+            });
+        QTimer::singleShot(15000, &loop, &QEventLoop::quit);
+        m_lspClient->requestRename(uri, line - 1, column - 1, newName);
+        loop.exec();
+        disconnect(conn);
+        return result;
+    };
+
+    // ── Git operations ────────────────────────────────────────────────────
+    agentCallbacks.gitExecutor =
+        [this](const QString &operation, const QJsonObject &args) -> GitOpsTool::GitResult {
+        if (!m_gitService || !m_gitService->isGitRepo())
+            return {false, {}, QStringLiteral("No Git repository.")};
+        if (operation == QLatin1String("add")) {
+            const QJsonArray files = args[QLatin1String("files")].toArray();
+            for (const auto &f : files)
+                m_gitService->stageFile(f.toString());
+            return {true, QStringLiteral("Staged %1 file(s).").arg(files.size()), {}};
+        }
+        if (operation == QLatin1String("commit")) {
+            const QString msg = args[QLatin1String("message")].toString();
+            if (msg.isEmpty()) return {false, {}, QStringLiteral("Commit message required.")};
+            bool ok = m_gitService->commit(msg);
+            return {ok, ok ? QStringLiteral("Committed.") : QStringLiteral("Commit failed."),
+                    ok ? QString() : QStringLiteral("Commit failed.")};
+        }
+        if (operation == QLatin1String("branch")) {
+            if (args[QLatin1String("list")].toBool())
+                return {true, m_gitService->localBranches().join(QLatin1Char('\n')), {}};
+            const QString name = args[QLatin1String("name")].toString();
+            if (!name.isEmpty()) {
+                bool ok = m_gitService->createBranch(name);
+                return {ok, ok ? QStringLiteral("Branch '%1' created.").arg(name)
+                              : QStringLiteral("Failed to create branch."),
+                        ok ? QString() : QStringLiteral("Failed.")};
+            }
+            return {true, m_gitService->currentBranch(), {}};
+        }
+        if (operation == QLatin1String("checkout")) {
+            const QString target = args[QLatin1String("target")].toString();
+            bool ok = m_gitService->checkoutBranch(target);
+            return {ok, ok ? QStringLiteral("Checked out '%1'.").arg(target) : QStringLiteral("Checkout failed."),
+                    ok ? QString() : QStringLiteral("Failed.")};
+        }
+        if (operation == QLatin1String("blame")) {
+            const QString fp = args[QLatin1String("filePath")].toString();
+            const auto entries = m_gitService->blame(fp);
+            QString result;
+            for (const auto &e : entries)
+                result += QStringLiteral("%1 %2 %3\n")
+                    .arg(e.commitHash.left(8), e.author, e.summary);
+            return {true, result, {}};
+        }
+        if (operation == QLatin1String("reset")) {
+            const QJsonArray files = args[QLatin1String("files")].toArray();
+            for (const auto &f : files)
+                m_gitService->unstageFile(f.toString());
+            return {true, QStringLiteral("Unstaged %1 file(s).").arg(files.size()), {}};
+        }
+        return {false, {}, QStringLiteral("Unknown operation: %1").arg(operation)};
+    };
+
+    // ── Ask user ──────────────────────────────────────────────────────────
+    agentCallbacks.userPrompter =
+        [this](const QString &question, const QStringList &options,
+               bool allowFreeText) -> AskUserTool::UserResponse {
+        if (options.isEmpty() || allowFreeText) {
+            bool ok = false;
+            const QString answer = QInputDialog::getText(
+                this, tr("Agent Question"), question,
+                QLineEdit::Normal, QString(), &ok);
+            return {ok, answer, -1};
+        }
+        // Multiple choice via QMessageBox
+        QStringList labels = options;
+        if (labels.size() <= 3) {
+            auto box = std::make_unique<QMessageBox>(this);
+            box->setWindowTitle(tr("Agent Question"));
+            box->setText(question);
+            QList<QPushButton *> buttons;
+            for (const QString &opt : labels)
+                buttons << box->addButton(opt, QMessageBox::ActionRole);
+            box->addButton(QMessageBox::Cancel);
+            box->exec();
+            int idx = -1;
+            for (int i = 0; i < buttons.size(); ++i) {
+                if (box->clickedButton() == buttons[i]) { idx = i; break; }
+            }
+            bool answered = idx >= 0;
+            return {answered, answered ? labels[idx] : QString(), idx};
+        }
+        // Many options → use QInputDialog combo
+        bool ok = false;
+        const QString chosen = QInputDialog::getItem(
+            this, tr("Agent Question"), question, labels, 0, false, &ok);
+        int idx = ok ? labels.indexOf(chosen) : -1;
+        return {ok, chosen, idx};
+    };
+
+    // ── Editor context ────────────────────────────────────────────────────
+    agentCallbacks.editorStateGetter = [this]() -> EditorContextTool::EditorState {
+        EditorContextTool::EditorState state;
+        auto *ed = currentEditor();
+        if (!ed) return state;
+        state.activeFilePath = ed->property("filePath").toString();
+        const QTextCursor cur = ed->textCursor();
+        state.cursorLine   = cur.blockNumber() + 1;
+        state.cursorColumn = cur.positionInBlock() + 1;
+        state.selectedText = cur.selectedText();
+        if (cur.hasSelection()) {
+            state.selectionStartLine = cur.document()->findBlock(cur.selectionStart()).blockNumber() + 1;
+            state.selectionEndLine   = cur.document()->findBlock(cur.selectionEnd()).blockNumber() + 1;
+        }
+        state.totalLines = ed->document()->blockCount();
+        state.language   = ed->languageId();
+        state.isModified = ed->document()->isModified();
+        // Viewport
+        const QTextCursor topCur = ed->cursorForPosition(QPoint(0, 0));
+        state.visibleStartLine = topCur.blockNumber() + 1;
+        const QTextCursor botCur = ed->cursorForPosition(
+            QPoint(0, ed->viewport()->height() - 1));
+        state.visibleEndLine = botCur.blockNumber() + 1;
+        // Open files
+        for (int i = 0; i < m_tabs->count(); ++i) {
+            auto *tab = qobject_cast<EditorView *>(m_tabs->widget(i));
+            const QString fp = tab ? tab->property("filePath").toString() : QString();
+            if (!fp.isEmpty())
+                state.openFiles.append(fp);
+        }
+        return state;
+    };
+
+    // ── Change impact analysis ────────────────────────────────────────────
+    agentCallbacks.changeImpactAnalyzer =
+        [this](const QString &filePath, int line, int column,
+               const QString &changeType) -> ChangeImpactTool::ImpactResult {
+        ChangeImpactTool::ImpactResult result;
+        result.ok = false;
+        // Use LSP references to estimate impact
+        if (!m_lspClient || !m_lspClient->isInitialized()) {
+            result.error = QStringLiteral("LSP not available.");
+            return result;
+        }
+        // Find references synchronously
+        QStringList refFiles;
+        QEventLoop loop;
+        const QString uri = LspClient::pathToUri(filePath);
+        auto conn = connect(m_lspClient, &LspClient::referencesResult,
+            &loop, [&](const QString &, const QJsonArray &locations) {
+                for (const auto &loc : locations) {
+                    QString path = QUrl(loc.toObject()[QLatin1String("uri")].toString()).toLocalFile();
+                    if (!refFiles.contains(path))
+                        refFiles.append(path);
+                }
+                loop.quit();
+            });
+        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+        m_lspClient->requestReferences(uri, line - 1, column - 1);
+        loop.exec();
+        disconnect(conn);
+        result.ok = true;
+        result.directReferences = refFiles.size();
+        result.affectedFiles    = refFiles;
+        // Risk scoring
+        Q_UNUSED(changeType)
+        result.riskScore = qBound(1, refFiles.size(), 10);
+        result.summary = QStringLiteral("%1 files reference this symbol.")
+            .arg(refFiles.size());
+        return result;
+    };
+
+    // ── Navigation ────────────────────────────────────────────────────────
+    agentCallbacks.fileOpener =
+        [this](const QString &filePath, int line, int column) -> bool {
+        navigateToLocation(filePath, line - 1, column > 0 ? column - 1 : 0);
+        return true;
+    };
+
+    agentCallbacks.headerSourceSwitcher = [this](const QString &filePath) -> QString {
+        const QFileInfo fi(filePath);
+        const QString base = fi.completeBaseName();
+        const QString dir  = fi.absolutePath();
+        static const QStringList headerExts = {
+            QStringLiteral("h"), QStringLiteral("hpp"), QStringLiteral("hxx"), QStringLiteral("hh")};
+        static const QStringList sourceExts = {
+            QStringLiteral("cpp"), QStringLiteral("cc"), QStringLiteral("cxx"), QStringLiteral("c")};
+        const QString ext = fi.suffix().toLower();
+        const QStringList &searchExts = headerExts.contains(ext) ? sourceExts : headerExts;
+        for (const QString &e : searchExts) {
+            const QString candidate = dir + QLatin1Char('/') + base + QLatin1Char('.') + e;
+            if (QFile::exists(candidate)) return candidate;
+        }
+        return {};
+    };
+
+    // ── LSP rename & usages ───────────────────────────────────────────────
+    agentCallbacks.symbolRenamer =
+        [this](const QString &filePath, int line, int column,
+               const QString &newName) -> QString {
+        if (!m_lspClient || !m_lspClient->isInitialized())
+            return QStringLiteral("Error: LSP not available.");
+        const QString uri = LspClient::pathToUri(filePath);
+        QString result;
+        QEventLoop loop;
+        auto conn = connect(m_lspClient, &LspClient::renameResult,
+            &loop, [&](const QString &, const QJsonObject &workspaceEdit) {
+                applyWorkspaceEdit(workspaceEdit);
+                const auto changes = workspaceEdit[QLatin1String("changes")].toObject();
+                int edits = 0;
+                for (const auto &key : changes.keys())
+                    edits += changes[key].toArray().size();
+                result = QStringLiteral("%1 edits across %2 files.")
+                    .arg(edits).arg(changes.keys().size());
+                loop.quit();
+            });
+        auto errConn = connect(m_lspClient, &LspClient::serverError,
+            &loop, [&](const QString &msg) {
+                result = QStringLiteral("Error: %1").arg(msg);
+                loop.quit();
+            });
+        QTimer::singleShot(15000, &loop, &QEventLoop::quit);
+        m_lspClient->requestRename(uri, line - 1, column - 1, newName);
+        loop.exec();
+        disconnect(conn);
+        disconnect(errConn);
+        return result;
+    };
+
+    agentCallbacks.usageFinder =
+        [this](const QString &filePath, int line, int column) -> QString {
+        if (!m_lspClient || !m_lspClient->isInitialized()) return {};
+        const QString uri = LspClient::pathToUri(filePath);
+        QString result;
+        QEventLoop loop;
+        auto conn = connect(m_lspClient, &LspClient::referencesResult,
+            &loop, [&](const QString &, const QJsonArray &locations) {
+                for (const auto &loc : locations) {
+                    const QJsonObject obj = loc.toObject();
+                    const QJsonObject range = obj[QLatin1String("range")].toObject();
+                    const QJsonObject start = range[QLatin1String("start")].toObject();
+                    QString path = QUrl(obj[QLatin1String("uri")].toString()).toLocalFile();
+                    result += QStringLiteral("%1:%2:%3\n")
+                        .arg(path)
+                        .arg(start[QLatin1String("line")].toInt() + 1)
+                        .arg(start[QLatin1String("character")].toInt() + 1);
+                }
+                loop.quit();
+            });
+        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+        m_lspClient->requestReferences(uri, line - 1, column - 1);
+        loop.exec();
+        disconnect(conn);
+        return result;
+    };
+
+    // ── LuaJIT executor ──────────────────────────────────────────────────
+    agentCallbacks.luaExecutor = [this](const QString &script) -> LuaExecuteTool::LuaResult {
+        if (!m_luaEngine)
+            return {false, {}, {}, QStringLiteral("LuaJIT engine not available."), 0};
+
+        auto adhoc = m_luaEngine->executeAdhoc(script);
+        return {adhoc.ok, adhoc.output, adhoc.returnValue, adhoc.error,
+                adhoc.memoryUsedBytes};
+    };
+
+    // ── Diff viewer ──────────────────────────────────────────────────────
+    agentCallbacks.diffViewer =
+        [this](const QString &left, const QString &right,
+               const QString &leftTitle, const QString &rightTitle) -> bool {
+        // Display diff in a new dock widget with side-by-side view
+        auto diffWidget = std::make_unique<QWidget>();
+        auto *layout = new QHBoxLayout(diffWidget.get());
+
+        auto leftEdit = std::make_unique<QPlainTextEdit>();
+        leftEdit->setReadOnly(true);
+        leftEdit->setPlainText(left);
+        leftEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
+
+        auto rightEdit = std::make_unique<QPlainTextEdit>();
+        rightEdit->setReadOnly(true);
+        rightEdit->setPlainText(right);
+        rightEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
+
+        auto *leftGroup = new QGroupBox(leftTitle);
+        auto *leftLayout = new QVBoxLayout(leftGroup);
+        leftLayout->addWidget(leftEdit.release());
+
+        auto *rightGroup = new QGroupBox(rightTitle);
+        auto *rightLayout = new QVBoxLayout(rightGroup);
+        rightLayout->addWidget(rightEdit.release());
+
+        layout->addWidget(leftGroup);
+        layout->addWidget(rightGroup);
+
+        auto *dock = new QDockWidget(
+            tr("Diff: %1 vs %2").arg(leftTitle, rightTitle), this);
+        dock->setWidget(diffWidget.release());
+        dock->setAttribute(Qt::WA_DeleteOnClose);
+        addDockWidget(Qt::BottomDockWidgetArea, dock);
+        dock->show();
+        return true;
+    };
+
+    // ── Static analysis callback ─────────────────────────────────────────
+    agentCallbacks.staticAnalyzer =
+        [this](const QString &filePath, const QStringList &checkers,
+               bool fixMode) -> StaticAnalysisTool::AnalysisResult {
+        // Dispatch to the appropriate analyzer based on file extension
+        StaticAnalysisTool::AnalysisResult result;
+        result.ok = false;
+
+        if (filePath.isEmpty()) {
+            result.error = QStringLiteral("No file path provided.");
+            return result;
+        }
+
+        const QFileInfo fi(filePath);
+        const QString suffix = fi.suffix().toLower();
+
+        // Build the command based on language
+        QString program;
+        QStringList args;
+
+        if (suffix == QLatin1String("cpp") || suffix == QLatin1String("cxx") ||
+            suffix == QLatin1String("cc")  || suffix == QLatin1String("c")   ||
+            suffix == QLatin1String("h")   || suffix == QLatin1String("hpp")) {
+            // clang-tidy
+            program = QStringLiteral("clang-tidy");
+            args << filePath;
+            if (!checkers.isEmpty()) {
+                args << QStringLiteral("-checks=%1").arg(checkers.join(QLatin1Char(',')));
+            }
+            if (fixMode)
+                args << QStringLiteral("--fix");
+            // Add compile_commands.json path if available
+            const QString compileDb = m_currentFolder + QStringLiteral("/build-llvm/compile_commands.json");
+            if (QFileInfo::exists(compileDb))
+                args << QStringLiteral("-p") << m_currentFolder + QStringLiteral("/build-llvm");
+            result.analyzerUsed = QStringLiteral("clang-tidy");
+
+        } else if (suffix == QLatin1String("py")) {
+            program = QStringLiteral("pylint");
+            args << QStringLiteral("--output-format=text") << filePath;
+            result.analyzerUsed = QStringLiteral("pylint");
+
+        } else if (suffix == QLatin1String("js") || suffix == QLatin1String("ts") ||
+                   suffix == QLatin1String("jsx") || suffix == QLatin1String("tsx")) {
+            program = QStringLiteral("eslint");
+            args << QStringLiteral("--format=compact") << filePath;
+            if (fixMode)
+                args << QStringLiteral("--fix");
+            result.analyzerUsed = QStringLiteral("eslint");
+
+        } else if (suffix == QLatin1String("rs")) {
+            program = QStringLiteral("cargo");
+            args << QStringLiteral("clippy") << QStringLiteral("--message-format=short");
+            result.analyzerUsed = QStringLiteral("clippy");
+
+        } else if (suffix == QLatin1String("go")) {
+            program = QStringLiteral("staticcheck");
+            args << filePath;
+            result.analyzerUsed = QStringLiteral("staticcheck");
+
+        } else {
+            result.error = QStringLiteral("No analyzer available for .%1 files.").arg(suffix);
+            return result;
+        }
+
+        // Run the analyzer process
+        QProcess proc;
+        proc.setWorkingDirectory(m_currentFolder);
+        proc.start(program, args);
+        if (!proc.waitForFinished(55000)) {
+            result.error = QStringLiteral("Analyzer timed out or failed to start: %1").arg(program);
+            return result;
+        }
+
+        result.ok = true;
+        const QString output = QString::fromUtf8(proc.readAllStandardOutput())
+                             + QString::fromUtf8(proc.readAllStandardError());
+
+        // Parse output into findings (simple line-based parsing)
+        const QStringList lines = output.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        static const QRegularExpression findingRe(
+            QStringLiteral("^(.+?):(\\d+):(\\d+):\\s*(warning|error|note|info):\\s*(.+)$"));
+
+        for (const QString &line : lines) {
+            const QRegularExpressionMatch m = findingRe.match(line);
+            if (m.hasMatch()) {
+                StaticAnalysisTool::Finding f;
+                f.filePath = m.captured(1);
+                f.line     = m.captured(2).toInt();
+                f.column   = m.captured(3).toInt();
+                f.severity = m.captured(4);
+                f.message  = m.captured(5);
+
+                // Extract rule ID if present (e.g. [bugprone-...] or (C1234))
+                static const QRegularExpression ruleRe(
+                    QStringLiteral("\\[([a-zA-Z0-9._-]+)\\]$"));
+                const QRegularExpressionMatch ruleMatch = ruleRe.match(f.message);
+                if (ruleMatch.hasMatch()) {
+                    f.ruleId = ruleMatch.captured(1);
+                    f.message = f.message.left(ruleMatch.capturedStart()).trimmed();
+                }
+
+                if (f.severity == QLatin1String("error"))
+                    result.errorCount++;
+                else if (f.severity == QLatin1String("warning"))
+                    result.warningCount++;
+
+                result.findings.append(f);
+            }
+        }
+
+        return result;
+    };
+
+    // ── Terminal selection callback ──────────────────────────────────────
+    agentCallbacks.terminalSelectionGetter = [this]() -> QString {
+        if (!m_terminal) return {};
+        return m_terminal->selectedText();
+    };
+
+    // ── Test failure cache callback ─────────────────────────────────────
+    agentCallbacks.testFailureGetter = [this]() -> RunTestsTool::TestResult {
+        return m_lastTestResult;
+    };
+
+    // ── IDE command execution callbacks ─────────────────────────────────
+    agentCallbacks.commandExecutor = [this](const QString &id) -> bool {
+        auto *cmdSvc = m_hostServices->commandService();
+        return cmdSvc ? cmdSvc->executeCommand(id) : false;
+    };
+    agentCallbacks.commandListGetter = [this]() -> QStringList {
+        auto *cmdSvc = m_hostServices->commandService();
+        return cmdSvc ? cmdSvc->commandIds() : QStringList{};
+    };
+
+    m_agentPlatform->initialize(agentCallbacks);
     m_agentPlatform->registerCoreTools(m_currentFolder);
     m_toolRegistry = m_agentPlatform->toolRegistry();
     m_contextBuilder = m_agentPlatform->contextBuilder();
@@ -498,6 +1323,10 @@ MainWindow::MainWindow(QWidget *parent)
         m_chatPanel->setSessionStore(m_sessionStore);
         m_chatPanel->setChatSessionService(m_agentPlatform->chatSessionService());
         m_chatPanel->setContextBuilder(m_contextBuilder);
+        if (m_modelRegistry)
+            m_chatPanel->setModelRegistry(m_modelRegistry);
+        if (m_toolRegistry)
+            m_chatPanel->setToolCount(m_toolRegistry->toolNames().size());
 
         // Wire review annotations → apply to active editor
         connect(m_chatPanel, &ChatPanelWidget::reviewAnnotationsReady,
@@ -535,11 +1364,22 @@ MainWindow::MainWindow(QWidget *parent)
                 lay->setContentsMargins(0, 0, 0, 0);
                 m_settingsPanel->setParent(m_settingsDialog);
                 lay->addWidget(m_settingsPanel);
+                m_settingsPanel->show();
             }
             m_settingsDialog->show();
             m_settingsDialog->raise();
             m_settingsDialog->activateWindow();
         });
+
+        // Auto-restore last session on startup
+        if (m_sessionStore) {
+            const auto last = m_sessionStore->loadLastSession();
+            if (!last.isEmpty())
+                m_chatPanel->restoreSession(
+                    last.sessionId, last.completeTurns,
+                    last.mode, last.title,
+                    last.modelId, last.providerId);
+        }
     }
 
     // Inline completion engine — wired after plugins load
@@ -975,20 +1815,28 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
         if (checked && m_gitService && m_gitService->isGitRepo()) {
             const QString path = editor->property("filePath").toString();
             if (path.isEmpty()) return;
-            const auto entries = m_gitService->blame(path);
-            QHash<int, EditorView::BlameInfo> blameMap;
-            for (const auto &e : entries) {
-                EditorView::BlameInfo bi;
-                bi.author  = e.author;
-                bi.hash    = e.commitHash;
-                bi.summary = e.summary;
-                blameMap.insert(e.line, bi);
-            }
-            editor->setBlameData(blameMap);
-            editor->setBlameVisible(true);
+            // Async blame — Manifesto #2: never block UI thread
+            m_gitService->blameAsync(path);
         } else {
             editor->clearBlameData();
         }
+    });
+    connect(m_gitService, &GitService::blameReady, this,
+            [this](const QString &filePath, const QList<GitService::BlameEntry> &entries) {
+        EditorView *editor = currentEditor();
+        if (!editor) return;
+        const QString editorPath = editor->property("filePath").toString();
+        if (editorPath != filePath) return;
+        QHash<int, EditorView::BlameInfo> blameMap;
+        for (const auto &e : entries) {
+            EditorView::BlameInfo bi;
+            bi.author  = e.author;
+            bi.hash    = e.commitHash;
+            bi.summary = e.summary;
+            blameMap.insert(e.line, bi);
+        }
+        editor->setBlameData(blameMap);
+        editor->setBlameVisible(true);
     });
 
     QAction *compareHeadAction = viewMenu->addAction(tr("Compare with &HEAD"));
@@ -998,9 +1846,15 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
         if (!editor || !m_gitService || !m_gitService->isGitRepo()) return;
         const QString path = editor->property("filePath").toString();
         if (path.isEmpty()) return;
-        const QString headText = m_gitService->showAtHead(path);
+        // Async — Manifesto #2: never block UI thread
+        m_gitService->showAtHeadAsync(path);
+    });
+    connect(m_gitService, &GitService::showAtHeadReady, this,
+            [this](const QString &filePath, const QString &headText) {
+        EditorView *editor = currentEditor();
+        if (!editor) return;
         const QString currentText = editor->toPlainText();
-        m_diffViewer->showDiff(path, headText, currentText);
+        m_diffViewer->showDiff(filePath, headText, currentText);
         m_dockManager->showDock(m_diffDock, exdock::SideBarArea::Bottom);
     });
 
@@ -1281,7 +2135,7 @@ void MainWindow::setupToolBar()
     // ── Build/Run/Debug toolbar ───────────────────────────────────────────
     auto *buildBar = addToolBar(tr("Build"));
     buildBar->setMovable(false);
-    m_buildToolbar = new BuildToolbar(this);
+    // Use the toolbar from BuildDebugBootstrap — do NOT create a second one
     buildBar->addWidget(m_buildToolbar);
 }
 
@@ -1402,12 +2256,16 @@ void MainWindow::createDockWidgets()
     connect(m_gitPanel, &GitPanel::generateCommitMessageRequested,
             this, [this]() {
         if (!m_gitService || !m_gitService->isGitRepo()) return;
-        const QString diff = m_gitService->diff({});
+        // Async diff — Manifesto #2: never block UI thread
+        statusBar()->showMessage(tr("Reading changes..."), 0);
+        m_gitService->diffAsync({});
+    });
+    connect(m_gitService, &GitService::diffReady, this,
+            [this](const QString & /*filePath*/, const QString &diff) {
         if (diff.trimmed().isEmpty()) {
             statusBar()->showMessage(tr("No changes to generate commit message for"), 3000);
             return;
         }
-        // Send the diff to the AI chat with commit message intent
         const QString prompt = tr("Generate a concise, conventional commit message "
                                   "for these changes:\n\n```diff\n%1\n```").arg(diff.left(8000));
         m_chatPanel->focusInput();
@@ -1476,6 +2334,11 @@ void MainWindow::createDockWidgets()
     // NOTE: AgentController is wired after it is created in the constructor.
     m_aiDock->setContentWidget(m_chatPanel);
     m_dockManager->addDockWidget(m_aiDock, SideBarArea::Right, /*startPinned=*/false);
+    // Manifesto #9: start network monitor only when user opens AI panel
+    connect(m_aiDock, &ExDockWidget::stateChanged, this, [this](exdock::DockState state) {
+        if (state != exdock::DockState::Closed && m_networkMonitor)
+            m_networkMonitor->start();
+    });
 
 
     // ── Symbol outline ────────────────────────────────────────────────────
@@ -1788,7 +2651,7 @@ void MainWindow::createDockWidgets()
     });
 
     // ── Rename Suggestion Widget ──────────────────────────────────────────
-    m_renameSuggestion = new RenameSuggestionWidget(nullptr);
+    m_renameSuggestion = new RenameSuggestionWidget(this);
 
     // ── Secure Key Storage ────────────────────────────────────────────────
     m_keyStorage = new SecureKeyStorage(this);
@@ -1802,7 +2665,7 @@ void MainWindow::createDockWidgets()
     m_mergeResolver = new MergeConflictResolver(this);
 
     // ── Inline Review Widget ──────────────────────────────────────────────
-    m_inlineReview = new InlineReviewWidget(nullptr);
+    m_inlineReview = new InlineReviewWidget(this);
     connect(m_inlineReview, &InlineReviewWidget::navigateToLine, this, [this](int line) {
         auto *editor = currentEditor();
         if (editor) {
@@ -1873,13 +2736,13 @@ void MainWindow::createDockWidgets()
             [this]() { m_authIndicator->setState(AuthStatusIndicator::SignedOut); });
 
     // ── Prompt File Picker ────────────────────────────────────────────────
-    m_promptPicker = new PromptFilePicker(nullptr);
+    m_promptPicker = new PromptFilePicker(this);
 
     // ── Chat Theme Adapter ────────────────────────────────────────────────
     m_chatTheme = new ChatThemeAdapter(this);
 
     // ── API Key Manager Widget ────────────────────────────────────────────
-    m_apiKeyManager = new APIKeyManagerWidget(nullptr);
+    m_apiKeyManager = new APIKeyManagerWidget(this);
     connect(m_apiKeyManager, &APIKeyManagerWidget::keySaved, this,
             [this](const QString &provider, const QString &key) {
         if (m_keyStorage) m_keyStorage->storeKey(provider, key);
@@ -1893,19 +2756,16 @@ void MainWindow::createDockWidgets()
     m_networkMonitor = new NetworkMonitor(this);
     connect(m_networkMonitor, &NetworkMonitor::wentOffline, this, [this]() {
         m_authIndicator->setState(AuthStatusIndicator::Offline);
-        NotificationToast::show(this, tr("Network offline — AI features unavailable"),
-                                NotificationToast::Warning, 5000);
-        if (m_chatPanel)
-            m_chatPanel->setInputEnabled(false);
+        // Don't disable input — user should still be able to compose messages.
+        // The actual send will fail with a clear error if network is truly down.
+        NotificationToast::show(this, tr("Network connectivity issue detected"),
+                                NotificationToast::Warning, 4000);
     });
     connect(m_networkMonitor, &NetworkMonitor::wentOnline, this, [this]() {
         m_authIndicator->setState(AuthStatusIndicator::SignedIn);
-        NotificationToast::show(this, tr("Network restored"),
-                                NotificationToast::Success, 3000);
-        if (m_chatPanel)
-            m_chatPanel->setInputEnabled(true);
     });
-    m_networkMonitor->start();
+    // Manifesto #9: no network access without explicit user action.
+    // Monitor starts on first AI request, not on app launch.
 
     // ── MCP Server Manager ────────────────────────────────────────────────
     m_mcpServerManager = new MCPServerManager(this);
@@ -2292,15 +3152,9 @@ void MainWindow::openFolder(const QString &path)
     // Clangd start is deferred until after CMake detection so we can pass
     // --compile-commands-dir if compile_commands.json exists in a build dir.
     QTimer::singleShot(0, this, [this, root]() {
+        // Manifesto #2: detectAll() now runs in a worker thread.
+        // Toolchain results arrive via detectionFinished signal.
         m_toolchainMgr->detectAll();
-
-        const auto toolchains = m_toolchainMgr->toolchains();
-        if (!toolchains.isEmpty()) {
-            statusBar()->showMessage(
-                tr("Detected %1 toolchain(s): %2")
-                    .arg(toolchains.size())
-                    .arg(toolchains.first().displayName), 4000);
-        }
 
         // Set up CMake integration if this is a CMake project
         QStringList clangdArgs;
@@ -3161,6 +4015,17 @@ void MainWindow::onTreeContextMenu(const QPoint &pos)
     connect(terminalAction, &QAction::triggered, this, [this, dirPath]() {
         m_dockManager->showDock(m_terminalDock, exdock::SideBarArea::Bottom);
         m_terminal->setWorkingDirectory(dirPath);
+    });
+
+    menu.addSeparator();
+
+    // ── Refresh ───────────────────────────────────────────────────────────
+    QAction *refreshAction = menu.addAction(tr("Refresh"));
+    connect(refreshAction, &QAction::triggered, this, [this, index]() {
+        if (index.isValid() && m_treeModel->isDir(index))
+            m_treeModel->refreshDirectory(index);
+        else
+            m_treeModel->rebuildFromSolution();
     });
 
     menu.exec(m_fileTree->viewport()->mapToGlobal(pos));

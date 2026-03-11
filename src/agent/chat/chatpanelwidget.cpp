@@ -7,7 +7,9 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QMimeDatabase>
+#include <QPointer>
 #include <QSaveFile>
+#include <QSettings>
 #include <QStackedWidget>
 #include <QTimer>
 #include <QToolButton>
@@ -17,10 +19,11 @@
 #include "../agentcontroller.h"
 #include "../agentmodes.h"
 #include "../agentorchestrator.h"
+#include "../modelregistry.h"
 #include "../agentsession.h"
 #include "../chatsessionservice.h"
 #include "../contextbuilder.h"
-#include "../markdownrenderer.h"
+#include "../../ui/markdownrenderer.h"
 #include "../promptvariables.h"
 #include "../sessionstore.h"
 
@@ -59,36 +62,41 @@ void ChatPanelWidget::buildUi()
     m_rootLayout->setSpacing(0);
 
     setStyleSheet(
-        QStringLiteral("ChatPanelWidget { background:%1; }").arg(ChatTheme::PanelBg));
+        QStringLiteral("ChatPanelWidget { background:%1; }").arg(ChatTheme::pick(ChatTheme::PanelBg, ChatTheme::L_PanelBg)));
 
     // ── Header bar (session title + actions) ─────────────────────────
     m_headerBar = new QWidget(this);
+    m_headerBar->setFixedHeight(34);
     m_headerBar->setStyleSheet(
         QStringLiteral("background:%1; border-bottom:1px solid %2;")
             .arg(ChatTheme::SideBarBg, ChatTheme::Border));
     auto *headerLayout = new QHBoxLayout(m_headerBar);
-    headerLayout->setContentsMargins(10, 4, 6, 4);
-    headerLayout->setSpacing(4);
+    headerLayout->setContentsMargins(12, 0, 8, 0);
+    headerLayout->setSpacing(2);
 
     m_sessionTitleLabel = new QLabel(this);
     m_sessionTitleLabel->setStyleSheet(
-        QStringLiteral("color:%1; font-size:12px; font-weight:600;")
+        QStringLiteral("color:%1; font-size:12px; font-weight:600; background:transparent;")
             .arg(ChatTheme::FgPrimary));
     m_sessionTitleLabel->setTextFormat(Qt::PlainText);
     m_sessionTitleLabel->setText(tr("Copilot"));
 
     headerLayout->addWidget(m_sessionTitleLabel, 1);
 
+    // Shared header button style — consistent 26x26 icons with 4px radius
+    const QString headerBtnStyle = QStringLiteral(
+        "QToolButton { background:transparent; color:%1; border:none;"
+        " font-size:14px; padding:0; border-radius:4px; }"
+        "QToolButton:hover { color:%2; background:%3; }")
+            .arg(ChatTheme::FgSecondary, ChatTheme::FgPrimary, ChatTheme::HoverBg);
+    constexpr int headerBtnSize = 26;
+
     auto *historyHeaderBtn = new QToolButton(m_headerBar);
     historyHeaderBtn->setText(QStringLiteral("\u2630"));
     historyHeaderBtn->setToolTip(tr("Session History"));
     historyHeaderBtn->setAccessibleName(tr("Session history"));
-    historyHeaderBtn->setStyleSheet(
-        QStringLiteral("QToolButton { background:transparent; color:%1; border:none;"
-                       " font-size:13px; padding:2px 6px; border-radius:%2px; }"
-                       "QToolButton:hover { color:%3; background:%4; }")
-            .arg(ChatTheme::FgSecondary, QString::number(ChatTheme::RadiusMedium),
-                 ChatTheme::FgPrimary, ChatTheme::HoverBg));
+    historyHeaderBtn->setFixedSize(headerBtnSize, headerBtnSize);
+    historyHeaderBtn->setStyleSheet(headerBtnStyle);
     connect(historyHeaderBtn, &QToolButton::clicked,
             this, &ChatPanelWidget::onShowHistory);
     headerLayout->addWidget(historyHeaderBtn);
@@ -97,13 +105,13 @@ void ChatPanelWidget::buildUi()
     m_newSessionHeaderBtn->setText(QStringLiteral("+"));
     m_newSessionHeaderBtn->setToolTip(tr("New Chat"));
     m_newSessionHeaderBtn->setAccessibleName(tr("New chat session"));
+    m_newSessionHeaderBtn->setFixedSize(headerBtnSize, headerBtnSize);
     m_newSessionHeaderBtn->setStyleSheet(
-        QStringLiteral("QToolButton { background:transparent; color:%1; border:none;"
-                       " font-size:16px; font-weight:300; padding:2px 6px;"
-                       " border-radius:%2px; }"
-                       "QToolButton:hover { color:%3; background:%4; }")
-            .arg(ChatTheme::FgSecondary, QString::number(ChatTheme::RadiusMedium),
-                 ChatTheme::FgPrimary, ChatTheme::HoverBg));
+        QStringLiteral(
+            "QToolButton { background:transparent; color:%1; border:none;"
+            " font-size:17px; font-weight:300; padding:0; border-radius:4px; }"
+            "QToolButton:hover { color:%2; background:%3; }")
+            .arg(ChatTheme::FgSecondary, ChatTheme::FgPrimary, ChatTheme::HoverBg));
     connect(m_newSessionHeaderBtn, &QToolButton::clicked,
             this, &ChatPanelWidget::onNewSession);
     headerLayout->addWidget(m_newSessionHeaderBtn);
@@ -112,12 +120,8 @@ void ChatPanelWidget::buildUi()
     m_gearHeaderBtn->setText(QStringLiteral("\u2699"));
     m_gearHeaderBtn->setToolTip(tr("AI Settings"));
     m_gearHeaderBtn->setAccessibleName(tr("AI Settings"));
-    m_gearHeaderBtn->setStyleSheet(
-        QStringLiteral("QToolButton { background:transparent; color:%1; border:none;"
-                       " font-size:14px; padding:2px 6px; border-radius:%2px; }"
-                       "QToolButton:hover { color:%3; background:%4; }")
-            .arg(ChatTheme::FgSecondary, QString::number(ChatTheme::RadiusMedium),
-                 ChatTheme::FgPrimary, ChatTheme::HoverBg));
+    m_gearHeaderBtn->setFixedSize(headerBtnSize, headerBtnSize);
+    m_gearHeaderBtn->setStyleSheet(headerBtnStyle);
     connect(m_gearHeaderBtn, &QToolButton::clicked,
             this, &ChatPanelWidget::settingsRequested);
     headerLayout->addWidget(m_gearHeaderBtn);
@@ -204,6 +208,22 @@ void ChatPanelWidget::buildUi()
     // ── Input widget ─────────────────────────────────────────────────
     m_inputWidget = new ChatInputWidget(this);
     m_rootLayout->addWidget(m_inputWidget);
+
+    // Populate the slash-command autocomplete popup.
+    // Must match what resolveSlashCommand() handles.
+    m_inputWidget->setSlashCommands({
+        QStringLiteral("/explain"),
+        QStringLiteral("/fix"),
+        QStringLiteral("/tests"),
+        QStringLiteral("/review"),
+        QStringLiteral("/refactor"),
+        QStringLiteral("/doc"),
+        QStringLiteral("/generate"),
+        QStringLiteral("/edit"),
+        QStringLiteral("/search"),
+        QStringLiteral("/new"),
+        QStringLiteral("/compact"),
+    });
 
     // ── Wire input signals ───────────────────────────────────────────
     connect(m_inputWidget, &ChatInputWidget::sendRequested,
@@ -298,6 +318,11 @@ void ChatPanelWidget::connectController()
         part.toolInput = QString::fromUtf8(
             QJsonDocument(args).toJson(QJsonDocument::Compact));
 
+        // Build a human-readable description from tool arguments
+        const QString desc = ToolPresentationFormatter::descriptionFromArgs(toolName, args);
+        if (!desc.isEmpty())
+            part.toolInvocationMsg = desc;
+
         m_sessionModel->appendPart(part);
         int idx = m_sessionModel->turnCount() - 1;
         m_transcript->addContentPart(idx, part);
@@ -307,6 +332,13 @@ void ChatPanelWidget::connectController()
             this, [this](const QString &toolName, const ToolExecResult &result) {
         if (m_sessionModel->isEmpty())
             return;
+
+        // Auto-open newly created files in the editor
+        if (result.ok && toolName == QLatin1String("create_file")) {
+            const QString filePath = result.data[QLatin1String("filePath")].toString();
+            if (!filePath.isEmpty())
+                emit openFileRequested(filePath);
+        }
         auto &turn = m_sessionModel->currentTurn();
         // find the most recent tool part matching this tool name with Streaming state
         for (int i = turn.parts.size() - 1; i >= 0; --i) {
@@ -319,6 +351,11 @@ void ChatPanelWidget::connectController()
                     ? ChatContentPart::ToolState::CompleteSuccess
                     : ChatContentPart::ToolState::CompleteError;
                 p.toolOutput = result.textContent.left(500);
+                // Set past-tense message from presentation if not already set
+                if (p.toolPastTenseMsg.isEmpty()) {
+                    auto pres = ToolPresentationFormatter::present(toolName);
+                    p.toolPastTenseMsg = pres.pastTenseMessage;
+                }
                 int idx = m_sessionModel->turnCount() - 1;
                 m_transcript->updateToolState(idx, p.toolCallId, p);
                 emit m_sessionModel->turnUpdated(idx);
@@ -435,6 +472,14 @@ void ChatPanelWidget::setAgentController(AgentController *controller)
             if (m_currentMode == 0)
                 return AgentController::ToolApproval::AllowOnce;
 
+            // Guard: if a confirmation is already pending (re-entrant call
+            // from nested event loop processing), auto-allow to prevent crash
+            if (m_pendingConfirmResolve) {
+                qWarning("ChatPanelWidget: re-entrant tool confirmation for '%s' — auto-allowing",
+                         qPrintable(toolName));
+                return AgentController::ToolApproval::AllowOnce;
+            }
+
             // Edit/Agent mode: show confirmation UI and block via event loop
             const QString callId =
                 QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -453,10 +498,12 @@ void ChatPanelWidget::setAgentController(AgentController *controller)
                 m_transcript->addContentPart(idx, part);
             }
 
-            // Spin a nested event loop until onToolConfirmed() is called
+            // Spin a nested event loop until onToolConfirmed() is called.
+            // Use QPointer to detect if `this` is destroyed during the loop.
             AgentController::ToolApproval result =
                 AgentController::ToolApproval::Deny;
             QEventLoop loop;
+            QPointer<ChatPanelWidget> guard(this);
             m_pendingConfirmCallId = callId;
             m_pendingConfirmResolve = [&result, &loop](
                 AgentController::ToolApproval decision) {
@@ -464,6 +511,11 @@ void ChatPanelWidget::setAgentController(AgentController *controller)
                 loop.quit();
             };
             loop.exec();
+
+            // Check if widget was destroyed during event loop
+            if (!guard)
+                return AgentController::ToolApproval::Deny;
+
             return result;
         });
     }
@@ -472,6 +524,41 @@ void ChatPanelWidget::setAgentController(AgentController *controller)
 void ChatPanelWidget::setSessionStore(SessionStore *store)
 {
     m_sessionStore = store;
+
+    // Auto-restore last session if one exists
+    if (store) {
+        QTimer::singleShot(0, this, [this]() {
+            if (!m_sessionStore || !m_sessionModel->isEmpty())
+                return;
+            const auto last = m_sessionStore->loadLastSession();
+            if (last.isEmpty())
+                return;
+            if (!last.completeTurns.isEmpty()) {
+                restoreSession(last.sessionId, last.completeTurns,
+                               last.mode, last.title,
+                               last.modelId, last.providerId);
+            } else if (!last.messages.isEmpty()) {
+                for (const auto &msg : last.messages) {
+                    if (msg.first == QLatin1String("user")) {
+                        m_sessionModel->beginTurn(msg.second);
+                        m_conversationHistory.append({AgentMessage::Role::User, msg.second});
+                    } else {
+                        ChatContentPart part;
+                        part.type = ChatContentPart::Type::Markdown;
+                        part.markdownText = msg.second;
+                        m_sessionModel->appendPart(part);
+                        int idx = m_sessionModel->turnCount() - 1;
+                        m_transcript->addContentPart(idx, part);
+                        m_sessionModel->completeTurn();
+                        if (auto *w = m_transcript->turnWidget(idx))
+                            w->finishTurn(ChatTurnModel::State::Complete);
+                        m_conversationHistory.append({AgentMessage::Role::Assistant, msg.second});
+                    }
+                }
+                showWelcomeOrTranscript();
+            }
+        });
+    }
 }
 
 void ChatPanelWidget::setEditorContext(const QString &filePath,
@@ -557,14 +644,41 @@ void ChatPanelWidget::refreshModelList()
 
     const auto infoList = active->modelInfoList();
     if (!infoList.isEmpty()) {
-        for (const auto &mi : infoList)
+        for (const auto &mi : infoList) {
+            bool premium = mi.billing.isPremium;
+            double mult  = mi.billing.multiplier;
+            // If provider didn't populate billing, fall back to registry
+            if (mult <= 0.0 && m_modelRegistry) {
+                const ModelInfo reg = m_modelRegistry->model(mi.id);
+                if (!reg.id.isEmpty()) {
+                    premium = reg.billing.isPremium;
+                    mult    = reg.billing.multiplier;
+                }
+            }
             m_inputWidget->addModel(mi.id, mi.name,
-                                    mi.billing.isPremium,
-                                    mi.billing.multiplier);
+                                    premium, mult,
+                                    mi.capabilities.thinking,
+                                    mi.capabilities.vision,
+                                    mi.capabilities.toolCalls);
+        }
     } else {
         const auto models = active->availableModels();
-        for (const auto &m : models)
+        for (const auto &m : models) {
+            // Look up billing/capabilities from ModelRegistry
+            if (m_modelRegistry) {
+                const ModelInfo info = m_modelRegistry->model(m);
+                if (!info.id.isEmpty()) {
+                    m_inputWidget->addModel(info.id, info.name,
+                                            info.billing.isPremium,
+                                            info.billing.multiplier,
+                                            info.capabilities.thinking,
+                                            info.capabilities.vision,
+                                            info.capabilities.toolCalls);
+                    continue;
+                }
+            }
             m_inputWidget->addModel(m, m);
+        }
     }
     m_inputWidget->setCurrentModel(active->currentModel());
 }
@@ -586,6 +700,12 @@ void ChatPanelWidget::showWelcomeOrTranscript()
         m_stack->setCurrentWidget(m_transcript);
     }
     updateSessionTitle();
+}
+
+void ChatPanelWidget::setToolCount(int count)
+{
+    if (m_inputWidget)
+        m_inputWidget->setToolCount(count);
 }
 
 void ChatPanelWidget::updateSessionTitle()
@@ -721,13 +841,11 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
     m_stack->setCurrentWidget(m_transcript);
     m_transcript->scrollToBottom();
 
-    // Add user message to conversation history
-    m_conversationHistory.append({AgentMessage::Role::User, text});
-
     m_pendingRequestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_pendingIntent = AgentIntent::Chat;
 
     m_inputWidget->setStreaming(true);
+    m_transcript->setStreamingActive(true);
 
     const bool agentMode = AgentModes::usesAgentLoop(mode);
 
@@ -746,38 +864,61 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
 
     // Agent mode → delegate to controller
     if (agentMode && m_agentController) {
-        m_agentController->newSession(true);
+        // Only create a new session once — reuse for multi-turn context
+        if (!m_agentSessionActive) {
+            m_agentController->newSession(true);
+            m_agentSessionActive = true;
+        }
 
-        auto deltaConn = std::make_shared<QMetaObject::Connection>();
-        *deltaConn = connect(m_agentController, &AgentController::streamingDelta,
-                             this, [this, deltaConn](const QString &chunk) {
-            onResponseDelta(m_pendingRequestId, chunk);
+        // Pass current reasoning effort from settings (only if thinking toggle is on)
+        if (m_inputWidget->isThinkingEnabled()) {
+            QSettings s;
+            s.beginGroup(QStringLiteral("AI"));
+            const int idx = s.value(QStringLiteral("reasoningEffort"), 2).toInt();
+            s.endGroup();
+            static const char *levels[] = {"low", "medium", "high"};
+            m_agentController->setReasoningEffort(
+                QString::fromLatin1(levels[qBound(0, idx, 2)]));
+        } else {
+            m_agentController->setReasoningEffort(QString());
+        }
+
+        // Disconnect any stale agent connections from prior turns
+        for (auto &c : m_agentConns)
+            disconnect(c);
+        m_agentConns.clear();
+
+        const QString reqId = m_pendingRequestId;
+
+        m_agentConns << connect(m_agentController, &AgentController::streamingDelta,
+                                this, [this, reqId](const QString &chunk) {
+            if (reqId != m_pendingRequestId) return;
+            onResponseDelta(reqId, chunk);
         });
 
-        auto finishConn = std::make_shared<QMetaObject::Connection>();
-        *finishConn = connect(m_agentController, &AgentController::turnFinished,
-                              this, [this, deltaConn, finishConn](const AgentTurn &turn) {
-            disconnect(*deltaConn);
-            disconnect(*finishConn);
+        m_agentConns << connect(m_agentController, &AgentController::turnFinished,
+                                this, [this, reqId](const AgentTurn &turn) {
+            if (reqId != m_pendingRequestId) return;
+            for (auto &c : m_agentConns) disconnect(c);
+            m_agentConns.clear();
 
             AgentResponse resp;
-            resp.requestId = m_pendingRequestId;
+            resp.requestId = reqId;
             resp.text = turn.steps.isEmpty() ? QString()
                 : turn.steps.last().finalText;
-            onResponseFinished(m_pendingRequestId, resp);
+            onResponseFinished(reqId, resp);
         });
 
-        auto errorConn = std::make_shared<QMetaObject::Connection>();
-        *errorConn = connect(m_agentController, &AgentController::turnError,
-                             this, [this, deltaConn, finishConn, errorConn](const QString &msg) {
-            disconnect(*deltaConn);
-            disconnect(*finishConn);
-            disconnect(*errorConn);
+        m_agentConns << connect(m_agentController, &AgentController::turnError,
+                                this, [this, reqId](const QString &msg) {
+            if (reqId != m_pendingRequestId) return;
+            for (auto &c : m_agentConns) disconnect(c);
+            m_agentConns.clear();
 
             AgentError err;
-            err.requestId = m_pendingRequestId;
+            err.requestId = reqId;
             err.message = msg;
-            onResponseError(m_pendingRequestId, err);
+            onResponseError(reqId, err);
         });
 
         m_agentController->sendMessage(text, m_activeFilePath,
@@ -798,7 +939,20 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
     req.conversationHistory = m_conversationHistory;
     req.diagnostics         = m_pendingDiagnostics;
     req.attachments         = reqAttachments;
+    // Read reasoning effort from settings, but only apply if thinking toggle is on
+    if (m_inputWidget->isThinkingEnabled()) {
+        QSettings s;
+        s.beginGroup(QStringLiteral("AI"));
+        const int idx = s.value(QStringLiteral("reasoningEffort"), 2).toInt();
+        s.endGroup();
+        static const char *levels[] = {"low", "medium", "high"};
+        req.reasoningEffort = QString::fromLatin1(levels[qBound(0, idx, 2)]);
+    }
     m_pendingDiagnostics.clear();
+
+    // Append user message to history AFTER building the request so it
+    // is not duplicated — the provider adds it via buildUserContent().
+    m_conversationHistory.append({AgentMessage::Role::User, text});
 
     m_orchestrator->sendRequest(req);
 }
@@ -807,6 +961,11 @@ void ChatPanelWidget::onCancel()
 {
     if (m_pendingRequestId.isEmpty())
         return;
+
+    // Disconnect agent-mode signal connections
+    for (auto &c : m_agentConns)
+        disconnect(c);
+    m_agentConns.clear();
 
     if (m_agentController)
         m_agentController->cancel();
@@ -821,6 +980,7 @@ void ChatPanelWidget::onCancel()
 
     m_pendingRequestId.clear();
     m_inputWidget->setStreaming(false);
+    m_transcript->setStreamingActive(false);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -863,6 +1023,7 @@ void ChatPanelWidget::onResponseFinished(const QString &requestId,
 
     m_pendingRequestId.clear();
     m_inputWidget->setStreaming(false);
+    m_transcript->setStreamingActive(false);
 
     // Add assistant message to history
     m_conversationHistory.append({AgentMessage::Role::Assistant, response.text});
@@ -945,6 +1106,7 @@ void ChatPanelWidget::onResponseError(const QString &requestId,
 
     m_pendingRequestId.clear();
     m_inputWidget->setStreaming(false);
+    m_transcript->setStreamingActive(false);
 
     int idx = m_sessionModel->turnCount() - 1;
     if (idx < 0)
@@ -1000,8 +1162,10 @@ void ChatPanelWidget::onFollowupClicked(const QString &message)
     onSend(message, m_currentMode);
 }
 
-void ChatPanelWidget::onToolConfirmed(const QString &callId, bool allowed)
+void ChatPanelWidget::onToolConfirmed(const QString &callId, int approval)
 {
+    const bool allowed = (approval > 0);
+
     // Update the tool part state in the model
     if (!m_sessionModel->isEmpty()) {
         auto &turn = m_sessionModel->currentTurn();
@@ -1021,10 +1185,15 @@ void ChatPanelWidget::onToolConfirmed(const QString &callId, bool allowed)
         }
     }
     // Resolve the pending confirmation promise
+    // approval: 0=Deny, 1=AllowOnce, 2=AllowAlways
     if (m_pendingConfirmCallId == callId && m_pendingConfirmResolve) {
-        m_pendingConfirmResolve(allowed
-            ? AgentController::ToolApproval::AllowOnce
-            : AgentController::ToolApproval::Deny);
+        AgentController::ToolApproval decision;
+        switch (approval) {
+        case 2:  decision = AgentController::ToolApproval::AllowAlways; break;
+        case 1:  decision = AgentController::ToolApproval::AllowOnce;  break;
+        default: decision = AgentController::ToolApproval::Deny;       break;
+        }
+        m_pendingConfirmResolve(decision);
         m_pendingConfirmResolve = nullptr;
         m_pendingConfirmCallId.clear();
     }
@@ -1048,9 +1217,17 @@ void ChatPanelWidget::onNewSession()
     m_conversationHistory.clear();
     m_pendingPatches.clear();
     m_pendingRequestId.clear();
+
+    // Reset agent session so next message creates a fresh one
+    for (auto &c : m_agentConns)
+        disconnect(c);
+    m_agentConns.clear();
+    m_agentSessionActive = false;
+
     hideChangesBar();
     showWelcomeOrTranscript();
     m_inputWidget->setStreaming(false);
+    m_transcript->setStreamingActive(false);
     m_inputWidget->clear();
     updateSessionTitle();
 }
@@ -1071,6 +1248,43 @@ void ChatPanelWidget::persistCompletedTurn(int turnIndex)
 
 void ChatPanelWidget::restoreSessionTurns(const QJsonArray &completeTurns)
 {
+    restoreSession({}, completeTurns, 0, {}, {}, {});
+}
+
+void ChatPanelWidget::restoreSession(const QString &sessionId,
+                                     const QJsonArray &completeTurns,
+                                     int mode,
+                                     const QString &title,
+                                     const QString &modelId,
+                                     const QString &providerId)
+{
+    // Start fresh
+    onNewSession();
+
+    // Restore session metadata
+    if (!sessionId.isEmpty())
+        m_sessionModel->setId(sessionId);
+    if (!title.isEmpty())
+        m_sessionModel->setTitle(title);
+
+    // Determine the active mode: use session-level mode, or infer from last turn
+    int effectiveMode = mode;
+    if (effectiveMode == 0 && !completeTurns.isEmpty()) {
+        const auto lastTurn = completeTurns.last().toObject();
+        const int turnMode = lastTurn.value(QLatin1String("mode")).toInt(0);
+        if (turnMode > 0)
+            effectiveMode = turnMode;
+    }
+    if (effectiveMode >= 0 && effectiveMode <= 2) {
+        m_currentMode = effectiveMode;
+        m_sessionModel->setMode(effectiveMode);
+        m_inputWidget->setCurrentMode(effectiveMode);
+    }
+    if (!modelId.isEmpty())
+        m_sessionModel->setSelectedModel(modelId);
+    if (!providerId.isEmpty())
+        m_sessionModel->setProviderId(providerId);
+
     for (const auto &v : completeTurns) {
         const ChatTurnModel turn = ChatTurnModel::fromJson(v.toObject());
 
@@ -1097,10 +1311,48 @@ void ChatPanelWidget::restoreSessionTurns(const QJsonArray &completeTurns)
         if (auto *w = m_transcript->turnWidget(idx))
             w->finishTurn(turn.state);
 
-        // Rebuild conversation history for context
+        // Rebuild conversation history with tool calls for full context
         m_conversationHistory.append({AgentMessage::Role::User, turn.userMessage});
+
+        // Include tool call context so the model remembers what tools were used
+        for (const auto &part : turn.parts) {
+            if (part.type == ChatContentPart::Type::ToolInvocation
+                && !part.toolName.isEmpty()) {
+                // Assistant message requesting the tool call
+                AgentMessage toolReq;
+                toolReq.role = AgentMessage::Role::Assistant;
+                ToolCall tc;
+                tc.id   = part.toolCallId;
+                tc.name = part.toolName;
+                // toolInput is a formatted string; store as-is for context
+                tc.arguments = part.toolInput;
+                toolReq.toolCalls.append(tc);
+                m_conversationHistory.append(toolReq);
+
+                // Tool result message
+                AgentMessage toolRes;
+                toolRes.role       = AgentMessage::Role::Tool;
+                toolRes.toolCallId = part.toolCallId;
+                toolRes.content    = part.toolOutput;
+                m_conversationHistory.append(toolRes);
+            }
+        }
+
         m_conversationHistory.append({AgentMessage::Role::Assistant, turn.fullMarkdownText()});
     }
+
+    // Pre-seed the AgentController session so agent mode has full context
+    if (m_agentController && !m_conversationHistory.isEmpty()) {
+        if (!m_agentSessionActive) {
+            m_agentController->newSession(true);
+            m_agentSessionActive = true;
+        }
+        if (auto *session = m_agentController->session())
+            session->setMessages(m_conversationHistory);
+    }
+
+    // Switch UI from welcome to transcript
+    showWelcomeOrTranscript();
 }
 
 void ChatPanelWidget::onShowHistory()
@@ -1116,12 +1368,14 @@ void ChatPanelWidget::onShowHistory()
             auto session = m_chatSessionService
                 ? m_chatSessionService->loadSession(sessionId)
                 : m_sessionStore->loadSession(sessionId);
-            onNewSession();
 
             // Prefer rich turn data if available
             if (!session.completeTurns.isEmpty()) {
-                restoreSessionTurns(session.completeTurns);
+                restoreSession(session.sessionId, session.completeTurns,
+                               session.mode, session.title,
+                               session.modelId, session.providerId);
             } else {
+                onNewSession();
                 // Fall back to simple message pairs
                 for (const auto &msg : session.messages) {
                     if (msg.first == QLatin1String("user")) {
@@ -1137,7 +1391,20 @@ void ChatPanelWidget::onShowHistory()
                         if (auto *w = m_transcript->turnWidget(idx))
                             w->finishTurn(ChatTurnModel::State::Complete);
                         m_conversationHistory.append({AgentMessage::Role::Assistant, msg.second});
+                    } else if (msg.first == QLatin1String("tool")) {
+                        // Tool call context — add to history so model has context
+                        m_conversationHistory.append({AgentMessage::Role::Assistant, msg.second});
                     }
+                }
+
+                // Pre-seed AgentController with restored context
+                if (m_agentController && !m_conversationHistory.isEmpty()) {
+                    if (!m_agentSessionActive) {
+                        m_agentController->newSession(true);
+                        m_agentSessionActive = true;
+                    }
+                    if (auto *session = m_agentController->session())
+                        session->setMessages(m_conversationHistory);
                 }
             }
             m_stack->setCurrentWidget(m_transcript);
@@ -1197,34 +1464,51 @@ void ChatPanelWidget::hideChangesBar()
 QString ChatPanelWidget::resolveSlashCommand(const QString &text,
                                              AgentIntent &intent) const
 {
-    // Match basic slash commands
+    // Longer prefixes first to avoid ambiguous partial matches.
     if (text.startsWith(QLatin1String("/explain"))) {
         intent = AgentIntent::ExplainCode;
         return text.mid(8).trimmed();
-    }
-    if (text.startsWith(QLatin1String("/fix"))) {
-        intent = AgentIntent::FixDiagnostic;
-        return text.mid(4).trimmed();
-    }
-    if (text.startsWith(QLatin1String("/test"))) {
-        intent = AgentIntent::GenerateTests;
-        return text.mid(5).trimmed();
-    }
-    if (text.startsWith(QLatin1String("/doc"))) {
-        intent = AgentIntent::Chat; // no dedicated docs intent yet
-        return text.mid(4).trimmed();
-    }
-    if (text.startsWith(QLatin1String("/review"))) {
-        intent = AgentIntent::CodeReview;
-        return text.mid(7).trimmed();
     }
     if (text.startsWith(QLatin1String("/refactor"))) {
         intent = AgentIntent::RefactorSelection;
         return text.mid(9).trimmed();
     }
+    if (text.startsWith(QLatin1String("/review"))) {
+        intent = AgentIntent::CodeReview;
+        return text.mid(7).trimmed();
+    }
+    if (text.startsWith(QLatin1String("/generate"))) {
+        intent = AgentIntent::GenerateCode;
+        return text.mid(9).trimmed();
+    }
+    if (text.startsWith(QLatin1String("/search"))) {
+        intent = AgentIntent::Chat; // no dedicated search intent yet
+        return text.mid(7).trimmed();
+    }
+    if (text.startsWith(QLatin1String("/tests"))) {
+        intent = AgentIntent::GenerateTests;
+        return text.mid(6).trimmed();
+    }
     if (text.startsWith(QLatin1String("/edit"))) {
         intent = AgentIntent::CreateFile;
         return text.mid(5).trimmed();
+    }
+    if (text.startsWith(QLatin1String("/fix"))) {
+        intent = AgentIntent::FixDiagnostic;
+        return text.mid(4).trimmed();
+    }
+    if (text.startsWith(QLatin1String("/doc"))) {
+        intent = AgentIntent::Chat; // no dedicated docs intent yet
+        return text.mid(4).trimmed();
+    }
+    if (text.startsWith(QLatin1String("/new"))) {
+        // /new is handled upstream (triggers new session)
+        return text;
+    }
+    if (text.startsWith(QLatin1String("/compact"))) {
+        // /compact is agent-mode history compression; no text rewriting needed
+        intent = AgentIntent::Chat;
+        return text.mid(8).trimmed();
     }
     return text;
 }

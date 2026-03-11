@@ -24,6 +24,7 @@ public:
     void sendCommand(const QString &cmd);
     void sendInput(const QString &text);
     QString recentOutput(int maxLines = 80) const;
+    QString selectedText() const;
 
     // Open an SSH terminal tab for the given remote host.
     TerminalWidget *addSshTerminal(const QString &label,

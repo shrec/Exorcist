@@ -1,6 +1,6 @@
 # Exorcist — სამუშაო სია
 
-> ბოლო განახლება: 2026-03-09
+> ბოლო განახლება: 2026-03-10 (მანიფესტო აუდიტი)
 > წყარო: ტექნიკური აუდიტი (კოდის პირდაპირი ანალიზი + ვერიფიკაცია)
 
 ---
@@ -24,6 +24,27 @@
 - [x] **mainwindow.cpp: dead-object stubs — nullptr parent = მეხსიერების გაჟონვა**
   13 ობიექტი instantiate ხდებოდა `nullptr` parent-ით, არასდროს გამოიყენებოდა, არასდროს იშლებოდა.
   → ყველა წაშლილია. member-ები header-ში რჩება `= nullptr`.
+
+- [x] **ChatPanelWidget — slash command autocomplete ცარიელი**
+  `setSlashCommands()` არასდროს გამოიძახებოდა ChatPanelWidget-დან → autocomplete popup-ი მუდამ ცარიელი იყო.
+  → გამოსწორდა: `buildUi()`-ში 11 slash command-ი დარეგისტრირდა.
+
+- [x] **chatpanelwidget.cpp: `/test` vs `/tests` შეუსაბამობა**
+  welcome chips-ი `"/tests"`-ს აჩვენებდა, resolver `/test`-ს პარსავდა → `mid(5)` "s ..." ლიდინგ სიმბოლოს ტოვებდა.
+  → გამოსწორდა: resolver იყენებს `/tests` + `mid(6)`. prefix order fixed (longer first).
+
+- [x] **ChatWelcomeWidget — suggestion chip display/command გამიჯვნა**
+  chips-ი აჩვენებდა "/explain Explain this codebase" (slash command + label ერთად).
+  → გამოსწორდა: `Suggestion { label, command }` struct. Button-ი label-ს აჩვენებს, command-ს აგზავნის.
+
+- [x] **resolveSlashCommand — დამატებითი commands**
+  `vscode-copilot-chat`-ის reference-ის მიხედვით დაემატა: `/generate`, `/search`, `/compact`.
+  `AgentIntent::GenerateCode` enum value-ც დაემატა `aiinterface.h`-ში.
+
+- [x] **ChatTheme — light theme infrastructure**
+  ყველა dark token-ისთვის `L_` prefixed light variant დაემატა.
+  `isDark()` + `pick(dark, light)` runtime helpers.
+  `ChatTranscriptView` + `ChatPanelWidget` ახლა `pick()` იყენებს background-ებისთვის.
 
 ---
 

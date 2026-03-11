@@ -40,7 +40,7 @@ public:
         , m_turnId(turn.id)
     {
         auto *root = new QVBoxLayout(this);
-        root->setContentsMargins(6, 4, 20, 4);
+        root->setContentsMargins(12, 8, 12, 8);
         root->setSpacing(0);
 
         // ── User Request ──────────────────────────────────────────────
@@ -167,7 +167,7 @@ public:
         }
 
         root->addWidget(userSection);
-        root->addSpacing(6);
+        root->addSpacing(10);
 
         // ── Assistant Response ────────────────────────────────────────
         m_responseSection = new QWidget(this);
@@ -210,7 +210,7 @@ public:
         m_partsContainer = new QWidget(this);
         m_partsLayout = new QVBoxLayout(m_partsContainer);
         m_partsLayout->setContentsMargins(22, 0, 0, 0);
-        m_partsLayout->setSpacing(2);
+        m_partsLayout->setSpacing(8);
         respLayout->addWidget(m_partsContainer);
 
         // Build initial content parts
@@ -426,7 +426,7 @@ public:
 signals:
     void feedbackGiven(const QString &turnId, bool helpful);
     void followupClicked(const QString &message);
-    void toolConfirmed(const QString &callId, bool allowed);
+    void toolConfirmed(const QString &callId, int approval);
     void fileClicked(const QString &path);
     void codeActionRequested(const QUrl &url);
     void insertCodeRequested(const QString &code);

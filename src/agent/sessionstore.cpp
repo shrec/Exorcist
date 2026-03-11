@@ -103,6 +103,20 @@ void SessionStore::recordSessionEnd(const QString &id)
     appendLine(id, entry);
 }
 
+void SessionStore::setSessionTitle(const QString &id, const QString &title)
+{
+    QJsonObject data;
+    data["title"] = title;
+
+    QJsonObject entry;
+    entry["v"] = 1;
+    entry["sid"] = id;
+    entry["ts"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    entry["type"] = QStringLiteral("session.title");
+    entry["data"] = data;
+    appendLine(id, entry);
+}
+
 void SessionStore::recordCompleteTurn(const QString &id, const QJsonObject &turnJson)
 {
     QJsonObject entry;
@@ -270,12 +284,33 @@ SessionStore::ChatSession SessionStore::loadSession(const QString &path) const
             const QDateTime dt = QDateTime::fromString(ts, Qt::ISODate);
             if (dt.isValid())
                 sess.createdAt = dt;
+            // Extract mode
+            const QString modeStr = data.value("mode").toString();
+            if (modeStr == QLatin1String("Agent"))
+                sess.mode = 2;
+            else if (modeStr == QLatin1String("Edit"))
+                sess.mode = 1;
+            else
+                sess.mode = 0;
+            sess.modelId = data.value("model").toString();
+            sess.providerId = data.value("provider").toString();
+        } else if (type == QLatin1String("session.title")) {
+            sess.title = data.value("title").toString();
         } else if (type == QLatin1String("user.message")) {
             sess.messages.append({QStringLiteral("user"),
                                   data.value("content").toString()});
         } else if (type == QLatin1String("assistant.message")) {
             sess.messages.append({QStringLiteral("assistant"),
                                   data.value("text").toString()});
+        } else if (type == QLatin1String("tool.call")) {
+            // Preserve tool call context for session restore
+            const QString name = data.value("name").toString();
+            const QString result = data.value("result").toString();
+            const bool ok = data.value("ok").toBool();
+            const QString summary = ok
+                ? QStringLiteral("[Tool %1: %2]").arg(name, result.left(200))
+                : QStringLiteral("[Tool %1 failed: %2]").arg(name, result.left(200));
+            sess.messages.append({QStringLiteral("tool"), summary});
         } else if (type == QLatin1String("turn.complete")) {
             sess.completeTurns.append(data);
         }
@@ -310,14 +345,6 @@ QString SessionStore::renameSession(const QString &path, const QString &newName)
 void SessionStore::deleteSession(const QString &path)
 {
     QFile::remove(path);
-}
-
-void SessionStore::setSessionTitle(const QString &id, const QString &title)
-{
-    QJsonObject entry;
-    entry[QLatin1String("type")] = QLatin1String("title");
-    entry[QLatin1String("title")] = title;
-    appendLine(id, entry);
 }
 
 QStringList SessionStore::searchSessions(const QString &query, int max) const

@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
+#include <QSettings>
 #include <QStandardPaths>
 
 CMakeIntegration::CMakeIntegration(QObject *parent)
@@ -66,8 +67,17 @@ QStringList CMakeIntegration::detectPresets() const
 
 void CMakeIntegration::setActiveBuildConfig(int index)
 {
-    if (index >= 0 && index < m_configs.size())
+    if (index >= 0 && index < m_configs.size()) {
         m_activeConfig = index;
+        // Persist selection per project
+        if (!m_projectRoot.isEmpty()) {
+            QSettings settings;
+            const QString key = QStringLiteral("cmake/activePreset/")
+                + QString::fromUtf8(m_projectRoot.toUtf8().toBase64());
+            const auto &cfg = m_configs[index];
+            settings.setValue(key, cfg.cmakePreset.isEmpty() ? cfg.name : cfg.cmakePreset);
+        }
+    }
 }
 
 BuildConfig CMakeIntegration::activeBuildConfig() const
@@ -81,33 +91,71 @@ void CMakeIntegration::autoDetectConfigs()
 {
     m_configs.clear();
 
-    // If presets exist, use them
+    // If presets exist, use them — skip presets whose explicit paths don't exist locally
     if (hasPresets()) {
         const QStringList presets = detectPresets();
+
+        // Parse preset file once for all presets
+        QJsonArray allPresets;
+        QFile f(m_projectRoot + QStringLiteral("/CMakePresets.json"));
+        if (f.open(QIODevice::ReadOnly)) {
+            allPresets = QJsonDocument::fromJson(f.readAll()).object()
+                .value(QLatin1String("configurePresets")).toArray();
+        }
+
         for (const auto &preset : presets) {
             BuildConfig cfg;
-            cfg.name = preset;
             cfg.cmakePreset = preset;
+            bool viable = true;
 
-            // Try to infer build dir from preset file
-            QFile f(m_projectRoot + QStringLiteral("/CMakePresets.json"));
-            if (f.open(QIODevice::ReadOnly)) {
-                const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
-                const QJsonArray arr = doc.object()
-                    .value(QLatin1String("configurePresets")).toArray();
-                for (const auto &val : arr) {
-                    const QJsonObject obj = val.toObject();
-                    if (obj.value(QLatin1String("name")).toString() == preset) {
-                        cfg.buildDir = obj.value(QLatin1String("binaryDir")).toString();
-                        cfg.generator = obj.value(QLatin1String("generator")).toString();
-                        // Resolve ${sourceDir} variable
-                        cfg.buildDir.replace(
-                            QLatin1String("${sourceDir}"), m_projectRoot);
-                        break;
-                    }
+            for (const auto &val : allPresets) {
+                const QJsonObject obj = val.toObject();
+                if (obj.value(QLatin1String("name")).toString() != preset)
+                    continue;
+
+                cfg.buildDir = obj.value(QLatin1String("binaryDir")).toString();
+                cfg.generator = obj.value(QLatin1String("generator")).toString();
+                const QString displayName =
+                    obj.value(QLatin1String("displayName")).toString();
+                cfg.name = displayName.isEmpty() ? preset : displayName;
+                cfg.buildDir.replace(
+                    QLatin1String("${sourceDir}"), m_projectRoot);
+
+                // Check if preset-specific paths exist on this machine
+                const QJsonObject vars =
+                    obj.value(QLatin1String("cacheVariables")).toObject();
+                const QString prefixPath =
+                    vars.value(QLatin1String("CMAKE_PREFIX_PATH")).toString();
+                const QString cCompiler =
+                    vars.value(QLatin1String("CMAKE_C_COMPILER")).toString();
+                const QString cxxCompiler =
+                    vars.value(QLatin1String("CMAKE_CXX_COMPILER")).toString();
+
+                if (!prefixPath.isEmpty() && !QDir(prefixPath).exists())
+                    viable = false;
+                if (!cCompiler.isEmpty() && !QFileInfo::exists(cCompiler))
+                    viable = false;
+                if (!cxxCompiler.isEmpty() && !QFileInfo::exists(cxxCompiler))
+                    viable = false;
+
+                // Presets with no explicit paths require Qt findable via system —
+                // skip them unless they have a matching build directory already
+                if (prefixPath.isEmpty() && cCompiler.isEmpty()) {
+                    const QString bd = cfg.buildDir.isEmpty()
+                        ? m_projectRoot + QStringLiteral("/build-") + preset
+                        : cfg.buildDir;
+                    if (!QDir(bd).exists())
+                        viable = false;
                 }
+
+                break;
             }
 
+            if (!viable)
+                continue;
+
+            if (cfg.name.isEmpty())
+                cfg.name = preset;
             if (cfg.buildDir.isEmpty())
                 cfg.buildDir = m_projectRoot + QStringLiteral("/build-") + preset;
 
@@ -181,23 +229,43 @@ void CMakeIntegration::autoDetectConfigs()
         }
     }
 
-    // Auto-select the config whose build directory already exists
-    // (prefer one with compile_commands.json for clangd)
+    // Restore last-used config from QSettings (per project)
     m_activeConfig = 0;
-    for (int i = 0; i < m_configs.size(); ++i) {
-        const QString ccPath = m_configs[i].buildDir
-            + QStringLiteral("/compile_commands.json");
-        if (QFileInfo::exists(ccPath)) {
-            m_activeConfig = i;
-            break;
+    bool restored = false;
+    {
+        QSettings settings;
+        const QString key = QStringLiteral("cmake/activePreset/")
+            + QString::fromUtf8(m_projectRoot.toUtf8().toBase64());
+        const QString savedPreset = settings.value(key).toString();
+        if (!savedPreset.isEmpty()) {
+            for (int i = 0; i < m_configs.size(); ++i) {
+                if (m_configs[i].cmakePreset == savedPreset
+                    || m_configs[i].name == savedPreset) {
+                    m_activeConfig = i;
+                    restored = true;
+                    break;
+                }
+            }
         }
     }
-    // Fallback: pick first config with an existing build dir
-    if (m_activeConfig == 0 && m_configs.size() > 1) {
+
+    // If no saved preference, auto-select the config with compile_commands.json
+    if (!restored) {
         for (int i = 0; i < m_configs.size(); ++i) {
-            if (QDir(m_configs[i].buildDir).exists()) {
+            const QString ccPath = m_configs[i].buildDir
+                + QStringLiteral("/compile_commands.json");
+            if (QFileInfo::exists(ccPath)) {
                 m_activeConfig = i;
                 break;
+            }
+        }
+        // Fallback: pick first config with an existing build dir
+        if (m_activeConfig == 0 && m_configs.size() > 1) {
+            for (int i = 0; i < m_configs.size(); ++i) {
+                if (QDir(m_configs[i].buildDir).exists()) {
+                    m_activeConfig = i;
+                    break;
+                }
             }
         }
     }
@@ -227,6 +295,12 @@ void CMakeIntegration::configure()
         emit configureFinished(false, tr("CMake not found"));
         return;
     }
+
+    // Log which config/preset is being used
+    if (!cfg.cmakePreset.isEmpty())
+        emit buildOutput(tr("Configuring with preset: %1").arg(cfg.cmakePreset), false);
+    else
+        emit buildOutput(tr("Configuring: %1").arg(cfg.name), false);
 
     // Ensure build directory exists
     QDir().mkpath(cfg.buildDir);
@@ -295,6 +369,28 @@ void CMakeIntegration::build(const QString &target)
         emit buildOutput(tr("Error: CMake not found"), true);
         emit buildFinished(false, -1);
         return;
+    }
+
+    // Guard: check that build directory has valid build system files
+    const QDir buildDir(cfg.buildDir);
+    const bool hasNinja = buildDir.exists(QStringLiteral("build.ninja"));
+    const bool hasMake = buildDir.exists(QStringLiteral("Makefile"));
+    const bool hasVcx = !buildDir.entryList({QStringLiteral("*.vcxproj")}).isEmpty();
+    if (!hasNinja && !hasMake && !hasVcx) {
+        emit buildOutput(tr("Error: No build system files in %1. Run Configure first.").arg(cfg.buildDir), true);
+        emit buildFinished(false, -1);
+        return;
+    }
+
+    // Warn if the build system doesn't match the config's generator
+    if (!cfg.generator.isEmpty()) {
+        const bool generatorIsNinja = cfg.generator.contains(QLatin1String("Ninja"), Qt::CaseInsensitive);
+        if (generatorIsNinja && !hasNinja && hasVcx) {
+            emit buildOutput(tr("Warning: Config expects %1 but build dir has MSVC project files. "
+                               "Run Configure to regenerate.").arg(cfg.generator), true);
+            emit buildFinished(false, -1);
+            return;
+        }
     }
 
     m_buildTarget = target;
@@ -454,12 +550,21 @@ void CMakeIntegration::onProcessFinished(int exitCode, QProcess::ExitStatus stat
 
     switch (m_currentOp) {
     case Operation::Configure:
+        emit buildOutput(success ? tr("Configure succeeded")
+                                 : tr("Configure failed (exit %1)").arg(exitCode),
+                         !success);
         emit configureFinished(success, success ? QString() : tr("Configure failed (exit %1)").arg(exitCode));
         break;
     case Operation::Build:
+        emit buildOutput(success ? tr("Build succeeded")
+                                 : tr("Build failed (exit %1)").arg(exitCode),
+                         !success);
         emit buildFinished(success, exitCode);
         break;
     case Operation::Clean:
+        emit buildOutput(success ? tr("Clean succeeded")
+                                 : tr("Clean failed (exit %1)").arg(exitCode),
+                         !success);
         emit cleanFinished(success);
         break;
     case Operation::None:

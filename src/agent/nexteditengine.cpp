@@ -1,5 +1,5 @@
 #include "nexteditengine.h"
-#include "editorview.h"
+#include "../editor/editorview.h"
 #include "../aiinterface.h"
 
 #include <QJsonDocument>

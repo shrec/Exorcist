@@ -6,6 +6,7 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QtConcurrent>
 
 #ifdef Q_OS_WIN
 #include <QSettings>
@@ -21,17 +22,23 @@ ToolchainManager::ToolchainManager(QObject *parent)
 
 void ToolchainManager::detectAll()
 {
-    m_toolchains.clear();
-    m_buildSystems.clear();
-    m_compilerCache.clear();
-    m_debuggerCache.clear();
+    // Manifesto #2: never block UI thread on I/O.
+    // Run detection in worker thread, post results back.
+    QtConcurrent::run([this]() {
+        m_toolchains.clear();
+        m_buildSystems.clear();
+        m_compilerCache.clear();
+        m_debuggerCache.clear();
 
-    detectCompilers();
-    detectDebuggers();
-    detectBuildSystems();
-    matchToolchains();
+        detectCompilers();
+        detectDebuggers();
+        detectBuildSystems();
+        matchToolchains();
 
-    emit detectionFinished();
+        QMetaObject::invokeMethod(this, [this]() {
+            emit detectionFinished();
+        }, Qt::QueuedConnection);
+    });
 }
 
 BuildSystemInfo ToolchainManager::findBuildSystem(const QString &name) const

@@ -6,11 +6,23 @@
 
 #include <QHash>
 #include <QObject>
+#include <QPixmap>
 #include <QString>
 #include <QStringList>
 
 #include "../aiinterface.h"
 #include "../core/iprocess.h"
+#include "tools/luatool.h"
+#include "tools/buildtools.h"
+#include "tools/formatcodetool.h"
+#include "tools/refactortool.h"
+#include "tools/gitopstool.h"
+#include "tools/askusertool.h"
+#include "tools/editorcontexttool.h"
+#include "tools/changeimpacttool.h"
+#include "tools/lsptools.h"
+#include "tools/difftool.h"
+#include "tools/staticanalysistool.h"
 
 class IFileSystem;
 class PluginManager;
@@ -28,6 +40,7 @@ class IProviderAuthIntegration;
 class MemorySuggestionEngine;
 class ProjectBrainService;
 class SessionStore;
+class TerminalSessionManager;
 class ToolApprovalService;
 class ToolRegistry;
 
@@ -43,6 +56,77 @@ public:
         std::function<QList<AgentDiagnostic>()> diagnosticsGetter;
         std::function<QHash<QString, QString>()> changedFilesGetter;
         std::function<QString(const QString &)> gitDiffGetter;
+
+        // Debug adapter callbacks
+        std::function<QString(const QString &, int, const QString &)> debugBreakpointSetter;
+        std::function<bool(const QString &, int)> debugBreakpointRemover;
+        std::function<QString(int)> debugStackGetter;
+        std::function<QString(int)> debugVariablesGetter;
+        std::function<QString(const QString &, int)> debugEvaluator;
+        std::function<bool(const QString &)> debugStepper;
+
+        // Screenshot
+        std::function<QPixmap(const QString &)> widgetGrabber;
+
+        // Introspection
+        std::function<QString(const QString &)> introspectionHandler;
+
+        // Lua execution
+        LuaExecuteTool::LuaExecutor luaExecutor;
+
+        // Code graph / intelligence
+        std::function<QString(const QString &, int)>              symbolSearchFn;
+        std::function<QString(const QString &)>                   symbolsInFileFn;
+        std::function<QString(const QString &, int, int)>         findReferencesFn;
+        std::function<QString(const QString &, int, int)>         findDefinitionFn;
+        std::function<QString(const QString &, int)>              chunkSearchFn;
+
+        // Build & test
+        BuildProjectTool::Builder       buildProjectFn;
+        RunTestsTool::TestRunner         runTestsFn;
+        std::function<QStringList()>     buildTargetsGetter;
+
+        // Code formatting
+        FormatCodeTool::CodeFormatter   codeFormatter;
+
+        // Refactoring (LSP)
+        RefactorTool::Refactorer        refactorer;
+
+        // Git operations
+        GitOpsTool::GitExecutor         gitExecutor;
+
+        // User interaction
+        AskUserTool::UserPrompter       userPrompter;
+
+        // Editor context
+        EditorContextTool::EditorStateGetter editorStateGetter;
+
+        // Change impact analysis
+        ChangeImpactTool::ImpactAnalyzer    changeImpactAnalyzer;
+
+        // Navigation
+        std::function<bool(const QString &, int, int)>           fileOpener;
+        std::function<QString(const QString &)>                   headerSourceSwitcher;
+
+        // LSP rename & usages
+        RenameSymbolTool::SymbolRenamer     symbolRenamer;
+        ListCodeUsagesTool::UsageFinder     usageFinder;
+
+        // Diff visualization
+        DiffTool::DiffViewer                diffViewer;
+
+        // Static analysis
+        StaticAnalysisTool::StaticAnalyzer  staticAnalyzer;
+
+        // Terminal selection
+        std::function<QString()>            terminalSelectionGetter;
+
+        // Test failure cache
+        std::function<RunTestsTool::TestResult()> testFailureGetter;
+
+        // IDE command execution
+        std::function<bool(const QString &)> commandExecutor;
+        std::function<QStringList()>         commandListGetter;
     };
 
     explicit AgentPlatformBootstrap(AgentOrchestrator *orchestrator,
@@ -79,6 +163,7 @@ private:
     Callbacks          m_callbacks;
     std::unique_ptr<IProcess> m_process;
 
+    TerminalSessionManager *m_sessionManager = nullptr;
     ToolRegistry    *m_toolRegistry = nullptr;
     ContextBuilder  *m_contextBuilder = nullptr;
     AgentController *m_agentController = nullptr;

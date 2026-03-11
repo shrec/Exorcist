@@ -40,6 +40,8 @@ public:
     void sendInput(const QString &text);
     // Get recent terminal output (best-effort, last N lines).
     QString recentOutput(int maxLines = 80) const;
+    // Get the currently selected text in the terminal view.
+    QString selectedText() const;
 
 protected:
     void showEvent(QShowEvent *event) override;

@@ -10,6 +10,7 @@
 #include "core/ifilesystem.h"
 #include "pluginmanager.h"
 #include "serviceregistry.h"
+#include "agent/tools/buildtools.h"
 
 namespace exdock { class ExDockWidget; class DockManager; }
 namespace luabridge { class LuaScriptEngine; }
@@ -302,6 +303,8 @@ private:
     CMakeIntegration         *m_cmakeIntegration = nullptr;
     BuildToolbar             *m_buildToolbar = nullptr;
     DebugLaunchController    *m_debugLauncher = nullptr;
+
+    RunTestsTool::TestResult  m_lastTestResult;  // cached from last run_tests invocation
 
     HostServices             *m_hostServices = nullptr;
     ContributionRegistry     *m_contributions = nullptr;

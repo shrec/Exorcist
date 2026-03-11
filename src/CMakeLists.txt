@@ -12,10 +12,10 @@ add_executable(exorcist WIN32
     editor/breadcrumbbar.h
     editor/minimapwidget.cpp
     editor/minimapwidget.h
-    editor/inlinecompletionengine.cpp
-    editor/inlinecompletionengine.h
-    editor/nexteditengine.cpp
-    editor/nexteditengine.h
+    agent/inlinecompletionengine.cpp
+    agent/inlinecompletionengine.h
+    agent/nexteditengine.cpp
+    agent/nexteditengine.h
     editor/largefileloader.cpp
     editor/largefileloader.h
     editor/syntaxhighlighter.cpp
@@ -167,8 +167,41 @@ add_executable(exorcist WIN32
     agent/tools/moretools.h
     agent/tools/advancedtools.h
     agent/tools/memorytool.h
-    agent/markdownrenderer.cpp
-    agent/markdownrenderer.h
+    agent/tools/debugtools.h
+    agent/tools/screenshottool.h
+    agent/tools/introspecttool.h
+    agent/tools/httptool.h
+    agent/tools/luatool.h
+    agent/tools/codegraphtool.h
+    agent/tools/buildtools.h
+    agent/tools/navigationtools.h
+    agent/tools/formatcodetool.h
+    agent/tools/refactortool.h
+    agent/tools/gitopstool.h
+    agent/tools/askusertool.h
+    agent/tools/editorcontexttool.h
+    agent/tools/changeimpacttool.h
+    agent/tools/scratchpadtool.h
+    agent/tools/terminalsessiontools.h
+    agent/tools/pythontools.h
+    agent/tools/packagemanagertools.h
+    agent/tools/subagenttool.h
+    agent/subagenttool.cpp
+    agent/tools/lsptools.h
+    agent/tools/projectinfotool.h
+    agent/tools/filemanagementtools.h
+    agent/tools/clipboardtool.h
+    agent/tools/difftool.h
+    agent/tools/databasetool.h
+    agent/tools/systemtools.h
+    agent/tools/notebooktools.h
+    agent/tools/githubmcptools.h
+    agent/tools/staticanalysistool.h
+    agent/notebookstubs.h
+    agent/terminalsessionmanager.h
+    agent/workspacecontextdetector.h
+    ui/markdownrenderer.cpp
+    ui/markdownrenderer.h
     agent/promptfileloader.h
     agent/quickchatdialog.cpp
     agent/quickchatdialog.h
@@ -382,7 +415,7 @@ add_executable(exorcist WIN32
     sdk/luajit/luahostapi.cpp
 )
 
-target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent libluajit)
+target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent Qt6::Sql libluajit)
 target_include_directories(exorcist PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(EXORCIST_USE_TREESITTER)

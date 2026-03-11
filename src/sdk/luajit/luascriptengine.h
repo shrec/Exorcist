@@ -118,6 +118,17 @@ public:
     /// Enable QFileSystemWatcher on the plugins directory for hot reload.
     void enableHotReload(const QString &pluginsDir);
 
+    /// Execute an ad-hoc Lua script in a fresh sandboxed state.
+    /// Returns captured output, return value, error, and memory used.
+    struct AdhocResult {
+        bool    ok = false;
+        QString output;          // captured print() output
+        QString returnValue;     // tostring() of script return value
+        QString error;
+        int     memoryUsedBytes = 0;
+    };
+    AdhocResult executeAdhoc(const QString &script);
+
     /// Get errors encountered during loading/init.
     const QStringList &errors() const { return m_errors; }
 

@@ -5,10 +5,11 @@
 #include "agentsession.h"
 #include "contextbuilder.h"
 #include "itool.h"
-#include "markdownrenderer.h"
+#include "../ui/markdownrenderer.h"
 #include "promptfileloader.h"
 #include "promptvariables.h"
 #include "sessionstore.h"
+#include "toolpresentation.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -143,6 +144,7 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
 
     // ── Chat history ───────────────────────────────────────────────────
     m_history->setOpenExternalLinks(false);
+    m_history->setOpenLinks(false);
     m_history->setReadOnly(true);
     m_history->setFrameShape(QFrame::NoFrame);
     m_history->document()->setDefaultStyleSheet(
@@ -393,7 +395,7 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
         m_pendingPatches.clear();
         m_msgQueue.clear();
         m_streamStarted   = false;
-        m_streamAnchorPos = 0;
+        m_streamCursor    = QTextCursor();
         m_history->clear();
         m_askSessionId.clear();
         m_userMessages.clear();
@@ -540,8 +542,8 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
     m_mentionMenu->setFixedWidth(340);
     m_mentionMenu->hide();
     connect(m_mentionMenu, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
-        // Replace the @-mention / #-reference with the selected file path
-        const QString filePath = item->data(Qt::UserRole).toString();
+        const bool isVar = item->data(Qt::UserRole + 2).toBool();
+        const QString value = item->data(Qt::UserRole).toString();
         QTextCursor tc = m_input->textCursor();
         const QString text = m_input->toPlainText();
         // Find the trigger character position (search backwards from cursor)
@@ -556,17 +558,18 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
             // Select from trigger to current cursor
             tc.setPosition(triggerPos);
             tc.movePosition(QTextCursor::End, QTextCursor::KeepAnchor); // select to end for simple case
-            const QString after = text.mid(m_input->textCursor().position());
             tc.setPosition(triggerPos);
             tc.setPosition(m_input->textCursor().position(), QTextCursor::KeepAnchor);
             if (m_mentionTrigger == QLatin1String("#")) {
-                tc.insertText(QStringLiteral("#%1 ").arg(filePath));
-                // Also auto-attach the file
-                const QString fullPath = item->data(Qt::UserRole + 1).toString();
-                if (!fullPath.isEmpty())
-                    addAttachment(fullPath);
+                tc.insertText(QStringLiteral("#%1 ").arg(value));
+                if (!isVar) {
+                    // Also auto-attach the file
+                    const QString fullPath = item->data(Qt::UserRole + 1).toString();
+                    if (!fullPath.isEmpty())
+                        addAttachment(fullPath);
+                }
             } else {
-                tc.insertText(QStringLiteral("@file:%1 ").arg(filePath));
+                tc.insertText(QStringLiteral("@file:%1 ").arg(value));
             }
         }
         hideMentionMenu();
@@ -663,8 +666,8 @@ void AgentChatPanel::setAgentController(AgentController *controller)
             const auto rendered = MarkdownRenderer::toHtmlWithActions(m_pendingAccum);
             finalizeStreamingBubble(m_pendingAccum, rendered.html);
             m_pendingAccum.clear();
-            m_streamStarted   = false;
-            m_streamAnchorPos = 0;
+            m_streamStarted = false;
+            m_streamCursor  = QTextCursor();
         }
 
         // Lock in any live thinking bubble
@@ -674,60 +677,58 @@ void AgentChatPanel::setAgentController(AgentController *controller)
         // Start working section if not already active
         if (!m_workingSectionActive) {
             m_workingSectionActive = true;
-            QTextCursor temp(m_history->document());
-            temp.movePosition(QTextCursor::End);
-            m_workingSectionAnchor = temp.position();
+            m_workingCursor = QTextCursor(m_history->document());
+            m_workingCursor.movePosition(QTextCursor::End);
         }
-
         // Build human-readable description
+        const auto info = ToolPresentation::present(toolName);
         const QString path = args[QLatin1String("filePath")].toString();
         const QString fn   = path.isEmpty() ? QString() : QFileInfo(path).fileName();
-        QString desc;
-        QString icon = QStringLiteral("&#9654;"); // default: right triangle
+        QString detail;
+
         if (toolName.contains(QLatin1String("grep")) || toolName.contains(QLatin1String("search"))) {
-            icon = QStringLiteral("Q");
             const QString q = args[QLatin1String("query")].toString();
-            desc = q.isEmpty() ? QStringLiteral("Searched workspace")
-                : QStringLiteral("Searched for text <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#ce9178;'>%1</span>").arg(q.left(50).toHtmlEscaped());
+            if (!q.isEmpty())
+                detail = QStringLiteral("\"%1\"").arg(q.left(60).toHtmlEscaped());
         } else if (toolName.contains(QLatin1String("read"))) {
-            icon = QStringLiteral("&#9776;"); // trigram
             const int s = args[QLatin1String("startLine")].toInt();
             const int e = args[QLatin1String("endLine")].toInt();
             if (!fn.isEmpty() && s > 0 && e > 0)
-                desc = QStringLiteral("Read <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#4ec9b0;'>%1</span>, lines %2 to %3").arg(fn.toHtmlEscaped()).arg(s).arg(e);
+                detail = QStringLiteral("%1:%2-%3").arg(fn.toHtmlEscaped()).arg(s).arg(e);
             else if (!fn.isEmpty())
-                desc = QStringLiteral("Read <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#4ec9b0;'>%1</span>").arg(fn.toHtmlEscaped());
-            else
-                desc = QStringLiteral("Read file");
+                detail = fn.toHtmlEscaped();
         } else if (toolName.contains(QLatin1String("list"))) {
-            icon = QStringLiteral("&#9776;");
             const QString d = args[QLatin1String("path")].toString();
-            desc = d.isEmpty() ? QStringLiteral("Listed directory")
-                : QStringLiteral("Listed <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#4ec9b0;'>%1</span>").arg(QFileInfo(d).fileName().toHtmlEscaped());
-        } else if (toolName.contains(QLatin1String("create"))) {
-            icon = QStringLiteral("+");
-            desc = fn.isEmpty() ? QStringLiteral("Created file")
-                : QStringLiteral("Created <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#4ec9b0;'>%1</span>").arg(fn.toHtmlEscaped());
-        } else if (toolName.contains(QLatin1String("replace")) || toolName.contains(QLatin1String("edit"))) {
-            icon = QStringLiteral("&#9998;"); // pencil
-            desc = fn.isEmpty() ? QStringLiteral("Edited file")
-                : QStringLiteral("Edited <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#4ec9b0;'>%1</span>").arg(fn.toHtmlEscaped());
+            if (!d.isEmpty())
+                detail = QFileInfo(d).fileName().toHtmlEscaped();
+        } else if (toolName.contains(QLatin1String("create"))
+                || toolName.contains(QLatin1String("replace"))
+                || toolName.contains(QLatin1String("edit"))) {
+            if (!fn.isEmpty())
+                detail = fn.toHtmlEscaped();
         } else if (toolName.contains(QLatin1String("terminal")) || toolName.contains(QLatin1String("run"))) {
-            icon = QStringLiteral("&gt;");
-            const QString cmd = args[QLatin1String("command")].toString().left(50);
-            desc = cmd.isEmpty() ? QStringLiteral("Ran command")
-                : QStringLiteral("Ran <span style='background:#2d2d30;padding:0 4px;border-radius:2px;color:#ce9178;'>%1</span>").arg(cmd.toHtmlEscaped());
+            const QString cmd = args[QLatin1String("command")].toString().left(80);
+            if (!cmd.isEmpty())
+                detail = cmd.toHtmlEscaped();
         } else {
-            // Fallback: tool name + first meaningful arg
             for (const auto &k : {QLatin1String("path"), QLatin1String("query"), QLatin1String("command")}) {
                 const QString v = args[k].toString();
                 if (!v.isEmpty()) {
-                    desc = QStringLiteral("%1: %2").arg(toolName.toHtmlEscaped(), v.left(50).toHtmlEscaped());
+                    detail = v.left(80).toHtmlEscaped();
                     break;
                 }
             }
-            if (desc.isEmpty()) desc = toolName.toHtmlEscaped();
         }
+
+        QString desc = info.invocationMessage.isEmpty()
+            ? toolName.toHtmlEscaped()
+            : info.invocationMessage.toHtmlEscaped();
+        if (!detail.isEmpty())
+            desc += QStringLiteral(" ") + detail;
+
+        const QString icon = info.icon.isEmpty()
+            ? QStringLiteral("•")
+            : info.icon;
 
         WorkingStep step;
         step.toolName = toolName;
@@ -740,6 +741,7 @@ void AgentChatPanel::setAgentController(AgentController *controller)
     connect(m_agentController, &AgentController::toolCallFinished,
             this, [this](const QString &toolName, const ToolExecResult &result) {
         // Find the last unfinished step for this tool and mark it done
+        const auto info = ToolPresentation::present(toolName);
         for (int i = m_workingSteps.size() - 1; i >= 0; --i) {
             auto &step = m_workingSteps[i];
             if (step.toolName == toolName && !step.finished) {
@@ -751,6 +753,8 @@ void AgentChatPanel::setAgentController(AgentController *controller)
                         || toolName.contains(QLatin1String("search"))) {
                     const int count = result.textContent.count(QLatin1Char('\n'));
                     if (count > 0) step.result = tr("%1 results").arg(count);
+                } else if (!info.pastTenseMessage.isEmpty()) {
+                    step.result = info.pastTenseMessage;
                 }
                 break;
             }
@@ -1141,41 +1145,52 @@ void AgentChatPanel::onSend()
     if (agentMode && m_agentController) {
         m_agentController->newSession(true);
 
-        // Wire streaming for this turn
-        auto deltaConn = std::make_shared<QMetaObject::Connection>();
-        *deltaConn = connect(m_agentController, &AgentController::streamingDelta,
-                             this, [this, deltaConn](const QString &chunk) {
-            onResponseDelta(m_pendingRequestId, chunk);
-        });
+        // Disconnect any leftover connections from a previous agent turn
+        for (auto &c : m_agentConns)
+            disconnect(c);
+        m_agentConns.clear();
 
-        auto finishConn = std::make_shared<QMetaObject::Connection>();
-        *finishConn = connect(m_agentController, &AgentController::turnFinished,
-                              this, [this, deltaConn, finishConn](const AgentTurn &turn) {
-            disconnect(*deltaConn);
-            disconnect(*finishConn);
+        // Capture the request ID by value so stale signals are ignored
+        const QString reqId = m_pendingRequestId;
 
-            const QString responseText = m_pendingAccum.isEmpty()
-                ? (turn.steps.isEmpty() ? QString() : turn.steps.last().finalText)
-                : m_pendingAccum;
+        m_agentConns.append(
+            connect(m_agentController, &AgentController::streamingDelta,
+                    this, [this, reqId](const QString &chunk) {
+                if (reqId != m_pendingRequestId) return;
+                onResponseDelta(reqId, chunk);
+            }));
 
-            AgentResponse resp;
-            resp.requestId = m_pendingRequestId;
-            resp.text = responseText;
-            onResponseFinished(m_pendingRequestId, resp);
-        });
+        m_agentConns.append(
+            connect(m_agentController, &AgentController::turnFinished,
+                    this, [this, reqId](const AgentTurn &turn) {
+                if (reqId != m_pendingRequestId) return;
 
-        auto errorConn = std::make_shared<QMetaObject::Connection>();
-        *errorConn = connect(m_agentController, &AgentController::turnError,
-                             this, [this, deltaConn, finishConn, errorConn](const QString &msg) {
-            disconnect(*deltaConn);
-            disconnect(*finishConn);
-            disconnect(*errorConn);
+                for (auto &c : m_agentConns) disconnect(c);
+                m_agentConns.clear();
 
-            AgentError err;
-            err.requestId = m_pendingRequestId;
-            err.message = msg;
-            onResponseError(m_pendingRequestId, err);
-        });
+                const QString responseText = m_pendingAccum.isEmpty()
+                    ? (turn.steps.isEmpty() ? QString() : turn.steps.last().finalText)
+                    : m_pendingAccum;
+
+                AgentResponse resp;
+                resp.requestId = reqId;
+                resp.text = responseText;
+                onResponseFinished(reqId, resp);
+            }));
+
+        m_agentConns.append(
+            connect(m_agentController, &AgentController::turnError,
+                    this, [this, reqId](const QString &msg) {
+                if (reqId != m_pendingRequestId) return;
+
+                for (auto &c : m_agentConns) disconnect(c);
+                m_agentConns.clear();
+
+                AgentError err;
+                err.requestId = reqId;
+                err.message = msg;
+                onResponseError(reqId, err);
+            }));
 
         m_agentController->sendMessage(effectiveText, m_activeFilePath,
                                        m_selectedText, m_languageId, intent);
@@ -1199,6 +1214,11 @@ void AgentChatPanel::onSend()
 void AgentChatPanel::onCancel()
 {
     if (!m_pendingRequestId.isEmpty()) {
+        // Disconnect agent-mode connections BEFORE clearing state
+        for (auto &c : m_agentConns)
+            disconnect(c);
+        m_agentConns.clear();
+
         m_orchestrator->cancelRequest(m_pendingRequestId);
         m_pendingRequestId.clear();
         hideWorkingIndicator();
@@ -1222,16 +1242,16 @@ void AgentChatPanel::onResponseDelta(const QString &requestId, const QString &ch
     if (m_workingSectionActive)
         finalizeWorkingSection();
 
-    // Lazily record where streaming content should start BEFORE hiding the
-    // working bar (which triggers a layout resize that could affect positions).
+    // On first delta, plant a QTextCursor bookmark at the end of the document.
+    // Unlike an int position, a QTextCursor tracks its position automatically
+    // as insertions occur elsewhere in the document.
     if (!m_streamStarted) {
         m_streamStarted = true;
-        QTextCursor temp(m_history->document());
-        temp.movePosition(QTextCursor::End);
-        m_streamAnchorPos = temp.position();
+        m_streamCursor = QTextCursor(m_history->document());
+        m_streamCursor.movePosition(QTextCursor::End);
     }
 
-    // Now safe to hide working indicator (layout shift happens after anchor is set)
+    // Now safe to hide working indicator (layout shift happens after bookmark)
     hideWorkingIndicator();
 
     updateStreamingContent();
@@ -1248,13 +1268,12 @@ void AgentChatPanel::onThinkingDelta(const QString &requestId, const QString &ch
     if (m_workingSectionActive)
         finalizeWorkingSection();
 
-    // On first thinking chunk, set up the live thinking anchor
+    // On first thinking chunk, plant a bookmark
     if (!m_thinkingStreamStarted) {
         m_thinkingStreamStarted = true;
         hideWorkingIndicator();
-        QTextCursor temp(m_history->document());
-        temp.movePosition(QTextCursor::End);
-        m_thinkingAnchorPos = temp.position();
+        m_thinkingCursor = QTextCursor(m_history->document());
+        m_thinkingCursor.movePosition(QTextCursor::End);
     }
 
     updateThinkingContent();
@@ -1396,11 +1415,11 @@ void AgentChatPanel::onResponseFinished(const QString &requestId,
     m_pendingAccum.clear();
     m_thinkingAccum.clear();
     m_streamStarted           = false;
-    m_streamAnchorPos         = 0;
+    m_streamCursor            = QTextCursor();
     m_thinkingStreamStarted   = false;
-    m_thinkingAnchorPos       = 0;
+    m_thinkingCursor          = QTextCursor();
     m_workingSectionActive    = false;
-    m_workingSectionAnchor    = 0;
+    m_workingCursor           = QTextCursor();
     m_workingSteps.clear();
     hideWorkingIndicator();
     setInputEnabled(true);
@@ -1484,8 +1503,7 @@ void AgentChatPanel::onResponseError(const QString &requestId,
 
     // If streaming was in progress, replace the accumulated text with the error
     if (m_streamStarted) {
-        QTextCursor c(m_history->document());
-        c.setPosition(m_streamAnchorPos, QTextCursor::MoveAnchor);
+        QTextCursor c(m_streamCursor);
         c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
         c.insertHtml(errHtml);
     } else {
@@ -1496,11 +1514,11 @@ void AgentChatPanel::onResponseError(const QString &requestId,
     m_pendingAccum.clear();
     m_thinkingAccum.clear();
     m_streamStarted           = false;
-    m_streamAnchorPos         = 0;
+    m_streamCursor            = QTextCursor();
     m_thinkingStreamStarted   = false;
-    m_thinkingAnchorPos       = 0;
+    m_thinkingCursor          = QTextCursor();
     m_workingSectionActive    = false;
-    m_workingSectionAnchor    = 0;
+    m_workingCursor           = QTextCursor();
     m_workingSteps.clear();
     hideWorkingIndicator();
     setInputEnabled(true);
@@ -1698,9 +1716,8 @@ void AgentChatPanel::appendMessage(const QString &role, const QString &html)
 
 void AgentChatPanel::updateStreamingContent()
 {
-    // Build streaming HTML: plain text with a blinking cursor indicator
-    const QString safeText = m_pendingAccum.toHtmlEscaped()
-        .replace(QStringLiteral("\n"), QStringLiteral("<br>"));
+    // Render accumulated markdown in real time (not just escaped text)
+    const QString rendered = MarkdownRenderer::toHtml(m_pendingAccum);
 
     const QString streamHtml = QStringLiteral(
         "<table class='msg-table'><tr>"
@@ -1709,17 +1726,12 @@ void AgentChatPanel::updateStreamingContent()
         "<td class='content-cell'>"
         "<div class='who ai'>Copilot</div>"
         "<div class='body'>"
-        "<span style='color:#d4d4d4;white-space:pre-wrap;'>%1</span>"
+        "%1"
         "<span style='color:#007acc;'>&#9607;</span>"
-        "</div></td></tr></table>").arg(safeText);
+        "</div></td></tr></table>").arg(rendered);
 
-    // Guard: if anchor exceeds document length (shouldn't happen but be safe)
-    const int docLen = m_history->document()->characterCount();
-    if (m_streamAnchorPos > docLen)
-        m_streamAnchorPos = docLen > 0 ? docLen - 1 : 0;
-
-    QTextCursor c(m_history->document());
-    c.setPosition(m_streamAnchorPos, QTextCursor::MoveAnchor);
+    // Use saved QTextCursor bookmark → select to end and replace
+    QTextCursor c(m_streamCursor);
     c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
     c.insertHtml(streamHtml);
 
@@ -1744,8 +1756,7 @@ void AgentChatPanel::finalizeStreamingBubble(const QString &/*markdownText*/,
             "<div class='body'>%1</div>"
             "</td></tr></table>").arg(renderedHtml);
 
-        QTextCursor c(m_history->document());
-        c.setPosition(m_streamAnchorPos, QTextCursor::MoveAnchor);
+        QTextCursor c(m_streamCursor);
         c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
         c.insertHtml(finalHtml);
     } else {
@@ -1774,12 +1785,7 @@ void AgentChatPanel::updateThinkingContent()
         "<span style='color:#5a4fcf;'>\u2588</span>"
         "</div></div>").arg(safeText);
 
-    const int docLen = m_history->document()->characterCount();
-    if (m_thinkingAnchorPos > docLen)
-        m_thinkingAnchorPos = docLen > 0 ? docLen - 1 : 0;
-
-    QTextCursor c(m_history->document());
-    c.setPosition(m_thinkingAnchorPos, QTextCursor::MoveAnchor);
+    QTextCursor c(m_thinkingCursor);
     c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
     c.insertHtml(thinkHtml);
 
@@ -1803,17 +1809,12 @@ void AgentChatPanel::finalizeThinkingBubble()
         "<div style='margin-top:4px;white-space:pre-wrap;'>%1</div>"
         "</div>").arg(safeText);
 
-    const int docLen = m_history->document()->characterCount();
-    if (m_thinkingAnchorPos > docLen)
-        m_thinkingAnchorPos = docLen > 0 ? docLen - 1 : 0;
-
-    QTextCursor c(m_history->document());
-    c.setPosition(m_thinkingAnchorPos, QTextCursor::MoveAnchor);
+    QTextCursor c(m_thinkingCursor);
     c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
     c.insertHtml(finalHtml);
 
     m_thinkingStreamStarted = false;
-    m_thinkingAnchorPos     = 0;
+    m_thinkingCursor        = QTextCursor();
 }
 
 // ── Working section (VS Code-style tool activity display) ───────────────────
@@ -1848,12 +1849,7 @@ void AgentChatPanel::updateWorkingSection()
         "<div style='border-left:2px solid #3e3e42;padding-left:8px;margin-left:4px;'>"
         "%1</div></div>").arg(stepsHtml);
 
-    const int docLen = m_history->document()->characterCount();
-    if (m_workingSectionAnchor > docLen)
-        m_workingSectionAnchor = docLen > 0 ? docLen - 1 : 0;
-
-    QTextCursor c(m_history->document());
-    c.setPosition(m_workingSectionAnchor, QTextCursor::MoveAnchor);
+    QTextCursor c(m_workingCursor);
     c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
     c.insertHtml(html);
 
@@ -1888,17 +1884,12 @@ void AgentChatPanel::finalizeWorkingSection()
         "<div style='border-left:2px solid #3e3e42;padding-left:8px;margin-left:4px;'>"
         "%1</div></div>").arg(stepsHtml);
 
-    const int docLen = m_history->document()->characterCount();
-    if (m_workingSectionAnchor > docLen)
-        m_workingSectionAnchor = docLen > 0 ? docLen - 1 : 0;
-
-    QTextCursor c(m_history->document());
-    c.setPosition(m_workingSectionAnchor, QTextCursor::MoveAnchor);
+    QTextCursor c(m_workingCursor);
     c.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
     c.insertHtml(html);
 
     m_workingSectionActive = false;
-    m_workingSectionAnchor = 0;
+    m_workingCursor        = QTextCursor();
     m_workingSteps.clear();
 }
 
@@ -2703,7 +2694,7 @@ void AgentChatPanel::hideSlashMenu()
 
 void AgentChatPanel::showMentionMenu(const QString &trigger, const QString &filter)
 {
-    if (!m_workspaceFileFn) {
+    if (!m_workspaceFileFn && !(trigger == QLatin1String("#") && m_varResolver)) {
         hideMentionMenu();
         return;
     }
@@ -2711,28 +2702,42 @@ void AgentChatPanel::showMentionMenu(const QString &trigger, const QString &filt
     m_mentionTrigger = trigger;
     m_mentionMenu->clear();
 
-    const QStringList files = m_workspaceFileFn();
     const QString lowerFilter = filter.toLower();
     int shown = 0;
 
-    for (const QString &absPath : files) {
-        // Show relative path for display
-        const QFileInfo fi(absPath);
-        const QString display = fi.fileName();
-        const QString relPath = absPath; // provider gives relative paths
-        if (!lowerFilter.isEmpty()
-            && !display.toLower().contains(lowerFilter)
-            && !relPath.toLower().contains(lowerFilter))
-            continue;
+    if (trigger == QLatin1String("#") && m_varResolver) {
+        const auto vars = m_varResolver->matchingVars(filter);
+        for (const auto &var : vars) {
+            auto *item = new QListWidgetItem(
+                QStringLiteral("#%1  -  %2").arg(var.token, var.description));
+            item->setData(Qt::UserRole, var.token);
+            item->setData(Qt::UserRole + 2, true);
+            m_mentionMenu->addItem(item);
+            if (++shown >= 8) break;
+        }
+    }
 
-        auto *item = new QListWidgetItem(
-            trigger == QLatin1String("#")
-                ? QStringLiteral("📄 %1").arg(relPath)
-                : QStringLiteral("@file:%1").arg(relPath));
-        item->setData(Qt::UserRole, relPath);     // relative path
-        item->setData(Qt::UserRole + 1, absPath); // absolute path
-        m_mentionMenu->addItem(item);
-        if (++shown >= 15) break;
+    if (m_workspaceFileFn) {
+        const QStringList files = m_workspaceFileFn();
+        for (const QString &absPath : files) {
+            // Show relative path for display
+            const QFileInfo fi(absPath);
+            const QString display = fi.fileName();
+            const QString relPath = absPath; // provider gives relative paths
+            if (!lowerFilter.isEmpty()
+                && !display.toLower().contains(lowerFilter)
+                && !relPath.toLower().contains(lowerFilter))
+                continue;
+
+            auto *item = new QListWidgetItem(
+                trigger == QLatin1String("#")
+                    ? QStringLiteral("#%1").arg(relPath)
+                    : QStringLiteral("@file:%1").arg(relPath));
+            item->setData(Qt::UserRole, relPath);     // relative path
+            item->setData(Qt::UserRole + 1, absPath); // absolute path
+            m_mentionMenu->addItem(item);
+            if (++shown >= 15) break;
+        }
     }
 
     if (shown == 0) {

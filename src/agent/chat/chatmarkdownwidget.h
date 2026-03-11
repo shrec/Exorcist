@@ -10,7 +10,7 @@
 
 #include "chatcontentpart.h"
 #include "chatthemetokens.h"
-#include "../markdownrenderer.h"
+#include "../../ui/markdownrenderer.h"
 
 // ── ChatMarkdownWidget ────────────────────────────────────────────────────────
 //
@@ -117,21 +117,21 @@ private:
     static QString defaultCss()
     {
         return QStringLiteral(
-            "body { color:%1; font-family:%2; font-size:%3px; line-height:1.4; }"
-            "pre { background:%4; padding:10px 12px; border-radius:0 0 2px 2px;"
-            "  border-left:3px solid #0e639c;"
-            "  font-family:%5; font-size:14px; margin:0 0 6px 0; white-space:pre-wrap; }"
-            "code { color:%6; font-family:%5; font-size:13px;"
-            "  background:%7; padding:1px 4px; border-radius:3px; }"
-            ".code-header { background:%8; border-radius:2px 2px 0 0;"
-            "  padding:4px 10px; margin:6px 0 0 0; font-size:11px; color:%9; }"
+            "body { color:%1; font-family:%2; font-size:%3px; line-height:1.55; }"
+            "pre { background:%4; padding:10px 12px; border-radius:0 0 4px 4px;"
+            "  border-left:3px solid %11;"
+            "  font-family:%5; font-size:13px; margin:0 0 8px 0; white-space:pre-wrap; }"
+            "code { color:%6; font-family:%5; font-size:12px;"
+            "  background:%7; padding:2px 6px; border-radius:3px; }"
+            ".code-header { background:%8; border-radius:4px 4px 0 0;"
+            "  padding:5px 10px; margin:8px 0 0 0; font-size:11px; color:%9; }"
             ".code-lang { color:%10; font-weight:600; }"
             ".code-header-actions a { color:%10; font-size:11px; margin-left:8px; }"
             "a { color:%11; text-decoration:none; }"
             "a:hover { color:%12; text-decoration:underline; }"
-            "blockquote { border-left:3px solid %12; padding:4px 12px;"
-            "  margin:6px 0; color:%9; background:%4; }"
-            "table.data { border-collapse:collapse; margin:6px 0; width:100%%; }"
+            "blockquote { border-left:3px solid %12; padding:6px 14px;"
+            "  margin:8px 0; color:%9; background:%4; border-radius:0 4px 4px 0; }"
+            "table.data { border-collapse:collapse; margin:8px 0; width:100%%; }"
             "th { background:%8; color:%10; padding:5px 10px; text-align:left;"
             "  font-size:12px; border-bottom:1px solid %13; }"
             "td { padding:4px 10px; font-size:12px; border-bottom:1px solid %14; }"

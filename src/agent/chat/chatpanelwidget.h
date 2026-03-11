@@ -21,6 +21,7 @@ class AgentOrchestrator;
 class AgentController;
 class ChatSessionService;
 class ContextBuilder;
+class ModelRegistry;
 class PromptVariableResolver;
 class SessionStore;
 
@@ -80,8 +81,17 @@ public:
     void setInputText(const QString &text);
     void setInputEnabled(bool enabled);
     void setWorkspaceRoot(const QString &root) { m_workspaceRoot = root; }
+    void setModelRegistry(ModelRegistry *registry) { m_modelRegistry = registry; }
+    void setToolCount(int count);
     void attachSelection(const QString &text, const QString &filePath, int startLine);
     void attachDiagnostics(const QList<AgentDiagnostic> &diagnostics);
+    void restoreSessionTurns(const QJsonArray &completeTurns);
+    void restoreSession(const QString &sessionId,
+                        const QJsonArray &completeTurns,
+                        int mode,
+                        const QString &title,
+                        const QString &modelId,
+                        const QString &providerId);
 
 signals:
     void settingsRequested();
@@ -100,7 +110,7 @@ private slots:
     void onResponseFinished(const QString &requestId, const AgentResponse &response);
     void onResponseError(const QString &requestId, const AgentError &error);
     void onFollowupClicked(const QString &message);
-    void onToolConfirmed(const QString &callId, bool allowed);
+    void onToolConfirmed(const QString &callId, int approval);
     void onFeedback(const QString &turnId, bool helpful);
     void onNewSession();
     void onShowHistory();
@@ -118,7 +128,6 @@ private:
     void showChangesBar(int editCount);
     void hideChangesBar();
     void persistCompletedTurn(int turnIndex);
-    void restoreSessionTurns(const QJsonArray &completeTurns);
     QString resolveSlashCommand(const QString &text, AgentIntent &intent) const;
 
     // Context
@@ -128,6 +137,7 @@ private:
     PromptVariableResolver*m_varResolver      = nullptr;
     SessionStore          *m_sessionStore     = nullptr;
     ChatSessionService    *m_chatSessionService = nullptr;
+    ModelRegistry         *m_modelRegistry   = nullptr;
 
     // Data
     ChatSessionModel      *m_sessionModel     = nullptr;
@@ -177,6 +187,10 @@ private:
 
     // Pending diagnostics for next request
     QList<AgentDiagnostic> m_pendingDiagnostics;
+
+    // Agent-mode signal connections (disconnected after each turn)
+    QList<QMetaObject::Connection> m_agentConns;
+    bool m_agentSessionActive = false;
 
     // Tool confirmation bridge (synchronous callback → async UI)
     QString m_pendingConfirmCallId;

@@ -100,6 +100,12 @@ QString TerminalPanel::recentOutput(int maxLines) const
     return term ? term->recentOutput(maxLines) : QString();
 }
 
+QString TerminalPanel::selectedText() const
+{
+    auto *term = currentTerminal();
+    return term ? term->selectedText() : QString();
+}
+
 bool TerminalPanel::eventFilter(QObject *obj, QEvent *event)
 {
     if (obj == m_tabs->tabBar() && event->type() == QEvent::MouseButtonDblClick) {

@@ -6,6 +6,7 @@
 #include <QRegularExpression>
 #include <QTimer>
 #include <QDir>
+#include <QtConcurrent>
 
 GitService::GitService(QObject *parent)
     : QObject(parent),
@@ -15,7 +16,7 @@ GitService::GitService(QObject *parent)
 {
     m_refreshTimer->setSingleShot(true);
     m_refreshTimer->setInterval(200);
-    connect(m_refreshTimer, &QTimer::timeout, this, &GitService::refresh);
+    connect(m_refreshTimer, &QTimer::timeout, this, &GitService::refreshAsync);
     connect(m_watcher, &QFileSystemWatcher::fileChanged, this, [this]() {
         m_refreshTimer->start();
     });
@@ -23,6 +24,8 @@ GitService::GitService(QObject *parent)
 
 void GitService::setWorkingDirectory(const QString &path)
 {
+    // This runs once on folder open — acceptable short block (< 2s).
+    // Future: could make async with callback chain.
     QProcess proc;
     proc.setWorkingDirectory(path);
     proc.start("git", {"rev-parse", "--show-toplevel"});
@@ -47,7 +50,7 @@ void GitService::setWorkingDirectory(const QString &path)
     m_isRepo = true;
     m_gitRoot = QString::fromUtf8(out).trimmed();
     resetWatcher();
-    refresh();
+    refreshAsync();
 }
 
 QString GitService::currentBranch() const
@@ -79,7 +82,7 @@ bool GitService::stageFile(const QString &absPath)
 {
     QString out;
     const bool ok = runGit({"add", "--", toRelativePath(absPath)}, &out);
-    refresh();
+    refreshAsync();
     return ok;
 }
 
@@ -87,7 +90,7 @@ bool GitService::unstageFile(const QString &absPath)
 {
     QString out;
     const bool ok = runGit({"restore", "--staged", "--", toRelativePath(absPath)}, &out);
-    refresh();
+    refreshAsync();
     return ok;
 }
 
@@ -98,7 +101,7 @@ bool GitService::commit(const QString &message)
     }
     QString out;
     const bool ok = runGit({"commit", "-m", message}, &out);
-    refresh();
+    refreshAsync();
     return ok;
 }
 
@@ -155,7 +158,6 @@ QList<GitService::LineChangeRange> GitService::lineChanges(const QString &absFil
 
         const QChar prefix = line[0];
         if (prefix == QLatin1Char('+')) {
-            // Added or modified line
             if (!result.isEmpty() &&
                 result.last().type == LineChange::Added &&
                 result.last().startLine + result.last().lineCount == newLine) {
@@ -165,7 +167,6 @@ QList<GitService::LineChangeRange> GitService::lineChanges(const QString &absFil
             }
             ++newLine;
         } else if (prefix == QLatin1Char('-')) {
-            // Deleted line — marker at current position
             if (!result.isEmpty() &&
                 result.last().type == LineChange::Deleted &&
                 result.last().startLine == newLine) {
@@ -206,7 +207,6 @@ QStringList GitService::conflictFiles() const
     QStringList result;
     for (auto it = m_statusCache.begin(); it != m_statusCache.end(); ++it) {
         const QString &status = it.value();
-        // Unmerged statuses: UU, AA, DD, AU, UA, DU, UD
         if (status == QLatin1String("UU") || status == QLatin1String("AA") ||
             status == QLatin1String("DD") || status == QLatin1String("AU") ||
             status == QLatin1String("UA") || status == QLatin1String("DU") ||
@@ -240,7 +240,7 @@ QStringList GitService::localBranches() const
     const QStringList lines = QString::fromUtf8(proc.readAllStandardOutput())
                                   .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     for (const QString &line : lines) {
-        QString name = line.mid(2).trimmed(); // strip "* " or "  " prefix
+        QString name = line.mid(2).trimmed();
         if (!name.isEmpty())
             branches.append(name);
     }
@@ -252,7 +252,7 @@ bool GitService::checkoutBranch(const QString &branchName)
     QString out;
     const bool ok = runGit({QStringLiteral("checkout"), branchName}, &out);
     if (ok)
-        refresh();
+        refreshAsync();
     return ok;
 }
 
@@ -261,7 +261,7 @@ bool GitService::createBranch(const QString &branchName)
     QString out;
     const bool ok = runGit({QStringLiteral("checkout"), QStringLiteral("-b"), branchName}, &out);
     if (ok)
-        refresh();
+        refreshAsync();
     return ok;
 }
 
@@ -274,7 +274,6 @@ QList<GitService::BlameEntry> GitService::blame(const QString &absFilePath) cons
     QProcess proc;
     proc.setWorkingDirectory(m_gitRoot);
     const QString rel = QDir(m_gitRoot).relativeFilePath(absFilePath);
-    // --porcelain gives structured output
     proc.start(QStringLiteral("git"),
                {QStringLiteral("blame"), QStringLiteral("--porcelain"), rel});
     proc.waitForFinished(30000);
@@ -282,56 +281,7 @@ QList<GitService::BlameEntry> GitService::blame(const QString &absFilePath) cons
         return result;
 
     const QString out = QString::fromUtf8(proc.readAllStandardOutput());
-    const QStringList lines = out.split(QLatin1Char('\n'));
-
-    // Porcelain format: first line of each block is
-    // "<hash> <origLine> <finalLine> <numLines>"
-    // followed by header lines, then a tab-prefixed content line
-    static const QRegularExpression headerRx(
-        QStringLiteral(R"(^([0-9a-f]{40}) \d+ (\d+))"));
-
-    QHash<QString, BlameEntry> commitCache; // hash → partial entry
-    QString currentHash;
-    int currentLine = 0;
-
-    for (const QString &line : lines) {
-        auto m = headerRx.match(line);
-        if (m.hasMatch()) {
-            currentHash = m.captured(1);
-            currentLine = m.captured(2).toInt();
-            if (!commitCache.contains(currentHash)) {
-                BlameEntry e;
-                e.commitHash = currentHash;
-                commitCache.insert(currentHash, e);
-            }
-            continue;
-        }
-        if (currentHash.isEmpty()) continue;
-
-        if (line.startsWith(QLatin1String("author ")))
-            commitCache[currentHash].author = line.mid(7);
-        else if (line.startsWith(QLatin1String("author-time ")))
-            ; // skip raw timestamp
-        else if (line.startsWith(QLatin1String("committer-time ")))
-            ; // skip
-        else if (line.startsWith(QLatin1String("summary ")))
-            commitCache[currentHash].summary = line.mid(8);
-        else if (line.startsWith(QLatin1String("author-mail ")))
-            ; // skip
-        else if (line.startsWith(QLatin1String("committer-tz ")))
-            ; // skip
-        else if (line.startsWith(QLatin1Char('\t'))) {
-            // Content line → emit entry
-            BlameEntry entry = commitCache.value(currentHash);
-            entry.line = currentLine;
-            // Build short date from author-time if available
-            if (entry.date.isEmpty() && !entry.author.isEmpty())
-                entry.date = entry.commitHash.left(8);
-            result.append(entry);
-        }
-    }
-
-    return result;
+    return parseBlameOutput(out);
 }
 
 QString GitService::showAtHead(const QString &absFilePath) const
@@ -348,6 +298,141 @@ QString GitService::showAtHead(const QString &absFilePath) const
         return {};
     return QString::fromUtf8(proc.readAllStandardOutput());
 }
+
+// ── Async variants (Manifesto #2: never block UI thread) ─────────────────────
+
+void GitService::blameAsync(const QString &absFilePath)
+{
+    if (!m_isRepo || m_gitRoot.isEmpty()) {
+        emit blameReady(absFilePath, {});
+        return;
+    }
+    const QString gitRoot = m_gitRoot;
+    const QString rel = QDir(gitRoot).relativeFilePath(absFilePath);
+    QtConcurrent::run([gitRoot, rel, absFilePath, this]() {
+        QProcess proc;
+        proc.setWorkingDirectory(gitRoot);
+        proc.start(QStringLiteral("git"),
+                   {QStringLiteral("blame"), QStringLiteral("--porcelain"), rel});
+        proc.waitForFinished(30000);
+        QList<BlameEntry> entries;
+        if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0)
+            entries = parseBlameOutput(QString::fromUtf8(proc.readAllStandardOutput()));
+        QMetaObject::invokeMethod(this, [this, absFilePath, entries]() {
+            emit blameReady(absFilePath, entries);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void GitService::diffAsync(const QString &filePath)
+{
+    if (!m_isRepo || m_gitRoot.isEmpty()) {
+        emit diffReady(filePath, {});
+        return;
+    }
+    const QString gitRoot = m_gitRoot;
+    QtConcurrent::run([gitRoot, filePath, this]() {
+        QProcess proc;
+        proc.setWorkingDirectory(gitRoot);
+        QStringList args{QStringLiteral("diff"), QStringLiteral("HEAD")};
+        if (!filePath.isEmpty())
+            args << QStringLiteral("--") << QDir(gitRoot).relativeFilePath(filePath);
+        proc.start(QStringLiteral("git"), args);
+        proc.waitForFinished(10000);
+        QString result;
+        if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0)
+            result = QString::fromUtf8(proc.readAllStandardOutput());
+        QMetaObject::invokeMethod(this, [this, filePath, result]() {
+            emit diffReady(filePath, result);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void GitService::showAtHeadAsync(const QString &absFilePath)
+{
+    if (!m_isRepo || m_gitRoot.isEmpty()) {
+        emit showAtHeadReady(absFilePath, {});
+        return;
+    }
+    const QString gitRoot = m_gitRoot;
+    const QString relPath = QDir(gitRoot).relativeFilePath(absFilePath);
+    QtConcurrent::run([gitRoot, relPath, absFilePath, this]() {
+        QProcess proc;
+        proc.setWorkingDirectory(gitRoot);
+        proc.start(QStringLiteral("git"),
+                   {QStringLiteral("show"), QStringLiteral("HEAD:") + relPath});
+        proc.waitForFinished(10000);
+        QString content;
+        if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0)
+            content = QString::fromUtf8(proc.readAllStandardOutput());
+        QMetaObject::invokeMethod(this, [this, absFilePath, content]() {
+            emit showAtHeadReady(absFilePath, content);
+        }, Qt::QueuedConnection);
+    });
+}
+
+// ── Async refresh (called by file watcher timer) ─────────────────────────────
+
+void GitService::refreshAsync()
+{
+    if (!m_isRepo || m_gitRoot.isEmpty())
+        return;
+
+    const QString gitRoot = m_gitRoot;
+    QtConcurrent::run([gitRoot, this]() {
+        // Run status
+        QProcess statusProc;
+        statusProc.setWorkingDirectory(gitRoot);
+        statusProc.start(QStringLiteral("git"),
+                         {QStringLiteral("status"), QStringLiteral("--porcelain=v1"),
+                          QStringLiteral("-uall")});
+        statusProc.waitForFinished(5000);
+        const QString statusOut = (statusProc.exitStatus() == QProcess::NormalExit
+                                   && statusProc.exitCode() == 0)
+            ? QString::fromUtf8(statusProc.readAllStandardOutput()) : QString();
+
+        // Run branch
+        QProcess branchProc;
+        branchProc.setWorkingDirectory(gitRoot);
+        branchProc.start(QStringLiteral("git"),
+                         {QStringLiteral("branch"), QStringLiteral("--show-current")});
+        branchProc.waitForFinished(2000);
+        const QString branchOut = (branchProc.exitStatus() == QProcess::NormalExit
+                                   && branchProc.exitCode() == 0)
+            ? QString::fromUtf8(branchProc.readAllStandardOutput()) : QString();
+
+        // Post results back to main thread
+        QMetaObject::invokeMethod(this, [this, gitRoot, statusOut, branchOut]() {
+            if (m_gitRoot != gitRoot) return; // directory changed since
+
+            if (!statusOut.isNull()) {
+                m_statusCache.clear();
+                const QStringList lines = statusOut.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+                for (const QString &line : lines) {
+                    if (line.size() < 3) continue;
+                    const QString status = line.left(2);
+                    QString path = line.mid(3).trimmed();
+                    if (path.contains(QLatin1String(" -> ")))
+                        path = path.section(QLatin1String(" -> "), 1, 1);
+                    const QString absPath = QDir(m_gitRoot).absoluteFilePath(path);
+                    m_statusCache.insert(absPath, status);
+                }
+            }
+
+            if (!branchOut.isNull()) {
+                const QString branch = branchOut.trimmed();
+                if (branch != m_branch) {
+                    m_branch = branch;
+                    emit branchChanged(m_branch);
+                }
+            }
+
+            emit statusRefreshed();
+        }, Qt::QueuedConnection);
+    });
+}
+
+// ── Sync internals (used by stage/unstage/commit which need immediate result) ─
 
 void GitService::refresh()
 {
@@ -428,4 +513,47 @@ void GitService::resetWatcher()
     if (!files.isEmpty()) {
         m_watcher->addPaths(files);
     }
+}
+
+// ── Blame output parser (shared by sync and async) ───────────────────────────
+
+QList<GitService::BlameEntry> GitService::parseBlameOutput(const QString &out)
+{
+    QList<BlameEntry> result;
+    static const QRegularExpression headerRx(
+        QStringLiteral(R"(^([0-9a-f]{40}) \d+ (\d+))"));
+
+    QHash<QString, BlameEntry> commitCache;
+    QString currentHash;
+    int currentLine = 0;
+
+    const QStringList lines = out.split(QLatin1Char('\n'));
+    for (const QString &line : lines) {
+        auto m = headerRx.match(line);
+        if (m.hasMatch()) {
+            currentHash = m.captured(1);
+            currentLine = m.captured(2).toInt();
+            if (!commitCache.contains(currentHash)) {
+                BlameEntry e;
+                e.commitHash = currentHash;
+                commitCache.insert(currentHash, e);
+            }
+            continue;
+        }
+        if (currentHash.isEmpty()) continue;
+
+        if (line.startsWith(QLatin1String("author ")))
+            commitCache[currentHash].author = line.mid(7);
+        else if (line.startsWith(QLatin1String("summary ")))
+            commitCache[currentHash].summary = line.mid(8);
+        else if (line.startsWith(QLatin1Char('\t'))) {
+            BlameEntry entry = commitCache.value(currentHash);
+            entry.line = currentLine;
+            if (entry.date.isEmpty() && !entry.author.isEmpty())
+                entry.date = entry.commitHash.left(8);
+            result.append(entry);
+        }
+    }
+
+    return result;
 }

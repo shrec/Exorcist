@@ -1,5 +1,5 @@
 #include "inlinecompletionengine.h"
-#include "editorview.h"
+#include "../editor/editorview.h"
 #include "../aiinterface.h"
 
 #include <QTextBlock>

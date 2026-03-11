@@ -2,6 +2,7 @@
 
 #include <QAbstractItemModel>
 #include <QFileIconProvider>
+#include <QFileSystemWatcher>
 #include <memory>
 #include <vector>
 
@@ -36,6 +37,10 @@ public:
 public slots:
     void refreshGitOverlays();
     void rebuildFromSolution();
+    void refreshDirectory(const QModelIndex &index);
+
+private slots:
+    void onDirectoryChanged(const QString &path);
 
 private:
     struct TreeNode {
@@ -52,10 +57,14 @@ private:
     void clearTree();
     void buildTree();
     void fetchChildren(TreeNode *node);
+    void refreshNode(TreeNode *node);
+    TreeNode *findNodeByPath(TreeNode *root, const QString &path) const;
+    QModelIndex indexForNode(TreeNode *node) const;
     QColor gitColorForPath(const QString &path) const;
 
     std::unique_ptr<TreeNode> m_root;
     ProjectManager *m_projectManager;
     GitService *m_gitService;
     QFileIconProvider m_iconProvider;
+    QFileSystemWatcher m_watcher;
 };

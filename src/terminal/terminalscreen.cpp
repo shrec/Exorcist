@@ -1,6 +1,7 @@
 #include "terminalscreen.h"
 
 #include <algorithm>
+#include <QStringList>
 
 // ── 16-colour ANSI palette (xterm defaults) ───────────────────────────────────
 static const QRgb kAnsi16[16] = {
