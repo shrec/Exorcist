@@ -1,6 +1,6 @@
 # Exorcist — სამუშაო სია
 
-> ბოლო განახლება: 2026-03-10 (მანიფესტო აუდიტი)
+> ბოლო განახლება: 2026-03-11 (UI პოლირება)
 > წყარო: ტექნიკური აუდიტი (კოდის პირდაპირი ანალიზი + ვერიფიკაცია)
 
 ---
@@ -45,6 +45,15 @@
   ყველა dark token-ისთვის `L_` prefixed light variant დაემატა.
   `isDark()` + `pick(dark, light)` runtime helpers.
   `ChatTranscriptView` + `ChatPanelWidget` ახლა `pick()` იყენებს background-ებისთვის.
+
+- [x] **Chat UI პოლირება — ვიზუალური თანმიმდევრულობა**
+  - Tool card `updateState()` — `border-radius` და `padding` კონსტრუქტორთან სინქრონიზებულია (4px/8px 10px)
+  - Tool confirmation — `m_allowMenuBtn` re-enable `ConfirmationNeeded`-ზე
+  - Welcome pills — `Qt::WA_Hover` attribute (QWidget `:hover` არ მუშაობდა)
+  - ThinkingWidget — `pick()` light theme: `L_ThinkingBg`, `L_ThinkingBorder`, `L_ThinkingFg`; border-radius 2→4px
+  - WorkspaceEditWidget — theme-adaptive card bg + row hover (`WA_Hover` + `pick()`)
+  - SessionHistoryPopup — full `pick()` adaptation (popup bg, search box, list, context menu)
+  - SettingsPanel — ChatTheme-based dark/light styling (tabs, groups, inputs, combos)
 
 ---
 

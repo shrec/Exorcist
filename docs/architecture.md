@@ -44,10 +44,11 @@ concrete core classes or MainWindow.
 | **Debug** | `debug/` | Debug adapter framework, GDB/MI, breakpoints | `IDebugAdapter`, `GdbMiAdapter`, `DebugPanel` |
 | **Remote / SSH** | `remote/` | SSH connections, remote FS, multi-arch probing, sync | `SshSession`, `SshConnectionManager`, `RemoteFilePanel`, `RemoteHostProber`, `RemoteSyncService` |
 | **Agent framework** | `agent/` | Agent runtime, tools, chat UI, session management | `AgentController`, `AgentOrchestrator`, `ChatPanelWidget` |
+| **ExoBridge** | `process/`, `server/` | IPC protocol, shared daemon, cross-instance process management | `ExoBridgeCore`, `BridgeClient`, `ProcessManager`, `Ipc::Message` |
 | **Project Brain** | `agent/projectbrain*` | Persistent workspace knowledge (rules, facts, sessions) | `ProjectBrainService`, `BrainContextBuilder`, `MemorySuggestionEngine` |
 | **Core abstractions** | `core/` | OS interfaces (filesystem, process, terminal, network) | `IFileSystem`, `IProcess`, `ITerminal`, `INetwork` |
 | **Plugin system** | `pluginmanager.*`, `serviceregistry.*`, `plugin/` | Plugin loader, typed service resolution, extension gallery | `PluginManager`, `ServiceRegistry`, `PluginGalleryPanel` |
-| **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code | `LspBootstrap`, `BuildDebugBootstrap` |
+| **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code | `LspBootstrap`, `BuildDebugBootstrap`, `ProcessBootstrap` |
 | **SDK** | `sdk/` | Stable plugin API — typed host services, permissions | `IHostServices`, `HostServices`, `PluginPermission` |
 | **UI framework** | `ui/`, `commandpalette.*`, `thememanager.*` | Command palette, theme engine with token colors, keymap, notifications, custom docking, theme gallery | `CommandPalette`, `ThemeManager`, `KeymapManager`, `NotificationToast`, `DockManager`, `ExDockWidget`, `ThemeGalleryPanel` |
 | **Logger** | `logger.*` | Thread-safe timestamped logging | `Logger` |
@@ -258,6 +259,86 @@ Root (horizontal DockSplitter)
 - **AutoHidden**: Collapsed to a sidebar tab; slide-out overlay on click.
 - **Closed**: Not visible, no sidebar tab; can be re-shown via View menu.
 - **Floating**: (Future) Detached window.
+
+## ExoBridge (`server/` + `src/process/`)
+
+A persistent daemon process (`exobridge`) that manages workspace-agnostic
+resources shared across all Exorcist IDE instances on the same machine.
+Connects via `QLocalSocket` (named pipe on Windows, Unix domain socket elsewhere).
+
+```
+┌──────────────────┐   QLocalSocket   ┌──────────────────────────┐
+│  Exorcist IDE 1  │─────────────────▶│                          │
+│  (BridgeClient)  │                  │   exobridge              │
+├──────────────────┤                  │   (ExoBridgeCore)        │
+│  Exorcist IDE 2  │─────────────────▶│                          │
+│  (BridgeClient)  │                  │  • MCP tool servers      │
+└──────────────────┘                  │  • Git file watcher      │
+                                      │  • Auth token cache      │
+                                      └──────────────────────────┘
+```
+
+### What belongs in ExoBridge
+
+| Resource | Why shared |
+|----------|-----------|
+| **MCP tool servers** | Independent child processes, stateless tool calls |
+| **Git file watcher** | Per-repo, not per-window; one watcher per repo |
+| **Auth token cache** | OAuth tokens, API keys — one login benefits all instances |
+
+### What stays per-IDE-instance
+
+| Resource | Why per-instance |
+|----------|-----------------|
+| **LSP / Clangd** | Per-session protocol, per-file state, per-cursor context |
+| **Workspace file index** | Per-workspace/solution — different projects have different trees |
+| **Search** | Per-workspace scope, tied to the open solution |
+| **Terminal** | Per-window PTY, interactive I/O |
+| **Build / Debug** | Per-task, per-target, output tied to one window |
+
+### Lifecycle
+
+1. First IDE instance starts → `BridgeClient` tries to connect.
+2. No daemon running → `BridgeClient` launches `exobridge` via `QProcess::startDetached()`.
+3. Daemon creates a `QLockFile` (PID lock) and listens on the named pipe.
+4. IDE connects, sends `Handshake`.
+5. Additional IDE instances connect to the same daemon.
+6. When all IDEs close, the daemon stays running (persistent mode, default).
+7. `--idle-timeout <seconds>` flag enables auto-shutdown after N seconds with no clients.
+
+### Wire Protocol
+
+JSON-RPC 2.0 over length-prefixed frames:
+
+| Layer | Format |
+|-------|--------|
+| **Framing** | 4-byte big-endian length + UTF-8 JSON payload |
+| **Requests** | `{ "jsonrpc": "2.0", "id": N, "method": "...", "params": {...} }` |
+| **Responses** | `{ "jsonrpc": "2.0", "id": N, "result": {...} }` or `"error"` |
+| **Notifications** | `{ "jsonrpc": "2.0", "method": "...", "params": {...} }` (no id) |
+
+### Key Types
+
+| Type | File | Purpose |
+|------|------|---------|
+| `Ipc::Message` | `process/ipcprotocol.h` | Wire message — serialize/deserialize, frame/unframe |
+| `ExoBridgeCore` | `process/exobridgecore.h` | Daemon core — QLocalServer, client tracking, request routing |
+| `BridgeClient` | `process/bridgeclient.h` | IDE-side IPC client — auto-launch, reconnect, service calls |
+| `ProcessManager` | `process/processmanager.h` | Unified API for local (per-window) and shared (daemon) processes |
+| `BridgeBootstrap` | `bootstrap/bridgebootstrap.h` | Wires BridgeClient + ProcessManager into ServiceRegistry |
+
+### IPC Methods
+
+| Method | Direction | Purpose |
+|--------|-----------|---------|
+| `handshake` | IDE → ExoBridge | Register instance, receive daemon info |
+| `listServices` | IDE → ExoBridge | Enumerate registered shared services |
+| `registerService` | IDE → ExoBridge | Publish a service to other instances |
+| `callService` | IDE → ExoBridge | Invoke a shared service method |
+| `processStart/Kill/List` | IDE → ExoBridge | Manage daemon-side child processes |
+| `shutdown` | IDE → ExoBridge | Request graceful daemon shutdown |
+| `serviceEvent` | ExoBridge → IDE | Broadcast service registration changes |
+| `serverShutdown` | ExoBridge → IDE | Notify all clients before exit |
 
 ## Rules
 - UI must not call OS APIs directly.
