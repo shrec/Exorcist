@@ -161,12 +161,15 @@ private:
     void updateLineNumberAreaWidth(int newBlockCount);
     void updateLineNumberArea(const QRect &rect, int dy);
     void highlightCurrentLine();
+    void highlightMatchingBrackets();
     void handleScroll(int value);
     void repositionFindBar();
     void refreshDiagnosticSelections();
     void acceptGhostText();
     void acceptNextWord();
     QString includePathUnderCursor() const;
+    static QChar matchingBracket(QChar ch);
+    int scanForMatchingBracket(int pos, QChar open, QChar close, bool forward) const;
 
     LineNumberArea          *m_lineNumberArea;
     FindBar                 *m_findBar;
@@ -200,6 +203,9 @@ private:
     // Breakpoints
     QSet<int>                m_breakpointLines;   // 1-based lines
     int                      m_currentDebugLine = 0; // 1-based (0=none)
+
+    // Bracket matching
+    QList<QTextEdit::ExtraSelection> m_bracketSelections;
 
     // Shadow buffer kept in sync with QTextDocument via contentsChanged
     std::unique_ptr<PieceTableBuffer> m_buffer;
