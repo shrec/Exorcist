@@ -305,6 +305,7 @@ public:
             m_confirmRow->show();
             m_allowBtn->setEnabled(true);
             m_denyBtn->setEnabled(true);
+            m_allowMenuBtn->setEnabled(true);
             break;
         case ChatContentPart::ToolState::CompleteSuccess:
             borderColor = ChatTheme::ToolBorderOk;
@@ -332,8 +333,8 @@ public:
         }
 
         m_card->setStyleSheet(
-            QStringLiteral("QWidget#toolCard { background:%1; border-radius:2px;"
-                          " padding:5px 10px; border-left:3px solid %2; }")
+            QStringLiteral("QWidget#toolCard { background:%1; border-radius:4px;"
+                          " padding:8px 10px; border-left:3px solid %2; }")
                 .arg(ChatTheme::pick(ChatTheme::ToolBg, ChatTheme::L_ToolBg),
                      borderColor));
         m_stateBadge->setText(stateText);

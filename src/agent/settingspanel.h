@@ -59,6 +59,7 @@ private:
     QLineEdit *m_customEndpoint;
     QLineEdit *m_customApiKey;
     QLineEdit *m_completionModel;
+    QLineEdit *m_searxngUrl;
 
     // Context
     QCheckBox *m_includeOpenFiles;

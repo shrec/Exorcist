@@ -30,7 +30,8 @@ public:
 
         m_card = new QWidget(this);
         m_card->setStyleSheet(
-            QStringLiteral("background:%1; border-radius:4px;").arg(ChatTheme::PanelBg));
+            QStringLiteral("background:%1; border-radius:4px;")
+                .arg(ChatTheme::pick(ChatTheme::PanelBg, ChatTheme::L_PanelBg)));
 
         m_cardLayout = new QVBoxLayout(m_card);
         m_cardLayout->setContentsMargins(10, 8, 10, 8);
@@ -227,9 +228,11 @@ private:
         });
         rl->addWidget(undoBtn);
 
+        row->setAttribute(Qt::WA_Hover, true);
         row->setStyleSheet(
             QStringLiteral("QWidget { background:%1; } QWidget:hover { background:%2; }")
-                .arg(QStringLiteral("transparent"), ChatTheme::InputBg));
+                .arg(QStringLiteral("transparent"),
+                     ChatTheme::pick(ChatTheme::InputBg, ChatTheme::L_InputBg)));
 
         containerLayout->addWidget(row);
 

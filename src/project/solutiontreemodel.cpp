@@ -9,6 +9,42 @@
 #include "projectmanager.h"
 #include "git/gitservice.h"
 
+// Directories hidden from the solution tree (build artifacts, VCS internals, caches)
+static const QSet<QString> kHiddenDirs = {
+    QStringLiteral(".git"),
+    QStringLiteral(".svn"),
+    QStringLiteral(".hg"),
+    QStringLiteral("node_modules"),
+    QStringLiteral("__pycache__"),
+    QStringLiteral(".cache"),
+    QStringLiteral(".vs"),
+    QStringLiteral(".vscode"),
+    QStringLiteral(".idea"),
+    QStringLiteral("build"),
+    QStringLiteral("build-llvm"),
+    QStringLiteral("build-debug"),
+    QStringLiteral("build-release"),
+    QStringLiteral("build-ci"),
+    QStringLiteral("cmake-build-debug"),
+    QStringLiteral("cmake-build-release"),
+    QStringLiteral("dist"),
+    QStringLiteral("out"),
+    QStringLiteral("bin"),
+    QStringLiteral("obj"),
+    QStringLiteral(".tox"),
+    QStringLiteral(".mypy_cache"),
+    QStringLiteral(".pytest_cache"),
+    QStringLiteral("target"),  // Rust/Maven
+    QStringLiteral(".exorcist"),
+};
+
+static bool shouldHideEntry(const QFileInfo &info)
+{
+    if (!info.isDir())
+        return false;
+    return kHiddenDirs.contains(info.fileName());
+}
+
 SolutionTreeModel::SolutionTreeModel(ProjectManager *pm, GitService *git, QObject *parent)
     : QAbstractItemModel(parent),
       m_root(std::make_unique<TreeNode>(TreeNode{TreeNode::Root, QString(), QString(), nullptr})),
@@ -249,7 +285,14 @@ void SolutionTreeModel::fetchChildren(TreeNode *node)
     const QFileInfoList entries = dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot,
                                                     QDir::DirsFirst | QDir::Name);
 
-    if (!entries.isEmpty()) {
+    // Filter out hidden directories (build, .git, etc.)
+    QFileInfoList filtered;
+    for (const QFileInfo &info : entries) {
+        if (!shouldHideEntry(info))
+            filtered.append(info);
+    }
+
+    if (!filtered.isEmpty()) {
         QModelIndex parentIndex;
         if (node != m_root.get()) {
             TreeNode *parent = node->parent;
@@ -257,8 +300,8 @@ void SolutionTreeModel::fetchChildren(TreeNode *node)
             parentIndex = createIndex(row, 0, node);
         }
         const int first = static_cast<int>(node->children.size());
-        beginInsertRows(parentIndex, first, first + entries.size() - 1);
-        for (const QFileInfo &info : entries) {
+        beginInsertRows(parentIndex, first, first + filtered.size() - 1);
+        for (const QFileInfo &info : filtered) {
             TreeNode::Kind kind = info.isDir() ? TreeNode::Dir : TreeNode::File;
             auto child = std::make_unique<TreeNode>();
             child->kind = kind;
@@ -329,9 +372,10 @@ void SolutionTreeModel::refreshNode(TreeNode *node)
         }
     }
 
-    // Add new entries from disk
+    // Add new entries from disk (skip hidden directories)
     for (const QFileInfo &info : entries) {
         if (modelPaths.contains(info.absoluteFilePath())) continue;
+        if (shouldHideEntry(info)) continue;
 
         // Find sorted insertion position (dirs first, then by name)
         const bool isNewDir = info.isDir();

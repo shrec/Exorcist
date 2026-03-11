@@ -69,6 +69,9 @@ public:
     /// Get loaded Lua plugin info.
     QVector<luabridge::LuaPluginInfo> loadedLuaScripts() const;
 
+    /// Access the LuaJIT engine (for agent run_lua tool).
+    luabridge::LuaScriptEngine *luaEngine() const { return m_luaEngine.get(); }
+
 private:
     bool tryLoadCAbi(const QString &filePath);
 

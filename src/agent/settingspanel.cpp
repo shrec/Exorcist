@@ -1,4 +1,5 @@
 #include "settingspanel.h"
+#include "agent/chat/chatthemetokens.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -15,9 +16,42 @@ SettingsPanel::SettingsPanel(QWidget *parent)
     : QWidget(parent)
     , m_tabs(new QTabWidget(this))
 {
+    setStyleSheet(QStringLiteral(
+        "SettingsPanel { background:%1; }"
+        "QGroupBox { color:%2; border:1px solid %3; border-radius:4px;"
+        "  margin-top:14px; padding-top:14px; }"
+        "QGroupBox::title { subcontrol-origin:margin; left:10px; padding:0 4px; }"
+        "QCheckBox { color:%2; spacing:6px; }"
+        "QLabel { color:%2; }"
+        "QLineEdit { background:%4; color:%2; border:1px solid %3;"
+        "  border-radius:3px; padding:3px 6px; }"
+        "QLineEdit:focus { border-color:%5; }"
+        "QSpinBox { background:%4; color:%2; border:1px solid %3;"
+        "  border-radius:3px; padding:2px 6px; }"
+        "QSpinBox:focus { border-color:%5; }"
+        "QComboBox { background:%4; color:%2; border:1px solid %3;"
+        "  border-radius:3px; padding:2px 6px; }"
+        "QComboBox QAbstractItemView { background:%4; color:%2;"
+        "  selection-background-color:%6; }"
+        "QTabWidget::pane { border:1px solid %3; border-radius:4px; }"
+        "QTabBar::tab { color:%7; padding:5px 12px; border:none;"
+        "  border-bottom:2px solid transparent; }"
+        "QTabBar::tab:selected { color:%2; border-bottom-color:%5; }"
+        "QTabBar::tab:hover { color:%2; }")
+        .arg(ChatTheme::pick(ChatTheme::PanelBg, ChatTheme::L_PanelBg),
+             ChatTheme::pick(ChatTheme::FgPrimary, ChatTheme::L_FgPrimary),
+             ChatTheme::pick(ChatTheme::Border, ChatTheme::L_Border),
+             ChatTheme::pick(ChatTheme::InputBg, ChatTheme::L_InputBg),
+             ChatTheme::AccentFg,
+             ChatTheme::ListSelection,
+             ChatTheme::pick(ChatTheme::FgDimmed, ChatTheme::L_FgDimmed)));
+
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(6, 6, 6, 6);
-    root->addWidget(new QLabel(tr("<b>AI Settings</b>"), this));
+    root->setContentsMargins(8, 8, 8, 8);
+
+    auto *titleLabel = new QLabel(tr("<b>AI Settings</b>"), this);
+    titleLabel->setStyleSheet(QStringLiteral("font-size:14px; padding:4px 0;"));
+    root->addWidget(titleLabel);
     root->addWidget(m_tabs);
 
     auto *generalTab = new QWidget;
@@ -111,12 +145,19 @@ void SettingsPanel::buildModelTab(QWidget *tab)
     m_customApiKey->setPlaceholderText(tr("sk-..."));
     lay->addRow(tr("API Key:"), m_customApiKey);
 
+    lay->addRow(new QLabel(tr("<b>Web Search (SearXNG)</b>"), tab));
+
+    m_searxngUrl = new QLineEdit(tab);
+    m_searxngUrl->setPlaceholderText(tr("http://localhost:8080"));
+    lay->addRow(tr("SearXNG URL:"), m_searxngUrl);
+
     connect(m_maxSteps, &QSpinBox::valueChanged, this, [this]() { saveSettings(); emit settingsChanged(); });
     connect(m_maxTokens, &QSpinBox::valueChanged, this, [this]() { saveSettings(); emit settingsChanged(); });
     connect(m_reasoningEffort, &QComboBox::currentIndexChanged, this, [this]() { saveSettings(); emit settingsChanged(); });
     connect(m_customEndpoint, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
     connect(m_customApiKey, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
     connect(m_completionModel, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
+    connect(m_searxngUrl, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
 }
 
 void SettingsPanel::buildToolsTab(QWidget *tab)
@@ -183,6 +224,7 @@ void SettingsPanel::loadSettings()
     m_customEndpoint->setText(s.value(QStringLiteral("customEndpoint")).toString());
     m_customApiKey->setText(s.value(QStringLiteral("customApiKey")).toString());
     m_completionModel->setText(s.value(QStringLiteral("completionModel")).toString());
+    m_searxngUrl->setText(s.value(QStringLiteral("searxngUrl")).toString());
 
     m_includeOpenFiles->setChecked(s.value(QStringLiteral("includeOpenFiles"), true).toBool());
     m_includeTerminal->setChecked(s.value(QStringLiteral("includeTerminal"), true).toBool());
@@ -210,6 +252,7 @@ void SettingsPanel::saveSettings()
     s.setValue(QStringLiteral("customEndpoint"), m_customEndpoint->text());
     s.setValue(QStringLiteral("customApiKey"), m_customApiKey->text());
     s.setValue(QStringLiteral("completionModel"), m_completionModel->text());
+    s.setValue(QStringLiteral("searxngUrl"), m_searxngUrl->text());
 
     s.setValue(QStringLiteral("includeOpenFiles"), m_includeOpenFiles->isChecked());
     s.setValue(QStringLiteral("includeTerminal"), m_includeTerminal->isChecked());

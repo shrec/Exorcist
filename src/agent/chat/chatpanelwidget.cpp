@@ -1300,14 +1300,17 @@ void ChatPanelWidget::restoreSession(const QString &sessionId,
             m_transcript->addContentPart(idx, part);
         }
 
-        // Set final state
+        // Complete the turn in the model (emits turnCompleted → finishTurn)
+        m_sessionModel->completeTurn();
+
+        // Restore original metadata AFTER completeTurn (which forces State::Complete)
         auto &currentTurn = m_sessionModel->currentTurn();
         currentTurn.state = turn.state;
         currentTurn.feedback = turn.feedback;
         currentTurn.id = turn.id;
         currentTurn.timestamp = turn.timestamp;
 
-        m_sessionModel->completeTurn();
+        // Apply the real restored state to the widget
         if (auto *w = m_transcript->turnWidget(idx))
             w->finishTurn(turn.state);
 

@@ -157,6 +157,7 @@ private:
 
         for (const auto &sug : suggestions) {
             auto *pill = new QWidget(this);
+            pill->setAttribute(Qt::WA_Hover, true);
             pill->setCursor(Qt::PointingHandCursor);
             pill->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
             pill->setFixedHeight(32);

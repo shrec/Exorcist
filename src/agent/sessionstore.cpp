@@ -181,8 +181,9 @@ QVector<SessionStore::Summary> SessionStore::recentSessions(int max) const
                     continue;
                 const QJsonObject obj = doc.object();
                 const QString type = obj.value(QLatin1String("type")).toString();
-                if (type == QLatin1String("title")) {
-                    const QString t = obj.value(QLatin1String("title")).toString();
+                if (type == QLatin1String("session.title")) {
+                    const QJsonObject d = obj.value(QLatin1String("data")).toObject();
+                    const QString t = d.value(QLatin1String("title")).toString();
                     if (!t.isEmpty())
                         s.title = t;
                 } else if (type == QLatin1String("user.message")

@@ -13,7 +13,6 @@
 #include "agent/tools/buildtools.h"
 
 namespace exdock { class ExDockWidget; class DockManager; }
-namespace luabridge { class LuaScriptEngine; }
 class QDialog;
 class QTabWidget;
 class QTreeView;
@@ -197,7 +196,6 @@ private:
     PluginGalleryPanel *m_pluginGallery = nullptr;
     ThemeGalleryPanel  *m_themeGallery = nullptr;
     std::unique_ptr<PluginManager>            m_pluginManager;
-    std::unique_ptr<luabridge::LuaScriptEngine> m_luaEngine;
     std::unique_ptr<ServiceRegistry>            m_services;
     std::unique_ptr<IFileSystem>     m_fileSystem;
     SearchService    *m_searchService;

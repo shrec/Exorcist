@@ -324,8 +324,11 @@ public:
             auto *w = new ChatThinkingWidget(this);
             w->setThinkingText({}, true);
             w->appendDelta(delta);
+            connect(w, &ChatThinkingWidget::toolConfirmed,
+                    this, &ChatTurnWidget::toolConfirmed);
             m_partsLayout->addWidget(w);
             m_lastThinking = w;
+            m_thinkingWidgets.append(w);
             m_lastMarkdown = nullptr;
         }
     }
@@ -337,9 +340,19 @@ public:
 
     void updateToolState(const QString &callId, const ChatContentPart &part)
     {
+        // Check standalone tool widgets first
         auto it = m_toolWidgets.find(callId);
-        if (it != m_toolWidgets.end())
+        if (it != m_toolWidgets.end()) {
             it.value()->updateState(part);
+            return;
+        }
+        // Check tools embedded in thinking widgets
+        for (auto *tw : m_thinkingWidgets) {
+            if (tw->findToolItem(callId)) {
+                tw->updateToolState(callId, part);
+                return;
+            }
+        }
     }
 
     void finishTurn(ChatTurnModel::State state)
@@ -347,8 +360,10 @@ public:
         // Finalize any streaming markdown
         if (m_lastMarkdown)
             m_lastMarkdown->finalize();
-        if (m_lastThinking)
+        if (m_lastThinking) {
             m_lastThinking->finalize();
+            m_lastThinking->setCollapsed(true);
+        }
 
         // Mark turn as complete so hover can reveal feedback row
         m_turnComplete = (state == ChatTurnModel::State::Complete);
@@ -456,20 +471,31 @@ private:
         case ChatContentPart::Type::Thinking: {
             auto *w = new ChatThinkingWidget(this);
             w->setThinkingText(part.thinkingText);
+            if (part.thinkingCollapsed)
+                w->setCollapsed(true);
+            connect(w, &ChatThinkingWidget::toolConfirmed,
+                    this, &ChatTurnWidget::toolConfirmed);
             m_partsLayout->addWidget(w);
             m_lastThinking = w;
+            m_thinkingWidgets.append(w);
             m_lastMarkdown = nullptr;
             break;
         }
         case ChatContentPart::Type::ToolInvocation: {
-            auto *w = new ChatToolInvocationWidget(this);
-            w->setToolData(part);
-            connect(w, &ChatToolInvocationWidget::confirmed,
-                    this, &ChatTurnWidget::toolConfirmed);
-            m_partsLayout->addWidget(w);
-            m_toolWidgets[part.toolCallId] = w;
+            // Embed inside the current thinking widget if one exists
+            if (m_lastThinking) {
+                m_lastThinking->addToolItem(part);
+            } else {
+                // Create a thinking widget to host the tool
+                auto *tw = new ChatThinkingWidget(this);
+                connect(tw, &ChatThinkingWidget::toolConfirmed,
+                        this, &ChatTurnWidget::toolConfirmed);
+                m_partsLayout->addWidget(tw);
+                m_lastThinking = tw;
+                m_thinkingWidgets.append(tw);
+                tw->addToolItem(part);
+            }
             m_lastMarkdown = nullptr;
-            m_lastThinking = nullptr;
             break;
         }
         case ChatContentPart::Type::WorkspaceEdit: {
@@ -633,5 +659,6 @@ private:
 
     ChatMarkdownWidget  *m_lastMarkdown = nullptr;
     ChatThinkingWidget  *m_lastThinking = nullptr;
+    QList<ChatThinkingWidget *> m_thinkingWidgets;
     QMap<QString, ChatToolInvocationWidget *> m_toolWidgets;
 };

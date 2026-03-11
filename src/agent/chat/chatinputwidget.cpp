@@ -16,6 +16,8 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMimeData>
+#include <QPainter>
+#include <QPixmap>
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QSignalBlocker>
@@ -41,8 +43,8 @@ void ChatInputWidget::setupUi()
         "QToolButton:hover { background: %4; color: %5; }"
         "QToolButton:focus { outline: 1px solid %6; }"
         "QToolButton#sendBtn {"
-        "  background: %7; color: %8; padding: 0; border-radius: 12px;"
-        "  font-size: 14px; font-weight: 600; }"
+        "  background: %7; color: %8; padding: 0; border-radius: 13px;"
+        "  font-size: 16px; font-weight: 700; qproperty-iconSize: 0px; }"
         "QToolButton#sendBtn:hover  { background: %9; }"
         "QToolButton#sendBtn:pressed { background: %10; }"
         "QToolButton#sendBtn:disabled { background: %11; color: %12; }"
@@ -96,11 +98,28 @@ void ChatInputWidget::setupUi()
 
     // ── Buttons ───────────────────────────────────────────────────────────
     m_sendBtn = new QToolButton(this);
-    m_sendBtn->setText(tr("\u2191"));
     m_sendBtn->setObjectName("sendBtn");
     m_sendBtn->setToolTip(tr("Send  (Enter)"));
     m_sendBtn->setAccessibleName(tr("Send message"));
-    m_sendBtn->setFixedSize(24, 24);
+    m_sendBtn->setFixedSize(26, 26);
+    // Draw a clean arrow-up icon instead of relying on a Unicode glyph
+    {
+        const int sz = 26;
+        QPixmap pix(sz, sz);
+        pix.fill(Qt::transparent);
+        QPainter p(&pix);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(QColor(ChatTheme::ButtonFg), 2.0,
+                      Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        // Arrow shaft (center vertical line)
+        p.drawLine(sz / 2, sz - 8, sz / 2, 8);
+        // Arrow head (chevron)
+        p.drawLine(sz / 2, 8, sz / 2 - 5, 13);
+        p.drawLine(sz / 2, 8, sz / 2 + 5, 13);
+        p.end();
+        m_sendBtn->setIcon(QIcon(pix));
+        m_sendBtn->setIconSize(QSize(sz, sz));
+    }
     connect(m_sendBtn, &QToolButton::clicked, this, &ChatInputWidget::onSendClicked);
 
     m_cancelBtn = new QToolButton(this);

@@ -43,7 +43,8 @@ public:
             QStringLiteral("ChatSessionHistoryPopup {"
                           "  background:%1; border:1px solid %2; border-radius:6px;"
                           "}")
-                .arg(ChatTheme::InputBg, ChatTheme::Border));
+                .arg(ChatTheme::pick(ChatTheme::InputBg, ChatTheme::L_InputBg),
+                     ChatTheme::pick(ChatTheme::Border, ChatTheme::L_Border)));
 
         auto *layout = new QVBoxLayout(this);
         layout->setContentsMargins(8, 8, 8, 8);
@@ -66,8 +67,10 @@ public:
                           "  border-radius:4px; padding:4px 8px; font-size:12px;"
                           "}"
                           "QLineEdit:focus { border-color:%4; }")
-                .arg(ChatTheme::PanelBg, ChatTheme::FgPrimary,
-                     ChatTheme::Border, ChatTheme::AccentFg));
+                .arg(ChatTheme::pick(ChatTheme::PanelBg, ChatTheme::L_PanelBg),
+                     ChatTheme::pick(ChatTheme::FgPrimary, ChatTheme::L_FgPrimary),
+                     ChatTheme::pick(ChatTheme::Border, ChatTheme::L_Border),
+                     ChatTheme::AccentFg));
         connect(m_searchBox, &QLineEdit::textChanged,
                 this, &ChatSessionHistoryPopup::filterList);
         layout->addWidget(m_searchBox);
@@ -83,7 +86,8 @@ public:
                           "}"
                           "QListWidget::item:hover { background:%2; }"
                           "QListWidget::item:selected { background:%3; color:%4; }")
-                .arg(ChatTheme::FgPrimary, ChatTheme::InputBg,
+                .arg(ChatTheme::pick(ChatTheme::FgPrimary, ChatTheme::L_FgPrimary),
+                     ChatTheme::pick(ChatTheme::HoverBg, ChatTheme::L_HoverBg),
                      ChatTheme::AccentFg, ChatTheme::ButtonFg));
         connect(m_list, &QListWidget::itemClicked,
                 this, [this](QListWidgetItem *item) {
@@ -107,8 +111,10 @@ public:
                               "QMenu::item { color:%3; padding:4px 16px; "
                               "border-radius:3px; }"
                               "QMenu::item:selected { background:%4; }")
-                    .arg(ChatTheme::InputBg, ChatTheme::Border,
-                         ChatTheme::FgPrimary, ChatTheme::AccentFg));
+                    .arg(ChatTheme::pick(ChatTheme::InputBg, ChatTheme::L_InputBg),
+                         ChatTheme::pick(ChatTheme::Border, ChatTheme::L_Border),
+                         ChatTheme::pick(ChatTheme::FgPrimary, ChatTheme::L_FgPrimary),
+                         ChatTheme::AccentFg));
 
             QAction *renameAct = menu.addAction(tr("Rename"));
             QAction *deleteAct = menu.addAction(tr("Delete"));
@@ -188,10 +194,13 @@ private:
             const auto subtitle = s.timestamp.toString(QStringLiteral("MMM dd, hh:mm"))
                 + QStringLiteral(" \u00B7 ")
                 + tr("%1 turns").arg(s.turnCount);
-            item->setText(s.title.isEmpty()
-                ? tr("Untitled session") : s.title);
-            item->setToolTip(subtitle);
+            const QString title = s.title.isEmpty()
+                ? tr("Untitled session") : s.title;
+            item->setText(title);
+            item->setToolTip(title + QStringLiteral("\n") + subtitle);
             item->setData(Qt::UserRole, s.id);
+            // Store subtitle for potential future rich rendering
+            item->setData(Qt::UserRole + 1, subtitle);
         }
     }
 
