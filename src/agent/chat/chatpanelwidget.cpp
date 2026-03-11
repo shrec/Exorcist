@@ -185,6 +185,7 @@ void ChatPanelWidget::buildUi()
             "</div>"
             // ── Popups ──
             "<div class='autocomplete-popup' id='slashPopup' style='display:none'></div>"
+            "<div class='autocomplete-popup' id='mentionPopup' style='display:none'></div>"
             "<div class='model-popup' id='modelPopup' style='display:none'></div>"
             "</div>"
             "<script>%2</script>"
@@ -264,6 +265,52 @@ void ChatPanelWidget::buildUi()
     connect(m_jsBridge, &exorcist::ChatJSBridge::attachFileRequested,
             this, [this]() {
         // TODO: open QFileDialog, store attachment, call addAttachmentChip
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::mentionQueryRequested,
+            this, [this](const QString &trigger, const QString &filter) {
+        QJsonArray items;
+        const QString lower = filter.toLower();
+
+        if (trigger == QLatin1String("@")) {
+            if (!m_workspaceFileFn) {
+                m_jsBridge->setMentionItems(trigger, items);
+                return;
+            }
+            const QStringList files = m_workspaceFileFn();
+            int shown = 0;
+            for (const QString &absPath : files) {
+                const QFileInfo fi(absPath);
+                const QString display = fi.fileName();
+                if (!lower.isEmpty()
+                    && !display.toLower().contains(lower)
+                    && !absPath.toLower().contains(lower))
+                    continue;
+                QJsonObject o;
+                o[QStringLiteral("label")] = display;
+                o[QStringLiteral("desc")] = absPath;
+                o[QStringLiteral("insertText")] = QStringLiteral("@file:%1").arg(absPath);
+                items.append(o);
+                if (++shown >= 20)
+                    break;
+            }
+        } else if (trigger == QLatin1String("#")) {
+            if (!m_varResolver) {
+                m_jsBridge->setMentionItems(trigger, items);
+                return;
+            }
+            const auto vars = m_varResolver->matchingVars(filter);
+            for (const auto &v : vars) {
+                QJsonObject o;
+                o[QStringLiteral("label")] = QStringLiteral("#%1").arg(v.token);
+                o[QStringLiteral("desc")] = v.description;
+                o[QStringLiteral("insertText")] = QStringLiteral("#%1").arg(v.token);
+                items.append(o);
+                if (items.size() >= 20)
+                    break;
+            }
+        }
+
+        m_jsBridge->setMentionItems(trigger, items);
     });
 
     // Welcome / sign-in

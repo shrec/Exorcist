@@ -98,6 +98,7 @@ public:
 
     /// Set available slash commands.
     void setSlashCommands(const QJsonArray &commands);
+    void setMentionItems(const QString &trigger, const QJsonArray &items);
 
     /// Set active mode (0=Ask, 1=Edit, 2=Agent).
     void setMode(int mode);
@@ -168,6 +169,7 @@ signals:
     void attachFileRequested();
     void removeAttachmentRequested(int index);
     void thinkingToggled(bool enabled);
+    void mentionQueryRequested(const QString &trigger, const QString &filter);
 
 private:
     /// Evaluate JS, escaping the string parameter safely.

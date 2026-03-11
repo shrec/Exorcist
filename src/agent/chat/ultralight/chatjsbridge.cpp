@@ -145,6 +145,14 @@ ChatJSBridge::ChatJSBridge(UltralightWidget *view, QObject *parent)
             emit thinkingToggled(
                 v.toObject().value(QStringLiteral("enabled")).toBool());
         });
+
+    m_view->registerJSCallback(QStringLiteral("mentionQuery"),
+        [this](const QJsonValue &v) {
+            const auto obj = v.toObject();
+            emit mentionQueryRequested(
+                obj.value(QStringLiteral("trigger")).toString(),
+                obj.value(QStringLiteral("filter")).toString());
+        });
 }
 
 // ── C++ → JS ─────────────────────────────────────────────────────────────────
@@ -284,6 +292,15 @@ void ChatJSBridge::setSlashCommands(const QJsonArray &commands)
     const QString json = QString::fromUtf8(
         QJsonDocument(commands).toJson(QJsonDocument::Compact));
     callJS(QStringLiteral("ChatApp.setSlashCommands(%1)").arg(json));
+}
+
+void ChatJSBridge::setMentionItems(const QString &trigger, const QJsonArray &items)
+{
+    const QString json = QString::fromUtf8(
+        QJsonDocument(items).toJson(QJsonDocument::Compact));
+    callJS(QStringLiteral("ChatApp.setMentionItems(%1, %2)")
+               .arg(jsonEscape(trigger))
+               .arg(json));
 }
 
 void ChatJSBridge::setMode(int mode)

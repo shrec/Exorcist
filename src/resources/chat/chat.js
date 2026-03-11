@@ -65,6 +65,7 @@ var ChatApp = (function() {
 
     // Slash popup
     var slashPopupEl    = document.getElementById('slashPopup');
+    var mentionPopupEl  = document.getElementById('mentionPopup');
 
     // ── Auto-scroll ──────────────────────────────────────────────────────────
     function isNearBottom() {
@@ -145,6 +146,56 @@ var ChatApp = (function() {
         }
     }
 
+    // ── Mention/variable popup ────────────────────────────────────────────────
+    function findTriggerAtCursor(text, cursorPos) {
+        var atPos = text.lastIndexOf('@', cursorPos - 1);
+        if (atPos >= 0 && (atPos === 0 || /\s/.test(text[atPos - 1]))) {
+            var filterAt = text.slice(atPos + 1, cursorPos);
+            if (!/\s/.test(filterAt)) return { trigger: '@', pos: atPos, filter: filterAt };
+        }
+        var hashPos = text.lastIndexOf('#', cursorPos - 1);
+        if (hashPos >= 0 && (hashPos === 0 || /\s/.test(text[hashPos - 1]))) {
+            var filterHash = text.slice(hashPos + 1, cursorPos);
+            if (!/\s/.test(filterHash)) return { trigger: '#', pos: hashPos, filter: filterHash };
+        }
+        return null;
+    }
+
+    function requestMentionItems() {
+        if (!inputEl || !mentionPopupEl) return;
+        var text = inputEl.value;
+        var cursorPos = inputEl.selectionStart || 0;
+        var t = findTriggerAtCursor(text, cursorPos);
+        if (!t) {
+            mentionPopupEl.style.display = 'none';
+            return;
+        }
+        if (window.exorcist) {
+            window.exorcist.sendToHost('mentionQuery', {
+                trigger: t.trigger,
+                filter: t.filter || ''
+            });
+        }
+    }
+
+    function insertMention(insertText) {
+        if (!inputEl) return;
+        var text = inputEl.value;
+        var cursorPos = inputEl.selectionStart || 0;
+        var t = findTriggerAtCursor(text, cursorPos);
+        if (!t) {
+            inputEl.value = text + insertText + ' ';
+            autoResizeInput();
+            return;
+        }
+        var before = text.slice(0, t.pos);
+        var after = text.slice(cursorPos);
+        inputEl.value = before + insertText + ' ' + after;
+        var newPos = (before + insertText + ' ').length;
+        inputEl.selectionStart = inputEl.selectionEnd = newPos;
+        autoResizeInput();
+    }
+
     // ── Model popup ──────────────────────────────────────────────────────────
     function showModelPopup() {
         if (!modelPopupEl || models.length === 0) return;
@@ -178,6 +229,7 @@ var ChatApp = (function() {
 
     function hideAllPopups() {
         if (slashPopupEl) slashPopupEl.style.display = 'none';
+        if (mentionPopupEl) mentionPopupEl.style.display = 'none';
         if (modelPopupEl) modelPopupEl.style.display = 'none';
     }
 
@@ -1141,6 +1193,35 @@ var ChatApp = (function() {
         }
     };
 
+    api.setMentionItems = function(trigger, items) {
+        if (!mentionPopupEl || !inputEl) return;
+        if (!items || items.length === 0) {
+            mentionPopupEl.style.display = 'none';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < items.length; i++) {
+            var it = items[i];
+            html += '<div class="autocomplete-item" data-insert="' + esc(it.insertText || '') + '">' +
+                '<span class="cmd-name">' + esc(it.label || '') + '</span>' +
+                (it.desc ? '<span class="cmd-desc">' + esc(it.desc) + '</span>' : '') +
+            '</div>';
+        }
+        mentionPopupEl.innerHTML = html;
+        mentionPopupEl.style.display = 'block';
+
+        var list = mentionPopupEl.querySelectorAll('.autocomplete-item');
+        for (var j = 0; j < list.length; j++) {
+            list[j].onclick = (function(insertText) {
+                return function() {
+                    insertMention(insertText);
+                    mentionPopupEl.style.display = 'none';
+                    inputEl.focus();
+                };
+            })(list[j].getAttribute('data-insert'));
+        }
+    };
+
     api._applyCode = function(blockId) {
         var block = document.getElementById(blockId);
         if (!block) return;
@@ -1250,9 +1331,20 @@ var ChatApp = (function() {
     if (inputEl) {
         inputEl.addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+                // Check if mention popup is visible
+                if (mentionPopupEl && mentionPopupEl.style.display !== 'none') {
+                    var msel = mentionPopupEl.querySelector('.autocomplete-item.selected');
+                    if (!msel) msel = mentionPopupEl.querySelector('.autocomplete-item');
+                    if (msel) {
+                        msel.click();
+                        e.preventDefault();
+                        return;
+                    }
+                }
                 // Check if slash popup is visible and has a selected item
                 if (slashPopupEl && slashPopupEl.style.display !== 'none') {
                     var sel = slashPopupEl.querySelector('.autocomplete-item.selected');
+                    if (!sel) sel = slashPopupEl.querySelector('.autocomplete-item');
                     if (sel) {
                         sel.click();
                         e.preventDefault();
@@ -1288,6 +1380,7 @@ var ChatApp = (function() {
         inputEl.addEventListener('input', function() {
             autoResizeInput();
             updateSlashPopup();
+            requestMentionItems();
         });
     }
 
@@ -1336,6 +1429,11 @@ var ChatApp = (function() {
         if (slashPopupEl && slashPopupEl.style.display !== 'none') {
             if (!slashPopupEl.contains(e.target) && e.target !== inputEl) {
                 slashPopupEl.style.display = 'none';
+            }
+        }
+        if (mentionPopupEl && mentionPopupEl.style.display !== 'none') {
+            if (!mentionPopupEl.contains(e.target) && e.target !== inputEl) {
+                mentionPopupEl.style.display = 'none';
             }
         }
     });
