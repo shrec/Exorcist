@@ -118,6 +118,7 @@
 #include "lsp/referencespanel.h"
 #include "bootstrap/lspbootstrap.h"
 #include "bootstrap/builddebugbootstrap.h"
+#include "bootstrap/bridgebootstrap.h"
 #include "editor/symboloutlinepanel.h"
 #include "terminal/terminalpanel.h"
 #include "project/projectmanager.h"
@@ -329,6 +330,12 @@ MainWindow::MainWindow(QWidget *parent)
     if (m_keyStorage)
         m_services->registerService(QStringLiteral("secureKeyStorage"), m_keyStorage);
     m_fileSystem = std::make_unique<QtFileSystem>();
+
+    // ── ExoBridge bootstrap ─────────────────────────────────────────────
+    {
+        auto *bridgeBoot = new BridgeBootstrap(this);
+        bridgeBoot->initialize(m_services.get());
+    }
 
     // ── Agent core bootstrap ──────────────────────────────────────────────
     m_agentPlatform = new AgentPlatformBootstrap(
@@ -1014,10 +1021,11 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ── LuaJIT executor ──────────────────────────────────────────────────
     agentCallbacks.luaExecutor = [this](const QString &script) -> LuaExecuteTool::LuaResult {
-        if (!m_luaEngine)
+        auto *engine = m_pluginManager ? m_pluginManager->luaEngine() : nullptr;
+        if (!engine)
             return {false, {}, {}, QStringLiteral("LuaJIT engine not available."), 0};
 
-        auto adhoc = m_luaEngine->executeAdhoc(script);
+        auto adhoc = engine->executeAdhoc(script);
         return {adhoc.ok, adhoc.output, adhoc.returnValue, adhoc.error,
                 adhoc.memoryUsedBytes};
     };

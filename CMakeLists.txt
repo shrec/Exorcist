@@ -131,6 +131,7 @@ endif()
 
 add_subdirectory(cmake/luajit)
 add_subdirectory(src)
+add_subdirectory(server)
 add_subdirectory(plugins)
 
 enable_testing()

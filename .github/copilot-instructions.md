@@ -42,6 +42,7 @@ The core IDE — all subsystems below ship as one executable and work together:
 | **UI framework** | Command palette, theme engine, keymap | `commandpalette.*`, `thememanager.*`, `ui/` |
 | **Logger** | Application logging | `logger.*` |
 | **Agent framework** | Agent orchestrator, controller, interfaces, tools, chat UI | `agent/` (runtime + interfaces, **no providers**) |
+| **ExoBridge** | Shared daemon — MCP servers, git watch, auth tokens | `server/`, `src/process/` |
 
 Each core subsystem exposes interfaces (registered in `ServiceRegistry`) so plugins can:
 - Query diagnostics, request completions, trigger formatting (via LSP interfaces)
@@ -49,6 +50,39 @@ Each core subsystem exposes interfaces (registered in `ServiceRegistry`) so plug
 - Get git status, diffs, blame (via git interfaces)
 - Access search results, file listings (via search interfaces)
 - Read build output, trigger builds (via build interfaces)
+
+### ExoBridge — Shared Resource Boundary (STRICT)
+
+**ExoBridge** is a persistent daemon process (`exobridge`) that manages resources shared across all Exorcist IDE instances on the same machine. Only resources that are **truly general-purpose services** — not tied to a specific workspace, solution, or editor session — belong here. If a resource depends on which project is open, which files are edited, or which window is active, it stays per-instance.
+
+#### What MUST live in ExoBridge (`server/` + `src/process/`)
+
+| Resource | Why shared | Status |
+|----------|-----------|--------|
+| **MCP tool servers** | Independent child processes, stateless tool calls | ✅ |
+| **Git file watcher** | Per-repo, not per-window; one `QFileSystemWatcher` per repo | ✅ |
+| **Auth token cache** | OAuth tokens, API keys — one login benefits all instances | ✅ |
+| **Future: package manager cache** | Downloaded packages shared across workspaces | Planned |
+
+#### What MUST stay per-IDE-instance (`src/`)
+
+| Resource | Why per-instance |
+|----------|-----------------|
+| **LSP / Clangd** | Per-session protocol, per-file state, per-cursor context || **Workspace file index** | Per-workspace/solution — different projects have different file trees |
+| **Search** | Per-workspace scope, tied to the open solution || **Terminal** | Per-window PTY, interactive I/O |
+| **Editor state** | Cursor, selection, undo history — window-specific |
+| **Build processes** | Per-task, per-profile, output tied to one window |
+| **Debug sessions** | Per-target, per-breakpoint-set |
+
+#### Rules
+
+1. **No duplicate shared resources.** If a resource is listed in the "MUST live in ExoBridge" table, it is **forbidden** to create a per-instance version. All access goes through `BridgeClient` IPC.
+2. **New shared resources go through ExoBridge.** When adding any new resource that could be shared (file watchers, caches, background scanners), implement it in ExoBridge first. If you're unsure whether something is shared, ask.
+3. **ExoBridge services are callable via `BridgeClient::callService()`.** Each shared subsystem registers as a named service in `ExoBridgeCore`. IDE-side code calls through `BridgeClient`, never by spawning its own process.
+4. **No direct process spawning for shared tools.** MCP servers, git watchers — all managed by ExoBridge. The IDE never calls `QProcess::start()` for a shared resource.
+5. **Graceful degradation.** If ExoBridge is unreachable, the IDE must still function as a text editor. Shared features (MCP tools, git watch, auth tokens) may be unavailable but the IDE must not crash.
+7. **Shared means workspace-agnostic.** A resource belongs in ExoBridge only if it provides the same service regardless of which project/solution is open. Per-workspace resources (indexer, search, LSP) stay per-instance.
+6. **ExoBridge is not a plugin.** It is core infrastructure in `server/` and `src/process/`. It runs as a separate executable (`exobridge`) alongside the IDE.
 
 ### What belongs in `plugins/` (Modular)
 

@@ -126,6 +126,8 @@ add_executable(exorcist WIN32
     bootstrap/lspbootstrap.h
     bootstrap/builddebugbootstrap.cpp
     bootstrap/builddebugbootstrap.h
+    bootstrap/bridgebootstrap.cpp
+    bootstrap/bridgebootstrap.h
     agent/agentproviderregistry.cpp
     agent/agentproviderregistry.h
     agent/agentrequestrouter.cpp
@@ -413,6 +415,9 @@ add_executable(exorcist WIN32
     sdk/luajit/luascriptengine.cpp
     sdk/luajit/luahostapi.h
     sdk/luajit/luahostapi.cpp
+    process/ipcprotocol.h
+    process/bridgeclient.h
+    process/processmanager.h
 )
 
 target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent Qt6::Sql libluajit)
