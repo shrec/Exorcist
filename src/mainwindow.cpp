@@ -1573,6 +1573,21 @@ void MainWindow::setupUi()
 
     m_breadcrumb = new BreadcrumbBar(this);
 
+    connect(m_breadcrumb, &BreadcrumbBar::symbolActivated,
+            this, [this](int line, int col) {
+        auto *editor = currentEditor();
+        if (!editor) return;
+        const QTextBlock block = editor->document()->findBlockByNumber(line);
+        if (block.isValid()) {
+            QTextCursor cur(block);
+            cur.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor,
+                             qMin(col, block.length() - 1));
+            editor->setTextCursor(cur);
+            editor->centerCursor();
+        }
+        editor->setFocus();
+    });
+
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
         QWidget *widget = m_tabs->widget(index);
         const QString closedPath = widget ? widget->property("filePath").toString() : QString();
@@ -2897,14 +2912,17 @@ void MainWindow::onTabChanged(int /*index*/)
         m_breadcrumb->setFilePath(fp, rt);
     } else {
         m_breadcrumb->clear();
+        m_breadcrumb->clearSymbols();
     }
 
     if (editor) {
         auto *bridge = editor->findChild<LspEditorBridge *>();
-        if (bridge)
+        if (bridge) {
             bridge->requestSymbols();
-        else
+        } else {
             m_symbolPanel->clear();
+            m_breadcrumb->clearSymbols();
+        }
 
         // Attach inline completion engine to the active editor
         if (m_inlineEngine) {
@@ -3734,8 +3752,10 @@ void MainWindow::createLspBridge(EditorView *editor, const QString &path)
 
     connect(bridge, &LspEditorBridge::symbolsUpdated,
             this, [this, editor](const QString &/*uri*/, const QJsonArray &symbols) {
-        if (m_tabs->currentWidget() == editor)
+        if (m_tabs->currentWidget() == editor) {
             m_symbolPanel->setSymbols(symbols);
+            m_breadcrumb->setSymbols(symbols);
+        }
     });
 }
 
