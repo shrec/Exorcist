@@ -2,9 +2,10 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QTemporaryFile>
-#include <QTimer>
 
 SshSession::SshSession(const SshProfile &profile, QObject *parent)
     : QObject(parent)
@@ -22,8 +23,17 @@ SshSession::~SshSession()
 QStringList SshSession::sshBaseArgs() const
 {
     QStringList args;
-    args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes")
-         << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new")
+
+    if (m_profile.authMethod == QLatin1String("password")) {
+        // Password auth: disable batch mode, disable pubkey to force password prompt
+        args << QStringLiteral("-o") << QStringLiteral("BatchMode=no")
+             << QStringLiteral("-o") << QStringLiteral("PubkeyAuthentication=no")
+             << QStringLiteral("-o") << QStringLiteral("PreferredAuthentications=password,keyboard-interactive");
+    } else {
+        args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes");
+    }
+
+    args << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new")
          << QStringLiteral("-o") << QStringLiteral("ConnectTimeout=10");
 
     if (m_profile.port != 22) {
@@ -48,6 +58,12 @@ QProcess *SshSession::startSshProcess(const QStringList &args)
 
     proc->setProgram(QStringLiteral("ssh"));
     proc->setArguments(fullArgs);
+
+    if (m_profile.authMethod == QLatin1String("password")
+        && !m_profile.password.isEmpty()) {
+        setupPasswordEnv(proc);
+    }
+
     proc->start();
     return proc;
 }
@@ -67,8 +83,16 @@ QProcess *SshSession::startSftpBatch(const QString &batchCommands)
     m_activeProcesses.append(proc);
 
     QStringList args;
-    args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes")
-         << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new")
+
+    if (m_profile.authMethod == QLatin1String("password")) {
+        args << QStringLiteral("-o") << QStringLiteral("BatchMode=no")
+             << QStringLiteral("-o") << QStringLiteral("PubkeyAuthentication=no")
+             << QStringLiteral("-o") << QStringLiteral("PreferredAuthentications=password,keyboard-interactive");
+    } else {
+        args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes");
+    }
+
+    args << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new")
          << QStringLiteral("-o") << QStringLiteral("ConnectTimeout=10");
 
     if (m_profile.port != 22) {
@@ -84,6 +108,12 @@ QProcess *SshSession::startSftpBatch(const QString &batchCommands)
 
     proc->setProgram(QStringLiteral("sftp"));
     proc->setArguments(args);
+
+    if (m_profile.authMethod == QLatin1String("password")
+        && !m_profile.password.isEmpty()) {
+        setupPasswordEnv(proc);
+    }
+
     proc->start();
 
     // Clean up temp file when process finishes
@@ -97,6 +127,66 @@ void SshSession::cleanupProcess(QProcess *proc)
 {
     m_activeProcesses.removeOne(proc);
     proc->deleteLater();
+}
+
+QStringList SshSession::scpBaseArgs() const
+{
+    QStringList args;
+
+    if (m_profile.authMethod == QLatin1String("password")) {
+        args << QStringLiteral("-o") << QStringLiteral("BatchMode=no")
+             << QStringLiteral("-o") << QStringLiteral("PubkeyAuthentication=no")
+             << QStringLiteral("-o") << QStringLiteral("PreferredAuthentications=password,keyboard-interactive");
+    } else {
+        args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes");
+    }
+
+    args << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new");
+
+    if (m_profile.port != 22) {
+        args << QStringLiteral("-P") << QString::number(m_profile.port); // SCP uses -P (uppercase)
+    }
+
+    if (m_profile.authMethod == QLatin1String("key") && !m_profile.privateKeyPath.isEmpty()) {
+        args << QStringLiteral("-i") << m_profile.privateKeyPath;
+    }
+
+    return args;
+}
+
+void SshSession::setupPasswordEnv(QProcess *proc)
+{
+    // Use SSH_ASKPASS to feed the password to SSH without using stdin.
+    // SSH_ASKPASS is a program that SSH calls to obtain the password — we
+    // create a tiny temp script that echoes our env var.  This leaves stdin
+    // free for data (writeFile, etc.) and works reliably cross-platform.
+
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("EXORCIST_SSH_PASS"), m_profile.password);
+    env.insert(QStringLiteral("SSH_ASKPASS_REQUIRE"), QStringLiteral("force"));
+
+    const QString tmpDir = QDir::tempPath();
+
+#ifdef Q_OS_WIN
+    const QString helperPath = tmpDir + QStringLiteral("/exo_askpass.cmd");
+    QFile helper(helperPath);
+    if (helper.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        helper.write("@echo off\r\necho %EXORCIST_SSH_PASS%\r\n");
+        helper.close();
+    }
+#else
+    const QString helperPath = tmpDir + QStringLiteral("/exo_askpass.sh");
+    QFile helper(helperPath);
+    if (helper.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        helper.write("#!/bin/sh\necho \"$EXORCIST_SSH_PASS\"\n");
+        helper.close();
+        helper.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+    }
+    env.insert(QStringLiteral("DISPLAY"), QStringLiteral(""));
+#endif
+
+    env.insert(QStringLiteral("SSH_ASKPASS"), helperPath);
+    proc->setProcessEnvironment(env);
 }
 
 bool SshSession::connectToHost()
@@ -257,6 +347,14 @@ void SshSession::writeFile(const QString &remotePath, const QByteArray &content)
 
     proc->setProgram(QStringLiteral("ssh"));
     proc->setArguments(args);
+
+    // SSH_ASKPASS handles password auth without using stdin, so stdin
+    // remains free for piping file content.
+    if (m_profile.authMethod == QLatin1String("password")
+        && !m_profile.password.isEmpty()) {
+        setupPasswordEnv(proc);
+    }
+
     proc->start();
 
     if (!proc->waitForStarted(5000)) {
@@ -290,20 +388,18 @@ void SshSession::downloadFile(const QString &remotePath, const QString &localPat
     auto *proc = new QProcess(this);
     m_activeProcesses.append(proc);
 
-    QStringList args;
-    args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes")
-         << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new");
-    if (m_profile.port != 22) {
-        args << QStringLiteral("-P") << QString::number(m_profile.port);
-    }
-    if (m_profile.authMethod == QLatin1String("key") && !m_profile.privateKeyPath.isEmpty()) {
-        args << QStringLiteral("-i") << m_profile.privateKeyPath;
-    }
+    QStringList args = scpBaseArgs();
     args << QStringLiteral("%1@%2:%3").arg(m_profile.user, m_profile.host, remotePath);
     args << localPath;
 
     proc->setProgram(QStringLiteral("scp"));
     proc->setArguments(args);
+
+    if (m_profile.authMethod == QLatin1String("password")
+        && !m_profile.password.isEmpty()) {
+        setupPasswordEnv(proc);
+    }
+
     proc->start();
 
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
@@ -328,20 +424,18 @@ void SshSession::uploadFile(const QString &localPath, const QString &remotePath)
     auto *proc = new QProcess(this);
     m_activeProcesses.append(proc);
 
-    QStringList args;
-    args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes")
-         << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new");
-    if (m_profile.port != 22) {
-        args << QStringLiteral("-P") << QString::number(m_profile.port);
-    }
-    if (m_profile.authMethod == QLatin1String("key") && !m_profile.privateKeyPath.isEmpty()) {
-        args << QStringLiteral("-i") << m_profile.privateKeyPath;
-    }
+    QStringList args = scpBaseArgs();
     args << localPath;
     args << QStringLiteral("%1@%2:%3").arg(m_profile.user, m_profile.host, remotePath);
 
     proc->setProgram(QStringLiteral("scp"));
     proc->setArguments(args);
+
+    if (m_profile.authMethod == QLatin1String("password")
+        && !m_profile.password.isEmpty()) {
+        setupPasswordEnv(proc);
+    }
+
     proc->start();
 
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),

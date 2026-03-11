@@ -96,8 +96,10 @@ signals:
 
 private:
     QStringList sshBaseArgs() const;
+    QStringList scpBaseArgs() const;
     QProcess *startSshProcess(const QStringList &args);
     QProcess *startSftpBatch(const QString &batchCommands);
+    void setupPasswordEnv(QProcess *proc);
     void cleanupProcess(QProcess *proc);
 
     SshProfile m_profile;

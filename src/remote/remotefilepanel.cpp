@@ -225,17 +225,11 @@ void RemoteFilePanel::onAddProfileClicked()
     if (!ok || user.isEmpty())
         return;
 
-    const QString keyPath = QInputDialog::getText(this, tr("New SSH Profile"),
-                                                   tr("Private key path (leave empty for ssh-agent):"),
-                                                   QLineEdit::Normal,
-                                                   QStringLiteral("~/.ssh/id_rsa"), &ok);
-    if (!ok)
-        return;
-
-    const QString remoteDir = QInputDialog::getText(this, tr("New SSH Profile"),
-                                                     tr("Remote working directory:"),
-                                                     QLineEdit::Normal,
-                                                     QStringLiteral("~"), &ok);
+    // Auth method selection
+    const QStringList authMethods = {tr("SSH Key"), tr("Password"), tr("SSH Agent")};
+    const QString authChoice = QInputDialog::getItem(this, tr("New SSH Profile"),
+                                                      tr("Authentication method:"),
+                                                      authMethods, 0, false, &ok);
     if (!ok)
         return;
 
@@ -244,8 +238,34 @@ void RemoteFilePanel::onAddProfileClicked()
     profile.name = name;
     profile.host = host;
     profile.user = user;
-    profile.authMethod = keyPath.isEmpty() ? QStringLiteral("agent") : QStringLiteral("key");
-    profile.privateKeyPath = keyPath;
+
+    if (authChoice == authMethods[0]) {
+        // SSH Key
+        profile.authMethod = QStringLiteral("key");
+        profile.privateKeyPath = QInputDialog::getText(this, tr("New SSH Profile"),
+                                                        tr("Private key path:"),
+                                                        QLineEdit::Normal,
+                                                        QStringLiteral("~/.ssh/id_rsa"), &ok);
+        if (!ok) return;
+    } else if (authChoice == authMethods[1]) {
+        // Password
+        profile.authMethod = QStringLiteral("password");
+        profile.password = QInputDialog::getText(this, tr("New SSH Profile"),
+                                                  tr("Password:"),
+                                                  QLineEdit::Password,
+                                                  {}, &ok);
+        if (!ok || profile.password.isEmpty()) return;
+    } else {
+        profile.authMethod = QStringLiteral("agent");
+    }
+
+    const QString remoteDir = QInputDialog::getText(this, tr("New SSH Profile"),
+                                                     tr("Remote working directory:"),
+                                                     QLineEdit::Normal,
+                                                     QStringLiteral("~"), &ok);
+    if (!ok)
+        return;
+
     profile.remoteWorkDir = remoteDir;
 
     m_connMgr->addProfile(profile);
@@ -279,12 +299,37 @@ void RemoteFilePanel::onEditProfileClicked()
                                        prof.user, &ok);
     if (!ok) return;
 
-    const QString keyPath = QInputDialog::getText(this, tr("Edit SSH Profile"),
-                                                   tr("Private key path:"), QLineEdit::Normal,
-                                                   prof.privateKeyPath, &ok);
+    // Auth method selection
+    const QStringList authMethods = {tr("SSH Key"), tr("Password"), tr("SSH Agent")};
+    int currentAuth = 2; // default: agent
+    if (prof.authMethod == QLatin1String("key"))      currentAuth = 0;
+    else if (prof.authMethod == QLatin1String("password")) currentAuth = 1;
+
+    const QString authChoice = QInputDialog::getItem(this, tr("Edit SSH Profile"),
+                                                      tr("Authentication method:"),
+                                                      authMethods, currentAuth, false, &ok);
     if (!ok) return;
-    prof.privateKeyPath = keyPath;
-    prof.authMethod = keyPath.isEmpty() ? QStringLiteral("agent") : QStringLiteral("key");
+
+    if (authChoice == authMethods[0]) {
+        prof.authMethod = QStringLiteral("key");
+        prof.privateKeyPath = QInputDialog::getText(this, tr("Edit SSH Profile"),
+                                                     tr("Private key path:"), QLineEdit::Normal,
+                                                     prof.privateKeyPath, &ok);
+        if (!ok) return;
+        prof.password.clear();
+    } else if (authChoice == authMethods[1]) {
+        prof.authMethod = QStringLiteral("password");
+        prof.password = QInputDialog::getText(this, tr("Edit SSH Profile"),
+                                               tr("Password:"),
+                                               QLineEdit::Password,
+                                               {}, &ok);
+        if (!ok || prof.password.isEmpty()) return;
+        prof.privateKeyPath.clear();
+    } else {
+        prof.authMethod = QStringLiteral("agent");
+        prof.privateKeyPath.clear();
+        prof.password.clear();
+    }
 
     prof.remoteWorkDir = QInputDialog::getText(this, tr("Edit SSH Profile"),
                                                 tr("Remote working directory:"),

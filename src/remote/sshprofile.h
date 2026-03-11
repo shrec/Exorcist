@@ -14,6 +14,7 @@ struct SshProfile
     QString user;               // remote user
     QString authMethod;         // "key" | "password" | "agent"
     QString privateKeyPath;     // path to private key (if authMethod == "key")
+    QString password;           // in-memory only, never persisted to disk
     QString remoteWorkDir;      // default remote working directory
     QString detectedArch;       // last detected architecture (e.g. "aarch64")
     QString detectedOs;         // last detected OS (e.g. "Linux")
