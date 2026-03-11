@@ -66,10 +66,17 @@ private:
     QVector<IndexChunk> chunkFile(const QString &filePath, const QString &content) const;
     bool shouldIgnore(const QString &relativePath) const;
     void loadGitignore(const QString &rootPath);
+    void loadConfig();
 
     QString              m_rootPath;
     QStringList          m_ignorePatterns;
     QSet<QString>        m_ignoreExact;      // exact directory/file names to exclude
+
+    // Settings-loaded config (populated by loadConfig)
+    QSet<QString>        m_configIgnoreDirs;
+    QStringList          m_configIgnoreGlobs;
+    QSet<QString>        m_indexableExtensions;
+    int                  m_maxFileSize = 512 * 1024;
 
     mutable QMutex       m_mutex;
     QVector<IndexChunk>  m_chunks;

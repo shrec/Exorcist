@@ -6,86 +6,114 @@
 #include <QFontComboBox>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QListWidget>
+#include <QPlainTextEdit>
 #include <QSettings>
 #include <QSpinBox>
-#include <QTabWidget>
+#include <QSplitter>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 
 #include "../thememanager.h"
 
+// ── SettingsDialog ────────────────────────────────────────────────────────────
+
 SettingsDialog::SettingsDialog(ThemeManager *themeMgr, QWidget *parent)
     : QDialog(parent)
-    , m_themeMgr(themeMgr)
-    , m_tabs(new QTabWidget(this))
+    , m_categoryList(new QListWidget(this))
+    , m_pageStack(new QStackedWidget(this))
 {
     setWindowTitle(tr("Preferences"));
-    setMinimumSize(480, 360);
+    setMinimumSize(640, 480);
+
+    // Sidebar + content split
+    m_categoryList->setFixedWidth(160);
+    m_categoryList->setIconSize(QSize(0, 0));
+
+    auto *splitter = new QSplitter(Qt::Horizontal, this);
+    splitter->addWidget(m_categoryList);
+    splitter->addWidget(m_pageStack);
+    splitter->setStretchFactor(0, 0);
+    splitter->setStretchFactor(1, 1);
 
     auto *root = new QVBoxLayout(this);
-    root->addWidget(m_tabs);
-
-    auto *editorTab     = new QWidget;
-    auto *appearanceTab = new QWidget;
-
-    buildEditorTab(editorTab);
-    buildAppearanceTab(appearanceTab);
-
-    m_tabs->addTab(editorTab,     tr("Editor"));
-    m_tabs->addTab(appearanceTab, tr("Appearance"));
+    root->addWidget(splitter, 1);
 
     auto *buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     root->addWidget(buttons);
 
     connect(buttons, &QDialogButtonBox::accepted, this, [this]() {
-        applySettings();
+        applyAll();
         accept();
     });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-    loadSettings();
+    connect(m_categoryList, &QListWidget::currentRowChanged,
+            m_pageStack, &QStackedWidget::setCurrentIndex);
+
+    // Built-in pages
+    addPage(new EditorSettingsPage(this));
+    addPage(new AppearanceSettingsPage(themeMgr, this));
+    addPage(new IndexerSettingsPage(this));
+
+    m_categoryList->setCurrentRow(0);
+    loadAll();
 }
 
-void SettingsDialog::buildEditorTab(QWidget *tab)
+void SettingsDialog::addPage(SettingsPage *page)
 {
-    auto *lay = new QFormLayout(tab);
+    m_pages.append(page);
+    m_categoryList->addItem(page->title());
+    m_pageStack->addWidget(page);
+}
 
-    // Font
-    m_fontFamily = new QFontComboBox(tab);
+void SettingsDialog::loadAll()
+{
+    for (auto *page : std::as_const(m_pages))
+        page->load();
+}
+
+void SettingsDialog::applyAll()
+{
+    for (auto *page : std::as_const(m_pages))
+        page->apply();
+    emit settingsApplied();
+}
+
+// ── EditorSettingsPage ────────────────────────────────────────────────────────
+
+EditorSettingsPage::EditorSettingsPage(QWidget *parent)
+    : SettingsPage(parent)
+{
+    auto *lay = new QFormLayout(this);
+
+    m_fontFamily = new QFontComboBox(this);
     m_fontFamily->setFontFilters(QFontComboBox::MonospacedFonts);
     lay->addRow(tr("Font family:"), m_fontFamily);
 
-    m_fontSize = new QSpinBox(tab);
+    m_fontSize = new QSpinBox(this);
     m_fontSize->setRange(6, 48);
     m_fontSize->setSuffix(tr(" pt"));
     lay->addRow(tr("Font size:"), m_fontSize);
 
-    m_tabSize = new QSpinBox(tab);
+    m_tabSize = new QSpinBox(this);
     m_tabSize->setRange(1, 16);
     lay->addRow(tr("Tab size (spaces):"), m_tabSize);
 
-    // Toggles
-    m_wordWrap = new QCheckBox(tr("Enable word wrap"), tab);
+    m_wordWrap = new QCheckBox(tr("Enable word wrap"), this);
     lay->addRow(m_wordWrap);
 
-    m_showLineNumbers = new QCheckBox(tr("Show line numbers"), tab);
+    m_showLineNumbers = new QCheckBox(tr("Show line numbers"), this);
     lay->addRow(m_showLineNumbers);
 
-    m_showMinimap = new QCheckBox(tr("Show minimap"), tab);
+    m_showMinimap = new QCheckBox(tr("Show minimap"), this);
     lay->addRow(m_showMinimap);
 }
 
-void SettingsDialog::buildAppearanceTab(QWidget *tab)
-{
-    auto *lay = new QFormLayout(tab);
-
-    m_themeCombo = new QComboBox(tab);
-    m_themeCombo->addItem(tr("Dark"),  static_cast<int>(ThemeManager::Dark));
-    m_themeCombo->addItem(tr("Light"), static_cast<int>(ThemeManager::Light));
-    lay->addRow(tr("Theme:"), m_themeCombo);
-}
-
-void SettingsDialog::loadSettings()
+void EditorSettingsPage::load()
 {
     QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
     s.beginGroup(QStringLiteral("editor"));
@@ -99,13 +127,9 @@ void SettingsDialog::loadSettings()
     m_showMinimap->setChecked(s.value(QStringLiteral("showMinimap"), false).toBool());
 
     s.endGroup();
-
-    // Theme
-    const int themeIdx = (m_themeMgr->currentTheme() == ThemeManager::Light) ? 1 : 0;
-    m_themeCombo->setCurrentIndex(themeIdx);
 }
 
-void SettingsDialog::applySettings()
+void EditorSettingsPage::apply()
 {
     QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
     s.beginGroup(QStringLiteral("editor"));
@@ -118,18 +142,170 @@ void SettingsDialog::applySettings()
     s.setValue(QStringLiteral("showMinimap"),       m_showMinimap->isChecked());
 
     s.endGroup();
+}
 
-    // Apply theme
+// ── AppearanceSettingsPage ────────────────────────────────────────────────────
+
+AppearanceSettingsPage::AppearanceSettingsPage(ThemeManager *mgr, QWidget *parent)
+    : SettingsPage(parent)
+    , m_themeMgr(mgr)
+{
+    auto *lay = new QFormLayout(this);
+
+    m_themeCombo = new QComboBox(this);
+    m_themeCombo->addItem(tr("Dark"),  static_cast<int>(ThemeManager::Dark));
+    m_themeCombo->addItem(tr("Light"), static_cast<int>(ThemeManager::Light));
+    lay->addRow(tr("Theme:"), m_themeCombo);
+}
+
+void AppearanceSettingsPage::load()
+{
+    const int themeIdx = (m_themeMgr->currentTheme() == ThemeManager::Light) ? 1 : 0;
+    m_themeCombo->setCurrentIndex(themeIdx);
+}
+
+void AppearanceSettingsPage::apply()
+{
     const auto newTheme = static_cast<ThemeManager::Theme>(
         m_themeCombo->currentData().toInt());
     m_themeMgr->setTheme(newTheme);
-
-    emit settingsApplied();
 }
 
-QString SettingsDialog::fontFamily() const { return m_fontFamily->currentFont().family(); }
-int     SettingsDialog::fontSize()   const { return m_fontSize->value(); }
-int     SettingsDialog::tabSize()    const { return m_tabSize->value(); }
-bool    SettingsDialog::wordWrap()   const { return m_wordWrap->isChecked(); }
-bool    SettingsDialog::showMinimap()const { return m_showMinimap->isChecked(); }
-bool    SettingsDialog::showLineNumbers() const { return m_showLineNumbers->isChecked(); }
+// ── IndexerSettingsPage ───────────────────────────────────────────────────────
+
+static const QStringList kBuiltinIgnoreDirs = {
+    QStringLiteral(".git"),        QStringLiteral(".cache"),
+    QStringLiteral(".claude"),     QStringLiteral(".exorcist"),
+    QStringLiteral(".next"),       QStringLiteral(".vs"),
+    QStringLiteral(".vscode"),     QStringLiteral("__pycache__"),
+    QStringLiteral("build"),       QStringLiteral("build-ci"),
+    QStringLiteral("build-llvm"),  QStringLiteral("build-release"),
+    QStringLiteral("CMakeFiles"),  QStringLiteral("dist"),
+    QStringLiteral("node_modules"),QStringLiteral("out"),
+    QStringLiteral("ReserchRepos"),QStringLiteral("vendor"),
+};
+
+static const QStringList kBuiltinExtensions = {
+    // C/C++
+    QStringLiteral("c"),    QStringLiteral("cpp"),  QStringLiteral("cc"),
+    QStringLiteral("cxx"),  QStringLiteral("h"),    QStringLiteral("hpp"),
+    QStringLiteral("hxx"),
+    // C# / Java / Kotlin
+    QStringLiteral("cs"),   QStringLiteral("java"), QStringLiteral("kt"),
+    QStringLiteral("kts"),
+    // Python
+    QStringLiteral("py"),
+    // JS/TS
+    QStringLiteral("js"),   QStringLiteral("ts"),   QStringLiteral("jsx"),
+    QStringLiteral("tsx"),  QStringLiteral("mjs"),  QStringLiteral("cjs"),
+    // Rust / Go / Swift
+    QStringLiteral("rs"),   QStringLiteral("go"),   QStringLiteral("swift"),
+    // Ruby / PHP / Dart / Lua
+    QStringLiteral("rb"),   QStringLiteral("php"),  QStringLiteral("dart"),
+    QStringLiteral("lua"),
+    // Shell
+    QStringLiteral("sh"),   QStringLiteral("bash"), QStringLiteral("zsh"),
+    QStringLiteral("ps1"),
+    // Config / markup
+    QStringLiteral("json"), QStringLiteral("yaml"), QStringLiteral("yml"),
+    QStringLiteral("toml"), QStringLiteral("xml"),  QStringLiteral("html"),
+    QStringLiteral("css"),  QStringLiteral("scss"), QStringLiteral("less"),
+    QStringLiteral("sql"),  QStringLiteral("graphql"), QStringLiteral("proto"),
+    // Build
+    QStringLiteral("cmake"),QStringLiteral("pro"),  QStringLiteral("qbs"),
+    // Docs
+    QStringLiteral("md"),   QStringLiteral("txt"),  QStringLiteral("rst"),
+};
+
+IndexerSettingsPage::IndexerSettingsPage(QWidget *parent)
+    : SettingsPage(parent)
+{
+    auto *root = new QVBoxLayout(this);
+
+    // -- Ignored directories ---------------------------------------------------
+    auto *dirGroup = new QGroupBox(tr("Ignored Directories"), this);
+    auto *dirLay = new QVBoxLayout(dirGroup);
+    dirLay->addWidget(new QLabel(tr("One directory name per line (e.g. node_modules):"), dirGroup));
+    m_ignoreDirs = new QPlainTextEdit(dirGroup);
+    m_ignoreDirs->setMaximumHeight(120);
+    dirLay->addWidget(m_ignoreDirs);
+    root->addWidget(dirGroup);
+
+    // -- Ignore glob patterns --------------------------------------------------
+    auto *globGroup = new QGroupBox(tr("Ignore Patterns (globs)"), this);
+    auto *globLay = new QVBoxLayout(globGroup);
+    globLay->addWidget(new QLabel(tr("One glob per line (e.g. *.log, build-*):"), globGroup));
+    m_ignoreGlobs = new QPlainTextEdit(globGroup);
+    m_ignoreGlobs->setMaximumHeight(80);
+    globLay->addWidget(m_ignoreGlobs);
+    root->addWidget(globGroup);
+
+    // -- Indexable extensions --------------------------------------------------
+    auto *extGroup = new QGroupBox(tr("Indexable File Extensions"), this);
+    auto *extLay = new QVBoxLayout(extGroup);
+    extLay->addWidget(new QLabel(tr("One extension per line without dot (e.g. cpp, py):"), extGroup));
+    m_extensions = new QPlainTextEdit(extGroup);
+    m_extensions->setMaximumHeight(120);
+    extLay->addWidget(m_extensions);
+    root->addWidget(extGroup);
+
+    // -- Max file size ---------------------------------------------------------
+    auto *sizeLay = new QFormLayout;
+    m_maxFileSize = new QSpinBox(this);
+    m_maxFileSize->setRange(32, 8192);
+    m_maxFileSize->setSuffix(tr(" KB"));
+    sizeLay->addRow(tr("Max file size:"), m_maxFileSize);
+    root->addLayout(sizeLay);
+
+    root->addStretch();
+}
+
+void IndexerSettingsPage::load()
+{
+    QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+    s.beginGroup(QStringLiteral("indexer"));
+
+    // Ignored dirs — use builtin as default
+    QStringList dirs = s.value(QStringLiteral("ignoreDirs"),
+                               QStringList(kBuiltinIgnoreDirs)).toStringList();
+    m_ignoreDirs->setPlainText(dirs.join(QLatin1Char('\n')));
+
+    // Ignore globs
+    QStringList globs = s.value(QStringLiteral("ignoreGlobs")).toStringList();
+    m_ignoreGlobs->setPlainText(globs.join(QLatin1Char('\n')));
+
+    // Extensions — use builtin as default
+    QStringList exts = s.value(QStringLiteral("extensions"),
+                                QStringList(kBuiltinExtensions)).toStringList();
+    m_extensions->setPlainText(exts.join(QLatin1Char('\n')));
+
+    // Max file size
+    m_maxFileSize->setValue(s.value(QStringLiteral("maxFileSizeKB"), 512).toInt());
+
+    s.endGroup();
+}
+
+void IndexerSettingsPage::apply()
+{
+    QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+    s.beginGroup(QStringLiteral("indexer"));
+
+    // Parse lines — filter empty
+    auto parseLines = [](QPlainTextEdit *edit) {
+        QStringList result;
+        const auto lines = edit->toPlainText().split(QLatin1Char('\n'));
+        for (const auto &line : lines) {
+            const QString trimmed = line.trimmed();
+            if (!trimmed.isEmpty())
+                result << trimmed;
+        }
+        return result;
+    };
+
+    s.setValue(QStringLiteral("ignoreDirs"),   parseLines(m_ignoreDirs));
+    s.setValue(QStringLiteral("ignoreGlobs"),  parseLines(m_ignoreGlobs));
+    s.setValue(QStringLiteral("extensions"),   parseLines(m_extensions));
+    s.setValue(QStringLiteral("maxFileSizeKB"), m_maxFileSize->value());
+
+    s.endGroup();
+}

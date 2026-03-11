@@ -6,13 +6,14 @@
 #include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QTextStream>
 #include <QThread>
 #include <QThreadPool>
 #include <QTimer>
 
-// Directories to always skip regardless of .gitignore
-static const QSet<QString> kDefaultIgnoreDirs = {
+// Fallback defaults when no QSettings entry exists
+static const QStringList kDefaultIgnoreDirsList = {
     QStringLiteral(".git"),
     QStringLiteral(".cache"),
     QStringLiteral(".claude"),
@@ -33,8 +34,7 @@ static const QSet<QString> kDefaultIgnoreDirs = {
     QStringLiteral("vendor"),
 };
 
-// File extensions to index (source code + config — not binary)
-static const QSet<QString> kIndexableExtensions = {
+static const QStringList kDefaultExtensionsList = {
     // C/C++
     QStringLiteral("c"), QStringLiteral("cpp"), QStringLiteral("cc"),
     QStringLiteral("cxx"), QStringLiteral("h"), QStringLiteral("hpp"),
@@ -77,7 +77,6 @@ static const QSet<QString> kIndexableExtensions = {
     QStringLiteral("md"), QStringLiteral("txt"), QStringLiteral("rst"),
 };
 
-static constexpr int kMaxFileSize = 512 * 1024;  // 512 KB
 static constexpr int kChunkLines  = 60;           // default chunk size
 
 WorkspaceIndexer::WorkspaceIndexer(QObject *parent)
@@ -96,6 +95,7 @@ void WorkspaceIndexer::indexWorkspace(const QString &rootPath)
     m_rootPath = rootPath;
     m_cancelled = false;
 
+    loadConfig();
     loadGitignore(rootPath);
 
     // Set up file watcher
@@ -138,7 +138,7 @@ void WorkspaceIndexer::runScan()
 
         // Check extension
         const QString ext = QFileInfo(path).suffix().toLower();
-        if (!kIndexableExtensions.contains(ext))
+        if (!m_indexableExtensions.contains(ext))
             continue;
 
         // Check ignore rules
@@ -146,7 +146,7 @@ void WorkspaceIndexer::runScan()
             continue;
 
         // Check file size
-        if (QFileInfo(path).size() > kMaxFileSize)
+        if (QFileInfo(path).size() > m_maxFileSize)
             continue;
 
         filesToIndex << path;
@@ -354,7 +354,11 @@ int WorkspaceIndexer::totalFileCount() const
 void WorkspaceIndexer::loadGitignore(const QString &rootPath)
 {
     m_ignorePatterns.clear();
-    m_ignoreExact = kDefaultIgnoreDirs;
+    // Start from settings-configured ignore dirs (populated by loadConfig)
+    m_ignoreExact = m_configIgnoreDirs;
+
+    // Merge settings-configured glob patterns
+    m_ignorePatterns = m_configIgnoreGlobs;
 
     QFile gitignore(QDir(rootPath).filePath(QStringLiteral(".gitignore")));
     if (!gitignore.open(QIODevice::ReadOnly | QIODevice::Text))
@@ -410,4 +414,32 @@ bool WorkspaceIndexer::shouldIgnore(const QString &relativePath) const
     }
 
     return false;
+}
+
+void WorkspaceIndexer::loadConfig()
+{
+    QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+    s.beginGroup(QStringLiteral("indexer"));
+
+    // Ignored directories
+    const QStringList dirs = s.value(QStringLiteral("ignoreDirs"),
+                                      QStringList(kDefaultIgnoreDirsList)).toStringList();
+    m_configIgnoreDirs.clear();
+    for (const auto &d : dirs)
+        m_configIgnoreDirs.insert(d);
+
+    // Ignore globs
+    m_configIgnoreGlobs = s.value(QStringLiteral("ignoreGlobs")).toStringList();
+
+    // Indexable extensions
+    const QStringList exts = s.value(QStringLiteral("extensions"),
+                                      QStringList(kDefaultExtensionsList)).toStringList();
+    m_indexableExtensions.clear();
+    for (const auto &e : exts)
+        m_indexableExtensions.insert(e);
+
+    // Max file size
+    m_maxFileSize = s.value(QStringLiteral("maxFileSizeKB"), 512).toInt() * 1024;
+
+    s.endGroup();
 }

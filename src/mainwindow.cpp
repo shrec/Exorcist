@@ -1754,6 +1754,10 @@ void MainWindow::setupMenus()
                     e->setMinimapVisible(minimap);
                 }
             }
+
+            // Re-index workspace if indexer settings changed
+            if (m_workspaceIndexer && !m_workspaceIndexer->rootPath().isEmpty())
+                m_workspaceIndexer->indexWorkspace(m_workspaceIndexer->rootPath());
         });
         dlg.exec();
     });
