@@ -26,6 +26,10 @@ Priority rule: **typing never blocks** — all background work must be async/can
   CMake, YAML, TOML, Makefile, Dockerfile, GLSL, GraphQL, HCL, .pro …)
 - Settings persistence (geometry + last folder via QSettings)
 - Command palette (Ctrl+P file, Ctrl+Shift+P command)
+- Bracket matching (highlight matching `()[]{}` on cursor adjacency)
+- Auto-close brackets and quotes (`{` → `{}`, `(` → `()`, `"` → `""`, etc.)
+- Smart indentation (Enter preserves indent, extra indent after `{`, brace split)
+- Breadcrumb bar with LSP symbol navigation dropdown
 
 ---
 
