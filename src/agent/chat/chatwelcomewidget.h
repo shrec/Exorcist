@@ -9,6 +9,7 @@
 #include <QWidget>
 
 #include <functional>
+#include <memory>
 
 #include "chatthemetokens.h"
 
@@ -105,7 +106,7 @@ private:
         while (auto *item = m_layout->takeAt(0)) {
             if (item->widget())
                 item->widget()->deleteLater();
-            delete item;
+            auto guard = std::unique_ptr<QLayoutItem>(item);
         }
     }
 

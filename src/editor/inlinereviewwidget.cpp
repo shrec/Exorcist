@@ -5,6 +5,8 @@
 #include <QTextBlock>
 #include <QTextCursor>
 
+#include <memory>
+
 InlineReviewWidget::InlineReviewWidget(QWidget *parent)
     : QWidget(parent)
 {
@@ -127,7 +129,7 @@ void InlineReviewWidget::updateDisplay()
         auto *item = m_contentLayout->takeAt(0);
         if (item->widget())
             item->widget()->deleteLater();
-        delete item;
+        auto guard = std::unique_ptr<QLayoutItem>(item);
     }
 
     m_counterLabel->setText(QStringLiteral("%1/%2")

@@ -50,6 +50,8 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
+
+#include <memory>
 #include <QUuid>
 #include <QVBoxLayout>
 #include <QWidgetAction>
@@ -869,7 +871,7 @@ void AgentChatPanel::refreshProviderList()
     while (QLayoutItem *item = m_providerTabLayout->takeAt(0)) {
         if (QWidget *w = item->widget())
             w->deleteLater();
-        delete item;
+        auto guard = std::unique_ptr<QLayoutItem>(item);
     }
     m_providerTabs.clear();
 
@@ -1106,7 +1108,8 @@ void AgentChatPanel::onSend()
     m_attachments.clear();
     // Clear chips
     while (QLayoutItem *item = m_attachLayout->takeAt(0)) {
-        delete item->widget(); delete item;
+        if (auto *w = item->widget()) w->deleteLater();
+        auto guard = std::unique_ptr<QLayoutItem>(item);
     }
     m_attachLayout->addStretch();
     m_attachBar->hide();
@@ -2615,8 +2618,9 @@ void AgentChatPanel::setWorkspaceRoot(const QString &root)
     m_workspaceRoot = root;
 
     // Remove old dynamic prompt file items
-    while (m_slashMenu->count() > m_staticSlashCount)
-        delete m_slashMenu->takeItem(m_slashMenu->count() - 1);
+    while (m_slashMenu->count() > m_staticSlashCount) {
+        auto item = std::unique_ptr<QListWidgetItem>(m_slashMenu->takeItem(m_slashMenu->count() - 1));
+    }
 
     // Load prompt files from workspace
     const auto promptFiles = PromptFileLoader::loadPromptFiles(root);

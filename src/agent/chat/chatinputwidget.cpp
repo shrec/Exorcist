@@ -26,6 +26,8 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include <memory>
+
 ChatInputWidget::ChatInputWidget(QWidget *parent)
     : QWidget(parent)
 {
@@ -637,8 +639,9 @@ void ChatInputWidget::setSlashCommands(const QStringList &commands)
 
 void ChatInputWidget::addDynamicSlashCommands(const QStringList &commands)
 {
-    while (m_slashMenu->count() > m_staticSlashCount)
-        delete m_slashMenu->takeItem(m_slashMenu->count() - 1);
+    while (m_slashMenu->count() > m_staticSlashCount) {
+        auto item = std::unique_ptr<QListWidgetItem>(m_slashMenu->takeItem(m_slashMenu->count() - 1));
+    }
     for (const QString &cmd : commands)
         m_slashMenu->addItem(cmd);
 }
@@ -729,7 +732,7 @@ void ChatInputWidget::rebuildAttachChips()
     while (QLayoutItem *item = m_attachLayout->takeAt(0)) {
         if (auto *w = item->widget())
             w->deleteLater();
-        delete item;
+        auto guard = std::unique_ptr<QLayoutItem>(item);
     }
     m_attachLayout->addStretch();
 

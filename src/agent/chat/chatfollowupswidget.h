@@ -6,6 +6,8 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <memory>
+
 #include "chatcontentpart.h"
 #include "chatthemetokens.h"
 
@@ -34,7 +36,7 @@ public:
         while (auto *item = m_layout->takeAt(0)) {
             if (item->widget())
                 item->widget()->deleteLater();
-            delete item;
+            auto guard = std::unique_ptr<QLayoutItem>(item);
         }
 
         for (const auto &fu : items) {

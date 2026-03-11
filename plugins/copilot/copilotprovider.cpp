@@ -13,6 +13,8 @@
 #include <QSettings>
 #include <QUrlQuery>
 
+#include <memory>
+
 Q_LOGGING_CATEGORY(lcCopilot, "exorcist.copilot")
 
 // ── Endpoints (from Copilot Chat extension source) ────────────────────────────
@@ -622,11 +624,10 @@ void CopilotProvider::sendRequest(const AgentRequest &request)
         m_retryCount  = 0;
         refreshCopilotToken();
         // Wait for token refresh, then auto-retry
-        auto *conn = new QMetaObject::Connection;
+        auto conn = std::make_shared<QMetaObject::Connection>();
         *conn = connect(this, &CopilotProvider::availabilityChanged,
                         this, [this, conn](bool available) {
             disconnect(*conn);
-            delete conn;
             if (available && !m_lastRequest.requestId.isEmpty())
                 sendRequest(m_lastRequest);
             else if (!available) {

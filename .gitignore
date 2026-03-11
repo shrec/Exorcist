@@ -29,5 +29,27 @@
 # Claude / AI assistant cache
 .claude/
 
+# IDE session data
+.exorcist/
+
+# Temporary debug/test files
+cmake_err.txt
+cmake_out.txt
+config_log.txt
+dbg_stderr.txt
+debug_out.txt
+err.txt
+launch_output.txt
+lj_vm_disasm.txt
+model_log*.txt
+model_policy_log.txt
+out.txt
+stderr_debug.txt
+stderr_log*.txt
+stdout_debug.txt
+test_file.txt
+ui_screenshot.png
+ui_ss*.png
+
 # Research repositories (local reference only, not committed)
 /ReserchRepos/

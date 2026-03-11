@@ -99,7 +99,7 @@ void PluginManager::initializeAll(IHostServices *host)
     // Initialize C ABI plugins.
     for (LoadedCAbiPlugin &cp : m_cabiLoaded) {
         // Create the bridge (translates C ABI ↔ Qt/C++ services).
-        cp.bridge = new cabi::CAbiPluginBridge(host, this);
+        cp.bridge = std::make_unique<cabi::CAbiPluginBridge>(host, this);
 
         auto initFn = reinterpret_cast<ExInitializeFn>(
             cp.library->resolve("ex_plugin_initialize"));
@@ -141,8 +141,8 @@ void PluginManager::shutdownAll()
             cp.library->resolve("ex_plugin_shutdown"));
         if (shutdownFn) shutdownFn();
         cp.library->unload();
-        delete cp.bridge; // QObject children also cleaned up
-        delete cp.library;
+        cp.bridge.reset();
+        cp.library.reset();
     }
     m_cabiLoaded.clear();
 
@@ -176,9 +176,8 @@ QVector<QObject *> PluginManager::pluginObjects() const
 
 bool PluginManager::tryLoadCAbi(const QString &filePath)
 {
-    auto *lib = new QLibrary(filePath);
+    auto lib = std::make_unique<QLibrary>(filePath);
     if (!lib->load()) {
-        delete lib;
         return false;
     }
 
@@ -190,7 +189,6 @@ bool PluginManager::tryLoadCAbi(const QString &filePath)
 
     if (!versionFn || !describeFn || !initFn || !shutdownFn) {
         lib->unload();
-        delete lib;
         return false;
     }
 
@@ -202,7 +200,6 @@ bool PluginManager::tryLoadCAbi(const QString &filePath)
                         .arg(EX_ABI_VERSION_MAJOR).arg(pluginMajor)
                         .arg(QFileInfo(filePath).fileName());
         lib->unload();
-        delete lib;
         return false;
     }
 
@@ -213,7 +210,7 @@ bool PluginManager::tryLoadCAbi(const QString &filePath)
           qUtf8Printable(QFileInfo(filePath).fileName()));
 
     // Bridge is created now; initialization happens in initializeAll().
-    m_cabiLoaded.push_back({lib, nullptr, pluginId});
+    m_cabiLoaded.push_back({std::move(lib), nullptr, pluginId});
     return true;
 }
 

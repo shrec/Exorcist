@@ -9,6 +9,8 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include <memory>
+
 namespace exdock {
 
 DockOverlayPanel::DockOverlayPanel(QWidget *mainWindow, QWidget *parent)
@@ -54,7 +56,9 @@ void DockOverlayPanel::showForDock(ExDockWidget *dock, SideBarArea side,
         m_overlayTitleBar->deleteLater();
         m_overlayTitleBar = nullptr;
     }
-    delete layout(); // Qt requires synchronous layout delete before replacement
+    // Remove old layout — reparent to a temporary widget that destroys it.
+    if (auto *oldLayout = layout())
+        QWidget().setLayout(oldLayout);
 
     auto *mainLay = new QVBoxLayout(this);
     mainLay->setContentsMargins(1, 1, 1, 1);

@@ -36,11 +36,8 @@ TerminalPanel::TerminalPanel(QWidget *parent)
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
         QWidget *w = m_tabs->widget(index);
         m_tabs->removeTab(index);
-        if (w) {
-            // Delete synchronously so the PTY backend is fully cleaned up
-            // before we potentially create a replacement tab.
-            delete w;
-        }
+        if (w)
+            w->deleteLater();
         // If all tabs closed, create a fresh one
         if (m_tabs->count() == 0)
             addTerminal();

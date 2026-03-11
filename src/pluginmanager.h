@@ -32,8 +32,8 @@ public:
     };
 
     struct LoadedCAbiPlugin {
-        QLibrary *library;
-        cabi::CAbiPluginBridge *bridge;
+        std::unique_ptr<QLibrary> library;
+        std::unique_ptr<cabi::CAbiPluginBridge> bridge;
         QString id;
     };
 
@@ -76,7 +76,7 @@ private:
     bool tryLoadCAbi(const QString &filePath);
 
     QVector<LoadedPlugin> m_loaded;
-    QVector<LoadedCAbiPlugin> m_cabiLoaded;
+    std::vector<LoadedCAbiPlugin> m_cabiLoaded;
     QStringList m_errors;
     std::vector<std::unique_ptr<PermissionGuardedHostServices>> m_permGuards;
     std::unique_ptr<luabridge::LuaScriptEngine> m_luaEngine;

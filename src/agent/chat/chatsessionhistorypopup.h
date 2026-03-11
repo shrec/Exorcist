@@ -12,6 +12,8 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <memory>
+
 #include "chatthemetokens.h"
 
 // ── ChatSessionHistoryPopup ──────────────────────────────────────────────────
@@ -132,7 +134,7 @@ public:
                 }
             } else if (chosen == deleteAct) {
                 const int row = m_list->row(item);
-                delete m_list->takeItem(row);
+                auto removed = std::unique_ptr<QListWidgetItem>(m_list->takeItem(row));
                 m_sessions.erase(
                     std::remove_if(m_sessions.begin(), m_sessions.end(),
                         [&id](const SessionEntry &e) { return e.id == id; }),

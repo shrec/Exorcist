@@ -538,8 +538,8 @@ LuaScriptEngine::AdhocResult LuaScriptEngine::executeAdhoc(const QString &script
 
     // ── Override print() to capture output ───────────────────────────────
     // Store a string buffer in the registry for the print function.
-    auto *outputBuf = new QString();  // raw pointer stored in registry lightuserdata
-    lua_pushlightuserdata(L, outputBuf);
+    auto outputBuf = std::make_unique<QString>();
+    lua_pushlightuserdata(L, outputBuf.get());
     lua_setfield(L, LUA_REGISTRYINDEX, "_adhoc_output");
 
     lua_pushcfunction(L, [](lua_State *Ls) -> int {
@@ -567,7 +567,6 @@ LuaScriptEngine::AdhocResult LuaScriptEngine::executeAdhoc(const QString &script
     if (loadErr != 0) {
         result.error = QString::fromUtf8(lua_tostring(L, -1));
         lua_close(L);
-        delete outputBuf;
         return result;
     }
 
@@ -605,7 +604,6 @@ LuaScriptEngine::AdhocResult LuaScriptEngine::executeAdhoc(const QString &script
     result.memoryUsedBytes = static_cast<int>(budget->used);
 
     lua_close(L);
-    delete outputBuf;
     return result;
 }
 
