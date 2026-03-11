@@ -26,9 +26,14 @@ class PromptVariableResolver;
 class SessionStore;
 
 class ChatInputWidget;
+class ChatSessionHistoryPopup;
+
+#ifdef EXORCIST_HAS_ULTRALIGHT
+namespace exorcist { class UltralightWidget; class ChatJSBridge; }
+#else
 class ChatTranscriptView;
 class ChatWelcomeWidget;
-class ChatSessionHistoryPopup;
+#endif
 
 // ── ChatPanelWidget ──────────────────────────────────────────────────────────
 //
@@ -149,9 +154,14 @@ private:
     QToolButton           *m_newSessionHeaderBtn = nullptr;
     QToolButton           *m_gearHeaderBtn    = nullptr;
 
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    exorcist::UltralightWidget *m_ultralightView = nullptr;
+    exorcist::ChatJSBridge     *m_jsBridge       = nullptr;
+#else
     QStackedWidget        *m_stack            = nullptr;
     ChatWelcomeWidget     *m_welcome          = nullptr;
     ChatTranscriptView    *m_transcript       = nullptr;
+#endif
     ChatInputWidget       *m_inputWidget      = nullptr;
 
     // Changes bar

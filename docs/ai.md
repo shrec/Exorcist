@@ -60,11 +60,31 @@ controlled by `ToolApprovalService`.
 | Widget | Purpose |
 |--------|---------|
 | `ChatPanelWidget` | Main chat composition root (transcript + input + toolbar) |
-| `ChatTranscriptView` | Scrollable turn list |
-| `ChatTurnWidget` | Single turn renderer (markdown, code, tools, thinking) |
+| `ChatTranscriptView` | Scrollable turn list (Qt widget path) |
+| `ChatTurnWidget` | Single turn renderer — markdown, code, tools, thinking (Qt widget path) |
 | `ChatInputWidget` | Input area with mode/model bar, attachments |
 | `InlineChatWidget` | Selection-scoped inline chat overlay |
 | `QuickChatDialog` | Lightweight floating chat |
+
+#### Ultralight HTML chat renderer (optional)
+
+When built with `-DEXORCIST_USE_ULTRALIGHT=ON`, the chat transcript is rendered
+via an embedded Ultralight (WebKit fork) surface instead of Qt widgets. This
+gives full CSS/JS control over the chat UI with ~10 MB RAM overhead.
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `UltralightEngine` | `agent/chat/ultralight/ultralightengine.*` | Singleton `Renderer` wrapper |
+| `UltralightWidget` | `agent/chat/ultralight/ultralightwidget.*` | QWidget host — BitmapSurface→QImage→QPainter |
+| `ChatJSBridge` | `agent/chat/ultralight/chatjsbridge.*` | Bidirectional C++↔JS signal bridge |
+| `chat.html` | `resources/chat/chat.html` | Root HTML document |
+| `chat.css` | `resources/chat/chat.css` | Full dark theme CSS |
+| `chat.js` | `resources/chat/chat.js` | ChatApp — turn rendering, streaming, tool states |
+| `markdown.js` | `resources/chat/markdown.js` | Lightweight markdown→HTML parser |
+
+The `#ifdef EXORCIST_HAS_ULTRALIGHT` compile-time switch in `ChatPanelWidget`
+selects between the Qt widget transcript and the Ultralight HTML renderer.
+`ChatInputWidget` remains a Qt widget in both paths.
 
 ## Provider responsibilities
 

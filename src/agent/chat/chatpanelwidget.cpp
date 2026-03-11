@@ -31,10 +31,17 @@
 #include "chatsessionhistorypopup.h"
 #include "chatsessionmodel.h"
 #include "chatthemetokens.h"
-#include "chattranscriptview.h"
-#include "chatwelcomewidget.h"
 #include "toolpresentationformatter.h"
 #include "ui/notificationtoast.h"
+
+#ifdef EXORCIST_HAS_ULTRALIGHT
+#include "ultralight/ultralightwidget.h"
+#include "ultralight/chatjsbridge.h"
+#include <QFile>
+#else
+#include "chattranscriptview.h"
+#include "chatwelcomewidget.h"
+#endif
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  Construction
@@ -194,7 +201,67 @@ void ChatPanelWidget::buildUi()
             .arg(ChatTheme::InputBg, ChatTheme::Border));
     m_rootLayout->addWidget(m_changesBar);
 
-    // ── Stacked area: welcome / transcript ───────────────────────────
+    // ── Main content area: welcome / transcript ─────────────────────
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_ultralightView = new exorcist::UltralightWidget(this);
+    m_jsBridge = new exorcist::ChatJSBridge(m_ultralightView, this);
+
+    // Load chat HTML from embedded resources
+    {
+        QString html;
+        auto loadRes = [](const QString &path) -> QString {
+            QFile f(path);
+            return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
+        };
+        const QString css = loadRes(QStringLiteral(":/chat/chat.css"));
+        const QString markdownJs = loadRes(QStringLiteral(":/chat/markdown.js"));
+        const QString chatJs = loadRes(QStringLiteral(":/chat/chat.js"));
+
+        html = QStringLiteral(
+            "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+            "<style>%1</style></head><body>"
+            "<div id='welcome' class='welcome'>"
+            "  <div class='welcome-icon'>&#10024;</div>"
+            "  <h2 class='welcome-title'>Ask Copilot</h2>"
+            "  <p class='welcome-subtitle'>Ask a question or type <span class='kbd'>/</span> for commands</p>"
+            "  <div id='welcome-suggestions' class='welcome-suggestions'></div>"
+            "  <div id='welcome-tool-count' class='welcome-tool-count'></div>"
+            "</div>"
+            "<div id='transcript' class='transcript' style='display:none;' role='log'></div>"
+            "<script>%2</script>"
+            "<script>%3</script>"
+            "</body></html>")
+            .arg(css, markdownJs, chatJs);
+        m_ultralightView->loadHTML(html);
+    }
+
+    // Apply theme once DOM is ready
+    connect(m_ultralightView, &exorcist::UltralightWidget::domReady,
+            this, [this]() {
+        // Build theme JSON from ChatThemeTokens
+        QJsonObject theme;
+        const bool dark = ChatTheme::isDark();
+        theme[QStringLiteral("panelBg")]       = dark ? ChatTheme::PanelBg : ChatTheme::L_PanelBg;
+        theme[QStringLiteral("editorBg")]      = dark ? ChatTheme::EditorBg : ChatTheme::L_EditorBg;
+        theme[QStringLiteral("fgPrimary")]     = dark ? ChatTheme::FgPrimary : ChatTheme::L_FgPrimary;
+        theme[QStringLiteral("fgSecondary")]   = dark ? ChatTheme::FgSecondary : ChatTheme::L_FgSecondary;
+        theme[QStringLiteral("fgDimmed")]      = dark ? ChatTheme::FgDimmed : ChatTheme::L_FgDimmed;
+        theme[QStringLiteral("fgBright")]      = dark ? ChatTheme::FgBright : ChatTheme::L_FgBright;
+        theme[QStringLiteral("border")]        = dark ? ChatTheme::Border : ChatTheme::L_Border;
+        theme[QStringLiteral("sepLine")]       = dark ? ChatTheme::SepLine : ChatTheme::L_SepLine;
+        theme[QStringLiteral("hoverBg")]       = dark ? ChatTheme::HoverBg : ChatTheme::L_HoverBg;
+        theme[QStringLiteral("codeBg")]        = dark ? ChatTheme::CodeBg : ChatTheme::L_CodeBg;
+        theme[QStringLiteral("codeHeaderBg")]  = dark ? ChatTheme::CodeHeaderBg : ChatTheme::L_CodeHeaderBg;
+        theme[QStringLiteral("thinkingBg")]    = dark ? ChatTheme::ThinkingBg : ChatTheme::L_ThinkingBg;
+        theme[QStringLiteral("thinkingBorder")]= dark ? ChatTheme::ThinkingBorder : ChatTheme::L_ThinkingBorder;
+        theme[QStringLiteral("thinkingFg")]    = dark ? ChatTheme::ThinkingFg : ChatTheme::L_ThinkingFg;
+        theme[QStringLiteral("scrollTrack")]   = dark ? ChatTheme::ScrollTrack : ChatTheme::L_ScrollTrack;
+        theme[QStringLiteral("scrollThumb")]   = dark ? ChatTheme::ScrollHandle : ChatTheme::L_ScrollHandle;
+        m_jsBridge->setTheme(theme);
+    });
+
+    m_rootLayout->addWidget(m_ultralightView, 1);
+#else
     m_stack = new QStackedWidget(this);
 
     m_welcome = new ChatWelcomeWidget(m_stack);
@@ -204,6 +271,7 @@ void ChatPanelWidget::buildUi()
     m_stack->addWidget(m_transcript);
 
     m_rootLayout->addWidget(m_stack, 1);
+#endif
 
     // ── Input widget ─────────────────────────────────────────────────
     m_inputWidget = new ChatInputWidget(this);
@@ -250,7 +318,18 @@ void ChatPanelWidget::buildUi()
             active->setModel(modelId);
     });
 
-    // Wire welcome
+    // Wire welcome / transcript
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    connect(m_jsBridge, &exorcist::ChatJSBridge::suggestionClicked,
+            this, [this](const QString &msg) {
+        m_inputWidget->setInputText(msg);
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::signInRequested,
+            this, [this] {
+        if (auto *active = m_orchestrator->activeProvider())
+            active->initialize();
+    });
+#else
     connect(m_welcome, &ChatWelcomeWidget::suggestionClicked,
             this, [this](const QString &msg) {
         m_inputWidget->setInputText(msg);
@@ -265,6 +344,7 @@ void ChatPanelWidget::buildUi()
         if (auto *active = m_orchestrator->activeProvider())
             active->initialize();
     });
+#endif
 
     connectTranscript();
 }
@@ -325,7 +405,11 @@ void ChatPanelWidget::connectController()
 
         m_sessionModel->appendPart(part);
         int idx = m_sessionModel->turnCount() - 1;
+#ifdef EXORCIST_HAS_ULTRALIGHT
+        m_jsBridge->addContentPart(idx, part.toJson());
+#else
         m_transcript->addContentPart(idx, part);
+#endif
     });
 
     connect(m_agentController, &AgentController::toolCallFinished,
@@ -357,7 +441,11 @@ void ChatPanelWidget::connectController()
                     p.toolPastTenseMsg = pres.pastTenseMessage;
                 }
                 int idx = m_sessionModel->turnCount() - 1;
+#ifdef EXORCIST_HAS_ULTRALIGHT
+                m_jsBridge->updateToolState(idx, p.toolCallId, p.toJson());
+#else
                 m_transcript->updateToolState(idx, p.toolCallId, p);
+#endif
                 emit m_sessionModel->turnUpdated(idx);
                 break;
             }
@@ -373,6 +461,66 @@ void ChatPanelWidget::connectController()
 
 void ChatPanelWidget::connectTranscript()
 {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    connect(m_jsBridge, &exorcist::ChatJSBridge::followupClicked,
+            this, &ChatPanelWidget::onFollowupClicked);
+    connect(m_jsBridge, &exorcist::ChatJSBridge::feedbackGiven,
+            this, &ChatPanelWidget::onFeedback);
+    connect(m_jsBridge, &exorcist::ChatJSBridge::toolConfirmed,
+            this, &ChatPanelWidget::onToolConfirmed);
+    connect(m_jsBridge, &exorcist::ChatJSBridge::fileClicked,
+            this, &ChatPanelWidget::openFileRequested);
+    connect(m_jsBridge, &exorcist::ChatJSBridge::insertCodeRequested,
+            this, [this](const QString &code) {
+        if (m_insertAtCursorFn)
+            m_insertAtCursorFn(code);
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::retryRequested,
+            this, [this](const QString &turnId) {
+        for (int i = 0; i < m_sessionModel->turnCount(); ++i) {
+            if (m_sessionModel->turn(i).id == turnId) {
+                const QString userMsg = m_sessionModel->turn(i).userMessage;
+                if (!userMsg.isEmpty())
+                    onSend(userMsg, m_currentMode);
+                break;
+            }
+        }
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::keepFileRequested,
+            this, [this](int, const QString &path) {
+        m_pendingPatches.erase(
+            std::remove_if(m_pendingPatches.begin(), m_pendingPatches.end(),
+                [&path](const PatchProposal &p) { return p.filePath == path; }),
+            m_pendingPatches.end());
+        if (m_pendingPatches.isEmpty()) hideChangesBar();
+        else showChangesBar(m_pendingPatches.size());
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::undoFileRequested,
+            this, [this](int, const QString &path) {
+        if (!m_agentController) return;
+        const auto *session = m_agentController->session();
+        if (!session) return;
+        const auto &snaps = session->fileSnapshots();
+        auto it = snaps.find(path);
+        if (it != snaps.end()) {
+            QSaveFile f(it.key());
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                f.write(it.value().toUtf8());
+                f.commit();
+            }
+        }
+        m_pendingPatches.erase(
+            std::remove_if(m_pendingPatches.begin(), m_pendingPatches.end(),
+                [&path](const PatchProposal &p) { return p.filePath == path; }),
+            m_pendingPatches.end());
+        if (m_pendingPatches.isEmpty()) hideChangesBar();
+        else showChangesBar(m_pendingPatches.size());
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::keepAllRequested,
+            this, [this]() { m_keepBtn->click(); });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::undoAllRequested,
+            this, [this]() { m_undoBtn->click(); });
+#else
     connect(m_transcript, &ChatTranscriptView::followupClicked,
             this, &ChatPanelWidget::onFollowupClicked);
     connect(m_transcript, &ChatTranscriptView::feedbackGiven,
@@ -390,7 +538,6 @@ void ChatPanelWidget::connectTranscript()
     });
     connect(m_transcript, &ChatTranscriptView::retryRequested,
             this, [this](const QString &turnId) {
-        // Find the turn's user message and re-send
         for (int i = 0; i < m_sessionModel->turnCount(); ++i) {
             if (m_sessionModel->turn(i).id == turnId) {
                 const QString userMsg = m_sessionModel->turn(i).userMessage;
@@ -405,27 +552,20 @@ void ChatPanelWidget::connectTranscript()
         if (auto *active = m_orchestrator->activeProvider())
             active->initialize();
     });
-
-    // Per-file keep/undo from workspace edit widgets in transcript
     connect(m_transcript, &ChatTranscriptView::keepFileRequested,
             this, [this](int, const QString &path) {
-        // Remove patches for this file (accept as-is)
         m_pendingPatches.erase(
             std::remove_if(m_pendingPatches.begin(), m_pendingPatches.end(),
                 [&path](const PatchProposal &p) { return p.filePath == path; }),
             m_pendingPatches.end());
-        if (m_pendingPatches.isEmpty())
-            hideChangesBar();
-        else
-            showChangesBar(m_pendingPatches.size());
+        if (m_pendingPatches.isEmpty()) hideChangesBar();
+        else showChangesBar(m_pendingPatches.size());
     });
     connect(m_transcript, &ChatTranscriptView::undoFileRequested,
             this, [this](int, const QString &path) {
-        if (!m_agentController)
-            return;
+        if (!m_agentController) return;
         const auto *session = m_agentController->session();
-        if (!session)
-            return;
+        if (!session) return;
         const auto &snaps = session->fileSnapshots();
         auto it = snaps.find(path);
         if (it != snaps.end()) {
@@ -439,15 +579,14 @@ void ChatPanelWidget::connectTranscript()
             std::remove_if(m_pendingPatches.begin(), m_pendingPatches.end(),
                 [&path](const PatchProposal &p) { return p.filePath == path; }),
             m_pendingPatches.end());
-        if (m_pendingPatches.isEmpty())
-            hideChangesBar();
-        else
-            showChangesBar(m_pendingPatches.size());
+        if (m_pendingPatches.isEmpty()) hideChangesBar();
+        else showChangesBar(m_pendingPatches.size());
     });
     connect(m_transcript, &ChatTranscriptView::keepAllRequested,
             this, [this]() { m_keepBtn->click(); });
     connect(m_transcript, &ChatTranscriptView::undoAllRequested,
             this, [this]() { m_undoBtn->click(); });
+#endif
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -495,7 +634,11 @@ void ChatPanelWidget::setAgentController(AgentController *controller)
                     QJsonDocument(args).toJson(QJsonDocument::Compact));
                 m_sessionModel->appendPart(part);
                 int idx = m_sessionModel->turnCount() - 1;
+#ifdef EXORCIST_HAS_ULTRALIGHT
+                m_jsBridge->addContentPart(idx, part.toJson());
+#else
                 m_transcript->addContentPart(idx, part);
+#endif
             }
 
             // Spin a nested event loop until onToolConfirmed() is called.
@@ -548,10 +691,16 @@ void ChatPanelWidget::setSessionStore(SessionStore *store)
                         part.markdownText = msg.second;
                         m_sessionModel->appendPart(part);
                         int idx = m_sessionModel->turnCount() - 1;
+#ifdef EXORCIST_HAS_ULTRALIGHT
+                        m_jsBridge->addContentPart(idx, part.toJson());
+                        m_sessionModel->completeTurn();
+                        m_jsBridge->finishTurn(idx, static_cast<int>(ChatTurnModel::State::Complete));
+#else
                         m_transcript->addContentPart(idx, part);
                         m_sessionModel->completeTurn();
                         if (auto *w = m_transcript->turnWidget(idx))
                             w->finishTurn(ChatTurnModel::State::Complete);
+#endif
                         m_conversationHistory.append({AgentMessage::Role::Assistant, msg.second});
                     }
                 }
@@ -686,18 +835,30 @@ void ChatPanelWidget::refreshModelList()
 void ChatPanelWidget::showWelcomeOrTranscript()
 {
     if (m_sessionModel->isEmpty()) {
-        // Check for error states
         const auto *active = m_orchestrator->activeProvider();
-        if (!active) {
+        QString state = QStringLiteral("default");
+        if (!active)
+            state = QStringLiteral("noProvider");
+        else if (!active->isAvailable())
+            state = QStringLiteral("auth");
+
+#ifdef EXORCIST_HAS_ULTRALIGHT
+        m_jsBridge->showWelcome(state);
+#else
+        if (state == QLatin1String("noProvider"))
             m_welcome->showState(ChatWelcomeWidget::State::NoProvider);
-        } else if (!active->isAvailable()) {
+        else if (state == QLatin1String("auth"))
             m_welcome->showState(ChatWelcomeWidget::State::AuthRequired);
-        } else {
+        else
             m_welcome->showState(ChatWelcomeWidget::State::Default);
-        }
         m_stack->setCurrentWidget(m_welcome);
+#endif
     } else {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+        m_jsBridge->showTranscript();
+#else
         m_stack->setCurrentWidget(m_transcript);
+#endif
     }
     updateSessionTitle();
 }
@@ -741,7 +902,9 @@ void ChatPanelWidget::onSend(const QString &text, int mode)
         m_sessionModel->errorTurn(
             tr("No available provider. Select or configure a provider first."));
         showWelcomeOrTranscript();
+#ifndef EXORCIST_HAS_ULTRALIGHT
         m_stack->setCurrentWidget(m_transcript);
+#endif
         return;
     }
 
@@ -838,14 +1001,23 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
         updateSessionTitle();
     }
 
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->showTranscript();
+    // Ultralight auto-scrolls via JS
+#else
     m_stack->setCurrentWidget(m_transcript);
     m_transcript->scrollToBottom();
+#endif
 
     m_pendingRequestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_pendingIntent = AgentIntent::Chat;
 
     m_inputWidget->setStreaming(true);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->setStreamingActive(true);
+#else
     m_transcript->setStreamingActive(true);
+#endif
 
     const bool agentMode = AgentModes::usesAgentLoop(mode);
 
@@ -974,13 +1146,21 @@ void ChatPanelWidget::onCancel()
     if (!m_sessionModel->isEmpty()) {
         m_sessionModel->cancelTurn();
         int idx = m_sessionModel->turnCount() - 1;
+#ifdef EXORCIST_HAS_ULTRALIGHT
+        m_jsBridge->finishTurn(idx, static_cast<int>(ChatTurnModel::State::Cancelled));
+#else
         if (auto *w = m_transcript->turnWidget(idx))
             w->finishTurn(ChatTurnModel::State::Cancelled);
+#endif
     }
 
     m_pendingRequestId.clear();
     m_inputWidget->setStreaming(false);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->setStreamingActive(false);
+#else
     m_transcript->setStreamingActive(false);
+#endif
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -998,7 +1178,11 @@ void ChatPanelWidget::onResponseDelta(const QString &requestId,
         return;
 
     m_sessionModel->appendMarkdownDelta(chunk);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->appendMarkdownDelta(idx, chunk);
+#else
     m_transcript->appendMarkdownDelta(idx, chunk);
+#endif
 }
 
 void ChatPanelWidget::onThinkingDelta(const QString &requestId,
@@ -1012,7 +1196,11 @@ void ChatPanelWidget::onThinkingDelta(const QString &requestId,
         return;
 
     m_sessionModel->appendThinkingDelta(chunk);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->appendThinkingDelta(idx, chunk);
+#else
     m_transcript->appendThinkingDelta(idx, chunk);
+#endif
 }
 
 void ChatPanelWidget::onResponseFinished(const QString &requestId,
@@ -1023,7 +1211,11 @@ void ChatPanelWidget::onResponseFinished(const QString &requestId,
 
     m_pendingRequestId.clear();
     m_inputWidget->setStreaming(false);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->setStreamingActive(false);
+#else
     m_transcript->setStreamingActive(false);
+#endif
 
     // Add assistant message to history
     m_conversationHistory.append({AgentMessage::Role::Assistant, response.text});
@@ -1070,7 +1262,11 @@ void ChatPanelWidget::onResponseFinished(const QString &requestId,
         auto part = ChatContentPart::workspaceEdit(files);
         m_sessionModel->appendPart(part);
         int idx = m_sessionModel->turnCount() - 1;
+#ifdef EXORCIST_HAS_ULTRALIGHT
+        m_jsBridge->addContentPart(idx, part.toJson());
+#else
         m_transcript->addContentPart(idx, part);
+#endif
     }
 
     // If the response includes followup suggestions, show them
@@ -1081,18 +1277,27 @@ void ChatPanelWidget::onResponseFinished(const QString &requestId,
         auto part = ChatContentPart::followup(items);
         m_sessionModel->appendPart(part);
         int idx = m_sessionModel->turnCount() - 1;
+#ifdef EXORCIST_HAS_ULTRALIGHT
+        m_jsBridge->addContentPart(idx, part.toJson());
+#else
         m_transcript->addContentPart(idx, part);
+#endif
     }
 
     // Complete the turn in the model
     m_sessionModel->completeTurn();
     int idx = m_sessionModel->turnCount() - 1;
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->finishTurn(idx, static_cast<int>(ChatTurnModel::State::Complete));
+    // Token usage not yet shown in HTML view
+#else
     if (auto *w = m_transcript->turnWidget(idx)) {
         w->finishTurn(ChatTurnModel::State::Complete);
         if (response.totalTokens > 0)
             w->setTokenUsage(response.promptTokens, response.completionTokens,
                              response.totalTokens);
     }
+#endif
 
     // Persist full turn data to session store
     persistCompletedTurn(idx);
@@ -1106,7 +1311,11 @@ void ChatPanelWidget::onResponseError(const QString &requestId,
 
     m_pendingRequestId.clear();
     m_inputWidget->setStreaming(false);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->setStreamingActive(false);
+#else
     m_transcript->setStreamingActive(false);
+#endif
 
     int idx = m_sessionModel->turnCount() - 1;
     if (idx < 0)
@@ -1138,10 +1347,14 @@ void ChatPanelWidget::onResponseError(const QString &requestId,
     }
 
     m_sessionModel->errorTurn(displayMsg);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->finishTurn(idx, static_cast<int>(ChatTurnModel::State::Error));
+#else
     if (auto *w = m_transcript->turnWidget(idx)) {
         w->showError(displayMsg, error.code);
         w->finishTurn(ChatTurnModel::State::Error);
     }
+#endif
 
     // Persist full turn data to session store
     persistCompletedTurn(idx);
@@ -1178,7 +1391,11 @@ void ChatPanelWidget::onToolConfirmed(const QString &callId, int approval)
                     ? ChatContentPart::ToolState::Streaming
                     : ChatContentPart::ToolState::CompleteError;
                 int idx = m_sessionModel->turnCount() - 1;
+#ifdef EXORCIST_HAS_ULTRALIGHT
+                m_jsBridge->updateToolState(idx, callId, p.toJson());
+#else
                 m_transcript->updateToolState(idx, callId, p);
+#endif
                 emit m_sessionModel->turnUpdated(idx);
                 break;
             }
@@ -1227,7 +1444,11 @@ void ChatPanelWidget::onNewSession()
     hideChangesBar();
     showWelcomeOrTranscript();
     m_inputWidget->setStreaming(false);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    m_jsBridge->setStreamingActive(false);
+#else
     m_transcript->setStreamingActive(false);
+#endif
     m_inputWidget->clear();
     updateSessionTitle();
 }
@@ -1297,7 +1518,11 @@ void ChatPanelWidget::restoreSession(const QString &sessionId,
 
         for (const auto &part : turn.parts) {
             m_sessionModel->appendPart(part);
+#ifdef EXORCIST_HAS_ULTRALIGHT
+            m_jsBridge->addContentPart(idx, part.toJson());
+#else
             m_transcript->addContentPart(idx, part);
+#endif
         }
 
         // Complete the turn in the model (emits turnCompleted → finishTurn)
@@ -1311,8 +1536,12 @@ void ChatPanelWidget::restoreSession(const QString &sessionId,
         currentTurn.timestamp = turn.timestamp;
 
         // Apply the real restored state to the widget
+#ifdef EXORCIST_HAS_ULTRALIGHT
+        m_jsBridge->finishTurn(idx, static_cast<int>(turn.state));
+#else
         if (auto *w = m_transcript->turnWidget(idx))
             w->finishTurn(turn.state);
+#endif
 
         // Rebuild conversation history with tool calls for full context
         m_conversationHistory.append({AgentMessage::Role::User, turn.userMessage});
@@ -1390,9 +1619,14 @@ void ChatPanelWidget::onShowHistory()
                         m_sessionModel->appendMarkdownDelta(msg.second);
                         m_sessionModel->completeTurn();
                         int idx = m_sessionModel->turnCount() - 1;
+#ifdef EXORCIST_HAS_ULTRALIGHT
+                        m_jsBridge->appendMarkdownDelta(idx, msg.second);
+                        m_jsBridge->finishTurn(idx, static_cast<int>(ChatTurnModel::State::Complete));
+#else
                         m_transcript->appendMarkdownDelta(idx, msg.second);
                         if (auto *w = m_transcript->turnWidget(idx))
                             w->finishTurn(ChatTurnModel::State::Complete);
+#endif
                         m_conversationHistory.append({AgentMessage::Role::Assistant, msg.second});
                     } else if (msg.first == QLatin1String("tool")) {
                         // Tool call context — add to history so model has context
@@ -1410,7 +1644,11 @@ void ChatPanelWidget::onShowHistory()
                         session->setMessages(m_conversationHistory);
                 }
             }
+#ifdef EXORCIST_HAS_ULTRALIGHT
+            m_jsBridge->showTranscript();
+#else
             m_stack->setCurrentWidget(m_transcript);
+#endif
         });
         connect(m_historyPopup, &ChatSessionHistoryPopup::newSessionRequested,
                 this, &ChatPanelWidget::onNewSession);

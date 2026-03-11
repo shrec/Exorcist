@@ -368,22 +368,14 @@ add_executable(exorcist WIN32
     agent/tools/notebooktools.h
     agent/tools/githubmcptools.h
     agent/chat/chatcontentpart.h
-    agent/chat/chatfollowupswidget.h
     agent/chat/chatinputwidget.cpp
     agent/chat/chatinputwidget.h
-    agent/chat/chatmarkdownwidget.h
     agent/chat/chatpanelwidget.cpp
     agent/chat/chatpanelwidget.h
     agent/chat/chatsessionhistorypopup.h
     agent/chat/chatsessionmodel.h
     agent/chat/chatthemetokens.h
-    agent/chat/chatthinkingwidget.h
-    agent/chat/chattoolinvocationwidget.h
-    agent/chat/chattranscriptview.h
     agent/chat/chatturnmodel.h
-    agent/chat/chatturnwidget.h
-    agent/chat/chatwelcomewidget.h
-    agent/chat/chatworkspaceeditwidget.h
     agent/chat/toolpresentationformatter.h
     sdk/pluginpermission.h
     sdk/icommandservice.h
@@ -426,6 +418,29 @@ add_executable(exorcist WIN32
     process/processmanager.h
 )
 
+# ── Chat renderer: Ultralight (HTML/JS) vs Qt widgets ────────────────────────
+if(EXORCIST_USE_ULTRALIGHT)
+    target_sources(exorcist PRIVATE
+        agent/chat/ultralight/ultralightengine.h
+        agent/chat/ultralight/ultralightengine.cpp
+        agent/chat/ultralight/ultralightwidget.h
+        agent/chat/ultralight/ultralightwidget.cpp
+        agent/chat/ultralight/chatjsbridge.h
+        agent/chat/ultralight/chatjsbridge.cpp
+    )
+else()
+    target_sources(exorcist PRIVATE
+        agent/chat/chatfollowupswidget.h
+        agent/chat/chatmarkdownwidget.h
+        agent/chat/chatthinkingwidget.h
+        agent/chat/chattoolinvocationwidget.h
+        agent/chat/chattranscriptview.h
+        agent/chat/chatturnwidget.h
+        agent/chat/chatwelcomewidget.h
+        agent/chat/chatworkspaceeditwidget.h
+    )
+endif()
+
 target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent Qt6::Sql libluajit)
 target_include_directories(exorcist PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -437,6 +452,12 @@ if(EXORCIST_USE_TREESITTER)
         ts-grammar-javascript ts-grammar-typescript
         ts-grammar-rust ts-grammar-json
     )
+endif()
+
+if(EXORCIST_USE_ULTRALIGHT)
+    target_compile_definitions(exorcist PRIVATE EXORCIST_HAS_ULTRALIGHT)
+    target_link_libraries(exorcist PRIVATE ultralight-sdk)
+    ultralight_deploy_runtime(exorcist)
 endif()
 
 if(EXORCIST_USE_LLVM)

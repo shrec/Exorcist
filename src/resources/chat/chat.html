@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exorcist Chat</title>
+    <link rel="stylesheet" href="chat.css">
+</head>
+<body>
+    <!-- Welcome screen (shown when no conversation active) -->
+    <div id="welcome" class="welcome">
+        <div class="welcome-icon">&#10024;</div>
+        <h2 class="welcome-title">Ask Copilot</h2>
+        <p class="welcome-subtitle">Ask a question or type <span class="kbd">/</span> for commands</p>
+        <div id="welcome-suggestions" class="welcome-suggestions"></div>
+        <div id="welcome-tool-count" class="welcome-tool-count"></div>
+    </div>
+
+    <!-- Transcript (hidden until first message) -->
+    <div id="transcript" class="transcript" style="display:none;" role="log" aria-label="Chat transcript">
+    </div>
+
+    <script src="markdown.js"></script>
+    <script src="chat.js"></script>
+</body>
+</html>

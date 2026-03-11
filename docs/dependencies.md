@@ -6,6 +6,7 @@ for optional acceleration; nothing is bundled yet.
 ## Bundled (via FetchContent)
 - **tree-sitter** v0.25.3 (MIT): incremental parsing engine for syntax highlighting. Core library + 7 grammar packages (C, C++, Python, JavaScript, TypeScript, Rust, JSON). Controlled by `EXORCIST_USE_TREESITTER` CMake option (ON by default).
 - **LuaJIT** (MIT): scripting runtime for Lua plugins.
+- **Ultralight** v1.4.0-beta (free for open source — [license](https://ultralig.ht/pricing/)): lightweight HTML/CSS/JS renderer for the chat panel. WebKit fork with JavaScriptCore, ~10 MB RAM. CPU rendering via BitmapSurface→QImage. Controlled by `EXORCIST_USE_ULTRALIGHT` CMake option (OFF by default). Pre-download SDK to `third_party/ultralight-sdk/` or let FetchContent grab it.
 
 ## Candidates (permissive)
 - tree-sitter (MIT): ~~fast incremental parsing and syntax highlighting.~~ **Bundled.**

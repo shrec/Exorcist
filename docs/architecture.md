@@ -43,7 +43,7 @@ concrete core classes or MainWindow.
 | **MCP** | `mcp/` | Model Context Protocol client for tool servers | `McpManager`, `McpConnection` |
 | **Debug** | `debug/` | Debug adapter framework, GDB/MI, breakpoints | `IDebugAdapter`, `GdbMiAdapter`, `DebugPanel` |
 | **Remote / SSH** | `remote/` | SSH connections, remote FS, multi-arch probing, sync | `SshSession`, `SshConnectionManager`, `RemoteFilePanel`, `RemoteHostProber`, `RemoteSyncService` |
-| **Agent framework** | `agent/` | Agent runtime, tools, chat UI, session management | `AgentController`, `AgentOrchestrator`, `ChatPanelWidget` |
+| **Agent framework** | `agent/` | Agent runtime, tools, chat UI (Qt widgets or Ultralight HTML renderer), session management | `AgentController`, `AgentOrchestrator`, `ChatPanelWidget`, `UltralightWidget`, `ChatJSBridge` |
 | **ExoBridge** | `process/`, `server/` | IPC protocol, shared daemon, cross-instance process management | `ExoBridgeCore`, `BridgeClient`, `ProcessManager`, `Ipc::Message` |
 | **Project Brain** | `agent/projectbrain*` | Persistent workspace knowledge (rules, facts, sessions) | `ProjectBrainService`, `BrainContextBuilder`, `MemorySuggestionEngine` |
 | **Core abstractions** | `core/` | OS interfaces (filesystem, process, terminal, network) | `IFileSystem`, `IProcess`, `ITerminal`, `INetwork` |

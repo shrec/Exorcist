@@ -106,6 +106,7 @@ Priority rule: **typing never blocks** — all background work must be async/can
 - SecureKeyStorage (DPAPI/Keychain/libsecret)
 - Network monitor with offline/rate-limit toasts
 - Async context gathering (workspace indexer, git status, diagnostics)
+- Ultralight HTML chat renderer (optional `EXORCIST_USE_ULTRALIGHT` — lightweight WebKit fork, ~10 MB, replaces Qt widget transcript with HTML/CSS/JS rendering via BitmapSurface→QImage)
 
 ---
 
