@@ -6,11 +6,13 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSettings>
 #include <QUuid>
 
 SshConnectionManager::SshConnectionManager(QObject *parent)
     : QObject(parent)
 {
+    loadProfiles();
 }
 
 SshConnectionManager::~SshConnectionManager()
@@ -26,6 +28,7 @@ void SshConnectionManager::addProfile(const SshProfile &profile)
     if (p.id.isEmpty())
         p.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_profiles.append(p);
+    saveProfiles();
     emit profilesChanged();
 }
 
@@ -34,6 +37,7 @@ void SshConnectionManager::updateProfile(const SshProfile &profile)
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (m_profiles.at(i).id == profile.id) {
             m_profiles[i] = profile;
+            saveProfiles();
             emit profilesChanged();
             return;
         }
@@ -46,6 +50,7 @@ void SshConnectionManager::removeProfile(const QString &id)
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (m_profiles.at(i).id == id) {
             m_profiles.removeAt(i);
+            saveProfiles();
             emit profilesChanged();
             return;
         }
@@ -61,16 +66,18 @@ SshProfile SshConnectionManager::profile(const QString &id) const
     return {};
 }
 
-bool SshConnectionManager::loadProfiles(const QString &workspaceRoot)
+bool SshConnectionManager::loadProfiles()
 {
-    m_workspaceRoot = workspaceRoot;
-    const QString path = workspaceRoot + QStringLiteral("/.exorcist/ssh_profiles.json");
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
+    QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+    s.beginGroup(QStringLiteral("ssh"));
+    const QByteArray data = s.value(QStringLiteral("profiles")).toByteArray();
+    s.endGroup();
+
+    if (data.isEmpty())
         return false;
 
     QJsonParseError err;
-    const auto doc = QJsonDocument::fromJson(file.readAll(), &err);
+    const auto doc = QJsonDocument::fromJson(data, &err);
     if (err.error != QJsonParseError::NoError)
         return false;
 
@@ -85,22 +92,15 @@ bool SshConnectionManager::loadProfiles(const QString &workspaceRoot)
 
 bool SshConnectionManager::saveProfiles() const
 {
-    if (m_workspaceRoot.isEmpty())
-        return false;
-
-    const QString dir = m_workspaceRoot + QStringLiteral("/.exorcist");
-    QDir().mkpath(dir);
-
-    const QString path = dir + QStringLiteral("/ssh_profiles.json");
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return false;
-
     QJsonArray arr;
     for (const auto &p : m_profiles)
         arr.append(p.toJson());
 
-    file.write(QJsonDocument(arr).toJson(QJsonDocument::Indented));
+    QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+    s.beginGroup(QStringLiteral("ssh"));
+    s.setValue(QStringLiteral("profiles"),
+              QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    s.endGroup();
     return true;
 }
 

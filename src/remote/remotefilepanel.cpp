@@ -40,7 +40,6 @@ RemoteFilePanel::RemoteFilePanel(QWidget *parent)
             if (!info.distroVersion.isEmpty())
                 prof.detectedDistro += QLatin1Char(' ') + info.distroVersion;
             m_connMgr->updateProfile(prof);
-            m_connMgr->saveProfiles();
         }
     });
 }
@@ -269,7 +268,6 @@ void RemoteFilePanel::onAddProfileClicked()
     profile.remoteWorkDir = remoteDir;
 
     m_connMgr->addProfile(profile);
-    m_connMgr->saveProfiles();
 }
 
 void RemoteFilePanel::onEditProfileClicked()
@@ -338,7 +336,6 @@ void RemoteFilePanel::onEditProfileClicked()
     if (!ok) return;
 
     m_connMgr->updateProfile(prof);
-    m_connMgr->saveProfiles();
 }
 
 void RemoteFilePanel::onRemoveProfileClicked()
@@ -359,7 +356,6 @@ void RemoteFilePanel::onRemoveProfileClicked()
         return;
 
     m_connMgr->removeProfile(profileId);
-    m_connMgr->saveProfiles();
 }
 
 void RemoteFilePanel::onFileDoubleClicked(const QModelIndex &index)

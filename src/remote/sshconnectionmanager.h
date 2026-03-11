@@ -10,8 +10,8 @@ class SshSession;
 
 /// Manages SSH connection profiles and active sessions.
 ///
-/// Profiles are persisted to `.exorcist/ssh_profiles.json` in the workspace.
-/// Active sessions are tracked and cleaned up on shutdown.
+/// Profiles are persisted globally via QSettings (not workspace-specific).
+/// Loaded automatically on construction, saved on every mutation.
 class SshConnectionManager : public QObject
 {
     Q_OBJECT
@@ -28,10 +28,10 @@ public:
     void removeProfile(const QString &id);
     SshProfile profile(const QString &id) const;
 
-    /// Load profiles from .exorcist/ssh_profiles.json.
-    bool loadProfiles(const QString &workspaceRoot);
+    /// Load profiles from QSettings.
+    bool loadProfiles();
 
-    /// Save profiles to .exorcist/ssh_profiles.json.
+    /// Save profiles to QSettings.
     bool saveProfiles() const;
 
     // ── Session management ────────────────────────────────────────────────
@@ -61,5 +61,4 @@ signals:
 private:
     QList<SshProfile> m_profiles;
     QMap<QString, SshSession *> m_sessions; // profileId → SshSession
-    QString m_workspaceRoot;
 };
