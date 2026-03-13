@@ -84,6 +84,10 @@ void InlineCompletionEngine::onTextChanged()
     if (m_editor->hasGhostText())
         m_editor->clearGhostText();
 
+    // Invalidate any in-flight request — its response will be stale
+    ++m_requestGeneration;
+    m_waitingReply = false;
+
     m_debounce.start();
 }
 
@@ -119,6 +123,7 @@ void InlineCompletionEngine::requestCompletion()
         return;
 
     m_waitingReply = true;
+    m_sentGeneration = m_requestGeneration;
 
     // Temporarily switch to the completion-specific model if configured
     QString savedModel;
@@ -143,6 +148,10 @@ void InlineCompletionEngine::onCompletionReady(const QString &suggestion)
     m_waitingReply = false;
 
     if (!m_editor || suggestion.isEmpty() || !m_enabled)
+        return;
+
+    // Discard stale responses — user typed since we sent the request
+    if (m_sentGeneration != m_requestGeneration)
         return;
 
     m_editor->setGhostText(suggestion);

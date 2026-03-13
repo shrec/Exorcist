@@ -348,6 +348,7 @@ add_executable(exorcist WIN32
     agent/featureflags.cpp
     agent/notebookstubs.h
     agent/reviewmanager.h
+    agent/reviewmanager.cpp
     agent/testgenerator.h
     agent/authstatusindicator.h
     agent/promptfilepicker.h

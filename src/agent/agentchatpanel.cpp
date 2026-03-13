@@ -44,6 +44,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollBar>
+#include <QSettings>
 #include <QSignalBlocker>
 #include <QTextBrowser>
 #include <QTextCursor>
@@ -649,6 +650,16 @@ AgentChatPanel::AgentChatPanel(AgentOrchestrator *orchestrator, QWidget *parent)
 
     refreshProviderList();
     refreshModelList();
+
+    // Restore per-mode model preferences from settings
+    {
+        QSettings s;
+        s.beginGroup(QStringLiteral("AI/PerModeModel"));
+        for (const QString &key : s.childKeys())
+            m_perModeModel[key.toInt()] = s.value(key).toString();
+        s.endGroup();
+    }
+
     setModeButtonActive(0);
     onModeSelected(0);
 }
@@ -993,6 +1004,10 @@ void AgentChatPanel::onModelSelected(int index)
     const QString modelId = m_modelCombo->itemText(index);
     active->setModel(modelId);
     m_perModeModel[m_currentMode] = modelId;
+
+    // Persist per-mode model preference
+    QSettings s;
+    s.setValue(QStringLiteral("AI/PerModeModel/%1").arg(m_currentMode), modelId);
 }
 
 void AgentChatPanel::onModeSelected(int mode)

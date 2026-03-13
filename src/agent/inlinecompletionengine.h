@@ -54,6 +54,8 @@ private:
     QString m_languageId;
     bool    m_enabled       = true;
     bool    m_waitingReply  = false;
+    quint64 m_requestGeneration = 0;  // increments on each text change
+    quint64 m_sentGeneration    = 0;  // generation when request was sent
     QSet<QString> m_disabledLangs;
     QString       m_completionModel;
 

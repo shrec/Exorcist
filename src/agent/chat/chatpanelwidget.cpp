@@ -14,6 +14,7 @@
 #include <QLabel>
 #include <QMimeDatabase>
 #include <QPointer>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QSettings>
 #include <QStackedWidget>
@@ -1683,6 +1684,26 @@ void ChatPanelWidget::onResponseFinished(const QString &requestId,
                              response.totalTokens);
     }
 #endif
+
+    // ── Review annotations ──────────────────────────────────────────────
+    if (m_pendingIntent == AgentIntent::CodeReview && !m_activeFilePath.isEmpty()) {
+        static const QRegularExpression lineRx(
+            QStringLiteral("(?:^|\\n)\\s*(?:\\*\\*\\[(?:ERROR|WARNING|INFO)\\]\\*\\*)?\\s*"
+                           "(?:Line|L)\\s*(\\d+)\\s*[:\\-]\\s*(.+?)(?=\\n\\s*(?:Line|L)\\s*\\d+|\\n\\n|$)"),
+            QRegularExpression::CaseInsensitiveOption
+            | QRegularExpression::DotMatchesEverythingOption);
+        auto it = lineRx.globalMatch(response.text);
+        QList<QPair<int, QString>> annotations;
+        while (it.hasNext()) {
+            auto match = it.next();
+            const int lineNum = match.captured(1).toInt();
+            const QString comment = match.captured(2).trimmed();
+            if (lineNum > 0 && !comment.isEmpty())
+                annotations.append({lineNum, comment});
+        }
+        if (!annotations.isEmpty())
+            emit reviewAnnotationsReady(m_activeFilePath, annotations);
+    }
 
     // Persist full turn data to session store
     persistCompletedTurn(idx);
