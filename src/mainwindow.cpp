@@ -50,6 +50,8 @@
 #include "agent/agentproviderregistry.h"
 #include "agent/agentrequestrouter.h"
 #include "agent/memorysuggestionengine.h"
+#include "agent/treesitteragenthelper.h"
+#include "agent/diagnosticsnotifier.h"
 #include "debug/debugpanel.h"
 #include "debug/gdbmiadapter.h"
 #include "remote/sshconnectionmanager.h"
@@ -1197,12 +1199,33 @@ MainWindow::MainWindow(QWidget *parent)
         return cmdSvc ? cmdSvc->commandIds() : QStringList{};
     };
 
+    // ── Tree-sitter AST access callbacks ────────────────────────────────
+    auto tsHelper = std::make_shared<TreeSitterAgentHelper>();
+    agentCallbacks.tsFileParser = [tsHelper](const QString &fp, int md) {
+        return tsHelper->parseFile(fp, md);
+    };
+    agentCallbacks.tsQueryRunner = [tsHelper](const QString &fp, const QString &qp) {
+        return tsHelper->runQuery(fp, qp);
+    };
+    agentCallbacks.tsSymbolExtractor = [tsHelper](const QString &fp) {
+        return tsHelper->extractSymbols(fp);
+    };
+    agentCallbacks.tsNodeAtPosition = [tsHelper](const QString &fp, int l, int c) {
+        return tsHelper->nodeAtPosition(fp, l, c);
+    };
+
     m_agentPlatform->initialize(agentCallbacks);
     m_agentPlatform->registerCoreTools(m_currentFolder);
     m_toolRegistry = m_agentPlatform->toolRegistry();
     m_contextBuilder = m_agentPlatform->contextBuilder();
     m_agentController = m_agentPlatform->agentController();
     m_sessionStore = m_agentPlatform->sessionStore();
+
+    // ── Wire LSP diagnostics push to agent ──────────────────────────────
+    if (auto *notifier = m_agentPlatform->diagnosticsNotifier()) {
+        connect(m_lspClient, &LspClient::diagnosticsPublished,
+                notifier, &DiagnosticsNotifier::onDiagnosticsPublished);
+    }
 
     // Deferred from createDockWidgets — m_agentPlatform was null there.
     if (m_memoryBrowser)

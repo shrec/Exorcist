@@ -24,7 +24,9 @@
 #include "tools/difftool.h"
 #include "tools/staticanalysistool.h"
 #include "tools/devtools.h"
+#include "tools/treesitterquerytool.h"
 
+class DiagnosticsNotifier;
 class IFileSystem;
 class PluginManager;
 class ServiceRegistry;
@@ -132,6 +134,12 @@ public:
         // Tree-sitter AST parsing
         TreeSitterParseTool::TreeSitterParser treeSitterParser;
 
+        // Tree-sitter rich AST query
+        TreeSitterQueryTool::FileParserFn      tsFileParser;
+        TreeSitterQueryTool::QueryRunnerFn     tsQueryRunner;
+        TreeSitterQueryTool::SymbolExtractorFn tsSymbolExtractor;
+        TreeSitterQueryTool::NodeAtPositionFn  tsNodeAtPosition;
+
         // Diagram generation (Mermaid/PlantUML)
         GenerateDiagramTool::DiagramRenderer diagramRenderer;
 
@@ -166,6 +174,7 @@ public:
     ToolApprovalService   *toolApprovalService() const { return m_toolApprovalService; }
     ProjectBrainService   *brainService() const { return m_brainService; }
     MemorySuggestionEngine *memorySuggestionEngine() const { return m_memorySuggestionEngine; }
+    DiagnosticsNotifier    *diagnosticsNotifier() const;
 
     // Plugin extension accessors (populated by registerPluginProviders)
     const QList<IChatSessionImporter *>      &sessionImporters() const { return m_sessionImporters; }
@@ -192,6 +201,7 @@ private:
     ProjectBrainService   *m_brainService = nullptr;
     BrainContextBuilder   *m_brainBuilder = nullptr;
     MemorySuggestionEngine *m_memorySuggestionEngine = nullptr;
+    std::unique_ptr<DiagnosticsNotifier> m_diagnosticsNotifier;
 
     // Plugin extension registries
     QList<IChatSessionImporter *>      m_sessionImporters;

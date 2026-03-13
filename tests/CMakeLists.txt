@@ -443,6 +443,26 @@ target_link_libraries(test_pluginmanifest PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_pluginmanifest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME PluginManifest COMMAND test_pluginmanifest)
 
+# ── TreeSitterQueryTool tests ─────────────────────────────────────────────────
+add_executable(test_treesitterquerytool
+    test_treesitterquerytool.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/tools/treesitterquerytool.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/tools/treesitterquerytool.h
+)
+target_link_libraries(test_treesitterquerytool PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_treesitterquerytool PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME TreeSitterQueryTool COMMAND test_treesitterquerytool)
+
+# ── DiagnosticsNotifier tests ─────────────────────────────────────────────────
+add_executable(test_diagnosticsnotifier
+    test_diagnosticsnotifier.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/diagnosticsnotifier.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/diagnosticsnotifier.h
+)
+target_link_libraries(test_diagnosticsnotifier PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_diagnosticsnotifier PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME DiagnosticsNotifier COMMAND test_diagnosticsnotifier)
+
 # Deploy Qt DLLs so tests can run (Windows)
 if(WIN32 AND EXORCIST_DEPLOY_QT)
     find_program(WINDEPLOYQT windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")

@@ -1,6 +1,7 @@
 #include "agentcontroller.h"
 #include "agentorchestrator.h"
 #include "braincontextbuilder.h"
+#include "diagnosticsnotifier.h"
 #include "itool.h"
 #include "promptfileloader.h"
 #include "sessionstore.h"
@@ -260,6 +261,17 @@ void AgentController::sendModelRequest()
             const int insertAt = (!req.conversationHistory.isEmpty() &&
                 req.conversationHistory.first().role == AgentMessage::Role::System) ? 1 : 0;
             req.conversationHistory.insert(insertAt, brainMsg);
+        }
+    }
+
+    // Inject real-time LSP diagnostic updates
+    if (m_diagNotifier && m_diagNotifier->hasPendingNotification()) {
+        const QString diagText = m_diagNotifier->consumeNotification();
+        if (!diagText.isEmpty()) {
+            AgentMessage diagMsg;
+            diagMsg.role = AgentMessage::Role::System;
+            diagMsg.content = diagText;
+            req.conversationHistory.append(diagMsg);
         }
     }
 

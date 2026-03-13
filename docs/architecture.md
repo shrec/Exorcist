@@ -45,7 +45,7 @@ concrete core classes or MainWindow.
 | **MCP** | `mcp/` | Model Context Protocol client for tool servers | `McpManager`, `McpConnection` |
 | **Debug** | `debug/` | Debug adapter framework, GDB/MI, breakpoints | `IDebugAdapter`, `GdbMiAdapter`, `DebugPanel` |
 | **Remote / SSH** | `remote/` | SSH connections, remote FS, multi-arch probing, sync, remote LSP bridging | `SshSession`, `SshConnectionManager`, `RemoteFilePanel`, `RemoteHostProber`, `RemoteSyncService`, `RemoteLspManager` |
-| **Agent framework** | `agent/` | Agent runtime, tools, chat UI (Qt widgets or Ultralight HTML renderer), session management | `AgentController`, `AgentOrchestrator`, `ChatPanelWidget`, `UltralightWidget`, `ChatJSBridge` |
+| **Agent framework** | `agent/` | Agent runtime, tools, chat UI (Qt widgets or Ultralight HTML renderer), session management, diagnostics push, tree-sitter AST access | `AgentController`, `AgentOrchestrator`, `ChatPanelWidget`, `UltralightWidget`, `ChatJSBridge`, `DiagnosticsNotifier`, `TreeSitterAgentHelper` |
 | **ExoBridge** | `process/`, `server/` | IPC protocol, shared daemon, cross-instance process management | `ExoBridgeCore`, `BridgeClient`, `ProcessManager`, `Ipc::Message` |
 | **Project Brain** | `agent/projectbrain*` | Persistent workspace knowledge (rules, facts, sessions) | `ProjectBrainService`, `BrainContextBuilder`, `MemorySuggestionEngine` |
 | **Core abstractions** | `core/` | OS interfaces (filesystem, file watching, environment, process, terminal, network) | `IFileSystem`, `IFileWatcher`, `IEnvironment`, `IProcess`, `ITerminal`, `INetwork` |

@@ -12,6 +12,7 @@
 
 class AgentOrchestrator;
 class BrainContextBuilder;
+class DiagnosticsNotifier;
 class ToolApprovalService;
 class ToolRegistry;
 class IAgentProvider;
@@ -87,6 +88,8 @@ public:
 
     void setBrainContextBuilder(BrainContextBuilder *b) { m_brainBuilder = b; }
 
+    void setDiagnosticsNotifier(DiagnosticsNotifier *n) { m_diagNotifier = n; }
+
     void setReasoningEffort(const QString &effort) { m_reasoningEffort = effort; }
 
     /// Tool approval result from user confirmation dialog.
@@ -154,6 +157,7 @@ private:
     SessionStore        *m_store = nullptr;
     ToolApprovalService *m_approvalService = nullptr;
     BrainContextBuilder *m_brainBuilder = nullptr;
+    DiagnosticsNotifier  *m_diagNotifier = nullptr;
     ConfirmToolFn        m_confirmFn;
     QSet<QString>        m_alwaysAllowedTools;
     QString              m_reasoningEffort;

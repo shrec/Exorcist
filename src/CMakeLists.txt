@@ -228,6 +228,12 @@ add_executable(exorcist WIN32
     agent/tools/notebooktools.h
     agent/tools/githubmcptools.h
     agent/tools/staticanalysistool.h
+    agent/tools/treesitterquerytool.h
+    agent/tools/treesitterquerytool.cpp
+    agent/diagnosticsnotifier.h
+    agent/diagnosticsnotifier.cpp
+    agent/treesitteragenthelper.h
+    agent/treesitteragenthelper.cpp
     agent/notebookstubs.h
     agent/notebookstubs.cpp
     agent/terminalsessionmanager.h

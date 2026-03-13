@@ -58,6 +58,8 @@
 #include "tools/idecommandtool.h"
 #include "tools/sandboxtools.h"
 #include "tools/devtools.h"
+#include "tools/treesitterquerytool.h"
+#include "diagnosticsnotifier.h"
 #include "terminalsessionmanager.h"
 #include "workspacecontextdetector.h"
 #include "../core/qtprocess.h"
@@ -373,6 +375,22 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
             m_callbacks.treeSitterParser));
     }
 
+    // ── Tree-sitter rich AST query ────────────────────────────────────────
+    if (m_callbacks.tsFileParser && m_callbacks.tsQueryRunner &&
+        m_callbacks.tsSymbolExtractor && m_callbacks.tsNodeAtPosition) {
+        m_toolRegistry->registerTool(std::make_unique<TreeSitterQueryTool>(
+            m_callbacks.tsFileParser,
+            m_callbacks.tsQueryRunner,
+            m_callbacks.tsSymbolExtractor,
+            m_callbacks.tsNodeAtPosition));
+    }
+
+    // ── LSP diagnostics real-time push ────────────────────────────────────
+    m_diagnosticsNotifier = std::make_unique<DiagnosticsNotifier>(this);
+    if (m_agentController) {
+        m_agentController->setDiagnosticsNotifier(m_diagnosticsNotifier.get());
+    }
+
     // ── Diagram generation (Mermaid/PlantUML) ─────────────────────────────
     if (m_callbacks.diagramRenderer) {
         m_toolRegistry->registerTool(std::make_unique<GenerateDiagramTool>(
@@ -585,4 +603,9 @@ void AgentPlatformBootstrap::setWorkspaceRoot(const QString &root)
 
     auto *diagramTool = dynamic_cast<GenerateDiagramTool *>(m_toolRegistry->tool(QStringLiteral("generate_diagram")));
     if (diagramTool) diagramTool->setWorkspaceRoot(root);
+}
+
+DiagnosticsNotifier *AgentPlatformBootstrap::diagnosticsNotifier() const
+{
+    return m_diagnosticsNotifier.get();
 }
