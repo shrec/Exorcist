@@ -49,8 +49,10 @@ void ExoBridgeCore::stop()
 {
     const auto msg = Ipc::Message::notification(
         QLatin1String(Ipc::Method::ServerShutdown));
-    for (auto *sock : m_clients.keys())
+    for (auto *sock : m_clients.keys()) {
         sendMessage(sock, msg);
+        sock->waitForBytesWritten(100);
+    }
 
     for (auto *sock : m_clients.keys()) {
         sock->disconnectFromServer();

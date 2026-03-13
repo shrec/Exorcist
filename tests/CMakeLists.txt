@@ -345,6 +345,20 @@ target_link_libraries(test_exobridge PRIVATE Qt6::Test Qt6::Network)
 target_include_directories(test_exobridge PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ExoBridge COMMAND test_exobridge)
 
+# ── BridgeClient crash detection + connectivity tests ──────────────────────────
+add_executable(test_bridgeclient
+    test_bridgeclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/process/bridgeclient.h
+    ${CMAKE_SOURCE_DIR}/src/process/bridgeclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/process/exobridgecore.h
+    ${CMAKE_SOURCE_DIR}/src/process/exobridgecore.cpp
+    ${CMAKE_SOURCE_DIR}/src/process/ipcprotocol.h
+    ${CMAKE_SOURCE_DIR}/src/process/ipcprotocol.cpp
+)
+target_link_libraries(test_bridgeclient PRIVATE Qt6::Test Qt6::Network)
+target_include_directories(test_bridgeclient PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME BridgeClient COMMAND test_bridgeclient)
+
 # ── ExoBridge services tests ───────────────────────────────────────────────────
 add_executable(test_bridgeservices
     test_bridgeservices.cpp

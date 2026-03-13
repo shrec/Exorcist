@@ -34,6 +34,7 @@ public:
     bool isConnected() const { return m_state == State::Connected; }
 
     void connectToBridge();
+    void connectToServer(const QString &pipeName);
     void disconnect();
 
     void setAutoReconnect(bool on) { m_autoReconnect = on; }

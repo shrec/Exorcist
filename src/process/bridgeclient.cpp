@@ -38,6 +38,14 @@ void BridgeClient::connectToBridge()
     tryConnect();
 }
 
+void BridgeClient::connectToServer(const QString &pipeName)
+{
+    if (m_state != State::Disconnected)
+        return;
+    m_state = State::Connecting;
+    m_socket->connectToServer(pipeName);
+}
+
 void BridgeClient::disconnect()
 {
     m_reconnectTimer.stop();
@@ -182,6 +190,11 @@ void BridgeClient::onConnected()
 
 void BridgeClient::onDisconnected()
 {
+    // Drain any remaining data — the server may have sent a shutdown
+    // notification just before closing the connection.
+    if (m_socket->bytesAvailable() > 0)
+        onReadyRead();
+
     const bool wasCrash = (m_state == State::Connected && !m_gracefulShutdown);
     m_state = State::Disconnected;
     m_pendingCalls.clear();
