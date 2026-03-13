@@ -4,29 +4,141 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Exorcist Chat</title>
-    <link rel="stylesheet" href="chat.css">
+    <style>%STYLE%</style>
 </head>
 <body>
-    <div class="interactive-session">
-        <!-- Welcome screen -->
-        <div id="welcome" class="welcome">
-            <div class="welcome-icon">
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 2L14.09 8.26L20 9.27L15.55 13.97L16.91 20L12 16.9L7.09 20L8.45 13.97L4 9.27L9.91 8.26L12 2Z" fill="currentColor" opacity="0.5"/>
-                </svg>
-            </div>
-            <h2 class="welcome-title">Ask Copilot</h2>
-            <p class="welcome-subtitle">Ask a question or type <span class="kbd">/</span> for commands</p>
-            <div id="welcome-suggestions" class="welcome-suggestions"></div>
-            <div id="welcome-tool-count" class="welcome-tool-count"></div>
-        </div>
+<div class="chat-panel">
 
-        <!-- Transcript -->
-        <div id="transcript" class="interactive-list" style="display:none;" role="log" aria-label="Chat transcript">
+    <!-- ── Header bar ─────────────────────────────────────────────── -->
+    <div class="chat-header" id="chatHeader">
+        <div class="chat-header-inner">
+            <span class="session-title" id="sessionTitle">Copilot</span>
+            <div class="header-actions">
+                <button class="header-btn" id="historyBtn" title="Session History">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M1.5 2h13l.5.5v4l-.5.5H1.5L1 6.5v-4l.5-.5zM2 3v3h12V3H2zm-.5 5h13l.5.5v4l-.5.5H1.5L1 12.5v-4l.5-.5zM2 9v3h12V9H2z"/>
+                    </svg>
+                </button>
+                <button class="header-btn new-chat" id="newSessionBtn" title="New Chat">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M14 7v1H8v6H7V8H1V7h6V1h1v6h6z"/>
+                    </svg>
+                </button>
+                <button class="header-btn" id="settingsBtn" title="AI Settings">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.3.7-2.4.5v1.2l2.4.5.3.7-1.3 2 .8.8 2-1.3.7.3.5 2.4h1.2l.5-2.4.7-.3 2 1.3.8-.8-1.3-2 .3-.7 2.4-.5V6.8l-2.4-.5-.3-.7 1.3-2-.8-.8-2 1.3-.7-.3zM9.4 1l.5 2.4L12 2.1l2 2-1.3 2.1 2.4.5v2.8l-2.4.5L14 12.1l-2 2-2.1-1.3-.5 2.4H6.6l-.5-2.4L4 14.1l-2-2 1.3-2.1L.9 9.4V6.6l2.4-.5L2 4l2-2 2.1 1.3.5-2.4h2.8zM8 11a3 3 0 110-6 3 3 0 010 6zm0-1a2 2 0 100-4 2 2 0 000 4z"/>
+                    </svg>
+                </button>
+            </div>
         </div>
     </div>
 
-    <script src="markdown.js"></script>
-    <script src="chat.js"></script>
+    <!-- ── Changes bar (hidden by default) ────────────────────────── -->
+    <div class="changes-bar" id="changesBar" style="display:none">
+        <span class="changes-label" id="changesLabel"></span>
+        <button class="changes-btn primary" id="keepAllBtn">Keep All</button>
+        <button class="changes-btn secondary" id="undoAllBtn">Undo All</button>
+    </div>
+
+    <!-- ── Content area ───────────────────────────────────────────── -->
+    <div class="chat-content">
+        <div class="interactive-session">
+
+            <!-- Welcome screen -->
+            <div id="welcome" class="welcome">
+                <div class="welcome-icon">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2L14.09 8.26L20 9.27L15.55 13.97L16.91 20L12 16.9L7.09 20L8.45 13.97L4 9.27L9.91 8.26L12 2Z"
+                              fill="currentColor" opacity="0.5"/>
+                    </svg>
+                </div>
+                <h2 class="welcome-title">Ask Copilot</h2>
+                <p class="welcome-subtitle">Ask a question or type <span class="kbd">/</span> for commands</p>
+                <div id="welcome-suggestions" class="welcome-suggestions"></div>
+                <div id="welcome-tool-count" class="welcome-tool-count"></div>
+            </div>
+
+            <!-- Transcript -->
+            <div id="transcript" class="interactive-list" style="display:none;"
+                 role="log" aria-label="Chat transcript">
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ── Input area ─────────────────────────────────────────────── -->
+    <div class="chat-input-part" id="inputPart">
+        <div class="chat-input-inner">
+
+            <!-- Attachment chip bar -->
+            <div class="attach-chip-bar" id="attachChipBar" style="display:none"></div>
+
+            <!-- Input editor wrapper -->
+            <div class="input-editor-wrapper" id="inputWrapper">
+                <textarea id="chatInput" rows="1"
+                    placeholder="Ask anything, @ to mention, / for commands"></textarea>
+            </div>
+
+            <!-- Toolbar row -->
+            <div class="input-toolbar" id="inputToolbar">
+                <div class="toolbar-left">
+                    <button class="attach-btn" id="attachBtn" title="Attach file">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M10.97 1.03a3 3 0 00-4.24 0L2.1 5.66a4.5 4.5 0 006.36 6.36l4.24-4.24-.7-.7-4.24 4.24a3.5 3.5 0 01-4.95-4.95l4.63-4.63a2 2 0 012.83 2.83L5.64 9.2a.5.5 0 01-.71-.71l3.89-3.89-.7-.7-3.89 3.89a1.5 1.5 0 002.12 2.12l4.63-4.63a3 3 0 000-4.24z"/>
+                        </svg>
+                    </button>
+                    <div class="mode-selector" id="modeSelector">
+                        <button class="mode-btn active" data-mode="0">Ask</button>
+                        <button class="mode-btn" data-mode="1">Edit</button>
+                        <button class="mode-btn" data-mode="2">
+                            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-1px;margin-right:2px">
+                                <path d="M14.5 2H9l-.35.15-.65.64-.65-.64L7 2H1.5l-.5.5v10l.5.5h5.29l.86.85h.7l.86-.85h5.29l.5-.5v-10l-.5-.5zM7 12H2V3h4.5l.5.49V12zm7 0H9V3.49l.5-.49H14v9z"/>
+                            </svg>
+                            Agent
+                        </button>
+                    </div>
+                    <button class="model-picker-btn" id="modelBtn">
+                        <span id="modelLabel">Model</span>
+                        <span class="model-caret">&#x25BE;</span>
+                    </button>
+                </div>
+                <div class="toolbar-right">
+                    <button class="thinking-btn" id="thinkingBtn" title="Extended Thinking"
+                        style="display:none">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 1a5.48 5.48 0 00-2.7 10.24c.26.14.42.42.42.72v1.54h4.56v-1.54c0-.3.16-.58.42-.72A5.48 5.48 0 008 1zM5.72 14.5v.5a2 2 0 004 0v-.5H5.72z"/>
+                        </svg>
+                    </button>
+                    <span class="tool-count-indicator" id="inputToolCount"></span>
+                    <button class="send-btn" id="sendBtn" title="Send (Enter)">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M1 1.91L1.78 1.5 15 8 1.78 14.5 1 14.09 3.95 8 1 1.91z"/>
+                        </svg>
+                    </button>
+                    <button class="cancel-btn" id="cancelBtn" title="Cancel" style="display:none">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                            <rect x="3" y="3" width="10" height="10" rx="1"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Streaming progress bar -->
+            <div class="streaming-progress" id="streamingBar" style="display:none">
+                <div class="bar"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ── Autocomplete popups ────────────────────────────────────── -->
+    <div class="autocomplete-popup" id="slashPopup" style="display:none"></div>
+    <div class="autocomplete-popup" id="mentionPopup" style="display:none"></div>
+    <div class="model-popup" id="modelPopup" style="display:none"></div>
+
+</div>
+
+<script>%MARKDOWN_JS%</script>
+<script>%CHAT_JS%</script>
 </body>
 </html>

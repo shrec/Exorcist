@@ -92,121 +92,25 @@ void ChatPanelWidget::buildUi()
         const QString css        = loadRes(QStringLiteral(":/chat/chat.css"));
         const QString markdownJs = loadRes(QStringLiteral(":/chat/markdown.js"));
         const QString chatJs     = loadRes(QStringLiteral(":/chat/chat.js"));
-        qWarning("ChatPanel: css=%d bytes, markdownJs=%d bytes, chatJs=%d bytes",
-                 css.size(), markdownJs.size(), chatJs.size());
+        QString htmlTemplate     = loadRes(QStringLiteral(":/chat/chat.html"));
 
-        // DEBUG: test with minimal HTML to isolate crash
-        const QString htmlTest = QStringLiteral(
-            "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-            "</head><body><h1>Test</h1>"
-            "<script>var ChatApp = {setSlashCommands:function(){},clearModels:function(){},"
-            "showWelcome:function(){},setTheme:function(){},setToolCount:function(){},"
-            "setCurrentModel:function(){},addModel:function(){},setMode:function(){}};</script>"
-            "</body></html>");
-        Q_UNUSED(css) Q_UNUSED(markdownJs) Q_UNUSED(chatJs)
+        // Inject CSS and JS into the HTML template via placeholders
+        htmlTemplate.replace(QLatin1String("%STYLE%"), css);
+        htmlTemplate.replace(QLatin1String("%MARKDOWN_JS%"), markdownJs);
+        htmlTemplate.replace(QLatin1String("%CHAT_JS%"), chatJs);
 
-        const QString htmlOrig = QStringLiteral(
-            "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-            "<style>%1</style></head><body>"
-            "<div class='chat-panel'>"
-            // ── Header ──
-            "<div class='chat-header' id='chatHeader'>"
-            "  <span class='session-title' id='sessionTitle'>Copilot</span>"
-            "  <div class='header-actions'>"
-            "    <button class='header-btn' id='historyBtn' title='Session History'>&#x2630;</button>"
-            "    <button class='header-btn' id='newSessionBtn' title='New Chat'>+</button>"
-            "    <button class='header-btn' id='settingsBtn' title='AI Settings'>&#x2699;</button>"
-            "  </div>"
-            "</div>"
-            // ── Changes bar (hidden) ──
-            "<div class='changes-bar' id='changesBar' style='display:none'>"
-            "  <span class='changes-label' id='changesLabel'></span>"
-            "  <button class='changes-btn primary' id='keepAllBtn'>Keep All</button>"
-            "  <button class='changes-btn secondary' id='undoAllBtn'>Undo All</button>"
-            "</div>"
-            // ── Content area ──
-            "<div class='chat-content'>"
-            "<div class='interactive-session'>"
-            "<div id='welcome' class='welcome'>"
-            "  <div class='welcome-icon'>"
-            "    <svg width='36' height='36' viewBox='0 0 24 24' fill='none'>"
-            "      <path d='M12 2L14.09 8.26L20 9.27L15.55 13.97L16.91 20L12 16.9L7.09 20L8.45 13.97L4 9.27L9.91 8.26L12 2Z' fill='currentColor' opacity='0.5'/>"
-            "    </svg>"
-            "  </div>"
-            "  <h2 class='welcome-title'>Ask Copilot</h2>"
-            "  <p class='welcome-subtitle'>Ask a question or type <span class='kbd'>/</span> for commands</p>"
-            "  <div id='welcome-suggestions' class='welcome-suggestions'></div>"
-            "  <div id='welcome-tool-count' class='welcome-tool-count'></div>"
-            "</div>"
-            "<div id='transcript' class='interactive-list' style='display:none;' role='log'></div>"
-            "</div>"
-            "</div>"
-            // ── Input area ──
-            "<div class='chat-input-part' id='inputPart'>"
-            "  <div class='attach-chip-bar' id='attachChipBar' style='display:none'></div>"
-            "  <div class='input-editor-wrapper' id='inputWrapper'>"
-            "    <textarea id='chatInput' rows='1'"
-            "      placeholder='Ask anything, @ to mention, / for commands'></textarea>"
-            "  </div>"
-            "  <div class='input-toolbar' id='inputToolbar'>"
-            "    <div class='toolbar-left'>"
-            "      <button class='attach-btn' id='attachBtn' title='Attach file'>"
-            "        <svg width='14' height='14' viewBox='0 0 16 16'>"
-            "          <path d='M11.5 1A3.5 3.5 0 0115 4.5v6a5.5 5.5 0 01-11 0V4a3 3 0 016 0v6.5a1.5 1.5 0 01-3 0V4h1v6.5a.5.5 0 001 0V4a2 2 0 00-4 0v6.5a2.5 2.5 0 005 0V4.5A2.5 2.5 0 0011.5 2h0A2.5 2.5 0 0014 4.5v6a4.5 4.5 0 01-9 0V4h1v6.5a3.5 3.5 0 007 0v-6A1.5 1.5 0 0011.5 3h0z' fill='currentColor'/>"
-            "        </svg>"
-            "      </button>"
-            "      <div class='mode-selector' id='modeSelector'>"
-            "        <button class='mode-btn active' data-mode='0'>Ask</button>"
-            "        <button class='mode-btn' data-mode='1'>Edit</button>"
-            "        <button class='mode-btn' data-mode='2'>Agent</button>"
-            "      </div>"
-            "      <button class='model-picker-btn' id='modelBtn'>"
-            "        <span id='modelLabel'>Model</span> &#x25BE;"
-            "      </button>"
-            "    </div>"
-            "    <div class='toolbar-right'>"
-            "      <button class='thinking-btn' id='thinkingBtn' title='Extended Thinking'"
-            "        style='display:none'>&#x1F4AD;</button>"
-            "      <span class='tool-count' id='inputToolCount'></span>"
-            "      <button class='send-btn' id='sendBtn' title='Send (Enter)'>"
-            "        <svg width='14' height='14' viewBox='0 0 16 16'>"
-            "          <path d='M1 1.91L1.78 1.5L15 8L1.78 14.5L1 14.09L3.95 8L1 1.91Z'"
-            "            fill='currentColor'/>"
-            "        </svg>"
-            "      </button>"
-            "      <button class='cancel-btn' id='cancelBtn' title='Cancel'"
-            "        style='display:none'>"
-            "        <svg width='14' height='14' viewBox='0 0 16 16'>"
-            "          <rect x='3' y='3' width='10' height='10' rx='1' fill='currentColor'/>"
-            "        </svg>"
-            "      </button>"
-            "    </div>"
-            "  </div>"
-            "  <div class='streaming-progress' id='streamingBar' style='display:none'></div>"
-            "</div>"
-            // ── Popups ──
-            "<div class='autocomplete-popup' id='slashPopup' style='display:none'></div>"
-            "<div class='autocomplete-popup' id='mentionPopup' style='display:none'></div>"
-            "<div class='model-popup' id='modelPopup' style='display:none'></div>"
-            "</div>"
-            "<script>%2</script>"
-            "<script>%3</script>"
-            "</body></html>")
-            .arg(css, markdownJs, chatJs);
         // Write HTML to temp file and load via file:// URL
         // (ulViewLoadHTML crashes in ulUpdate — Ultralight 1.4 beta bug)
         {
             const QString tmpPath = QDir::tempPath() + QStringLiteral("/exorcist_chat.html");
             QFile tmpFile(tmpPath);
             if (tmpFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                tmpFile.write(htmlOrig.toUtf8());
+                tmpFile.write(htmlTemplate.toUtf8());
                 tmpFile.close();
             }
             const QString fileUrl = QStringLiteral("file:///") + tmpPath;
-            fprintf(stderr, "[UL] loading via URL: %s\n", qPrintable(fileUrl)); fflush(stderr);
             m_ultralightView->loadURL(fileUrl);
         }
-        Q_UNUSED(htmlTest)
     }
 
     // Apply theme once DOM is ready
