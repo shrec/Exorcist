@@ -4,6 +4,13 @@
 
 #include <QFileInfo>
 
+HighlighterFactory::LanguageLookupFn HighlighterFactory::s_languageLookup;
+
+void HighlighterFactory::setLanguageLookup(LanguageLookupFn fn)
+{
+    s_languageLookup = std::move(fn);
+}
+
 #ifdef EXORCIST_HAS_TREESITTER
 #include <tree_sitter/api.h>
 
@@ -21,7 +28,24 @@ const TSLanguage *tree_sitter_yaml();
 const TSLanguage *tree_sitter_toml();
 }
 
-/// Maps file extension to tree-sitter language.
+/// Maps a language ID (from ContributionRegistry) to its tree-sitter grammar.
+/// Returns nullptr if no grammar is compiled in for this language ID.
+static const TSLanguage *tsLanguageForId(const QString &id)
+{
+    if (id == QLatin1String("c"))          return tree_sitter_c();
+    if (id == QLatin1String("cpp"))        return tree_sitter_cpp();
+    if (id == QLatin1String("python"))     return tree_sitter_python();
+    if (id == QLatin1String("javascript")) return tree_sitter_javascript();
+    if (id == QLatin1String("typescript")) return tree_sitter_typescript();
+    if (id == QLatin1String("rust"))       return tree_sitter_rust();
+    if (id == QLatin1String("json"))       return tree_sitter_json();
+    if (id == QLatin1String("go"))         return tree_sitter_go();
+    if (id == QLatin1String("yaml"))       return tree_sitter_yaml();
+    if (id == QLatin1String("toml"))       return tree_sitter_toml();
+    return nullptr;
+}
+
+/// Maps file extension to tree-sitter language (hard-coded fallback).
 /// Returns nullptr if no grammar is available.
 static const TSLanguage *languageForExtension(const QString &ext)
 {
@@ -80,7 +104,20 @@ QSyntaxHighlighter *HighlighterFactory::create(const QString &filePath, QTextDoc
 
 #ifdef EXORCIST_HAS_TREESITTER
     const QString ext = QFileInfo(filePath).suffix().toLower();
-    const TSLanguage *lang = languageForExtension(ext);
+
+    const TSLanguage *lang = nullptr;
+
+    // 1. Plugin-registered languages take precedence
+    if (s_languageLookup) {
+        const QString langId = s_languageLookup(ext);
+        if (!langId.isEmpty())
+            lang = tsLanguageForId(langId);
+    }
+
+    // 2. Hard-coded fallback (graceful degradation when no plugins loaded)
+    if (!lang)
+        lang = languageForExtension(ext);
+
     if (lang) {
         auto *hl = new TreeSitterHighlighter(doc);
         hl->setLanguage(lang);
@@ -88,7 +125,7 @@ QSyntaxHighlighter *HighlighterFactory::create(const QString &filePath, QTextDoc
     }
 #endif
 
-    // Fall back to regex highlighter for unsupported languages
+    // 3. Fall back to regex highlighter for unsupported languages
     return SyntaxHighlighter::create(filePath, doc);
 }
 

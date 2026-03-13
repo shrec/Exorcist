@@ -10,5 +10,23 @@
         "workspaceContains:*.cpp",
         "workspaceContains:*.c",
         "workspaceContains:*.h"
-    ]
+    ],
+    "contributions": {
+        "languages": [
+            {
+                "id": "c",
+                "name": "C",
+                "extensions": [".c"],
+                "mimeTypes": ["text/x-csrc"],
+                "lspCommand": "clangd"
+            },
+            {
+                "id": "cpp",
+                "name": "C++",
+                "extensions": [".cpp", ".cxx", ".cc", ".h", ".hpp", ".hxx", ".inl", ".mm"],
+                "mimeTypes": ["text/x-c++src"],
+                "lspCommand": "clangd"
+            }
+        ]
+    }
 }

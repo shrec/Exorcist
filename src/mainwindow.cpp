@@ -3894,6 +3894,13 @@ void MainWindow::loadPlugins()
         }
     }
 
+    // Wire plugin-registered languages into the highlighter factory
+    HighlighterFactory::setLanguageLookup(
+        [reg = m_contributions](const QString &ext) -> QString {
+            const auto *lc = reg->languageForExtension(ext);
+            return lc ? lc->id : QString();
+        });
+
     // ── Post-plugin wiring: build toolbar, ProblemsPanel → OutputPanel ──
     if (auto *toolbar = qobject_cast<QToolBar *>(m_services->service(QStringLiteral("buildToolbar")))) {
         addToolBar(toolbar);

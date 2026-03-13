@@ -213,6 +213,80 @@ private slots:
     }
 #endif
 
+    // ── Language lookup callback (plugin-driven) ────────────────────────
+
+#ifdef EXORCIST_HAS_TREESITTER
+    void languageLookup_overridesHardCoded()
+    {
+        // Set a lookup that maps "c" extension to "cpp" language ID
+        HighlighterFactory::setLanguageLookup([](const QString &ext) -> QString {
+            if (ext == QLatin1String("c"))
+                return QStringLiteral("cpp");  // remap C → C++ grammar
+            return {};
+        });
+
+        auto doc = std::make_unique<QTextDocument>();
+        doc->setPlainText(QStringLiteral("int x;"));
+        auto *hl = HighlighterFactory::create(QStringLiteral("test.c"), doc.get());
+        QVERIFY(hl);
+        QVERIFY(qobject_cast<TreeSitterHighlighter *>(hl));
+
+        // Reset
+        HighlighterFactory::setLanguageLookup({});
+    }
+
+    void languageLookup_fallsBackWhenEmpty()
+    {
+        // Set a lookup that never claims any extension
+        HighlighterFactory::setLanguageLookup([](const QString &) -> QString {
+            return {};
+        });
+
+        auto doc = std::make_unique<QTextDocument>();
+        doc->setPlainText(QStringLiteral("int x;"));
+        auto *hl = HighlighterFactory::create(QStringLiteral("test.cpp"), doc.get());
+        QVERIFY(hl);
+        // Should still get tree-sitter via hard-coded fallback
+        QVERIFY(qobject_cast<TreeSitterHighlighter *>(hl));
+
+        // Reset
+        HighlighterFactory::setLanguageLookup({});
+    }
+
+    void languageLookup_unknownIdFallsBack()
+    {
+        // Lookup returns an ID for which there is no tree-sitter grammar
+        HighlighterFactory::setLanguageLookup([](const QString &ext) -> QString {
+            if (ext == QLatin1String("cpp"))
+                return QStringLiteral("unknown_lang");
+            return {};
+        });
+
+        auto doc = std::make_unique<QTextDocument>();
+        doc->setPlainText(QStringLiteral("int x;"));
+        auto *hl = HighlighterFactory::create(QStringLiteral("test.cpp"), doc.get());
+        QVERIFY(hl);
+        // tsLanguageForId("unknown_lang") returns nullptr, so falls back to
+        // hard-coded extension map which gives tree_sitter_cpp()
+        QVERIFY(qobject_cast<TreeSitterHighlighter *>(hl));
+
+        // Reset
+        HighlighterFactory::setLanguageLookup({});
+    }
+
+    void languageLookup_noCallbackUsesHardCoded()
+    {
+        // Ensure no callback is set
+        HighlighterFactory::setLanguageLookup({});
+
+        auto doc = std::make_unique<QTextDocument>();
+        doc->setPlainText(QStringLiteral("fn main() {}"));
+        auto *hl = HighlighterFactory::create(QStringLiteral("main.rs"), doc.get());
+        QVERIFY(hl);
+        QVERIFY(qobject_cast<TreeSitterHighlighter *>(hl));
+    }
+#endif
+
     // ── Regex highlighter applies formats ─────────────────────────────────
 
     void regex_appliesFormats()
