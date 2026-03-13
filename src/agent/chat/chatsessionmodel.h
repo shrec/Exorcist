@@ -22,11 +22,7 @@ class ChatSessionModel : public QObject
     Q_OBJECT
 
 public:
-    explicit ChatSessionModel(QObject *parent = nullptr)
-        : QObject(parent)
-        , m_id(QUuid::createUuid().toString(QUuid::WithoutBraces))
-        , m_createdAt(QDateTime::currentDateTime())
-    {}
+    explicit ChatSessionModel(QObject *parent = nullptr);
 
     // ── Identity ──────────────────────────────────────────────────────────
     QString id() const { return m_id; }
@@ -34,32 +30,14 @@ public:
     QDateTime createdAt() const { return m_createdAt; }
 
     QString title() const { return m_title; }
-    void setTitle(const QString &title)
-    {
-        if (m_title != title) {
-            m_title = title;
-            emit titleChanged(title);
-        }
-    }
+    void setTitle(const QString &title);
 
     // ── Mode / Model ──────────────────────────────────────────────────────
     int mode() const { return m_mode; }
-    void setMode(int mode)
-    {
-        if (m_mode != mode) {
-            m_mode = mode;
-            emit modeChanged(mode);
-        }
-    }
+    void setMode(int mode);
 
     QString selectedModel() const { return m_selectedModel; }
-    void setSelectedModel(const QString &model)
-    {
-        if (m_selectedModel != model) {
-            m_selectedModel = model;
-            emit modelChanged(model);
-        }
-    }
+    void setSelectedModel(const QString &model);
 
     QString providerId() const { return m_providerId; }
     void setProviderId(const QString &id) { m_providerId = id; }
@@ -71,115 +49,29 @@ public:
 
     bool isEmpty() const { return m_turns.isEmpty(); }
 
-    // Begin a new turn (user sends a message)
     void beginTurn(const QString &userMessage,
                    const QStringList &attachments = {},
                    int mode = 0,
                    const QString &modelId = {},
                    const QString &providerId = {},
-                   const QString &slashCommand = {})
-    {
-        ChatTurnModel t;
-        t.userMessage = userMessage;
-        t.slashCommand = slashCommand;
-        t.attachmentNames = attachments;
-        t.mode = mode;
-        t.modelId = modelId;
-        t.providerId = providerId;
-        m_turns.append(t);
-        emit turnAdded(m_turns.size() - 1);
-    }
+                   const QString &slashCommand = {});
 
-    // Access the current (last) turn for updates during streaming
-    ChatTurnModel &currentTurn()
-    {
-        Q_ASSERT(!m_turns.isEmpty());
-        return m_turns.last();
-    }
+    ChatTurnModel &currentTurn();
 
-    // Append a content part to the current turn
-    void appendPart(const ChatContentPart &part)
-    {
-        Q_ASSERT(!m_turns.isEmpty());
-        m_turns.last().appendPart(part);
-        emit turnUpdated(m_turns.size() - 1);
-    }
+    void appendPart(const ChatContentPart &part);
+    void appendMarkdownDelta(const QString &delta);
+    void appendThinkingDelta(const QString &delta);
 
-    // Append a markdown streaming delta
-    void appendMarkdownDelta(const QString &delta)
-    {
-        Q_ASSERT(!m_turns.isEmpty());
-        m_turns.last().appendMarkdownDelta(delta);
-        emit turnUpdated(m_turns.size() - 1);
-    }
-
-    // Append a thinking streaming delta
-    void appendThinkingDelta(const QString &delta)
-    {
-        Q_ASSERT(!m_turns.isEmpty());
-        m_turns.last().appendThinkingDelta(delta);
-        emit turnUpdated(m_turns.size() - 1);
-    }
-
-    // Update a tool invocation state
     void updateToolState(const QString &callId,
                          ChatContentPart::ToolState state,
-                         const QString &output = {})
-    {
-        Q_ASSERT(!m_turns.isEmpty());
-        auto *part = m_turns.last().findToolPart(callId);
-        if (part) {
-            part->toolState = state;
-            if (!output.isEmpty())
-                part->toolOutput = output;
-            emit turnUpdated(m_turns.size() - 1);
-        }
-    }
+                         const QString &output = {});
 
-    // Mark current turn as complete
-    void completeTurn()
-    {
-        Q_ASSERT(!m_turns.isEmpty());
-        m_turns.last().state = ChatTurnModel::State::Complete;
-        emit turnUpdated(m_turns.size() - 1);
-        emit turnCompleted(m_turns.size() - 1);
-    }
+    void completeTurn();
+    void errorTurn(const QString &errorText);
+    void cancelTurn();
 
-    // Mark current turn as error
-    void errorTurn(const QString &errorText)
-    {
-        Q_ASSERT(!m_turns.isEmpty());
-        m_turns.last().state = ChatTurnModel::State::Error;
-        m_turns.last().appendPart(ChatContentPart::error(errorText));
-        emit turnUpdated(m_turns.size() - 1);
-    }
-
-    // Mark current turn as cancelled
-    void cancelTurn()
-    {
-        Q_ASSERT(!m_turns.isEmpty());
-        m_turns.last().state = ChatTurnModel::State::Cancelled;
-        emit turnUpdated(m_turns.size() - 1);
-    }
-
-    // Set feedback on a turn
-    void setTurnFeedback(int index, ChatTurnModel::Feedback fb)
-    {
-        if (index >= 0 && index < m_turns.size()) {
-            m_turns[index].feedback = fb;
-            emit turnUpdated(index);
-        }
-    }
-
-    // Clear all turns (new session)
-    void clear()
-    {
-        m_turns.clear();
-        m_title.clear();
-        m_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        m_createdAt = QDateTime::currentDateTime();
-        emit sessionCleared();
-    }
+    void setTurnFeedback(int index, ChatTurnModel::Feedback fb);
+    void clear();
 
 signals:
     void turnAdded(int index);

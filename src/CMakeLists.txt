@@ -364,12 +364,14 @@ add_executable(exorcist WIN32
     agent/securekeystorage.h
     agent/promptfilemanager.h
     editor/mergeconflictresolver.h
+    editor/mergeconflictresolver.cpp
     editor/inlinereviewwidget.cpp
     editor/inlinereviewwidget.h
     agent/modelregistry.h
     agent/modelregistry.cpp
     agent/oauthmanager.h
     agent/domainfilter.h
+    agent/domainfilter.cpp
     git/commitmessagegenerator.h
     git/commitmessagegenerator.cpp
     editor/multichunkeditor.h
@@ -388,6 +390,7 @@ add_executable(exorcist WIN32
     agent/apikeymanagerwidget.h
     agent/networkmonitor.h
     agent/citationmanager.h
+    agent/citationmanager.cpp
     mcp/mcpservermanager.h
     mcp/mcpservermanager.cpp
     search/workspacechunkindex.h
@@ -418,7 +421,9 @@ add_executable(exorcist WIN32
     agent/chat/chatpanelwidget.cpp
     agent/chat/chatpanelwidget.h
     agent/chat/chatsessionhistorypopup.h
+    agent/chat/chatsessionhistorypopup.cpp
     agent/chat/chatsessionmodel.h
+    agent/chat/chatsessionmodel.cpp
     agent/chat/chatthemetokens.h
     agent/chat/chatturnmodel.h
     agent/chat/toolpresentationformatter.h
@@ -489,12 +494,15 @@ else()
         agent/chat/chatfollowupswidget.h
         agent/chat/chatmarkdownwidget.h
         agent/chat/chatthinkingwidget.h
+        agent/chat/chatthinkingwidget.cpp
         agent/chat/chattoolinvocationwidget.h
+        agent/chat/chattoolinvocationwidget.cpp
         agent/chat/chattranscriptview.h
         agent/chat/chattranscriptview.cpp
         agent/chat/chatturnwidget.h
         agent/chat/chatwelcomewidget.h
         agent/chat/chatworkspaceeditwidget.h
+        agent/chat/chatworkspaceeditwidget.cpp
     )
 endif()
 
