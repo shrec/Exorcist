@@ -9,18 +9,21 @@
         "workspaceContains:Makefile",
         "workspaceContains:Cargo.toml"
     ],
-    "views": {
-        "DebugDock": {
-            "title": "Debug",
-            "area":  "bottom"
-        }
-    },
-    "commands": {
-        "debug.launch":    { "title": "Launch Debugger" },
-        "debug.continue":  { "title": "Continue Execution" },
-        "debug.stepOver":  { "title": "Step Over" },
-        "debug.stepInto":  { "title": "Step Into" },
-        "debug.stepOut":   { "title": "Step Out" },
-        "debug.terminate": { "title": "Terminate Debug Session" }
+    "contributions": {
+        "views": [
+            {
+                "id": "DebugDock",
+                "title": "Debug",
+                "location": "bottom"
+            }
+        ],
+        "commands": [
+            { "id": "debug.launch",    "title": "Launch Debugger" },
+            { "id": "debug.continue",  "title": "Continue Execution" },
+            { "id": "debug.stepOver",  "title": "Step Over" },
+            { "id": "debug.stepInto",  "title": "Step Into" },
+            { "id": "debug.stepOut",   "title": "Step Out" },
+            { "id": "debug.terminate", "title": "Terminate Debug Session" }
+        ]
     }
 }

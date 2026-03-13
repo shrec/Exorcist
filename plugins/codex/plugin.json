@@ -1,0 +1,22 @@
+{
+    "id": "org.exorcist.codex",
+    "name": "OpenAI Codex",
+    "version": "1.0.0",
+    "description": "OpenAI Codex / GPT AI assistant — chat and agent support via OpenAI API.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "activationEvents": ["*"],
+    "requestedPermissions": ["NetworkAccess"],
+    "contributions": {
+        "settings": [
+            {
+                "key": "codex.enabled",
+                "title": "Enable Codex",
+                "description": "Enable or disable the OpenAI Codex provider.",
+                "category": "AI Providers",
+                "type": "boolean",
+                "default": true
+            }
+        ]
+    }
+}

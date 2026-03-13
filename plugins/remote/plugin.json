@@ -9,7 +9,7 @@
     "activationEvents": [
         "onView:RemoteDock"
     ],
-    "contributes": {
+    "contributions": {
         "views": [
             {
                 "id": "RemoteDock",

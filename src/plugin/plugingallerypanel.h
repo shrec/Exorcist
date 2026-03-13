@@ -37,6 +37,9 @@ signals:
     /// Emitted when the user wants to install a plugin by download URL.
     void installRequested(const QString &pluginId, const QString &downloadUrl);
 
+    /// Emitted when the user toggles a plugin enabled/disabled.
+    void pluginToggled(const QString &pluginId, bool enabled);
+
 private slots:
     void onInstalledItemClicked(QListWidgetItem *item);
     void onAvailableItemClicked(QListWidgetItem *item);

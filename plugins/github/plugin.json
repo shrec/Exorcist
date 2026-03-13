@@ -9,7 +9,7 @@
     "activationEvents": [
         "onStartupFinished"
     ],
-    "contributes": {
+    "contributions": {
         "views": [
             {
                 "id": "GitHubDock",

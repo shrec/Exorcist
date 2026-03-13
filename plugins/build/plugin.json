@@ -13,7 +13,7 @@
         "workspaceContains:build.gradle",
         "workspaceContains:meson.build"
     ],
-    "contributes": {
+    "contributions": {
         "views": [
             {
                 "id": "OutputDock",

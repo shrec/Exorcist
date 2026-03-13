@@ -1,0 +1,22 @@
+{
+    "id": "org.exorcist.copilot",
+    "name": "GitHub Copilot",
+    "version": "1.0.0",
+    "description": "GitHub Copilot AI assistant — code completion, chat, and agent support via Copilot API.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "activationEvents": ["*"],
+    "requestedPermissions": ["NetworkAccess"],
+    "contributions": {
+        "settings": [
+            {
+                "key": "copilot.enabled",
+                "title": "Enable Copilot",
+                "description": "Enable or disable the GitHub Copilot provider.",
+                "category": "AI Providers",
+                "type": "boolean",
+                "default": true
+            }
+        ]
+    }
+}

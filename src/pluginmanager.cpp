@@ -9,6 +9,7 @@
 #include <QLibrary>
 #include <QPluginLoader>
 #include <QFileInfo>
+#include <QSettings>
 #include <stdexcept>
 
 // C ABI function pointer types for resolving exported symbols.
@@ -20,6 +21,7 @@ using ExShutdownFn     = void (*)();
 PluginManager::PluginManager(QObject *parent)
     : QObject(parent)
 {
+    loadDisabledSet();
 }
 
 PluginManager::~PluginManager() = default;
@@ -85,8 +87,12 @@ void PluginManager::initializeAll(IHostServices *host)
     m_host = host;
 
     // Initialize Qt/C++ plugins — defer those with lazy activation events.
+    // Skip disabled plugins entirely.
     QVector<LoadedPlugin> immediate;
     for (const LoadedPlugin &lp : m_loaded) {
+        const QString id = lp.instance->info().id;
+        if (m_disabledIds.contains(id))
+            continue;
         if (shouldDeferPlugin(lp.manifest)) {
             m_deferred.push_back({lp, lp.manifest.activationEvents});
         } else {
@@ -342,4 +348,30 @@ QVector<luabridge::LuaPluginInfo> PluginManager::loadedLuaScripts() const
             result.append(lp.info);
     }
     return result;
+}
+
+// ── Enable / Disable ─────────────────────────────────────────────────────────
+
+void PluginManager::loadDisabledSet()
+{
+    QSettings s;
+    const QStringList ids = s.value(QStringLiteral("plugins/disabled")).toStringList();
+    m_disabledIds = QSet<QString>(ids.begin(), ids.end());
+}
+
+void PluginManager::setPluginDisabled(const QString &pluginId, bool disabled)
+{
+    if (disabled)
+        m_disabledIds.insert(pluginId);
+    else
+        m_disabledIds.remove(pluginId);
+
+    QSettings s;
+    s.setValue(QStringLiteral("plugins/disabled"),
+              QStringList(m_disabledIds.begin(), m_disabledIds.end()));
+}
+
+bool PluginManager::isPluginDisabled(const QString &pluginId) const
+{
+    return m_disabledIds.contains(pluginId);
 }

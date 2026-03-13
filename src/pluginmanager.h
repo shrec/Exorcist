@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QSet>
 #include <QStringList>
 #include <QVector>
 
@@ -84,6 +85,12 @@ public:
     /// Access the LuaJIT engine (for agent run_lua tool).
     luabridge::LuaScriptEngine *luaEngine() const { return m_luaEngine.get(); }
 
+    /// Disable/enable a plugin by ID. Persisted in QSettings.
+    /// Takes effect on next startup (plugins already loaded stay loaded).
+    void setPluginDisabled(const QString &pluginId, bool disabled);
+    bool isPluginDisabled(const QString &pluginId) const;
+    QSet<QString> disabledPluginIds() const { return m_disabledIds; }
+
 private:
     bool tryLoadCAbi(const QString &filePath);
 
@@ -103,4 +110,7 @@ private:
 
     bool shouldDeferPlugin(const PluginManifest &manifest) const;
     void activatePlugin(const LoadedPlugin &lp);
+    void loadDisabledSet();
+
+    QSet<QString> m_disabledIds;
 };

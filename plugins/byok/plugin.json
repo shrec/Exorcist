@@ -1,0 +1,30 @@
+{
+    "id": "org.exorcist.byok",
+    "name": "Custom (BYOK)",
+    "version": "1.0.0",
+    "description": "Bring Your Own Key — connect any OpenAI-compatible endpoint as an AI provider.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "activationEvents": ["*"],
+    "requestedPermissions": ["NetworkAccess"],
+    "contributions": {
+        "settings": [
+            {
+                "key": "byok.enabled",
+                "title": "Enable BYOK",
+                "description": "Enable or disable the custom BYOK provider.",
+                "category": "AI Providers",
+                "type": "boolean",
+                "default": true
+            },
+            {
+                "key": "byok.endpoint",
+                "title": "API Endpoint",
+                "description": "URL of the OpenAI-compatible API endpoint.",
+                "category": "AI Providers",
+                "type": "string",
+                "default": ""
+            }
+        ]
+    }
+}

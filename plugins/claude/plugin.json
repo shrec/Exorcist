@@ -1,0 +1,22 @@
+{
+    "id": "org.exorcist.claude",
+    "name": "Anthropic Claude",
+    "version": "1.0.0",
+    "description": "Anthropic Claude AI assistant — chat and agent support via Claude API.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "activationEvents": ["*"],
+    "requestedPermissions": ["NetworkAccess"],
+    "contributions": {
+        "settings": [
+            {
+                "key": "claude.enabled",
+                "title": "Enable Claude",
+                "description": "Enable or disable the Anthropic Claude provider.",
+                "category": "AI Providers",
+                "type": "boolean",
+                "default": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,29 @@
+{
+    "id": "org.exorcist.ollama",
+    "name": "Ollama Local LLM",
+    "version": "1.0.0",
+    "description": "Local LLM provider via Ollama HTTP API — run models on your own hardware.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "activationEvents": ["*"],
+    "contributions": {
+        "settings": [
+            {
+                "key": "ollama.enabled",
+                "title": "Enable Ollama",
+                "description": "Enable or disable the Ollama local LLM provider.",
+                "category": "AI Providers",
+                "type": "boolean",
+                "default": true
+            },
+            {
+                "key": "ollama.endpoint",
+                "title": "Ollama Endpoint",
+                "description": "URL of the Ollama API server.",
+                "category": "AI Providers",
+                "type": "string",
+                "default": "http://localhost:11434"
+            }
+        ]
+    }
+}

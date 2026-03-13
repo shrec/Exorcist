@@ -401,9 +401,9 @@ See [docs/luajit.md](luajit.md)
 - [x] D3. Final member count: **41** (down from 52) ✅
 
 ### Phase E — Plugin Ecosystem Polish
-- [ ] E1. C++ plugin manifests (plugin.json for AI providers)
-- [ ] E2. Plugin Gallery enable/disable runtime toggle
-- [ ] E3. Agent tool plugin wiring (IAgentToolPlugin::createTools())
+- [x] E1. C++ plugin manifests ✅ (plugin.json for all 5 AI providers: copilot, claude, codex, ollama, byok — with activationEvents, requestedPermissions, and settings contributions; fixed `"contributes"` → `"contributions"` typo in build, debug, github, remote plugin.json)
+- [x] E2. Plugin Gallery enable/disable runtime toggle ✅ (PluginManager gains setPluginDisabled/isPluginDisabled persisted in QSettings; disabled plugins skipped during initializeAll; PluginGalleryPanel shows Enable/Disable button with disabled state styling; pluginToggled signal for UI feedback)
+- [x] E3. Agent tool plugin wiring ✅ (already implemented in AgentPlatformBootstrap::registerPluginProviders — IAgentToolPlugin::createTools() with ToolRegistry registration)
 
 ### Chat & Streaming UX Polish
 - [ ] Fix text selection/copy in Ultralight chat panel

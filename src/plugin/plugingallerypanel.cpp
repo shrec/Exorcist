@@ -1,6 +1,7 @@
 #include "plugingallerypanel.h"
 #include "../pluginmanager.h"
 
+#include <QColor>
 #include <QFile>
 #include <QHBoxLayout>
 #include <QJsonArray>
@@ -183,7 +184,10 @@ void PluginGalleryPanel::populateInstalled()
 
     for (const auto &lp : m_pluginManager->loadedPlugins()) {
         const PluginInfo pi = lp.instance->info();
-        const QString label = QStringLiteral("%1  v%2").arg(pi.name, pi.version);
+        const bool disabled = m_pluginManager->isPluginDisabled(pi.id);
+        const QString label = disabled
+            ? QStringLiteral("%1  v%2  (disabled)").arg(pi.name, pi.version)
+            : QStringLiteral("%1  v%2").arg(pi.name, pi.version);
         auto *item = new QListWidgetItem(label, m_installedList);
         item->setData(Qt::UserRole, pi.id);
         item->setData(Qt::UserRole + 1, pi.name);
@@ -191,6 +195,8 @@ void PluginGalleryPanel::populateInstalled()
         item->setData(Qt::UserRole + 3, pi.author);
         item->setData(Qt::UserRole + 4, pi.description);
         item->setToolTip(pi.description);
+        if (disabled)
+            item->setForeground(QColor(0x66, 0x66, 0x66));
     }
 
     // Also list Lua script plugins
@@ -269,14 +275,25 @@ void PluginGalleryPanel::populateAvailable()
 void PluginGalleryPanel::onInstalledItemClicked(QListWidgetItem *item)
 {
     if (!item) return;
+    const QString pluginId = item->data(Qt::UserRole).toString();
     m_detailName->setText(item->data(Qt::UserRole + 1).toString());
     m_detailVersion->setText(tr("Version: %1").arg(item->data(Qt::UserRole + 2).toString()));
     m_detailAuthor->setText(tr("Author: %1").arg(item->data(Qt::UserRole + 3).toString()));
     m_detailDesc->setText(item->data(Qt::UserRole + 4).toString());
     m_detailHomepage->clear();
-    m_actionButton->setText(tr("Installed"));
-    m_actionButton->setEnabled(false);
+
+    const bool disabled = m_pluginManager && m_pluginManager->isPluginDisabled(pluginId);
+    m_actionButton->setText(disabled ? tr("Enable") : tr("Disable"));
+    m_actionButton->setEnabled(true);
     m_actionButton->setVisible(true);
+    m_actionButton->disconnect();
+    connect(m_actionButton, &QPushButton::clicked, this, [this, pluginId]() {
+        if (!m_pluginManager) return;
+        const bool wasDisabled = m_pluginManager->isPluginDisabled(pluginId);
+        m_pluginManager->setPluginDisabled(pluginId, !wasDisabled);
+        m_actionButton->setText(wasDisabled ? tr("Disable") : tr("Enable"));
+        emit pluginToggled(pluginId, wasDisabled);
+    });
 }
 
 void PluginGalleryPanel::onAvailableItemClicked(QListWidgetItem *item)
