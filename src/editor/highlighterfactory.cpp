@@ -16,6 +16,9 @@ const TSLanguage *tree_sitter_javascript();
 const TSLanguage *tree_sitter_typescript();
 const TSLanguage *tree_sitter_rust();
 const TSLanguage *tree_sitter_json();
+const TSLanguage *tree_sitter_go();
+const TSLanguage *tree_sitter_yaml();
+const TSLanguage *tree_sitter_toml();
 }
 
 /// Maps file extension to tree-sitter language.
@@ -53,6 +56,18 @@ static const TSLanguage *languageForExtension(const QString &ext)
     // JSON
     if (ext == QLatin1String("json") || ext == QLatin1String("jsonc"))
         return tree_sitter_json();
+
+    // Go
+    if (ext == QLatin1String("go"))
+        return tree_sitter_go();
+
+    // YAML
+    if (ext == QLatin1String("yaml") || ext == QLatin1String("yml"))
+        return tree_sitter_yaml();
+
+    // TOML
+    if (ext == QLatin1String("toml"))
+        return tree_sitter_toml();
 
     return nullptr;
 }

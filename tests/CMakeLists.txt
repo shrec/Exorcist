@@ -205,7 +205,8 @@ add_executable(test_highlighterfactory
 )
 target_link_libraries(test_highlighterfactory PRIVATE Qt6::Test Qt6::Widgets tree-sitter-core
     ts-grammar-c ts-grammar-cpp ts-grammar-python ts-grammar-javascript
-    ts-grammar-typescript ts-grammar-rust ts-grammar-json)
+    ts-grammar-typescript ts-grammar-rust ts-grammar-json
+    ts-grammar-go ts-grammar-yaml ts-grammar-toml)
 target_compile_definitions(test_highlighterfactory PRIVATE EXORCIST_HAS_TREESITTER)
 target_include_directories(test_highlighterfactory PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME HighlighterFactory COMMAND test_highlighterfactory)

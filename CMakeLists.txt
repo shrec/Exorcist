@@ -73,6 +73,24 @@ if(EXORCIST_USE_TREESITTER)
         GIT_TAG        v0.24.8
         GIT_SHALLOW    TRUE
     )
+    FetchContent_Declare(
+        tree-sitter-go
+        GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-go.git
+        GIT_TAG        v0.23.4
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_Declare(
+        tree-sitter-yaml
+        GIT_REPOSITORY https://github.com/tree-sitter-grammars/tree-sitter-yaml.git
+        GIT_TAG        v0.7.0
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_Declare(
+        tree-sitter-toml
+        GIT_REPOSITORY https://github.com/tree-sitter-grammars/tree-sitter-toml.git
+        GIT_TAG        v0.7.0
+        GIT_SHALLOW    TRUE
+    )
 
     # Populate sources only — do NOT add subdirectories (grammar CMakeLists
     # define conflicting targets like "ts-test").
@@ -84,6 +102,9 @@ if(EXORCIST_USE_TREESITTER)
     FetchContent_Populate(tree-sitter-typescript)
     FetchContent_Populate(tree-sitter-rust)
     FetchContent_Populate(tree-sitter-json)
+    FetchContent_Populate(tree-sitter-go)
+    FetchContent_Populate(tree-sitter-yaml)
+    FetchContent_Populate(tree-sitter-toml)
 
     # Build tree-sitter core as a static C library
     set(TS_SRC_DIR "${tree-sitter_SOURCE_DIR}/lib/src")
@@ -128,6 +149,21 @@ if(EXORCIST_USE_TREESITTER)
 
     add_library(ts-grammar-json STATIC "${tree-sitter-json_SOURCE_DIR}/src/parser.c")
     target_include_directories(ts-grammar-json PRIVATE "${tree-sitter-json_SOURCE_DIR}/src" "${TS_INC_DIR}")
+
+    add_library(ts-grammar-go STATIC "${tree-sitter-go_SOURCE_DIR}/src/parser.c")
+    target_include_directories(ts-grammar-go PRIVATE "${tree-sitter-go_SOURCE_DIR}/src" "${TS_INC_DIR}")
+
+    add_library(ts-grammar-yaml STATIC
+        "${tree-sitter-yaml_SOURCE_DIR}/src/parser.c"
+        "${tree-sitter-yaml_SOURCE_DIR}/src/scanner.c"
+    )
+    target_include_directories(ts-grammar-yaml PRIVATE "${tree-sitter-yaml_SOURCE_DIR}/src" "${TS_INC_DIR}")
+
+    add_library(ts-grammar-toml STATIC
+        "${tree-sitter-toml_SOURCE_DIR}/src/parser.c"
+        "${tree-sitter-toml_SOURCE_DIR}/src/scanner.c"
+    )
+    target_include_directories(ts-grammar-toml PRIVATE "${tree-sitter-toml_SOURCE_DIR}/src" "${TS_INC_DIR}")
 endif()
 
 add_subdirectory(cmake/luajit)

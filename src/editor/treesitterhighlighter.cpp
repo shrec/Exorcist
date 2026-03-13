@@ -325,21 +325,48 @@ void TreeSitterHighlighter::buildFormatMap()
                            "fn", "let", "mut", "pub", "mod", "use",
                            "impl", "trait", "where", "match", "loop",
                            "move", "ref", "self", "super", "crate",
-                           "unsafe", "dyn", "abstract"})
+                           "unsafe", "dyn", "abstract",
+                           // Go
+                           "func", "package", "range", "select",
+                           "chan", "go", "defer", "fallthrough",
+                           "map", "nil",
+                           // TOML
+                           "true", "false"})
         m_formatMap.insert(QString::fromLatin1(t), keyword);
 
     // Function identifiers
-    for (const auto &t : {"function_declarator", "call_expression"})
+    for (const auto &t : {"function_declarator", "call_expression",
+                           "function_declaration"})
         m_formatMap.insert(QString::fromLatin1(t), function_);
 
     // Special identifiers
     for (const auto &t : {"field_identifier", "property_identifier",
-                           "shorthand_property_identifier"})
+                           "shorthand_property_identifier",
+                           // YAML
+                           "anchor", "alias", "tag",
+                           // TOML
+                           "bare_key", "dotted_key"})
         m_formatMap.insert(QString::fromLatin1(t), special_);
 
     // String delimiters
     for (const auto &t : {"\"", "'", "`"})
         m_formatMap.insert(QString::fromLatin1(t), string_);
+
+    // YAML / TOML value types
+    for (const auto &t : {"block_scalar", "flow_scalar", "single_quote_scalar",
+                           "double_quote_scalar", "plain_scalar",
+                           "basic_string", "literal_string",
+                           "multi_line_basic_string", "multi_line_literal_string"})
+        m_formatMap.insert(QString::fromLatin1(t), string_);
+
+    for (const auto &t : {"boolean", "date", "local_date", "local_time",
+                           "local_date_time", "offset_date_time"})
+        m_formatMap.insert(QString::fromLatin1(t), number_);
+
+    // YAML/TOML structure
+    for (const auto &t : {"table", "table_array_element", "block_mapping_pair",
+                           "flow_pair"})
+        m_formatMap.insert(QString::fromLatin1(t), type_);
 
     // Preprocessor tokens
     for (const auto &t : {"#include", "#define", "#if", "#ifdef", "#ifndef",

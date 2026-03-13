@@ -118,14 +118,14 @@ private slots:
 
     // ── Regex fallback for unsupported tree-sitter extensions ──────────────
 
-    void create_go_returnsRegex()
+    void create_go_returnsTreeSitter()
     {
         auto doc = std::make_unique<QTextDocument>();
         doc->setPlainText(QStringLiteral("package main"));
         auto *hl = HighlighterFactory::create(QStringLiteral("main.go"), doc.get());
         QVERIFY(hl);
-        // Go has no tree-sitter grammar → should be SyntaxHighlighter
-        QVERIFY(qobject_cast<SyntaxHighlighter *>(hl));
+        // Go now has tree-sitter grammar
+        QVERIFY(qobject_cast<TreeSitterHighlighter *>(hl));
     }
 
     void create_java_returnsRegex()
@@ -137,13 +137,13 @@ private slots:
         QVERIFY(qobject_cast<SyntaxHighlighter *>(hl));
     }
 
-    void create_yaml_returnsRegex()
+    void create_yaml_returnsTreeSitter()
     {
         auto doc = std::make_unique<QTextDocument>();
         doc->setPlainText(QStringLiteral("key: value"));
         auto *hl = HighlighterFactory::create(QStringLiteral("config.yaml"), doc.get());
         QVERIFY(hl);
-        QVERIFY(qobject_cast<SyntaxHighlighter *>(hl));
+        QVERIFY(qobject_cast<TreeSitterHighlighter *>(hl));
     }
 
     void create_cmake_returnsRegex()

@@ -511,6 +511,7 @@ if(EXORCIST_USE_TREESITTER)
         ts-grammar-c ts-grammar-cpp ts-grammar-python
         ts-grammar-javascript ts-grammar-typescript
         ts-grammar-rust ts-grammar-json
+        ts-grammar-go ts-grammar-yaml ts-grammar-toml
     )
 endif()
 
