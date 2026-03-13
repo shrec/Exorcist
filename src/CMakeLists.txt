@@ -454,12 +454,6 @@ add_executable(exorcist WIN32
     process/processmanager.cpp
     settings/workspacesettings.h
     settings/workspacesettings.cpp
-    testing/testdiscoveryservice.h
-    testing/testdiscoveryservice.cpp
-    testing/testrunnerservice.h
-    testing/testrunnerservice.cpp
-    testing/testexplorerpanel.h
-    testing/testexplorerpanel.cpp
 )
 
 # ── Chat renderer: Ultralight (HTML/JS) vs Qt widgets ────────────────────────

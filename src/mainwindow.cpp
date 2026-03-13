@@ -119,7 +119,6 @@
 #include "bootstrap/debugbootstrap.h"
 #include "sdk/ibuildsystem.h"
 #include "sdk/ilaunchservice.h"
-#include "testing/testrunnerservice.h"
 #include "bootstrap/bridgebootstrap.h"
 #include "process/bridgeclient.h"
 #include "bootstrap/statusbarmanager.h"
@@ -131,8 +130,6 @@
 #include "git/gitservice.h"
 #include "git/gitpanel.h"
 #include "build/outputpanel.h"
-#include "testing/testdiscoveryservice.h"
-#include "testing/testexplorerpanel.h"
 #include "problems/problemspanel.h"
 #include "settings/workspacesettings.h"
 #include "git/diffexplorerpanel.h"
@@ -2484,35 +2481,9 @@ void MainWindow::createDockWidgets()
     // Created by plugins/build/ via IViewContributor (OutputDock, RunDock).
     // Wiring happens in loadPlugins() after plugin initialization.
 
-    // ── Test Explorer panel ───────────────────────────────────────────────
-    {
-        auto *testSvc   = new TestDiscoveryService(this);
-        auto *testPanel = new TestExplorerPanel(this);
-        testPanel->setDiscoveryService(testSvc);
-
-        // Wire build directory from IBuildSystem service (if available)
-        if (m_services) {
-            auto *buildSys = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
-            if (buildSys) {
-                const QString buildDir = buildSys->buildDirectory();
-                if (!buildDir.isEmpty()) {
-                    testSvc->setBuildDirectory(buildDir);
-                    testSvc->discoverTests();
-                }
-            }
-        }
-
-        // Register ITestRunner in ServiceRegistry
-        if (m_services) {
-            auto *testRunner = new TestRunnerService(testSvc, this);
-            m_services->registerService(QStringLiteral("testRunner"), testRunner);
-        }
-
-        auto *dkTestDock = new ExDockWidget(tr("Test Explorer"), this);
-        dkTestDock->setDockId(QStringLiteral("TestExplorerDock"));
-        dkTestDock->setContentWidget(testPanel);
-        m_dockManager->addDockWidget(dkTestDock, SideBarArea::Bottom, /*startPinned=*/false);
-    }
+    // ── Test Explorer panel — contributed by testing plugin ───────────────
+    // Created by plugins/testing/ via IViewContributor (TestExplorerDock).
+    // TestRunnerService registered as "testRunner" service by the plugin.
 
     // ── Problems panel ────────────────────────────────────────────────────
     {

@@ -40,7 +40,7 @@ concrete core classes or MainWindow.
 | **Language Intelligence** | `lsp/` | LSP client, Clangd lifecycle, completion, hover, diagnostics, TCP socket transport for remote LSP | `LspClient`, `ClangdManager`, `LspEditorBridge`, `SocketLspTransport` |
 | **Terminal** | `terminal/` | ConPTY/PTY emulator, VT100/xterm, scrollback | `TerminalView`, `TerminalPanel` |
 | **Build System** | `plugins/build/` | **Core Plugin** — CMake integration, toolchain detection, build toolbar, debug launch controller, output panel, run panel. Extracted from `src/build/` in Phase C. OutputPanel and RunLaunchPanel remain in `src/build/` as shared UI types. | `BuildPlugin`, `CMakeIntegration`, `ToolchainManager`, `BuildToolbar`, `DebugLaunchController`, `BuildSystemService` |
-| **Testing** | `testing/` | Test discovery (CTest JSON), test runner, test explorer UI | `TestDiscoveryService`, `TestExplorerPanel` |
+| **Testing** | `plugins/testing/` | **Core Plugin** — Test discovery (CTest JSON), test runner, test explorer UI. Extracted from `src/testing/` in Phase C. Contextual activation on CTestTestfile.cmake/CMakeLists.txt detection. | `TestingPlugin`, `TestDiscoveryService`, `TestExplorerPanel`, `TestRunnerService` |
 | **Problems** | `problems/` | Unified diagnostics panel aggregating LSP + build errors | `ProblemsPanel` |
 | **Source Control** | `git/` | Git status, blame, diff, staging, branches, multi-file diff explorer, 3-way merge editor | `GitService`, `GitPanel`, `DiffExplorerPanel`, `MergeEditor` |
 | **Search** | `search/` | Workspace search, file search, regex search | `SearchPanel`, `WorkspaceIndexer` |

@@ -1,0 +1,30 @@
+{
+    "id": "org.exorcist.testing",
+    "name": "Testing",
+    "version": "1.0.0",
+    "description": "CTest-based test discovery, execution, and explorer panel",
+    "author": "Exorcist Team",
+    "activationEvents": [
+        "workspaceContains:CTestTestfile.cmake",
+        "workspaceContains:CMakeLists.txt"
+    ],
+    "contributions": {
+        "views": [
+            {
+                "id": "TestExplorerDock",
+                "title": "Test Explorer",
+                "location": "bottom"
+            }
+        ],
+        "commands": [
+            {
+                "id": "testing.discover",
+                "title": "Discover Tests"
+            },
+            {
+                "id": "testing.runAll",
+                "title": "Run All Tests"
+            }
+        ]
+    }
+}
