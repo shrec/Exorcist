@@ -42,15 +42,6 @@ add_executable(exorcist WIN32
     editor/textbuffer.h
     editor/piecetablebuffer.cpp
     editor/piecetablebuffer.h
-    debug/idebugadapter.h
-    debug/gdbmiadapter.cpp
-    debug/gdbmiadapter.h
-    debug/debugpanel.cpp
-    debug/debugpanel.h
-    debug/watchtreemodel.cpp
-    debug/watchtreemodel.h
-    debug/quickwatchdialog.cpp
-    debug/quickwatchdialog.h
     search/searchquery.h
     search/searchmatch.h
     search/searchindex.cpp
@@ -124,8 +115,6 @@ add_executable(exorcist WIN32
     agent/agentplatformbootstrap.h
     bootstrap/lspbootstrap.cpp
     bootstrap/lspbootstrap.h
-    bootstrap/debugbootstrap.cpp
-    bootstrap/debugbootstrap.h
     bootstrap/bridgebootstrap.cpp
     bootstrap/bridgebootstrap.h
     bootstrap/aiservicesbootstrap.h
@@ -418,6 +407,8 @@ add_executable(exorcist WIN32
     sdk/ibuildsystem.h
     sdk/ilaunchservice.h
     sdk/itestrunner.h
+    sdk/idebugadapter.h
+    sdk/idebugservice.h
     sdk/ihostservices.h
     sdk/hostservices.cpp
     sdk/hostservices.h

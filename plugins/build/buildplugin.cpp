@@ -8,7 +8,7 @@
 #include "build/runlaunchpanel.h"
 #include "toolchainmanager.h"
 
-#include "debug/idebugadapter.h"
+#include "sdk/idebugadapter.h"
 #include "sdk/ihostservices.h"
 #include "sdk/ilaunchservice.h"
 #include "sdk/inotificationservice.h"

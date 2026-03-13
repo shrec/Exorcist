@@ -391,7 +391,7 @@ See [docs/luajit.md](luajit.md)
 ### Phase C — Subsystem Extractions
 - [x] C1. Build System → `plugins/build/` ✅ (BuildPlugin with CMakeIntegration, ToolchainManager, BuildToolbar, DebugLaunchController, BuildSystemService; OutputPanel/RunLaunchPanel stay in src/build/ as shared UI; ILaunchService SDK interface; DebugBootstrap simplified; MainWindow build-free; exe exports symbols for plugin linking)
 - [x] C2. Testing System → `plugins/testing/` ✅ (TestingPlugin with TestDiscoveryService, TestExplorerPanel, TestRunnerService; contextual activation on CTestTestfile.cmake/CMakeLists.txt; auto-rediscovery on build/configure finish; "testRunner" service registered)
-- [ ] C3. Debug System → `plugins/debug/` (contextual activation, IDebugAdapter exists)
+- [x] C3. Debug System → `plugins/debug/` ✅ (DebugPlugin with GdbMiAdapter, DebugPanel, WatchTreeModel, QuickWatchDialog; IDebugAdapter + IDebugService SDK interfaces; DebugServiceBridge replaces DebugBootstrap; post-plugin wiring for editor debug-line highlighting and navigation; 3 MainWindow members removed; setDebuggerPath promoted to IDebugAdapter)
 - [ ] C4. Clangd Manager → `plugins/cpp-language/` (LspClient stays Core)
 - [ ] C5. Language highlighting data → language pack plugins via ILanguageContributor
 

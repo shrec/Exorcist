@@ -1,0 +1,26 @@
+{
+    "id":          "org.exorcist.debug",
+    "name":        "Debug",
+    "version":     "1.0.0",
+    "description": "GDB/MI debug adapter, debug panel, watch tree, quick watch dialog",
+    "category":    "core",
+    "activationEvents": [
+        "workspaceContains:CMakeLists.txt",
+        "workspaceContains:Makefile",
+        "workspaceContains:Cargo.toml"
+    ],
+    "views": {
+        "DebugDock": {
+            "title": "Debug",
+            "area":  "bottom"
+        }
+    },
+    "commands": {
+        "debug.launch":    { "title": "Launch Debugger" },
+        "debug.continue":  { "title": "Continue Execution" },
+        "debug.stepOver":  { "title": "Step Over" },
+        "debug.stepInto":  { "title": "Step Into" },
+        "debug.stepOut":   { "title": "Step Out" },
+        "debug.terminate": { "title": "Terminate Debug Session" }
+    }
+}

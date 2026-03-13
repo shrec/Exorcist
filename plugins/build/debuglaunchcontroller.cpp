@@ -1,8 +1,7 @@
 #include "debuglaunchcontroller.h"
 #include "cmakeintegration.h"
 #include "toolchainmanager.h"
-#include "debug/gdbmiadapter.h"
-#include "debug/idebugadapter.h"
+#include "sdk/idebugadapter.h"
 
 #include <QFileInfo>
 #include <QProcess>
@@ -148,9 +147,9 @@ void DebugLaunchController::doLaunchDebug(const DebugLaunchConfig &config)
         ? resolveDebugger()
         : config.debuggerPath;
 
-    // Apply debugger path to GdbMiAdapter
-    if (auto *gdb = qobject_cast<GdbMiAdapter *>(m_adapter))
-        gdb->setDebuggerPath(debuggerPath);
+    // Apply debugger path to adapter
+    if (m_adapter)
+        m_adapter->setDebuggerPath(debuggerPath);
 
     m_adapter->launch(config.executable, config.args,
                       config.workingDir, config.env);

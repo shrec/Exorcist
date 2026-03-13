@@ -1,0 +1,706 @@
+#include "gdbmiadapter.h"
+
+#include <QRegularExpression>
+#include <QJsonDocument>
+#include <QJsonArray>
+
+GdbMiAdapter::GdbMiAdapter(QObject *parent)
+    : IDebugAdapter(parent)
+{
+    connect(&m_process, &QProcess::readyReadStandardOutput,
+            this, &GdbMiAdapter::onReadyRead);
+    connect(&m_process, &QProcess::readyReadStandardError,
+            this, [this]() {
+        const QString text = QString::fromUtf8(m_process.readAllStandardError());
+        emit outputProduced(text, QStringLiteral("stderr"));
+    });
+    connect(&m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &GdbMiAdapter::onProcessFinished);
+    connect(&m_process, &QProcess::errorOccurred,
+            this, &GdbMiAdapter::onProcessError);
+}
+
+GdbMiAdapter::~GdbMiAdapter()
+{
+    if (m_process.state() != QProcess::NotRunning) {
+        m_process.kill();
+        m_process.waitForFinished(2000);
+    }
+}
+
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
+
+void GdbMiAdapter::launch(const QString &executable,
+                           const QStringList &args,
+                           const QString &workingDir,
+                           const QJsonObject &env)
+{
+    if (m_process.state() != QProcess::NotRunning) {
+        emit error(tr("Debugger already running"));
+        return;
+    }
+
+    QStringList gdbArgs;
+    gdbArgs << QStringLiteral("--interpreter=mi2")
+            << QStringLiteral("--quiet");
+
+    m_process.setProgram(m_debuggerPath);
+    m_process.setArguments(gdbArgs);
+
+    if (!workingDir.isEmpty())
+        m_process.setWorkingDirectory(workingDir);
+
+    if (!env.isEmpty()) {
+        auto sysEnv = QProcessEnvironment::systemEnvironment();
+        for (auto it = env.begin(); it != env.end(); ++it)
+            sysEnv.insert(it.key(), it.value().toString());
+        m_process.setProcessEnvironment(sysEnv);
+    }
+
+    m_launched = false;
+    m_process.start();
+
+    if (!m_process.waitForStarted(5000)) {
+        emit error(tr("Failed to start debugger: %1").arg(m_process.errorString()));
+        return;
+    }
+
+    // Set the inferior (program to debug)
+    sendCommand(QStringLiteral("-file-exec-and-symbols \"%1\"").arg(executable));
+
+    // Set inferior arguments
+    if (!args.isEmpty()) {
+        QString argStr;
+        for (const auto &a : args) {
+            if (!argStr.isEmpty()) argStr += QLatin1Char(' ');
+            argStr += QLatin1Char('"') + a + QLatin1Char('"');
+        }
+        sendCommand(QStringLiteral("-exec-arguments %1").arg(argStr));
+    }
+
+    // Run
+    sendCommand(QStringLiteral("-exec-run"));
+    m_launched = true;
+    emit started();
+}
+
+void GdbMiAdapter::attach(int pid)
+{
+    if (m_process.state() != QProcess::NotRunning) {
+        emit error(tr("Debugger already running"));
+        return;
+    }
+
+    QStringList gdbArgs;
+    gdbArgs << QStringLiteral("--interpreter=mi2")
+            << QStringLiteral("--quiet");
+
+    m_process.setProgram(m_debuggerPath);
+    m_process.setArguments(gdbArgs);
+    m_process.start();
+
+    if (!m_process.waitForStarted(5000)) {
+        emit error(tr("Failed to start debugger: %1").arg(m_process.errorString()));
+        return;
+    }
+
+    sendCommand(QStringLiteral("-target-attach %1").arg(pid));
+    m_launched = true;
+    emit started();
+}
+
+void GdbMiAdapter::terminate()
+{
+    if (m_process.state() == QProcess::NotRunning) return;
+
+    sendCommand(QStringLiteral("-gdb-exit"));
+    if (!m_process.waitForFinished(3000)) {
+        m_process.kill();
+        m_process.waitForFinished(1000);
+    }
+}
+
+bool GdbMiAdapter::isRunning() const
+{
+    return m_process.state() != QProcess::NotRunning && m_launched;
+}
+
+// ── Execution control ─────────────────────────────────────────────────────────
+
+void GdbMiAdapter::continueExecution(int threadId)
+{
+    if (threadId > 0)
+        sendCommand(QStringLiteral("-exec-continue --thread %1").arg(threadId));
+    else
+        sendCommand(QStringLiteral("-exec-continue"));
+}
+
+void GdbMiAdapter::stepOver(int threadId)
+{
+    if (threadId > 0)
+        sendCommand(QStringLiteral("-exec-next --thread %1").arg(threadId));
+    else
+        sendCommand(QStringLiteral("-exec-next"));
+}
+
+void GdbMiAdapter::stepInto(int threadId)
+{
+    if (threadId > 0)
+        sendCommand(QStringLiteral("-exec-step --thread %1").arg(threadId));
+    else
+        sendCommand(QStringLiteral("-exec-step"));
+}
+
+void GdbMiAdapter::stepOut(int threadId)
+{
+    if (threadId > 0)
+        sendCommand(QStringLiteral("-exec-finish --thread %1").arg(threadId));
+    else
+        sendCommand(QStringLiteral("-exec-finish"));
+}
+
+void GdbMiAdapter::pause(int threadId)
+{
+    if (threadId > 0)
+        sendCommand(QStringLiteral("-exec-interrupt --thread %1").arg(threadId));
+    else
+        sendCommand(QStringLiteral("-exec-interrupt"));
+}
+
+// ── Breakpoints ───────────────────────────────────────────────────────────────
+
+void GdbMiAdapter::addBreakpoint(const DebugBreakpoint &bp)
+{
+    QString cmd = QStringLiteral("-break-insert ");
+    if (!bp.condition.isEmpty())
+        cmd += QStringLiteral("-c \"%1\" ").arg(bp.condition);
+    if (!bp.enabled)
+        cmd += QStringLiteral("-d ");
+    cmd += QStringLiteral("\"%1:%2\"").arg(bp.filePath).arg(bp.line);
+
+    const int token = sendCommand(cmd);
+    m_pendingBps.insert(token, bp);
+}
+
+void GdbMiAdapter::removeBreakpoint(int breakpointId)
+{
+    sendCommand(QStringLiteral("-break-delete %1").arg(breakpointId));
+    m_breakpoints.remove(breakpointId);
+    emit breakpointRemoved(breakpointId);
+}
+
+void GdbMiAdapter::removeAllBreakpoints()
+{
+    const auto ids = m_breakpoints.keys();
+    for (int id : ids)
+        removeBreakpoint(id);
+}
+
+// ── Inspection ────────────────────────────────────────────────────────────────
+
+void GdbMiAdapter::requestThreads()
+{
+    sendCommand(QStringLiteral("-thread-info"));
+}
+
+void GdbMiAdapter::requestStackTrace(int threadId)
+{
+    const int token = sendCommand(
+        QStringLiteral("-stack-list-frames --thread %1").arg(threadId));
+    m_stackTraceRequests.insert(token, threadId);
+}
+
+void GdbMiAdapter::requestScopes(int /*frameId*/)
+{
+    // GDB/MI doesn't have scopes — we list locals directly
+    sendCommand(QStringLiteral("-stack-list-locals --simple-values"));
+}
+
+void GdbMiAdapter::requestVariables(int /*variablesReference*/)
+{
+    sendCommand(QStringLiteral("-stack-list-locals --all-values"));
+}
+
+void GdbMiAdapter::evaluate(const QString &expression, int frameId)
+{
+    Q_UNUSED(frameId)
+    sendCommand(QStringLiteral("-data-evaluate-expression \"%1\"")
+                    .arg(expression));
+}
+
+// ── Variable Objects ──────────────────────────────────────────────────────────
+
+void GdbMiAdapter::createVarObject(const QString &expression, int frameId)
+{
+    const QString varName = QStringLiteral("var%1").arg(m_nextVarId++);
+    const QString cmd = (frameId > 0)
+        ? QStringLiteral("-var-create %1 %2 \"%3\"").arg(varName).arg(frameId).arg(expression)
+        : QStringLiteral("-var-create %1 * \"%2\"").arg(varName, expression);
+    const int token = sendCommand(cmd);
+    m_varObjRequests.insert(token, VarObjCmd::Create);
+    m_varCreateExprs.insert(token, expression);
+}
+
+void GdbMiAdapter::listVarChildren(const QString &varName, int from, int count)
+{
+    QString cmd = QStringLiteral("-var-list-children --all-values %1").arg(varName);
+    if (from >= 0 && count > 0)
+        cmd += QStringLiteral(" %1 %2").arg(from).arg(from + count);
+    const int token = sendCommand(cmd);
+    m_varObjRequests.insert(token, VarObjCmd::ListChildren);
+    m_varListParents.insert(token, varName);
+}
+
+void GdbMiAdapter::updateVarObjects()
+{
+    const int token = sendCommand(QStringLiteral("-var-update --all-values *"));
+    m_varObjRequests.insert(token, VarObjCmd::Update);
+}
+
+void GdbMiAdapter::deleteVarObject(const QString &varName)
+{
+    const int token = sendCommand(QStringLiteral("-var-delete %1").arg(varName));
+    m_varObjRequests.insert(token, VarObjCmd::Delete);
+    m_varDeleteNames.insert(token, varName);
+}
+
+void GdbMiAdapter::assignVarValue(const QString &varName, const QString &newValue)
+{
+    const int token = sendCommand(
+        QStringLiteral("-var-assign %1 \"%2\"").arg(varName, newValue));
+    m_varObjRequests.insert(token, VarObjCmd::Assign);
+    m_varAssignNames.insert(token, varName);
+}
+
+// ── MI command sending ────────────────────────────────────────────────────────
+
+int GdbMiAdapter::sendCommand(const QString &miCommand)
+{
+    const int token = m_nextToken++;
+    const QString line = QStringLiteral("%1%2\n").arg(token).arg(miCommand);
+
+    m_pending.insert(token, {miCommand, token});
+    m_process.write(line.toUtf8());
+
+    emit outputProduced(QStringLiteral("> %1").arg(line.trimmed()),
+                        QStringLiteral("command"));
+    return token;
+}
+
+// ── MI output parsing ─────────────────────────────────────────────────────────
+
+void GdbMiAdapter::onReadyRead()
+{
+    m_lineBuffer += QString::fromUtf8(m_process.readAllStandardOutput());
+
+    int consumed = 0;
+    while (true) {
+        const int nl = m_lineBuffer.indexOf(QLatin1Char('\n'), consumed);
+        if (nl < 0) break;
+        const QString line = m_lineBuffer.mid(consumed, nl - consumed).trimmed();
+        consumed = nl + 1;
+        if (!line.isEmpty())
+            parseMiLine(line);
+    }
+    if (consumed > 0)
+        m_lineBuffer.remove(0, consumed);
+}
+
+void GdbMiAdapter::parseMiLine(const QString &line)
+{
+    // (gdb) prompt — ignore
+    if (line == QLatin1String("(gdb)")) return;
+
+    // Console output: ~"text"
+    if (line.startsWith(QLatin1Char('~'))) {
+        QString text = line.mid(2, line.length() - 3); // strip ~" and "
+        text.replace(QStringLiteral("\\n"), QStringLiteral("\n"));
+        text.replace(QStringLiteral("\\t"), QStringLiteral("\t"));
+        emit outputProduced(text, QStringLiteral("console"));
+        return;
+    }
+
+    // Target output: @"text"
+    if (line.startsWith(QLatin1Char('@'))) {
+        QString text = line.mid(2, line.length() - 3);
+        emit outputProduced(text, QStringLiteral("target"));
+        return;
+    }
+
+    // Log output: &"text"
+    if (line.startsWith(QLatin1Char('&'))) return;
+
+    // Async exec record: *stopped, *running
+    if (line.startsWith(QLatin1Char('*'))) {
+        if (line.startsWith(QStringLiteral("*stopped"))) {
+            handleStopped(parseMiBody(line.mid(9)));
+        } else if (line.startsWith(QStringLiteral("*running"))) {
+            // Extract thread-id if present
+            const auto attrs = parseMiBody(line.mid(9));
+            int tid = attrs.value(QStringLiteral("thread-id"), QStringLiteral("0")).toInt();
+            emit continued(tid);
+        }
+        return;
+    }
+
+    // Async notify: =thread-created, =breakpoint-modified, etc.
+    if (line.startsWith(QLatin1Char('='))) return;
+
+    // Result record: token^done,... or token^error,...
+    static const QRegularExpression resultRx(
+        QStringLiteral("^(\\d+)\\^(done|running|error|connected|exit)(.*)$"));
+    const auto match = resultRx.match(line);
+    if (match.hasMatch()) {
+        const int token = match.captured(1).toInt();
+        const QString resultClass = match.captured(2);
+        const QString body = match.captured(3);
+
+        if (resultClass == QStringLiteral("error")) {
+            auto attrs = parseMiBody(body);
+            const QString msg = attrs.value(QStringLiteral("msg"), QStringLiteral("Unknown error"));
+            // If a var-obj command failed, route the error to the var-obj signal
+            if (m_varObjRequests.contains(token)) {
+                const auto cmd = m_varObjRequests.take(token);
+                QString expr;
+                if (cmd == VarObjCmd::Create)
+                    expr = m_varCreateExprs.take(token);
+                else if (cmd == VarObjCmd::ListChildren)
+                    expr = m_varListParents.take(token);
+                else if (cmd == VarObjCmd::Delete)
+                    m_varDeleteNames.remove(token);
+                else if (cmd == VarObjCmd::Assign)
+                    expr = m_varAssignNames.take(token);
+                emit varObjectError(expr, msg);
+            } else {
+                emit error(msg);
+            }
+        } else if (resultClass == QStringLiteral("exit")) {
+            // handled by processFinished
+        } else {
+            auto attrs = parseMiBody(body);
+
+            // Route result to correct handler based on pending command
+            if (m_varObjRequests.contains(token)) {
+                const auto cmd = m_varObjRequests.take(token);
+                switch (cmd) {
+                case VarObjCmd::Create:       handleVarCreateResult(token, attrs);       break;
+                case VarObjCmd::ListChildren: handleVarListChildrenResult(token, attrs); break;
+                case VarObjCmd::Update:       handleVarUpdateResult(token, attrs);       break;
+                case VarObjCmd::Delete:       handleVarDeleteResult(token, attrs);       break;
+                case VarObjCmd::Assign:       handleVarAssignResult(token, attrs);       break;
+                }
+            } else if (m_pendingBps.contains(token)) {
+                handleBreakInsertResult(token, attrs);
+            } else if (m_stackTraceRequests.contains(token)) {
+                handleStackListResult(token, attrs);
+            } else if (body.contains(QStringLiteral("threads="))) {
+                handleThreadInfoResult(token, attrs);
+            } else if (body.contains(QStringLiteral("value="))) {
+                handleEvaluateResult(token, attrs);
+            }
+        }
+
+        m_pending.remove(token);
+        return;
+    }
+}
+
+QHash<QString, QString> GdbMiAdapter::parseMiBody(const QString &body)
+{
+    QHash<QString, QString> result;
+    if (body.isEmpty()) return result;
+
+    // Simple key=value parser (handles quoted values)
+    const QString s = body.startsWith(QLatin1Char(',')) ? body.mid(1) : body;
+
+    int i = 0;
+    while (i < s.length()) {
+        // Find key
+        int eq = s.indexOf(QLatin1Char('='), i);
+        if (eq < 0) break;
+        const QString key = s.mid(i, eq - i).trimmed();
+
+        i = eq + 1;
+        if (i >= s.length()) break;
+
+        QString value;
+        if (s.at(i) == QLatin1Char('"')) {
+            // Quoted value
+            ++i;
+            int end = i;
+            while (end < s.length()) {
+                if (s.at(end) == QLatin1Char('\\') && end + 1 < s.length()) {
+                    end += 2;
+                    continue;
+                }
+                if (s.at(end) == QLatin1Char('"')) break;
+                ++end;
+            }
+            value = s.mid(i, end - i);
+            value.replace(QStringLiteral("\\\""), QStringLiteral("\""));
+            value.replace(QStringLiteral("\\n"), QStringLiteral("\n"));
+            i = end + 1;
+        } else if (s.at(i) == QLatin1Char('{') || s.at(i) == QLatin1Char('[')) {
+            // Nested structure — grab until matching close
+            const QChar open = s.at(i);
+            const QChar close = (open == QLatin1Char('{')) ? QLatin1Char('}') : QLatin1Char(']');
+            int depth = 1;
+            int start = i;
+            ++i;
+            while (i < s.length() && depth > 0) {
+                if (s.at(i) == open) ++depth;
+                else if (s.at(i) == close) --depth;
+                else if (s.at(i) == QLatin1Char('"')) {
+                    ++i;
+                    while (i < s.length() && s.at(i) != QLatin1Char('"')) {
+                        if (s.at(i) == QLatin1Char('\\')) ++i;
+                        ++i;
+                    }
+                }
+                ++i;
+            }
+            value = s.mid(start, i - start);
+        } else {
+            // Unquoted value (rare)
+            int end = s.indexOf(QLatin1Char(','), i);
+            if (end < 0) end = s.length();
+            value = s.mid(i, end - i).trimmed();
+            i = end;
+        }
+
+        result.insert(key, value);
+
+        // Skip comma
+        if (i < s.length() && s.at(i) == QLatin1Char(','))
+            ++i;
+    }
+
+    return result;
+}
+
+// ── Result handlers ───────────────────────────────────────────────────────────
+
+void GdbMiAdapter::handleStopped(const QHash<QString, QString> &attrs)
+{
+    const int threadId = attrs.value(QStringLiteral("thread-id"), QStringLiteral("0")).toInt();
+    const QString reason = attrs.value(QStringLiteral("reason"));
+
+    DebugStopReason stopReason = DebugStopReason::Unknown;
+    if (reason.contains(QStringLiteral("breakpoint")))
+        stopReason = DebugStopReason::Breakpoint;
+    else if (reason.contains(QStringLiteral("step")) || reason.contains(QStringLiteral("end-stepping")))
+        stopReason = DebugStopReason::Step;
+    else if (reason.contains(QStringLiteral("signal")) || reason.contains(QStringLiteral("exception")))
+        stopReason = DebugStopReason::Exception;
+    else if (reason.contains(QStringLiteral("exited"))) {
+        emit terminated();
+        return;
+    }
+
+    emit stopped(threadId, stopReason, reason);
+}
+
+void GdbMiAdapter::handleBreakInsertResult(int token, const QHash<QString, QString> &attrs)
+{
+    auto bp = m_pendingBps.take(token);
+
+    // Parse bkpt={number="1",type="breakpoint",...}
+    const QString bkptStr = attrs.value(QStringLiteral("bkpt"));
+    if (!bkptStr.isEmpty()) {
+        auto bkptAttrs = parseMiBody(bkptStr.mid(1, bkptStr.length() - 2));
+        bp.id = bkptAttrs.value(QStringLiteral("number"), QStringLiteral("-1")).toInt();
+        bp.verified = true;
+        const QString file = bkptAttrs.value(QStringLiteral("fullname"));
+        if (!file.isEmpty()) bp.filePath = file;
+        const int line = bkptAttrs.value(QStringLiteral("line"), QStringLiteral("0")).toInt();
+        if (line > 0) bp.line = line;
+    }
+
+    m_breakpoints.insert(bp.id, bp);
+    emit breakpointSet(bp);
+}
+
+void GdbMiAdapter::handleStackListResult(int token, const QHash<QString, QString> &attrs)
+{
+    const int threadId = m_stackTraceRequests.take(token);
+
+    // Parse stack=[frame={...},frame={...},...]
+    const QString stack = attrs.value(QStringLiteral("stack"));
+    QList<DebugFrame> frames;
+
+    if (!stack.isEmpty()) {
+        // Simple extraction: find each frame={...}
+        static const QRegularExpression frameRx(
+            QStringLiteral("frame=\\{([^}]+)\\}"));
+        auto it = frameRx.globalMatch(stack);
+        while (it.hasNext()) {
+            auto m = it.next();
+            frames.append(parseFrame(m.captured(1)));
+        }
+    }
+
+    emit stackTraceReceived(threadId, frames);
+}
+
+void GdbMiAdapter::handleThreadInfoResult(int /*token*/, const QHash<QString, QString> &attrs)
+{
+    const QString threads = attrs.value(QStringLiteral("threads"));
+    QList<DebugThread> result;
+
+    if (!threads.isEmpty()) {
+        static const QRegularExpression threadRx(
+            QStringLiteral("\\{id=\"(\\d+)\",.*?name=\"([^\"]*)\""
+                           ".*?state=\"([^\"]*)\""));
+        auto it = threadRx.globalMatch(threads);
+        while (it.hasNext()) {
+            auto m = it.next();
+            DebugThread t;
+            t.id = m.captured(1).toInt();
+            t.name = m.captured(2);
+            t.stopped = (m.captured(3) == QStringLiteral("stopped"));
+            result.append(t);
+        }
+    }
+
+    emit threadsReceived(result);
+}
+
+void GdbMiAdapter::handleVarResult(int /*token*/, const QHash<QString, QString> &attrs)
+{
+    Q_UNUSED(attrs)
+    // Variable listing handled via requestVariables output
+}
+
+void GdbMiAdapter::handleEvaluateResult(int /*token*/, const QHash<QString, QString> &attrs)
+{
+    const QString value = attrs.value(QStringLiteral("value"));
+    emit evaluateResult(QString(), value);
+}
+
+// ── Variable Object result handlers ───────────────────────────────────────────
+
+void GdbMiAdapter::handleVarCreateResult(int token, const QHash<QString, QString> &attrs)
+{
+    const QString expr = m_varCreateExprs.take(token);
+
+    DebugVarObj obj;
+    obj.varName     = attrs.value(QStringLiteral("name"));
+    obj.expression  = expr;
+    obj.value       = attrs.value(QStringLiteral("value"));
+    obj.type        = attrs.value(QStringLiteral("type"));
+    obj.numChildren = attrs.value(QStringLiteral("numchild"), QStringLiteral("0")).toInt();
+    obj.hasMore     = attrs.value(QStringLiteral("has_more"), QStringLiteral("0")) != QStringLiteral("0");
+
+    emit varObjectCreated(obj);
+}
+
+void GdbMiAdapter::handleVarListChildrenResult(int token, const QHash<QString, QString> &attrs)
+{
+    const QString parent = m_varListParents.take(token);
+    const QString childrenStr = attrs.value(QStringLiteral("children"));
+    QList<DebugVarObj> children = parseChildList(childrenStr);
+    emit varChildrenListed(parent, children);
+}
+
+void GdbMiAdapter::handleVarUpdateResult(int /*token*/, const QHash<QString, QString> &attrs)
+{
+    const QString changeStr = attrs.value(QStringLiteral("changelist"));
+    QList<DebugVarChange> changes = parseChangeList(changeStr);
+    emit varObjectsUpdated(changes);
+}
+
+void GdbMiAdapter::handleVarDeleteResult(int token, const QHash<QString, QString> &/*attrs*/)
+{
+    const QString varName = m_varDeleteNames.take(token);
+    emit varObjectDeleted(varName);
+}
+
+void GdbMiAdapter::handleVarAssignResult(int token, const QHash<QString, QString> &attrs)
+{
+    const QString varName = m_varAssignNames.take(token);
+    const QString newVal  = attrs.value(QStringLiteral("value"));
+    emit varValueAssigned(varName, newVal);
+}
+
+// ── Var-obj output parsers ────────────────────────────────────────────────────
+
+QList<DebugVarObj> GdbMiAdapter::parseChildList(const QString &raw)
+{
+    QList<DebugVarObj> result;
+    if (raw.isEmpty()) return result;
+
+    // Find each child={...} entry
+    static const QRegularExpression childRx(QStringLiteral("child=\\{([^}]+(?:\\{[^}]*\\}[^}]*)*)\\}"));
+    auto it = childRx.globalMatch(raw);
+    while (it.hasNext()) {
+        auto m = it.next();
+        auto attrs = parseMiBody(m.captured(1));
+        DebugVarObj obj;
+        obj.varName     = attrs.value(QStringLiteral("name"));
+        obj.expression  = attrs.value(QStringLiteral("exp"));
+        obj.value       = attrs.value(QStringLiteral("value"));
+        obj.type        = attrs.value(QStringLiteral("type"));
+        obj.numChildren = attrs.value(QStringLiteral("numchild"), QStringLiteral("0")).toInt();
+        obj.hasMore     = attrs.value(QStringLiteral("has_more"), QStringLiteral("0")) != QStringLiteral("0");
+        result.append(obj);
+    }
+    return result;
+}
+
+QList<DebugVarChange> GdbMiAdapter::parseChangeList(const QString &raw)
+{
+    QList<DebugVarChange> result;
+    if (raw.isEmpty()) return result;
+
+    // Parse changelist=[{name="var1",value="42",in_scope="true",...},...]
+    static const QRegularExpression entryRx(QStringLiteral("\\{([^}]+)\\}"));
+    auto it = entryRx.globalMatch(raw);
+    while (it.hasNext()) {
+        auto m = it.next();
+        auto attrs = parseMiBody(m.captured(1));
+        DebugVarChange chg;
+        chg.varName        = attrs.value(QStringLiteral("name"));
+        chg.newValue       = attrs.value(QStringLiteral("value"));
+        chg.inScope        = attrs.value(QStringLiteral("in_scope"), QStringLiteral("true")) == QStringLiteral("true");
+        chg.typeChanged    = attrs.value(QStringLiteral("type_changed"), QStringLiteral("false")) == QStringLiteral("true");
+        const QString nc   = attrs.value(QStringLiteral("new_num_children"), QStringLiteral("-1"));
+        chg.newNumChildren = nc.toInt();
+        result.append(chg);
+    }
+    return result;
+}
+
+DebugFrame GdbMiAdapter::parseFrame(const QString &frameStr) const
+{
+    auto attrs = parseMiBody(frameStr);
+    DebugFrame f;
+    f.id = attrs.value(QStringLiteral("level"), QStringLiteral("0")).toInt();
+    f.name = attrs.value(QStringLiteral("func"));
+    f.filePath = attrs.value(QStringLiteral("fullname"),
+                             attrs.value(QStringLiteral("file")));
+    f.line = attrs.value(QStringLiteral("line"), QStringLiteral("0")).toInt();
+    return f;
+}
+
+// ── Process events ────────────────────────────────────────────────────────────
+
+void GdbMiAdapter::onProcessFinished(int exitCode, QProcess::ExitStatus status)
+{
+    Q_UNUSED(exitCode)
+    Q_UNUSED(status)
+    m_launched = false;
+    m_pending.clear();
+    m_pendingBps.clear();
+    m_varObjRequests.clear();
+    m_varCreateExprs.clear();
+    m_varListParents.clear();
+    m_varDeleteNames.clear();
+    m_varAssignNames.clear();
+    emit terminated();
+}
+
+void GdbMiAdapter::onProcessError(QProcess::ProcessError err)
+{
+    Q_UNUSED(err)
+    emit error(tr("Debugger process error: %1").arg(m_process.errorString()));
+}

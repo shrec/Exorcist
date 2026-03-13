@@ -52,8 +52,8 @@
 #include "agent/memorysuggestionengine.h"
 #include "agent/treesitteragenthelper.h"
 #include "agent/diagnosticsnotifier.h"
-#include "debug/debugpanel.h"
-#include "debug/gdbmiadapter.h"
+#include "sdk/idebugadapter.h"
+#include "sdk/idebugservice.h"
 #include "agent/chat/chatpanelwidget.h"
 #include "agent/agentcontroller.h"
 #include "agent/agentmodes.h"
@@ -116,7 +116,6 @@
 #include "lsp/lspeditorbridge.h"
 #include "lsp/referencespanel.h"
 #include "bootstrap/lspbootstrap.h"
-#include "bootstrap/debugbootstrap.h"
 #include "sdk/ibuildsystem.h"
 #include "sdk/ilaunchservice.h"
 #include "bootstrap/bridgebootstrap.h"
@@ -221,11 +220,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_lspClient, &LspClient::initialized,
             this, &MainWindow::onLspInitialized);
 
-    // Debug subsystem bootstrap (build subsystem is now a plugin).
-    m_debugBootstrap = new DebugBootstrap(this);
-    m_debugBootstrap->initialize();
-    m_debugAdapter = m_debugBootstrap->debugAdapter();
-    m_debugPanel   = m_debugBootstrap->debugPanel();
+    // Debug subsystem — contributed by debug plugin (plugins/debug/).
+    // IDebugAdapter registered as "debugAdapter", IDebugService as "debugService".
 
     setupToolBar();
     setupUi();
@@ -269,8 +265,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_services->registerService(QStringLiteral("secureKeyStorage"), m_aiServices->keyStorage());
 
     // ── Build System — registered by build plugin (plugins/build/) ──────
-    // Debug adapter — register so the build plugin can wire it
-    m_services->registerService(QStringLiteral("debugAdapter"), m_debugAdapter);
+    // Debug adapter — registered by debug plugin (plugins/debug/)
 
     // ── Workspace settings (global → workspace hierarchy) ───────────────
     {
@@ -381,30 +376,33 @@ MainWindow::MainWindow(QWidget *parent)
     // ── Debug adapter callbacks ───────────────────────────────────────────
     agentCallbacks.debugBreakpointSetter =
         [this](const QString &filePath, int line, const QString &condition) -> QString {
-        if (!m_debugAdapter) return {};
+        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
+        if (!adapter) return {};
         DebugBreakpoint bp;
         bp.filePath  = filePath;
         bp.line      = line;
         bp.condition = condition;
         bp.enabled   = true;
-        m_debugAdapter->addBreakpoint(bp);
+        adapter->addBreakpoint(bp);
         return QStringLiteral("Breakpoint set at %1:%2").arg(filePath).arg(line);
     };
 
     agentCallbacks.debugBreakpointRemover =
         [this](const QString &filePath, int line) -> bool {
-        if (!m_debugAdapter) return false;
+        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
+        if (!adapter) return false;
         // Find breakpoint ID by file:line and remove it
         Q_UNUSED(filePath)
-        m_debugAdapter->removeBreakpoint(line);
+        adapter->removeBreakpoint(line);
         return true;
     };
 
     agentCallbacks.debugStackGetter = [this](int threadId) -> QString {
-        if (!m_debugAdapter || !m_debugAdapter->isRunning()) return {};
+        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
+        if (!adapter || !adapter->isRunning()) return {};
         QString result;
         QEventLoop loop;
-        auto conn = connect(m_debugAdapter, &GdbMiAdapter::stackTraceReceived,
+        auto conn = connect(adapter, &IDebugAdapter::stackTraceReceived,
             &loop, [&](int tid, const QList<DebugFrame> &frames) {
                 if (tid != threadId) return;
                 for (const auto &f : frames)
@@ -413,17 +411,18 @@ MainWindow::MainWindow(QWidget *parent)
                 loop.quit();
             });
         QTimer::singleShot(5000, &loop, &QEventLoop::quit);
-        m_debugAdapter->requestStackTrace(threadId);
+        adapter->requestStackTrace(threadId);
         loop.exec();
         disconnect(conn);
         return result;
     };
 
     agentCallbacks.debugVariablesGetter = [this](int variablesRef) -> QString {
-        if (!m_debugAdapter || !m_debugAdapter->isRunning()) return {};
+        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
+        if (!adapter || !adapter->isRunning()) return {};
         QString result;
         QEventLoop loop;
-        auto conn = connect(m_debugAdapter, &GdbMiAdapter::variablesReceived,
+        auto conn = connect(adapter, &IDebugAdapter::variablesReceived,
             &loop, [&](int ref, const QList<DebugVariable> &vars) {
                 if (ref != variablesRef) return;
                 for (const auto &v : vars)
@@ -432,17 +431,18 @@ MainWindow::MainWindow(QWidget *parent)
                 loop.quit();
             });
         QTimer::singleShot(5000, &loop, &QEventLoop::quit);
-        m_debugAdapter->requestVariables(variablesRef);
+        adapter->requestVariables(variablesRef);
         loop.exec();
         disconnect(conn);
         return result;
     };
 
     agentCallbacks.debugEvaluator = [this](const QString &expression, int frameId) -> QString {
-        if (!m_debugAdapter || !m_debugAdapter->isRunning()) return {};
+        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
+        if (!adapter || !adapter->isRunning()) return {};
         QString result;
         QEventLoop loop;
-        auto conn = connect(m_debugAdapter, &GdbMiAdapter::evaluateResult,
+        auto conn = connect(adapter, &IDebugAdapter::evaluateResult,
             &loop, [&](const QString &expr, const QString &val) {
                 if (expr == expression) {
                     result = val;
@@ -450,18 +450,19 @@ MainWindow::MainWindow(QWidget *parent)
                 }
             });
         QTimer::singleShot(5000, &loop, &QEventLoop::quit);
-        m_debugAdapter->evaluate(expression, frameId);
+        adapter->evaluate(expression, frameId);
         loop.exec();
         disconnect(conn);
         return result;
     };
 
     agentCallbacks.debugStepper = [this](const QString &action) -> bool {
-        if (!m_debugAdapter || !m_debugAdapter->isRunning()) return false;
-        if (action == QLatin1String("over"))     m_debugAdapter->stepOver();
-        else if (action == QLatin1String("into")) m_debugAdapter->stepInto();
-        else if (action == QLatin1String("out"))  m_debugAdapter->stepOut();
-        else if (action == QLatin1String("continue")) m_debugAdapter->continueExecution();
+        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
+        if (!adapter || !adapter->isRunning()) return false;
+        if (action == QLatin1String("over"))     adapter->stepOver();
+        else if (action == QLatin1String("into")) adapter->stepInto();
+        else if (action == QLatin1String("out"))  adapter->stepOut();
+        else if (action == QLatin1String("continue")) adapter->continueExecution();
         else return false;
         return true;
     };
@@ -476,8 +477,10 @@ MainWindow::MainWindow(QWidget *parent)
         }
         if (target == QLatin1String("terminal"))
             return m_terminal ? m_terminal->grab() : QPixmap();
-        if (target == QLatin1String("debug"))
-            return m_debugPanel ? m_debugPanel->grab() : QPixmap();
+        if (target == QLatin1String("debug")) {
+            auto *d = dock(QStringLiteral("DebugDock"));
+            return d ? d->grab() : QPixmap();
+        }
         if (target == QLatin1String("agent") || target == QLatin1String("chat"))
             return m_chatPanel ? m_chatPanel->grab() : QPixmap();
         if (target == QLatin1String("search"))
@@ -1950,8 +1953,9 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     runAct->setShortcut(QKeySequence(Qt::Key_F5));
     connect(runAct, &QAction::triggered, this, [this]() {
         // If debugger is running and paused, continue
-        if (m_debugAdapter && m_debugAdapter->isRunning()) {
-            m_debugAdapter->continueExecution();
+        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
+        if (adapter && adapter->isRunning()) {
+            adapter->continueExecution();
             return;
         }
         // Use ILaunchService from build plugin
@@ -2362,55 +2366,10 @@ void MainWindow::createDockWidgets()
     dkMemoryDock->setContentWidget(m_memoryBrowser);
     m_dockManager->addDockWidget(dkMemoryDock, SideBarArea::Right, /*startPinned=*/false);
 
-    // ── Debug Panel ───────────────────────────────────────────────────────
-    m_debugPanel->setParent(this);
-    auto *dkDebugDock = new ExDockWidget(tr("Debug"), this);
-    dkDebugDock->setDockId(QStringLiteral("DebugDock"));
-    dkDebugDock->setContentWidget(m_debugPanel);
-    m_dockManager->addDockWidget(dkDebugDock, SideBarArea::Bottom, /*startPinned=*/false);
-
-    // ── Debug wiring (DebugBootstrap — no build dependencies) ─────────────
-    m_debugBootstrap->wireConnections();
-
-    // Navigate to source on stack frame double-click
-    connect(m_debugBootstrap, &DebugBootstrap::navigateToSource,
-            this, [this](const QString &filePath, int line) {
-        navigateToLocation(filePath, line - 1, 0);
-    });
-
-    // Highlight current stopped line in editor
-    connect(m_debugBootstrap, &DebugBootstrap::debugStopped,
-            this, [this](const QList<DebugFrame> &frames) {
-        // Clear previous debug line on all editors
-        for (int i = 0; i < m_tabs->count(); ++i) {
-            auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
-            if (ed) ed->setCurrentDebugLine(0);
-        }
-        // Set debug line on top frame's editor
-        if (!frames.isEmpty()) {
-            const auto &top = frames.first();
-            for (int i = 0; i < m_tabs->count(); ++i) {
-                auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
-                if (ed && ed->property("filePath").toString() == top.filePath) {
-                    ed->setCurrentDebugLine(top.line);
-                    m_tabs->setCurrentIndex(i);
-                    break;
-                }
-            }
-        }
-    });
-
-    // Clear debug line on session end
-    connect(m_debugBootstrap, &DebugBootstrap::debugTerminated,
-            this, [this]() {
-        for (int i = 0; i < m_tabs->count(); ++i) {
-            auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
-            if (ed) ed->setCurrentDebugLine(0);
-        }
-    });
-
-    // Wire breakpoint from editor to debug panel
-    // (connected per-tab when tab is opened — see below in openFile)
+    // ── Debug Panel — contributed by debug plugin (plugins/debug/) ───────
+    // DebugDock view, IDebugAdapter ("debugAdapter"), and IDebugService
+    // ("debugService") are registered by the plugin. Post-plugin wiring
+    // connects IDebugService signals in loadPlugins().
 
     // ── Theme Manager ─────────────────────────────────────────────────────
     m_themeManager = new ThemeManager(this);
@@ -2888,19 +2847,21 @@ void MainWindow::openFile(const QString &path)
     connect(prevRevAction, &QAction::triggered, editor, &EditorView::prevReviewAnnotation);
     editor->addAction(prevRevAction);
 
-    // Wire breakpoint gutter → debug panel + adapter
+    // Wire breakpoint gutter → debug service (plugin-provided)
     connect(editor, &EditorView::breakpointToggled,
             this, [this](const QString &fp, int ln, bool added) {
+        auto *debugSvc = m_services->service<IDebugService>(QStringLiteral("debugService"));
         if (added) {
-            m_debugPanel->addBreakpointEntry(fp, ln);
-            if (m_debugAdapter) {
+            if (debugSvc) debugSvc->addBreakpointEntry(fp, ln);
+            auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
+            if (adapter) {
                 DebugBreakpoint bp;
                 bp.filePath = fp;
                 bp.line = ln;
-                m_debugAdapter->addBreakpoint(bp);
+                adapter->addBreakpoint(bp);
             }
         } else {
-            m_debugPanel->removeBreakpointEntry(fp, ln);
+            if (debugSvc) debugSvc->removeBreakpointEntry(fp, ln);
             // Adapter breakpoint removal requires the adapter-assigned ID,
             // which is tracked inside GdbMiAdapter. For now, re-setting
             // breakpoints on next launch is the simplest approach.
@@ -3965,6 +3926,44 @@ void MainWindow::loadPlugins()
         if (auto *pp = qobject_cast<ProblemsPanel *>(m_services->service(QStringLiteral("problemsPanel")))) {
             pp->setOutputPanel(outPanel);
         }
+    }
+
+    // ── Post-plugin wiring: debug service signals → editor integration ──
+    if (auto *debugSvc = m_services->service<IDebugService>(QStringLiteral("debugService"))) {
+        // Navigate to source on stack frame double-click
+        connect(debugSvc, &IDebugService::navigateToSource,
+                this, [this](const QString &filePath, int line) {
+            navigateToLocation(filePath, line - 1, 0);
+        });
+
+        // Highlight current stopped line in editor
+        connect(debugSvc, &IDebugService::debugStopped,
+                this, [this](const QList<DebugFrame> &frames) {
+            for (int i = 0; i < m_tabs->count(); ++i) {
+                auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+                if (ed) ed->setCurrentDebugLine(0);
+            }
+            if (!frames.isEmpty()) {
+                const auto &top = frames.first();
+                for (int i = 0; i < m_tabs->count(); ++i) {
+                    auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+                    if (ed && ed->property("filePath").toString() == top.filePath) {
+                        ed->setCurrentDebugLine(top.line);
+                        m_tabs->setCurrentIndex(i);
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Clear debug line on session end
+        connect(debugSvc, &IDebugService::debugTerminated,
+                this, [this]() {
+            for (int i = 0; i < m_tabs->count(); ++i) {
+                auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+                if (ed) ed->setCurrentDebugLine(0);
+            }
+        });
     }
 
     if (m_agentPlatform)

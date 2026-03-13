@@ -56,7 +56,6 @@ class ProposedEditPanel;
 class BreadcrumbBar;
 class OutputPanel;
 class RunLaunchPanel;
-class DebugBootstrap;
 class FileWatchService;
 class KeymapManager;
 class SecureKeyStorage;
@@ -64,8 +63,6 @@ class ModelRegistry;
 class NetworkMonitor;
 class WorkspaceChunkIndex;
 
-class DebugPanel;
-class GdbMiAdapter;
 class HostServices;
 class ContributionRegistry;
 class LspBootstrap;
@@ -175,10 +172,6 @@ private:
     AIServicesBootstrap      *m_aiServices = nullptr;
     KeymapManager            *m_keymapManager = nullptr;
     exdock::DockManager       *m_dockManager = nullptr;
-    DebugPanel               *m_debugPanel = nullptr;
-    GdbMiAdapter             *m_debugAdapter = nullptr;
-
-    DebugBootstrap           *m_debugBootstrap = nullptr;
 
     RunTestsTool::TestResult  m_lastTestResult;  // cached from last run_tests invocation
 

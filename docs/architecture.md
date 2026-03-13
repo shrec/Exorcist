@@ -46,7 +46,7 @@ concrete core classes or MainWindow.
 | **Search** | `search/` | Workspace search, file search, regex search | `SearchPanel`, `WorkspaceIndexer` |
 | **Project** | `project/` | Solution/project tree, workspace management | `ProjectManager`, `SolutionModel` |
 | **MCP** | `mcp/` | Model Context Protocol client for tool servers | `McpManager`, `McpConnection` |
-| **Debug** | `debug/` | Debug adapter framework, GDB/MI, breakpoints | `IDebugAdapter`, `GdbMiAdapter`, `DebugPanel` |
+| **Debug** | `plugins/debug/` | **Core Plugin** — GDB/MI debug adapter, debug panel with call stack/locals/breakpoints/watch/output tabs, watch tree model, quick watch dialog. Extracted from `src/debug/` in Phase C. IDebugAdapter and IDebugService SDK interfaces in `src/sdk/`. | `DebugPlugin`, `GdbMiAdapter`, `DebugPanel`, `WatchTreeModel`, `QuickWatchDialog`, `DebugServiceBridge` |
 | **Agent framework** | `agent/` | Agent runtime, tools, chat UI (Qt widgets or Ultralight HTML renderer), session management, diagnostics push, tree-sitter AST access | `AgentController`, `AgentOrchestrator`, `ChatPanelWidget`, `UltralightWidget`, `ChatJSBridge`, `DiagnosticsNotifier`, `TreeSitterAgentHelper` |
 | **ExoBridge** | `process/`, `server/` | IPC protocol, shared daemon, cross-instance process management | `ExoBridgeCore`, `BridgeClient`, `ProcessManager`, `Ipc::Message` |
 | **Project Brain** | `agent/projectbrain*` | Persistent workspace knowledge (rules, facts, sessions) | `ProjectBrainService`, `BrainContextBuilder`, `MemorySuggestionEngine` |
