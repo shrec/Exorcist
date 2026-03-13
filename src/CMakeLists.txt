@@ -26,6 +26,8 @@ add_executable(exorcist WIN32
     editor/treesitterhighlighter.h
     editor/highlighterfactory.cpp
     editor/highlighterfactory.h
+    editor/editormanager.h
+    editor/editormanager.cpp
     editor/languages/langcommon.h
     editor/languages/langcommon.cpp
     editor/languages/langbuilders.h

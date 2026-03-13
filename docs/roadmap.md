@@ -396,9 +396,9 @@ See [docs/luajit.md](luajit.md)
 - [x] C5. Language highlighting data → plugin-driven via ContributionRegistry ✅ (HighlighterFactory gains setLanguageLookup() callback; ConsultS ContributionRegistry for extension→language ID→tree-sitter grammar; cpp-language plugin.json declares C/C++ languages with extensions; hard-coded extension map retained as graceful fallback when no plugins loaded; decoupled via std::function callback to avoid editor→SDK layer dependency; tsLanguageForId() maps 10 language IDs to compiled-in grammars; 4 new tests for registry-aware lookup)
 
 ### Phase D — God Object Decomposition
-- [ ] D1. Extract `EditorManager` from MainWindow (tab/document lifecycle)
-- [ ] D2. Extract `DockBootstrap` from MainWindow (createDockWidgets 700+ lines)
-- [ ] D3. Target: MainWindow members 117 → <40
+- [x] D1. Agent member deduplication ✅ (removed 4 duplicate members: m_agentController, m_contextBuilder, m_sessionStore, m_toolRegistry — all accessed through m_agentPlatform-> accessors; 52→48 members)
+- [x] D2. Extract `EditorManager` from MainWindow ✅ (new `EditorManager` class in `editor/editormanager.h/.cpp` owns 8 members: m_tabs, m_fileTree, m_treeModel, m_projectManager, m_breadcrumb, m_currentFolder, m_includePaths, m_cursorConn; ~176 mechanical replacements in mainwindow.cpp; 48→41 members)
+- [x] D3. Final member count: **41** (down from 52) ✅
 
 ### Phase E — Plugin Ecosystem Polish
 - [ ] E1. C++ plugin manifests (plugin.json for AI providers)

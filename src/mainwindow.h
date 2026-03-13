@@ -11,16 +11,14 @@
 #include "pluginmanager.h"
 #include "serviceregistry.h"
 #include "agent/tools/buildtools.h"
+#include "editor/editormanager.h"
 
 namespace exdock { class ExDockWidget; class DockManager; }
 class QDialog;
-class QTabWidget;
-class QTreeView;
 class EditorView;
 class SearchService;
 class SearchPanel;
 class ProjectManager;
-class SolutionTreeModel;
 class GitService;
 class GitPanel;
 class AgentOrchestrator;
@@ -51,7 +49,6 @@ class ThemeManager;
 class ThemeGalleryPanel;
 class DiffViewerPanel;
 class ProposedEditPanel;
-class BreadcrumbBar;
 class OutputPanel;
 class RunLaunchPanel;
 class FileWatchService;
@@ -77,7 +74,7 @@ public:
     void deferredInit();
 
     /// Current workspace root folder (used by SDK services).
-    QString currentFolder() const { return m_currentFolder; }
+    QString currentFolder() const { return m_editorMgr->currentFolder(); }
 
     /// Open a file in the editor (used by SDK EditorService).
     void openFile(const QString &path);
@@ -112,11 +109,8 @@ private:
     bool eventFilter(QObject *watched, QEvent *event) override;
     void showTabContextMenu(int tabIndex, const QPoint &globalPos);
 
-    QTreeView        *m_fileTree;
-    QTabWidget       *m_tabs;
+    EditorManager    *m_editorMgr;
     SearchPanel      *m_searchPanel;
-    ProjectManager   *m_projectManager;
-    SolutionTreeModel *m_treeModel;
     GitService       *m_gitService;
     GitPanel         *m_gitPanel;
 
@@ -133,18 +127,11 @@ private:
     SearchService    *m_searchService;
     AgentOrchestrator *m_agentOrchestrator;
     ChatPanelWidget  *m_chatPanel;
-    AgentController  *m_agentController;
-    SessionStore     *m_sessionStore;
     PromptVariableResolver *m_promptResolver;
-    ToolRegistry     *m_toolRegistry;
-    ContextBuilder   *m_contextBuilder;
     AgentPlatformBootstrap *m_agentPlatform = nullptr;
     ReferencesPanel  *m_referencesPanel;
     SymbolOutlinePanel *m_symbolPanel;
     TerminalPanel   *m_terminal;
-    QString           m_currentFolder;
-    QStringList       m_includePaths;       // from compile_commands.json
-    QMetaObject::Connection m_cursorConn;   // tracks current editor cursor signal
     InlineCompletionEngine *m_inlineEngine;
     InlineChatWidget       *m_inlineChat = nullptr;
     QuickChatDialog         *m_quickChat  = nullptr;
@@ -159,7 +146,6 @@ private:
     ThemeManager             *m_themeManager      = nullptr;
     DiffViewerPanel          *m_diffViewer        = nullptr;
     ProposedEditPanel         *m_proposedEditPanel = nullptr;
-    BreadcrumbBar            *m_breadcrumb        = nullptr;
     WorkspaceIndexer         *m_workspaceIndexer = nullptr;
     SymbolIndex              *m_symbolIndex      = nullptr;
     FileWatchService         *m_fileWatcher = nullptr;

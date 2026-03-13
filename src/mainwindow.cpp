@@ -178,21 +178,14 @@
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent),
-      m_fileTree(nullptr),
-      m_tabs(nullptr),
+      m_editorMgr(nullptr),
       m_searchPanel(nullptr),
-      m_projectManager(nullptr),
-      m_treeModel(nullptr),
       m_gitService(nullptr),
       m_gitPanel(nullptr),
       m_searchService(nullptr),
       m_agentOrchestrator(nullptr),
       m_chatPanel(nullptr),
-      m_agentController(nullptr),
-    m_sessionStore(nullptr),
     m_promptResolver(nullptr),
-      m_toolRegistry(nullptr),
-      m_contextBuilder(nullptr),
       m_referencesPanel(nullptr),
       m_symbolPanel(nullptr),
       m_terminal(nullptr),
@@ -200,10 +193,13 @@ MainWindow::MainWindow(QWidget *parent)
 {
     setWindowTitle(tr("Exorcist"));
 
+    // EditorManager owns tab/project/tree state
+    m_editorMgr = new EditorManager(this);
+
     // Services that dock widgets depend on must exist before setupUi().
     m_searchService     = new SearchService(this);
     m_agentOrchestrator = new AgentOrchestrator(this);
-    m_projectManager    = new ProjectManager(this);
+    m_editorMgr->setProjectManager(new ProjectManager(this));
     m_gitService        = new GitService(this);
 
     // LSP — contributed by cpp-language plugin (plugins/cpp-language/).
@@ -268,8 +264,8 @@ MainWindow::MainWindow(QWidget *parent)
             const bool wrap = wss->wordWrap();
             const bool minimap = wss->showMinimap();
 
-            for (int i = 0; i < m_tabs->count(); ++i) {
-                if (auto *e = qobject_cast<EditorView *>(m_tabs->widget(i))) {
+            for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+                if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i))) {
                     e->setFont(font);
                     e->setTabStopDistance(
                         QFontMetricsF(font).horizontalAdvance(QLatin1Char(' ')) * tabSize);
@@ -308,8 +304,8 @@ MainWindow::MainWindow(QWidget *parent)
     // ── Basic context getters (already working) ───────────────────────────
     agentCallbacks.openFilesGetter = [this]() {
         QStringList paths;
-        for (int i = 0; i < m_tabs->count(); ++i) {
-            auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+            auto *ed = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
             const QString fp = ed ? ed->property("filePath").toString() : QString();
             if (!fp.isEmpty())
                 paths.append(fp);
@@ -489,11 +485,11 @@ MainWindow::MainWindow(QWidget *parent)
                 names << lp.manifest.name;
             return names.join(QLatin1Char('\n'));
         }
-        if (query == QLatin1String("tools") && m_toolRegistry)
-            return m_toolRegistry->toolNames().join(QLatin1Char('\n'));
+        if (query == QLatin1String("tools") && m_agentPlatform && m_agentPlatform->toolRegistry())
+            return m_agentPlatform->toolRegistry()->toolNames().join(QLatin1Char('\n'));
         if (query == QLatin1String("config"))
             return QStringLiteral("Workspace: %1\nFolder: %2")
-                .arg(QCoreApplication::applicationDirPath(), m_currentFolder);
+                .arg(QCoreApplication::applicationDirPath(), m_editorMgr->currentFolder());
         return QStringLiteral("Unknown query: %1. Try: services, plugins, tools, config")
             .arg(query);
     };
@@ -864,8 +860,8 @@ MainWindow::MainWindow(QWidget *parent)
             QPoint(0, ed->viewport()->height() - 1));
         state.visibleEndLine = botCur.blockNumber() + 1;
         // Open files
-        for (int i = 0; i < m_tabs->count(); ++i) {
-            auto *tab = qobject_cast<EditorView *>(m_tabs->widget(i));
+        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+            auto *tab = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
             const QString fp = tab ? tab->property("filePath").toString() : QString();
             if (!fp.isEmpty())
                 state.openFiles.append(fp);
@@ -1080,9 +1076,9 @@ MainWindow::MainWindow(QWidget *parent)
             if (fixMode)
                 args << QStringLiteral("--fix");
             // Add compile_commands.json path if available
-            const QString compileDb = m_currentFolder + QStringLiteral("/build-llvm/compile_commands.json");
+            const QString compileDb = m_editorMgr->currentFolder() + QStringLiteral("/build-llvm/compile_commands.json");
             if (QFileInfo::exists(compileDb))
-                args << QStringLiteral("-p") << m_currentFolder + QStringLiteral("/build-llvm");
+                args << QStringLiteral("-p") << m_editorMgr->currentFolder() + QStringLiteral("/build-llvm");
             result.analyzerUsed = QStringLiteral("clang-tidy");
 
         } else if (suffix == QLatin1String("py")) {
@@ -1115,7 +1111,7 @@ MainWindow::MainWindow(QWidget *parent)
 
         // Run the analyzer process
         QProcess proc;
-        proc.setWorkingDirectory(m_currentFolder);
+        proc.setWorkingDirectory(m_editorMgr->currentFolder());
         proc.start(program, args);
         if (!proc.waitForFinished(55000)) {
             result.error = QStringLiteral("Analyzer timed out or failed to start: %1").arg(program);
@@ -1199,11 +1195,7 @@ MainWindow::MainWindow(QWidget *parent)
     };
 
     m_agentPlatform->initialize(agentCallbacks);
-    m_agentPlatform->registerCoreTools(m_currentFolder);
-    m_toolRegistry = m_agentPlatform->toolRegistry();
-    m_contextBuilder = m_agentPlatform->contextBuilder();
-    m_agentController = m_agentPlatform->agentController();
-    m_sessionStore = m_agentPlatform->sessionStore();
+    m_agentPlatform->registerCoreTools(m_editorMgr->currentFolder());
 
     // ── Wire LSP diagnostics push to agent (deferred to post-plugin wiring) ──
 
@@ -1216,19 +1208,20 @@ MainWindow::MainWindow(QWidget *parent)
     m_agentOrchestrator->setRouter(m_agentPlatform->requestRouter());
 
     // Wire AI status indicator
-    connect(m_agentController, &AgentController::turnStarted,
+    auto *ac = m_agentPlatform->agentController();
+    connect(ac, &AgentController::turnStarted,
             this, [this]() {
         m_statusBarMgr->copilotStatusLabel()->setText(tr("\u25CF Working..."));
         m_statusBarMgr->copilotStatusLabel()->setStyleSheet(
             QStringLiteral("padding: 0 8px; color:#dcdcaa;"));
     });
-    connect(m_agentController, &AgentController::turnFinished,
+    connect(ac, &AgentController::turnFinished,
             this, [this]() {
         m_statusBarMgr->copilotStatusLabel()->setText(tr("\u2713 AI Ready"));
         m_statusBarMgr->copilotStatusLabel()->setStyleSheet(
             QStringLiteral("padding: 0 8px; color:#89d185;"));
     });
-    connect(m_agentController, &AgentController::turnError,
+    connect(ac, &AgentController::turnError,
             this, [this]() {
         m_statusBarMgr->copilotStatusLabel()->setText(tr("\u2717 AI Error"));
         m_statusBarMgr->copilotStatusLabel()->setStyleSheet(
@@ -1236,45 +1229,45 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     // Wire request log panel
-    connect(m_agentController, &AgentController::turnStarted,
+    connect(ac, &AgentController::turnStarted,
             this, [this](const QString &msg) {
         m_requestLogPanel->logRequest(QStringLiteral("turn"), QStringLiteral("-"),
                                        1, 0);
     });
-    connect(m_agentController, &AgentController::turnFinished,
+    connect(ac, &AgentController::turnFinished,
             this, [this](const AgentTurn &turn) {
         const QString text = turn.steps.isEmpty() ? QString() : turn.steps.last().finalText;
         m_requestLogPanel->logResponse(QStringLiteral("turn"), text.left(500));
     });
-    connect(m_agentController, &AgentController::turnError,
+    connect(ac, &AgentController::turnError,
             this, [this](const QString &err) {
         m_requestLogPanel->logError(QStringLiteral("turn"), err);
         NotificationToast::show(this, tr("AI Error: %1").arg(err.left(100)),
                                 NotificationToast::Error, 5000);
     });
-    connect(m_agentController, &AgentController::toolCallStarted,
+    connect(ac, &AgentController::toolCallStarted,
             this, [this](const QString &name, const QJsonObject &args) {
         m_requestLogPanel->logToolCall(name, args, true, QStringLiteral("started"));
     });
-    connect(m_agentController, &AgentController::toolCallFinished,
+    connect(ac, &AgentController::toolCallFinished,
             this, [this](const QString &name, const ToolExecResult &result) {
         m_requestLogPanel->logToolCall(name, {}, result.ok,
             result.ok ? result.textContent.left(200) : result.error);
     });
 
     // Wire trajectory panel
-    connect(m_agentController, &AgentController::turnStarted,
+    connect(ac, &AgentController::turnStarted,
             this, [this](const QString &) {
         m_trajectoryPanel->clear();
     });
-    connect(m_agentController, &AgentController::turnFinished,
+    connect(ac, &AgentController::turnFinished,
             this, [this](const AgentTurn &turn) {
         m_trajectoryPanel->setTurn(turn);
     });
 
     // Wire memory suggestion engine — suggest facts after each turn
     if (auto *engine = m_agentPlatform->memorySuggestionEngine()) {
-        connect(m_agentController, &AgentController::turnFinished,
+        connect(ac, &AgentController::turnFinished,
                 this, [this, engine](const AgentTurn &turn) {
             // Collect touched files from tool call arguments
             QStringList touchedFiles;
@@ -1311,7 +1304,7 @@ MainWindow::MainWindow(QWidget *parent)
                 NotificationToast::Info, 10000);
         });
     }
-    connect(m_agentController, &AgentController::toolCallStarted,
+    connect(ac, &AgentController::toolCallStarted,
             this, [this](const QString &name, const QJsonObject &args) {
         AgentStep step;
         step.type = AgentStep::Type::ToolCall;
@@ -1324,29 +1317,29 @@ MainWindow::MainWindow(QWidget *parent)
     });
     // Wire chat panel now that the controller exists
     if (m_chatPanel) {
-        m_chatPanel->setAgentController(m_agentController);
-        m_chatPanel->setSessionStore(m_sessionStore);
+        m_chatPanel->setAgentController(ac);
+        m_chatPanel->setSessionStore(m_agentPlatform->sessionStore());
         m_chatPanel->setChatSessionService(m_agentPlatform->chatSessionService());
-        m_chatPanel->setContextBuilder(m_contextBuilder);
+        m_chatPanel->setContextBuilder(m_agentPlatform->contextBuilder());
         if (m_aiServices && m_aiServices->modelRegistry())
             m_chatPanel->setModelRegistry(m_aiServices->modelRegistry());
-        if (m_toolRegistry)
-            m_chatPanel->setToolCount(m_toolRegistry->toolNames().size());
+        if (m_agentPlatform->toolRegistry())
+            m_chatPanel->setToolCount(m_agentPlatform->toolRegistry()->toolNames().size());
 
         // Wire review annotations → apply to active editor
         connect(m_chatPanel, &ChatPanelWidget::reviewAnnotationsReady,
                 this, [this](const QString &filePath,
                              const QList<QPair<int, QString>> &annotations) {
             // Find open editor tab for the file
-            for (int i = 0; i < m_tabs->count(); ++i) {
-                auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+            for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+                auto *ed = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
                 if (!ed) continue;
                 if (ed->property("filePath").toString() == filePath) {
                     QList<EditorView::ReviewAnnotation> anns;
                     for (const auto &[line, comment] : annotations)
                         anns.append({line, comment});
                     ed->setReviewAnnotations(anns);
-                    m_tabs->setCurrentIndex(i);
+                    m_editorMgr->tabs()->setCurrentIndex(i);
                     break;
                 }
             }
@@ -1377,8 +1370,8 @@ MainWindow::MainWindow(QWidget *parent)
         });
 
         // Auto-restore last session on startup
-        if (m_sessionStore) {
-            const auto last = m_sessionStore->loadLastSession();
+        if (auto *ss = m_agentPlatform->sessionStore()) {
+            const auto last = ss->loadLastSession();
             if (!last.isEmpty())
                 m_chatPanel->restoreSession(
                     last.sessionId, last.completeTurns,
@@ -1492,11 +1485,11 @@ MainWindow::MainWindow(QWidget *parent)
         });
         m_chatPanel->setWorkspaceFileProvider([this]() -> QStringList {
             QStringList result;
-            if (m_currentFolder.isEmpty()) return result;
-            QDirIterator it(m_currentFolder,
+            if (m_editorMgr->currentFolder().isEmpty()) return result;
+            QDirIterator it(m_editorMgr->currentFolder(),
                             QDir::Files | QDir::NoDotAndDotDot,
                             QDirIterator::Subdirectories);
-            const QDir root(m_currentFolder);
+            const QDir root(m_editorMgr->currentFolder());
             while (it.hasNext()) {
                 it.next();
                 const QString rel = root.relativeFilePath(it.filePath());
@@ -1512,7 +1505,7 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     connect(m_gitService, &GitService::statusRefreshed,
-            m_treeModel, &SolutionTreeModel::refreshGitOverlays);
+            m_editorMgr->treeModel(), &SolutionTreeModel::refreshGitOverlays);
     connect(m_gitService, &GitService::statusRefreshed, this, [this] {
         updateDiffRanges(currentEditor());
     });
@@ -1559,17 +1552,17 @@ void MainWindow::deferredInit()
 
 void MainWindow::setupUi()
 {
-    m_tabs = new QTabWidget(this);
-    m_tabs->setDocumentMode(true);
-    m_tabs->setTabsClosable(true);
-    m_tabs->setMovable(true);
+    m_editorMgr->setTabs(new QTabWidget(this));
+    m_editorMgr->tabs()->setDocumentMode(true);
+    m_editorMgr->tabs()->setTabsClosable(true);
+    m_editorMgr->tabs()->setMovable(true);
 
     // Middle-click closes tab
-    m_tabs->tabBar()->installEventFilter(this);
+    m_editorMgr->tabs()->tabBar()->installEventFilter(this);
 
-    m_breadcrumb = new BreadcrumbBar(this);
+    m_editorMgr->setBreadcrumb(new BreadcrumbBar(this));
 
-    connect(m_breadcrumb, &BreadcrumbBar::symbolActivated,
+    connect(m_editorMgr->breadcrumb(), &BreadcrumbBar::symbolActivated,
             this, [this](int line, int col) {
         auto *editor = currentEditor();
         if (!editor) return;
@@ -1584,17 +1577,17 @@ void MainWindow::setupUi()
         editor->setFocus();
     });
 
-    connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
-        QWidget *widget = m_tabs->widget(index);
+    connect(m_editorMgr->tabs(), &QTabWidget::tabCloseRequested, this, [this](int index) {
+        QWidget *widget = m_editorMgr->tabs()->widget(index);
         const QString closedPath = widget ? widget->property("filePath").toString() : QString();
-        m_tabs->removeTab(index);
+        m_editorMgr->tabs()->removeTab(index);
         if (widget) {
             widget->deleteLater();
         }
         if (!closedPath.isEmpty() && m_pluginManager)
             m_pluginManager->fireLuaEvent(QStringLiteral("editor.close"), {closedPath});
     });
-    connect(m_tabs, &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
+    connect(m_editorMgr->tabs(), &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
 
     createDockWidgets();
     openNewTab();
@@ -1646,11 +1639,11 @@ void MainWindow::setupMenus()
     connect(openSolutionAction, &QAction::triggered, this, &MainWindow::openSolutionFile);
     connect(addProjectAction, &QAction::triggered, this, &MainWindow::addProjectToSolution);
     connect(saveSolutionAction, &QAction::triggered, this, [this]() {
-        m_projectManager->saveSolution();
+        m_editorMgr->projectManager()->saveSolution();
     });
     connect(closeSolutionAction, &QAction::triggered, this, [this]() {
-        m_projectManager->closeSolution();
-        m_currentFolder.clear();
+        m_editorMgr->projectManager()->closeSolution();
+        m_editorMgr->setCurrentFolder(QString());
         if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
             lspSvc->stopServer();
         m_gitService->setWorkingDirectory({});
@@ -1660,8 +1653,8 @@ void MainWindow::setupMenus()
         statusBar()->showMessage(tr("Solution closed"), 3000);
     });
     connect(closeFolderAction, &QAction::triggered, this, [this]() {
-        m_projectManager->closeSolution();
-        m_currentFolder.clear();
+        m_editorMgr->projectManager()->closeSolution();
+        m_editorMgr->setCurrentFolder(QString());
         if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
             lspSvc->stopServer();
         m_gitService->setWorkingDirectory({});
@@ -1679,14 +1672,14 @@ void MainWindow::setupMenus()
     QAction *undoAction = editMenu->addAction(tr("&Undo"));
     undoAction->setShortcut(QKeySequence::Undo);
     connect(undoAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
             e->undo();
     });
 
     QAction *redoAction = editMenu->addAction(tr("&Redo"));
     redoAction->setShortcut(QKeySequence::Redo);
     connect(redoAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
             e->redo();
     });
 
@@ -1695,21 +1688,21 @@ void MainWindow::setupMenus()
     QAction *cutAction = editMenu->addAction(tr("Cu&t"));
     cutAction->setShortcut(QKeySequence::Cut);
     connect(cutAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
             e->cut();
     });
 
     QAction *copyAction = editMenu->addAction(tr("&Copy"));
     copyAction->setShortcut(QKeySequence::Copy);
     connect(copyAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
             e->copy();
     });
 
     QAction *pasteAction = editMenu->addAction(tr("&Paste"));
     pasteAction->setShortcut(QKeySequence::Paste);
     connect(pasteAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
             e->paste();
     });
 
@@ -1718,7 +1711,7 @@ void MainWindow::setupMenus()
     QAction *selectAllAction = editMenu->addAction(tr("Select &All"));
     selectAllAction->setShortcut(QKeySequence::SelectAll);
     connect(selectAllAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
             e->selectAll();
     });
 
@@ -1727,14 +1720,14 @@ void MainWindow::setupMenus()
     QAction *findAction = editMenu->addAction(tr("&Find..."));
     findAction->setShortcut(QKeySequence::Find);
     connect(findAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
             e->showFindBar();
     });
 
     QAction *findReplAction = editMenu->addAction(tr("Find && &Replace..."));
     findReplAction->setShortcut(QKeySequence::Replace);
     connect(findReplAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_tabs->currentWidget()))
+        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
             e->showFindBar();
     });
 
@@ -1760,8 +1753,8 @@ void MainWindow::setupMenus()
                 const bool minimap = s.value(QStringLiteral("showMinimap"), false).toBool();
                 s.endGroup();
 
-                for (int i = 0; i < m_tabs->count(); ++i) {
-                    if (auto *e = qobject_cast<EditorView *>(m_tabs->widget(i))) {
+                for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+                    if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i))) {
                         e->setFont(font);
                         e->setTabStopDistance(QFontMetricsF(font).horizontalAdvance(QLatin1Char(' ')) * tabSize);
                         e->setWordWrapMode(wrap ? QTextOption::WordWrap : QTextOption::NoWrap);
@@ -1835,8 +1828,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     minimapAction->setCheckable(true);
     minimapAction->setChecked(true);
     connect(minimapAction, &QAction::toggled, this, [this](bool on) {
-        for (int i = 0; i < m_tabs->count(); ++i) {
-            if (auto *ev = qobject_cast<EditorView *>(m_tabs->widget(i)))
+        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+            if (auto *ev = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i)))
                 ev->setMinimapVisible(on);
         }
     });
@@ -1845,8 +1838,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     indentGuidesAction->setCheckable(true);
     indentGuidesAction->setChecked(true);
     connect(indentGuidesAction, &QAction::toggled, this, [this](bool on) {
-        for (int i = 0; i < m_tabs->count(); ++i) {
-            if (auto *ev = qobject_cast<EditorView *>(m_tabs->widget(i)))
+        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+            if (auto *ev = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i)))
                 ev->setIndentGuidesVisible(on);
         }
     });
@@ -1960,7 +1953,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
             if (!targets.isEmpty()) {
                 LaunchConfig cfg;
                 cfg.executable = targets.first();
-                cfg.workingDir = m_currentFolder;
+                cfg.workingDir = m_editorMgr->currentFolder();
                 launchSvc->startDebugging(cfg);
                 m_dockManager->showDock(dock(QStringLiteral("DebugDock")), exdock::SideBarArea::Bottom);
                 return;
@@ -1980,7 +1973,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
             if (!targets.isEmpty()) {
                 LaunchConfig cfg;
                 cfg.executable = targets.first();
-                cfg.workingDir = m_currentFolder;
+                cfg.workingDir = m_editorMgr->currentFolder();
                 launchSvc->startWithoutDebugging(cfg);
                 m_dockManager->showDock(dock(QStringLiteral("RunDock")), exdock::SideBarArea::Bottom);
                 return;
@@ -2168,8 +2161,8 @@ void MainWindow::createDockWidgets()
     auto *centralLayout = new QVBoxLayout(centralContainer);
     centralLayout->setContentsMargins(0, 0, 0, 0);
     centralLayout->setSpacing(0);
-    centralLayout->addWidget(m_breadcrumb);
-    centralLayout->addWidget(m_tabs);
+    centralLayout->addWidget(m_editorMgr->breadcrumb());
+    centralLayout->addWidget(m_editorMgr->tabs());
     m_dockManager->setCentralContent(centralContainer);
 
 
@@ -2177,18 +2170,18 @@ void MainWindow::createDockWidgets()
     auto *dkProjectDock = new ExDockWidget(tr("Project"), this);
     dkProjectDock->setDockId(QStringLiteral("ProjectDock"));
 
-    m_treeModel = new SolutionTreeModel(m_projectManager, m_gitService, this);
+    m_editorMgr->setTreeModel(new SolutionTreeModel(m_editorMgr->projectManager(), m_gitService, this));
 
-    m_fileTree = new QTreeView;
-    m_fileTree->setModel(m_treeModel);
-    m_fileTree->setHeaderHidden(true);
-    m_fileTree->setIndentation(14);
-    m_fileTree->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_fileTree, &QTreeView::doubleClicked, this, &MainWindow::openFileFromIndex);
-    connect(m_fileTree, &QTreeView::customContextMenuRequested,
+    m_editorMgr->setFileTree(new QTreeView);
+    m_editorMgr->fileTree()->setModel(m_editorMgr->treeModel());
+    m_editorMgr->fileTree()->setHeaderHidden(true);
+    m_editorMgr->fileTree()->setIndentation(14);
+    m_editorMgr->fileTree()->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_editorMgr->fileTree(), &QTreeView::doubleClicked, this, &MainWindow::openFileFromIndex);
+    connect(m_editorMgr->fileTree(), &QTreeView::customContextMenuRequested,
             this, &MainWindow::onTreeContextMenu);
 
-    dkProjectDock->setContentWidget(m_fileTree);
+    dkProjectDock->setContentWidget(m_editorMgr->fileTree());
     m_dockManager->addDockWidget(dkProjectDock, SideBarArea::Left, /*startPinned=*/true);
 
     // ── Search ────────────────────────────────────────────────────────────
@@ -2233,7 +2226,7 @@ void MainWindow::createDockWidgets()
             req.requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
             req.intent = AgentIntent::SuggestCommitMessage;
             req.userPrompt = prompt;
-            req.workspaceRoot = m_currentFolder;
+            req.workspaceRoot = m_editorMgr->currentFolder();
             statusBar()->showMessage(tr("Generating commit message..."), 0);
             m_agentOrchestrator->sendRequest(req);
             // Connect one-shot to receive the response
@@ -2268,7 +2261,7 @@ void MainWindow::createDockWidgets()
                             "For each file, output the fully resolved content.\n\n");
         for (const QString &file : conflicts) {
             const QString content = m_gitService->conflictContent(file);
-            const QString relPath = QDir(m_currentFolder).relativeFilePath(file);
+            const QString relPath = QDir(m_editorMgr->currentFolder()).relativeFilePath(file);
             prompt += QStringLiteral("### %1\n```\n%2\n```\n\n")
                           .arg(relPath, content.left(4000));
         }
@@ -2402,8 +2395,8 @@ void MainWindow::createDockWidgets()
             f.close();
         }
         // Update the open editor tab if present
-        for (int i = 0; i < m_tabs->count(); ++i) {
-            auto *editor = qobject_cast<EditorView *>(m_tabs->widget(i));
+        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+            auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
             if (editor && editor->property("filePath").toString() == filePath) {
                 editor->setPlainText(newText);
                 break;
@@ -2479,8 +2472,8 @@ void MainWindow::createDockWidgets()
     m_fileWatcher = new FileWatchService(this);
     connect(m_fileWatcher, &FileWatchService::fileChangedExternally,
             this, [this](const QString &path) {
-        for (int i = 0; i < m_tabs->count(); ++i) {
-            auto *editor = qobject_cast<EditorView *>(m_tabs->widget(i));
+        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+            auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
             if (!editor) continue;
             if (editor->property("filePath").toString() == path) {
                 QFile f(path);
@@ -2559,17 +2552,17 @@ void MainWindow::createDockWidgets()
         const QList<McpToolInfo> tools = m_mcpClient->allTools();
         for (const McpToolInfo &t : tools) {
             const QString regName = QStringLiteral("mcp_%1_%2").arg(t.serverName, t.name);
-            if (!m_toolRegistry->hasTool(regName))
-                m_toolRegistry->registerTool(std::make_unique<McpToolAdapter>(m_mcpClient, t));
+            if (!m_agentPlatform->toolRegistry()->hasTool(regName))
+                m_agentPlatform->toolRegistry()->registerTool(std::make_unique<McpToolAdapter>(m_mcpClient, t));
         }
     });
 
     // Wire settings to agent controller
     connect(m_settingsPanel, &SettingsPanel::settingsChanged, this, [this]() {
-        if (m_agentController)
-            m_agentController->setMaxStepsPerTurn(m_settingsPanel->maxSteps());
-        if (m_contextBuilder)
-            m_contextBuilder->setMaxContextChars(m_settingsPanel->contextTokenLimit() * 4);
+        if (auto *ctrl = m_agentPlatform->agentController())
+            ctrl->setMaxStepsPerTurn(m_settingsPanel->maxSteps());
+        if (auto *cb = m_agentPlatform->contextBuilder())
+            cb->setMaxContextChars(m_settingsPanel->contextTokenLimit() * 4);
         // Update disabled languages for inline completions
         if (m_inlineEngine) {
             const QStringList langs = m_settingsPanel->disabledCompletionLanguages();
@@ -2589,9 +2582,9 @@ void MainWindow::createDockWidgets()
             }
         }
         // Update disabled tools
-        if (m_toolRegistry) {
+        if (auto *tr = m_agentPlatform->toolRegistry()) {
             const QStringList disabled = m_settingsPanel->disabledTools();
-            m_toolRegistry->setDisabledTools(QSet<QString>(disabled.begin(), disabled.end()));
+            tr->setDisabledTools(QSet<QString>(disabled.begin(), disabled.end()));
         }
     });
 
@@ -2602,8 +2595,8 @@ void MainWindow::createDockWidgets()
 void MainWindow::openNewTab()
 {
     auto *editor = new EditorView();
-    int index = m_tabs->addTab(editor, tr("Untitled"));
-    m_tabs->setCurrentIndex(index);
+    int index = m_editorMgr->tabs()->addTab(editor, tr("Untitled"));
+    m_editorMgr->tabs()->setCurrentIndex(index);
     updateEditorStatus(editor);
 }
 
@@ -2616,12 +2609,12 @@ void MainWindow::onTabChanged(int /*index*/)
     // Update breadcrumb
     if (editor) {
         const QString fp = editor->property("filePath").toString();
-        const QString rt = m_projectManager
-            ? m_projectManager->activeSolutionDir() : QString();
-        m_breadcrumb->setFilePath(fp, rt);
+        const QString rt = m_editorMgr->projectManager()
+            ? m_editorMgr->projectManager()->activeSolutionDir() : QString();
+        m_editorMgr->breadcrumb()->setFilePath(fp, rt);
     } else {
-        m_breadcrumb->clear();
-        m_breadcrumb->clearSymbols();
+        m_editorMgr->breadcrumb()->clear();
+        m_editorMgr->breadcrumb()->clearSymbols();
     }
 
     if (editor) {
@@ -2630,7 +2623,7 @@ void MainWindow::onTabChanged(int /*index*/)
             bridge->requestSymbols();
         } else {
             m_symbolPanel->clear();
-            m_breadcrumb->clearSymbols();
+            m_editorMgr->breadcrumb()->clearSymbols();
         }
 
         // Attach inline completion engine to the active editor
@@ -2693,7 +2686,7 @@ void MainWindow::updateDiffRanges(EditorView *editor)
 void MainWindow::updateEditorStatus(EditorView *editor)
 {
     // Disconnect previous editor's cursor signal before wiring a new one.
-    disconnect(m_cursorConn);
+    disconnect(m_editorMgr->cursorConn());
 
     if (!m_statusBarMgr) return;   // called before status bar init
 
@@ -2710,15 +2703,15 @@ void MainWindow::updateEditorStatus(EditorView *editor)
     };
 
     update();
-    m_cursorConn = connect(editor, &QPlainTextEdit::cursorPositionChanged, this, update);
+    m_editorMgr->setCursorConn(connect(editor, &QPlainTextEdit::cursorPositionChanged, this, update));
 }
 
 // ── File operations ──────────────────────────────────────────────────────────
 
 void MainWindow::openFileFromIndex(const QModelIndex &index)
 {
-    if (!index.isValid() || m_treeModel->isDir(index)) return;
-    openFile(m_treeModel->filePath(index));
+    if (!index.isValid() || m_editorMgr->treeModel()->isDir(index)) return;
+    openFile(m_editorMgr->treeModel()->filePath(index));
 }
 
 void MainWindow::openFile(const QString &path)
@@ -2728,9 +2721,9 @@ void MainWindow::openFile(const QString &path)
         return;
     }
 
-    for (int i = 0; i < m_tabs->count(); ++i) {
-        if (m_tabs->widget(i)->property("filePath").toString() == path) {
-            m_tabs->setCurrentIndex(i);
+    for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+        if (m_editorMgr->tabs()->widget(i)->property("filePath").toString() == path) {
+            m_editorMgr->tabs()->setCurrentIndex(i);
             return;
         }
     }
@@ -2844,9 +2837,9 @@ void MainWindow::openFile(const QString &path)
     createLspBridge(editor, path);
 
     const QString title = QFileInfo(path).fileName();
-    int index = m_tabs->addTab(editor, title);
-    m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
-    m_tabs->setCurrentIndex(index);
+    int index = m_editorMgr->tabs()->addTab(editor, title);
+    m_editorMgr->tabs()->setTabToolTip(index, QDir::toNativeSeparators(path));
+    m_editorMgr->tabs()->setCurrentIndex(index);
 
     if (editor->isLargeFilePreview()) {
         statusBar()->showMessage(tr("Large file preview (read-only)"), 5000);
@@ -2871,15 +2864,15 @@ void MainWindow::openFolder(const QString &path)
     }
     if (folder.isEmpty()) return;
 
-    const bool hasSolution = m_projectManager->openFolder(folder);
+    const bool hasSolution = m_editorMgr->projectManager()->openFolder(folder);
     m_gitService->setWorkingDirectory(folder);
-    const QString root = m_projectManager->activeSolutionDir();
+    const QString root = m_editorMgr->projectManager()->activeSolutionDir();
     m_searchPanel->setRootPath(root);
     setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
     statusBar()->showMessage(tr("Opened: %1").arg(root), 4000);
     if (hasSolution) {
         statusBar()->showMessage(tr("Solution: %1")
-            .arg(QFileInfo(m_projectManager->solution().filePath).fileName()), 4000);
+            .arg(QFileInfo(m_editorMgr->projectManager()->solution().filePath).fileName()), 4000);
     }
 
     // Notify build plugin of workspace change (via OutputPanel/RunPanel services)
@@ -2896,7 +2889,7 @@ void MainWindow::openFolder(const QString &path)
         if (QFileInfo::exists(launchPath))
             rnPanel->loadLaunchJson(launchPath);
     }
-    m_currentFolder = root;
+    m_editorMgr->setCurrentFolder(root);
     m_terminal->setWorkingDirectory(root);
 
     // Apply workspace-level settings (.exorcist/settings.json)
@@ -2957,10 +2950,10 @@ void MainWindow::openFolder(const QString &path)
                             }
                             if (!dir.isEmpty() && !seen.contains(dir)) {
                                 seen.insert(dir);
-                                m_includePaths << QDir::cleanPath(dir);
+                                m_editorMgr->addIncludePath(QDir::cleanPath(dir));
                             }
                         }
-                        qWarning() << "Loaded" << m_includePaths.size() << "include paths from compile_commands.json";
+                        qWarning() << "Loaded" << m_editorMgr->includePaths().size() << "include paths from compile_commands.json";
                     }
                 }
             } else {
@@ -2993,7 +2986,7 @@ void MainWindow::openFolder(const QString &path)
 
     // Load custom AI instructions from workspace (.github/copilot-instructions.md etc.)
     const QString instructions = PromptFileLoader::load(root);
-    m_contextBuilder->setCustomInstructions(instructions);
+    m_agentPlatform->contextBuilder()->setCustomInstructions(instructions);
 
     // Wire workspace root to chat panel for prompt files
     m_chatPanel->setWorkspaceRoot(root);
@@ -3042,7 +3035,7 @@ void MainWindow::newSolution()
     }
 
     QString slnPath = QFileDialog::getSaveFileName(this, tr("Save Solution"),
-                                                   m_currentFolder, tr("Exorcist Solution (*.exsln)"));
+                                                   m_editorMgr->currentFolder(), tr("Exorcist Solution (*.exsln)"));
     if (slnPath.isEmpty()) {
         return;
     }
@@ -3050,12 +3043,12 @@ void MainWindow::newSolution()
         slnPath += ".exsln";
     }
 
-    if (m_projectManager->createSolution(name, slnPath)) {
-        const QString root = m_projectManager->activeSolutionDir();
+    if (m_editorMgr->projectManager()->createSolution(name, slnPath)) {
+        const QString root = m_editorMgr->projectManager()->activeSolutionDir();
         m_gitService->setWorkingDirectory(root);
         m_searchPanel->setRootPath(root);
         setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
-        m_currentFolder = root;
+        m_editorMgr->setCurrentFolder(root);
         m_terminal->setWorkingDirectory(root);
         if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
             lspSvc->startServer(root);
@@ -3065,19 +3058,19 @@ void MainWindow::newSolution()
 void MainWindow::openSolutionFile()
 {
     const QString slnPath = QFileDialog::getOpenFileName(this, tr("Open Solution"),
-                                                        m_currentFolder, tr("Exorcist Solution (*.exsln)"));
+                                                        m_editorMgr->currentFolder(), tr("Exorcist Solution (*.exsln)"));
     if (slnPath.isEmpty()) {
         return;
     }
 
-    if (m_projectManager->openSolution(slnPath)) {
-        const QString root = m_projectManager->activeSolutionDir();
+    if (m_editorMgr->projectManager()->openSolution(slnPath)) {
+        const QString root = m_editorMgr->projectManager()->activeSolutionDir();
         m_gitService->setWorkingDirectory(root);
         m_searchPanel->setRootPath(root);
         setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
         statusBar()->showMessage(tr("Solution: %1").arg(QFileInfo(slnPath).fileName()), 4000);
 
-        m_currentFolder = root;
+        m_editorMgr->setCurrentFolder(root);
         m_terminal->setWorkingDirectory(root);
         if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
             lspSvc->startServer(root);
@@ -3093,9 +3086,9 @@ void MainWindow::addProjectToSolution()
     const QString name = QInputDialog::getText(this, tr("Project Name"), tr("Project name"));
     const QString projectName = name.trimmed().isEmpty() ? QFileInfo(folder).baseName() : name.trimmed();
 
-    if (m_projectManager->addProject(projectName, folder)) {
-        if (!m_projectManager->solution().filePath.isEmpty()) {
-            m_projectManager->saveSolution();
+    if (m_editorMgr->projectManager()->addProject(projectName, folder)) {
+        if (!m_editorMgr->projectManager()->solution().filePath.isEmpty()) {
+            m_editorMgr->projectManager()->saveSolution();
         }
     }
 }
@@ -3124,9 +3117,9 @@ void MainWindow::saveCurrentTab()
     }
 
     const QString title = QFileInfo(path).fileName();
-    const int idx = m_tabs->currentIndex();
-    m_tabs->setTabText(idx, title);
-    m_tabs->setTabToolTip(idx, QDir::toNativeSeparators(path));
+    const int idx = m_editorMgr->tabs()->currentIndex();
+    m_editorMgr->tabs()->setTabText(idx, title);
+    m_editorMgr->tabs()->setTabToolTip(idx, QDir::toNativeSeparators(path));
     statusBar()->showMessage(tr("Saved %1").arg(title), 3000);
     if (m_pluginManager)
         m_pluginManager->fireLuaEvent(QStringLiteral("editor.save"), {path});
@@ -3137,7 +3130,7 @@ void MainWindow::saveCurrentTab()
 void MainWindow::showFilePalette()
 {
     QStringList files;
-    QDirIterator it(m_currentFolder, QDirIterator::Subdirectories);
+    QDirIterator it(m_editorMgr->currentFolder(), QDirIterator::Subdirectories);
     while (it.hasNext()) {
         it.next();
         if (it.fileInfo().isFile())
@@ -3279,7 +3272,7 @@ void MainWindow::saveSettings()
 {
     QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
     s.setValue(QStringLiteral("geometry"),    saveGeometry());
-    s.setValue(QStringLiteral("lastFolder"),  m_projectManager->activeSolutionDir());
+    s.setValue(QStringLiteral("lastFolder"),  m_editorMgr->projectManager()->activeSolutionDir());
 
     // Save DockManager layout as JSON
     if (m_dockManager) {
@@ -3300,13 +3293,13 @@ void MainWindow::closeEvent(QCloseEvent *event)
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
     // Middle-click on tab bar → close that tab
-    if (watched == m_tabs->tabBar() && event->type() == QEvent::MouseButtonPress) {
+    if (watched == m_editorMgr->tabs()->tabBar() && event->type() == QEvent::MouseButtonPress) {
         auto *me = static_cast<QMouseEvent *>(event);
         if (me->button() == Qt::MiddleButton) {
-            int idx = m_tabs->tabBar()->tabAt(me->pos());
+            int idx = m_editorMgr->tabs()->tabBar()->tabAt(me->pos());
             if (idx >= 0) {
-                QWidget *widget = m_tabs->widget(idx);
-                m_tabs->removeTab(idx);
+                QWidget *widget = m_editorMgr->tabs()->widget(idx);
+                m_editorMgr->tabs()->removeTab(idx);
                 if (widget) widget->deleteLater();
                 return true;
             }
@@ -3314,9 +3307,9 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     }
 
     // Right-click context menu on tab bar
-    if (watched == m_tabs->tabBar() && event->type() == QEvent::ContextMenu) {
+    if (watched == m_editorMgr->tabs()->tabBar() && event->type() == QEvent::ContextMenu) {
         auto *ce = static_cast<QContextMenuEvent *>(event);
-        int idx = m_tabs->tabBar()->tabAt(ce->pos());
+        int idx = m_editorMgr->tabs()->tabBar()->tabAt(ce->pos());
         if (idx >= 0)
             showTabContextMenu(idx, ce->globalPos());
         return true;
@@ -3335,42 +3328,42 @@ void MainWindow::showTabContextMenu(int tabIndex, const QPoint &globalPos)
     QMenu menu(this);
 
     const QString filePath =
-        m_tabs->widget(tabIndex)->property("filePath").toString();
+        m_editorMgr->tabs()->widget(tabIndex)->property("filePath").toString();
     const bool hasFile = !filePath.isEmpty();
 
     // Save
     QAction *saveAct = menu.addAction(tr("Save"), this, [this, tabIndex]() {
-        m_tabs->setCurrentIndex(tabIndex);
+        m_editorMgr->tabs()->setCurrentIndex(tabIndex);
         saveCurrentTab();
     });
     saveAct->setShortcut(QKeySequence::Save);
-    saveAct->setEnabled(hasFile || m_tabs->widget(tabIndex) != nullptr);
+    saveAct->setEnabled(hasFile || m_editorMgr->tabs()->widget(tabIndex) != nullptr);
 
     menu.addSeparator();
 
     // Close
     menu.addAction(tr("Close"), this, [this, tabIndex]() {
-        QWidget *w = m_tabs->widget(tabIndex);
-        m_tabs->removeTab(tabIndex);
+        QWidget *w = m_editorMgr->tabs()->widget(tabIndex);
+        m_editorMgr->tabs()->removeTab(tabIndex);
         if (w) w->deleteLater();
     });
 
     // Close All Tabs
     menu.addAction(tr("Close All Tabs"), this, [this]() {
-        while (m_tabs->count() > 0) {
-            QWidget *w = m_tabs->widget(0);
-            m_tabs->removeTab(0);
+        while (m_editorMgr->tabs()->count() > 0) {
+            QWidget *w = m_editorMgr->tabs()->widget(0);
+            m_editorMgr->tabs()->removeTab(0);
             if (w) w->deleteLater();
         }
     });
 
     // Close Other Tabs
     menu.addAction(tr("Close Other Tabs"), this, [this, tabIndex]() {
-        QWidget *keep = m_tabs->widget(tabIndex);
-        for (int i = m_tabs->count() - 1; i >= 0; --i) {
-            if (m_tabs->widget(i) != keep) {
-                QWidget *w = m_tabs->widget(i);
-                m_tabs->removeTab(i);
+        QWidget *keep = m_editorMgr->tabs()->widget(tabIndex);
+        for (int i = m_editorMgr->tabs()->count() - 1; i >= 0; --i) {
+            if (m_editorMgr->tabs()->widget(i) != keep) {
+                QWidget *w = m_editorMgr->tabs()->widget(i);
+                m_editorMgr->tabs()->removeTab(i);
                 if (w) w->deleteLater();
             }
         }
@@ -3397,7 +3390,7 @@ void MainWindow::showTabContextMenu(int tabIndex, const QPoint &globalPos)
 
 EditorView *MainWindow::currentEditor() const
 {
-    return qobject_cast<EditorView *>(m_tabs->currentWidget());
+    return qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget());
 }
 
 // ── LSP ───────────────────────────────────────────────────────────────────────
@@ -3424,11 +3417,11 @@ void MainWindow::createLspBridge(EditorView *editor, const QString &path)
             return;
         }
         // Try relative to project root and common subdirectories
-        if (!m_currentFolder.isEmpty()) {
+        if (!m_editorMgr->currentFolder().isEmpty()) {
             const QStringList searchDirs = {
-                m_currentFolder,
-                m_currentFolder + "/src",
-                m_currentFolder + "/include",
+                m_editorMgr->currentFolder(),
+                m_editorMgr->currentFolder() + "/src",
+                m_editorMgr->currentFolder() + "/include",
             };
             for (const QString &dir : searchDirs) {
                 const QString candidate = dir + "/" + includePath;
@@ -3439,7 +3432,7 @@ void MainWindow::createLspBridge(EditorView *editor, const QString &path)
             }
         }
         // Try include paths from compile_commands.json (Qt, system headers, etc.)
-        for (const QString &dir : m_includePaths) {
+        for (const QString &dir : m_editorMgr->includePaths()) {
             const QString candidate = dir + "/" + includePath;
             if (QFileInfo::exists(candidate)) {
                 openFile(QFileInfo(candidate).absoluteFilePath());
@@ -3460,9 +3453,9 @@ void MainWindow::createLspBridge(EditorView *editor, const QString &path)
 
     connect(bridge, &LspEditorBridge::symbolsUpdated,
             this, [this, editor](const QString &/*uri*/, const QJsonArray &symbols) {
-        if (m_tabs->currentWidget() == editor) {
+        if (m_editorMgr->tabs()->currentWidget() == editor) {
             m_symbolPanel->setSymbols(symbols);
-            m_breadcrumb->setSymbols(symbols);
+            m_editorMgr->breadcrumb()->setSymbols(symbols);
         }
     });
 }
@@ -3536,12 +3529,12 @@ void MainWindow::navigateToLocation(const QString &path, int line, int character
 {
     openFile(path);   // opens or switches to the existing tab
 
-    for (int i = 0; i < m_tabs->count(); ++i) {
-        auto *editor = qobject_cast<EditorView *>(m_tabs->widget(i));
+    for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+        auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
         if (!editor || editor->property("filePath").toString() != path)
             continue;
 
-        m_tabs->setCurrentIndex(i);
+        m_editorMgr->tabs()->setCurrentIndex(i);
 
         const QTextBlock block = editor->document()->findBlockByNumber(line);
         if (block.isValid()) {
@@ -3559,8 +3552,8 @@ void MainWindow::navigateToLocation(const QString &path, int line, int character
 void MainWindow::onLspInitialized()
 {
     // Open bridges for any tabs that were already open before LSP was ready.
-    for (int i = 0; i < m_tabs->count(); ++i) {
-        auto *editor = qobject_cast<EditorView *>(m_tabs->widget(i));
+    for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+        auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
         if (!editor) continue;
         const QString path = editor->property("filePath").toString();
         if (path.isEmpty()) continue;
@@ -3575,8 +3568,8 @@ void MainWindow::applyWorkspaceEdit(const QJsonObject &workspaceEdit)
     auto applyEdits = [this](const QString &filePath, const QJsonArray &edits) {
         if (filePath.isEmpty() || edits.isEmpty()) return;
         openFile(filePath);
-        for (int i = 0; i < m_tabs->count(); ++i) {
-            auto *editor = qobject_cast<EditorView *>(m_tabs->widget(i));
+        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+            auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
             if (!editor || editor->property("filePath").toString() != filePath) continue;
             editor->applyTextEdits(edits);
             break;
@@ -3632,8 +3625,8 @@ void MainWindow::pushBuildDiagnostics()
     }
 
     // Push to each open editor tab that has build problems
-    for (int i = 0; i < m_tabs->count(); ++i) {
-        auto *editor = qobject_cast<EditorView *>(m_tabs->widget(i));
+    for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+        auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
         if (!editor) continue;
         const QString filePath = editor->property("filePath").toString();
         if (filePath.isEmpty()) continue;
@@ -3648,14 +3641,14 @@ void MainWindow::pushBuildDiagnostics()
 
 void MainWindow::onTreeContextMenu(const QPoint &pos)
 {
-    const QModelIndex index = m_fileTree->indexAt(pos);
+    const QModelIndex index = m_editorMgr->fileTree()->indexAt(pos);
     const QString path = index.isValid()
-        ? m_treeModel->data(index, SolutionTreeModel::FilePathRole).toString()
+        ? m_editorMgr->treeModel()->data(index, SolutionTreeModel::FilePathRole).toString()
         : QString();
-    const bool isDir = index.isValid() && m_treeModel->isDir(index);
+    const bool isDir = index.isValid() && m_editorMgr->treeModel()->isDir(index);
     const bool isFile = index.isValid() && !isDir && !path.isEmpty();
     const QString dirPath = isFile ? QFileInfo(path).absolutePath()
-                          : (isDir && !path.isEmpty() ? path : m_currentFolder);
+                          : (isDir && !path.isEmpty() ? path : m_editorMgr->currentFolder());
 
     QMenu menu(this);
 
@@ -3672,7 +3665,7 @@ void MainWindow::onTreeContextMenu(const QPoint &pos)
         QFile file(filePath);
         if (file.open(QIODevice::WriteOnly)) {
             file.close();
-            m_treeModel->rebuildFromSolution();
+            m_editorMgr->treeModel()->rebuildFromSolution();
             openFile(filePath);
         }
     });
@@ -3686,7 +3679,7 @@ void MainWindow::onTreeContextMenu(const QPoint &pos)
             QLineEdit::Normal, QString(), &ok);
         if (!ok || name.trimmed().isEmpty()) return;
         QDir(dirPath).mkdir(name.trimmed());
-        m_treeModel->rebuildFromSolution();
+        m_editorMgr->treeModel()->rebuildFromSolution();
     });
 
     menu.addSeparator();
@@ -3704,13 +3697,13 @@ void MainWindow::onTreeContextMenu(const QPoint &pos)
             return;
         const QString newPath = fi.absolutePath() + "/" + newName.trimmed();
         if (QFile::rename(path, newPath)) {
-            m_treeModel->rebuildFromSolution();
+            m_editorMgr->treeModel()->rebuildFromSolution();
             // Update any open tab pointing to the old path
             if (isFile) {
-                for (int i = 0; i < m_tabs->count(); ++i) {
-                    if (m_tabs->widget(i)->property("filePath").toString() == path) {
-                        m_tabs->widget(i)->setProperty("filePath", newPath);
-                        m_tabs->setTabText(i, QFileInfo(newPath).fileName());
+                for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+                    if (m_editorMgr->tabs()->widget(i)->property("filePath").toString() == path) {
+                        m_editorMgr->tabs()->widget(i)->setProperty("filePath", newPath);
+                        m_editorMgr->tabs()->setTabText(i, QFileInfo(newPath).fileName());
                         break;
                     }
                 }
@@ -3733,7 +3726,7 @@ void MainWindow::onTreeContextMenu(const QPoint &pos)
         } else {
             ok = QFile::remove(path);
         }
-        if (ok) m_treeModel->rebuildFromSolution();
+        if (ok) m_editorMgr->treeModel()->rebuildFromSolution();
     });
 
     menu.addSeparator();
@@ -3752,9 +3745,9 @@ void MainWindow::onTreeContextMenu(const QPoint &pos)
     });
 
     QAction *copyRelativeAction = menu.addAction(tr("Copy Relative Path"));
-    copyRelativeAction->setEnabled(!path.isEmpty() && !m_currentFolder.isEmpty());
+    copyRelativeAction->setEnabled(!path.isEmpty() && !m_editorMgr->currentFolder().isEmpty());
     connect(copyRelativeAction, &QAction::triggered, this, [this, path]() {
-        QDir root(m_currentFolder);
+        QDir root(m_editorMgr->currentFolder());
         QGuiApplication::clipboard()->setText(root.relativeFilePath(path));
     });
 
@@ -3781,13 +3774,13 @@ void MainWindow::onTreeContextMenu(const QPoint &pos)
     // ── Refresh ───────────────────────────────────────────────────────────
     QAction *refreshAction = menu.addAction(tr("Refresh"));
     connect(refreshAction, &QAction::triggered, this, [this, index]() {
-        if (index.isValid() && m_treeModel->isDir(index))
-            m_treeModel->refreshDirectory(index);
+        if (index.isValid() && m_editorMgr->treeModel()->isDir(index))
+            m_editorMgr->treeModel()->refreshDirectory(index);
         else
-            m_treeModel->rebuildFromSolution();
+            m_editorMgr->treeModel()->rebuildFromSolution();
     });
 
-    menu.exec(m_fileTree->viewport()->mapToGlobal(pos));
+    menu.exec(m_editorMgr->fileTree()->viewport()->mapToGlobal(pos));
 }
 
 void MainWindow::loadPlugins()
@@ -3922,17 +3915,17 @@ void MainWindow::loadPlugins()
         // Highlight current stopped line in editor
         connect(debugSvc, &IDebugService::debugStopped,
                 this, [this](const QList<DebugFrame> &frames) {
-            for (int i = 0; i < m_tabs->count(); ++i) {
-                auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+            for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+                auto *ed = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
                 if (ed) ed->setCurrentDebugLine(0);
             }
             if (!frames.isEmpty()) {
                 const auto &top = frames.first();
-                for (int i = 0; i < m_tabs->count(); ++i) {
-                    auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+                for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+                    auto *ed = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
                     if (ed && ed->property("filePath").toString() == top.filePath) {
                         ed->setCurrentDebugLine(top.line);
-                        m_tabs->setCurrentIndex(i);
+                        m_editorMgr->tabs()->setCurrentIndex(i);
                         break;
                     }
                 }
@@ -3942,8 +3935,8 @@ void MainWindow::loadPlugins()
         // Clear debug line on session end
         connect(debugSvc, &IDebugService::debugTerminated,
                 this, [this]() {
-            for (int i = 0; i < m_tabs->count(); ++i) {
-                auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
+            for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+                auto *ed = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
                 if (ed) ed->setCurrentDebugLine(0);
             }
         });
@@ -3955,7 +3948,7 @@ void MainWindow::loadPlugins()
 
         // Server ready → initialize LSP client with workspace root
         connect(lspSvc, &ILspService::serverReady, this, [this, lspClient]() {
-            if (lspClient) lspClient->initialize(m_currentFolder);
+            if (lspClient) lspClient->initialize(m_editorMgr->currentFolder());
         });
 
         // LSP initialized → create bridges for already-open tabs
@@ -4076,7 +4069,7 @@ void MainWindow::loadPlugins()
 
     // Populate tool toggles in settings panel
     if (m_settingsPanel) {
-        QStringList toolNames = m_toolRegistry->toolNames();
+        QStringList toolNames = m_agentPlatform->toolRegistry()->toolNames();
         toolNames.sort();
         m_settingsPanel->setToolNames(toolNames);
     }
