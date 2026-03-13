@@ -1839,6 +1839,16 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
                 ev->setMinimapVisible(on);
         }
     });
+
+    QAction *indentGuidesAction = viewMenu->addAction(tr("Toggle Indent &Guides"));
+    indentGuidesAction->setCheckable(true);
+    indentGuidesAction->setChecked(true);
+    connect(indentGuidesAction, &QAction::toggled, this, [this](bool on) {
+        for (int i = 0; i < m_tabs->count(); ++i) {
+            if (auto *ev = qobject_cast<EditorView *>(m_tabs->widget(i)))
+                ev->setIndentGuidesVisible(on);
+        }
+    });
     connect(toggleBlameAction, &QAction::toggled, this, [this](bool checked) {
         EditorView *editor = currentEditor();
         if (!editor) return;

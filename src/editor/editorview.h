@@ -102,6 +102,10 @@ public:
     void setMinimapVisible(bool visible);
     bool isMinimapVisible() const { return m_minimapVisible; }
 
+    // ── Indent guides ─────────────────────────────────────────────────────
+    void setIndentGuidesVisible(bool visible);
+    bool isIndentGuidesVisible() const { return m_showIndentGuides; }
+
     // ── PieceTableBuffer (shadow backing store) ───────────────────────────
     PieceTableBuffer *buffer() const;
     QString bufferText() const;
@@ -211,6 +215,7 @@ private:
 
     class MinimapWidget     *m_minimap = nullptr;
     bool                     m_minimapVisible = true;
+    bool                     m_showIndentGuides = true;
 
     // Breakpoints
     QSet<int>                m_breakpointLines;   // 1-based lines

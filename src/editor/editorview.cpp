@@ -262,6 +262,12 @@ void EditorView::setMinimapVisible(bool visible)
     updateLineNumberAreaWidth(0);   // refresh right viewport margin
 }
 
+void EditorView::setIndentGuidesVisible(bool visible)
+{
+    m_showIndentGuides = visible;
+    viewport()->update();
+}
+
 void EditorView::setLargeFilePreview(const QString &text, bool isPartial)
 {
     // Reset the shadow buffer BEFORE setPlainText, which fires contentsChange
@@ -1262,6 +1268,50 @@ void EditorView::paintEvent(QPaintEvent *event)
 {
     // Draw the normal editor content first
     QPlainTextEdit::paintEvent(event);
+
+    // ── Indent guides ─────────────────────────────────────────────────────
+    if (m_showIndentGuides) {
+        QPainter painter(viewport());
+        painter.setRenderHint(QPainter::Antialiasing, false);
+
+        const QFontMetrics fm(font());
+        const int spaceW = fm.horizontalAdvance(QLatin1Char(' '));
+        const int tabW = qMax(1, qRound(tabStopDistance() / spaceW));
+        const int guideStep = tabW * spaceW;  // pixel step per indent level
+
+        QColor guideColor(128, 128, 128, 40);
+        QPen guidePen(guideColor);
+        guidePen.setStyle(Qt::SolidLine);
+        painter.setPen(guidePen);
+
+        QTextBlock block = firstVisibleBlock();
+        while (block.isValid()) {
+            const QRectF geo = blockBoundingGeometry(block).translated(contentOffset());
+            if (geo.top() > viewport()->height())
+                break;
+
+            // Count leading whitespace to determine indent level
+            const QString text = block.text();
+            int spaces = 0;
+            for (int i = 0; i < text.length(); ++i) {
+                if (text[i] == QLatin1Char(' '))
+                    ++spaces;
+                else if (text[i] == QLatin1Char('\t'))
+                    spaces += tabW - (spaces % tabW);
+                else
+                    break;
+            }
+
+            const int levels = spaces / tabW;
+            for (int lvl = 1; lvl <= levels; ++lvl) {
+                const int x = lvl * guideStep;
+                painter.drawLine(x, qRound(geo.top()),
+                                 x, qRound(geo.bottom()));
+            }
+
+            block = block.next();
+        }
+    }
 
     // Draw secondary multi-cursor carets and selections
     if (m_multiCursor->hasMultipleCursors()) {
