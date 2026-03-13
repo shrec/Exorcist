@@ -136,6 +136,12 @@ Optional extensions that users can install, enable, or disable independently:
     3. Wait for explicit user approval before writing it.
     4. If the user says no, find an alternative design using smart pointers.
   - **Never assume permission.** Never silently write `new`. Never batch it into a larger change hoping it goes unnoticed. Each bare `new` usage requires its own separate approval.
+- **Header/Source separation (ZERO TOLERANCE)**:
+  - **No header-only files with logic.** Every `.h` file that contains function bodies, method implementations, constructors, or any executable code MUST have a corresponding `.cpp` file. Headers contain ONLY declarations.
+  - **Allowed in headers:** class/struct declarations with member variables, pure virtual interfaces (`= 0`), `enum`/`enum class` definitions, `#define` macros, `constexpr` constants, `using`/`typedef` aliases, forward declarations, and trivial one-line getters that return a member (`T x() const { return m_x; }`).
+  - **Forbidden in headers:** constructors with logic, method implementations (even if "short"), `static` functions with bodies, namespace-scoped functions with bodies, `Q_OBJECT` classes with implemented slots/signals handlers, layout/UI setup code, serialization logic (`toJson`/`fromJson`), any function body longer than a single `return m_member;` line.
+  - **One header, one source.** If `foo.h` declares class `Foo`, implementations go in `foo.cpp`. No exceptions.
+  - **Why:** Header-only files cause recompilation cascades, bloat object files through duplication, break linker expectations, and hide dependency chains. Separating declarations from definitions is fundamental C++ hygiene.
 - **Includes**: Minimal in headers; prefer forward declarations. Group: Qt headers → std headers → project headers.
 - **Error reporting**: Output `QString *error` parameters for fallible operations (see `IFileSystem`).
 - **User-facing strings**: Wrap in `tr()` for translation support.
@@ -152,6 +158,32 @@ cmake --build build           # Build
 - Only required dependency: **Qt 6 Widgets**.
 - Optional dependency stubs: `EXORCIST_USE_LLVM` CMake option.
 - New dependencies must be MIT/BSD/public-domain compatible. Update [docs/dependencies.md](docs/dependencies.md) when adding any.
+
+## Testing (STRICT — TDD)
+
+Every new feature, class, or subsystem **must ship with tests in the same work session**. Tests are not a follow-up task — they are part of the implementation.
+
+### Rules
+
+1. **No code without tests.** Every new public class, function, or behavior change must have a corresponding test file in `tests/`. If you add `src/foo/bar.cpp`, you must add or update `tests/test_bar.cpp` in the same session.
+2. **Test file naming.** Tests follow the pattern `test_<component>.cpp` (e.g., `test_multicursor.cpp`, `test_searchworker.cpp`).
+3. **CMake registration.** Every new test must be added to `tests/CMakeLists.txt` with `add_executable`, `target_link_libraries`, `target_include_directories`, and `add_test`.
+4. **Qt Test framework.** All tests use `QTest`. Test class inherits `QObject`, test methods are `private slots`, entry point is `QTEST_MAIN(ClassName)`.
+5. **Test before integrate.** Write the engine/logic class first, test it in isolation, then integrate into UI. Never write UI-only code that can't be tested.
+6. **Edge cases matter.** Test empty input, boundary conditions, error paths — not just the happy path. Aim for 5+ test cases per class minimum.
+7. **Tests must pass before moving on.** Run `ctest --test-dir build-llvm --output-on-failure` after every implementation step. Do not proceed to the next feature if tests fail.
+8. **Regression tests for bugs.** When fixing a bug, first write a test that reproduces it, then fix the code. The test prevents regression.
+
+### What to test
+
+| Code type | Test scope |
+|-----------|-----------|
+| New class / module | Unit tests for all public methods |
+| Bug fix | Regression test reproducing the bug |
+| New algorithm / logic | Input/output validation, edge cases |
+| New tool (ITool) | `execute()` with valid/invalid params |
+| New service | Registration, lookup, basic operations |
+| Refactor | Existing tests must still pass, add coverage for changed behavior |
 
 ## Documentation (STRICT)
 

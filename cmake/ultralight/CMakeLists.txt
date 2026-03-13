@@ -42,16 +42,18 @@ set(ULTRALIGHT_SDK_PATH "${CMAKE_SOURCE_DIR}/third_party/ultralight-sdk" CACHE P
 if(EXISTS "${ULTRALIGHT_SDK_PATH}/include/Ultralight/Ultralight.h")
     message(STATUS "Ultralight SDK found at ${ULTRALIGHT_SDK_PATH}")
     set(_UL_ROOT "${ULTRALIGHT_SDK_PATH}")
+    set(_UL_ROOT "${ULTRALIGHT_SDK_PATH}" PARENT_SCOPE)
 else()
     message(STATUS "Ultralight SDK not found locally, using FetchContent...")
     include(FetchContent)
     FetchContent_Declare(
         ultralight-sdk
-        URL "https://github.com/nicbarker/ultralight/releases/download/v1.3.0/ultralight-sdk-${_UL_PLATFORM}.7z"
+        URL "https://ultralight-sdk.sfo2.cdn.digitaloceanspaces.com/ultralight-sdk-latest-${_UL_PLATFORM}.7z"
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_Populate(ultralight-sdk)
     set(_UL_ROOT "${ultralight-sdk_SOURCE_DIR}")
+    set(_UL_ROOT "${ultralight-sdk_SOURCE_DIR}" PARENT_SCOPE)
 endif()
 
 # ── INTERFACE target ──────────────────────────────────────────────────────────
@@ -61,16 +63,37 @@ target_include_directories(ultralight-sdk INTERFACE "${_UL_ROOT}/include")
 
 # Link directories (import libs on Windows, shared libs on Unix)
 if(WIN32)
+    # Generate mingw-compatible import libs (.a) from DLLs if they don't exist.
+    # The SDK ships MSVC .lib files which don't work with llvm-mingw/lld.
+    set(_UL_DLLS Ultralight UltralightCore AppCore WebCore)
+    foreach(_DLL_NAME ${_UL_DLLS})
+        set(_A_FILE "${_UL_ROOT}/lib/lib${_DLL_NAME}.a")
+        if(NOT EXISTS "${_A_FILE}")
+            find_program(_GENDEF gendef)
+            find_program(_DLLTOOL dlltool)
+            if(_GENDEF AND _DLLTOOL)
+                execute_process(
+                    COMMAND "${_GENDEF}" "${_UL_ROOT}/bin/${_DLL_NAME}.dll"
+                    WORKING_DIRECTORY "${_UL_ROOT}/lib"
+                    OUTPUT_QUIET ERROR_QUIET)
+                execute_process(
+                    COMMAND "${_DLLTOOL}" -d "${_UL_ROOT}/lib/${_DLL_NAME}.def"
+                            -l "${_A_FILE}" -D "${_DLL_NAME}.dll"
+                    OUTPUT_QUIET ERROR_QUIET)
+            endif()
+        endif()
+    endforeach()
+
     target_link_directories(ultralight-sdk INTERFACE "${_UL_ROOT}/lib")
     target_link_libraries(ultralight-sdk INTERFACE
-        Ultralight UltralightCore WebCore JavaScriptCore
+        Ultralight UltralightCore AppCore WebCore
     )
 else()
     target_link_directories(ultralight-sdk INTERFACE "${_UL_ROOT}/bin")
     target_link_libraries(ultralight-sdk INTERFACE
         "${_UL_LIB_PREFIX}Ultralight${_UL_LIB_SUFFIX}"
         "${_UL_LIB_PREFIX}UltralightCore${_UL_LIB_SUFFIX}"
-        "${_UL_LIB_PREFIX}WebCore${_UL_LIB_SUFFIX}"
+        "${_UL_LIB_PREFIX}AppCore${_UL_LIB_SUFFIX}"
     )
 endif()
 

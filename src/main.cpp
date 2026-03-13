@@ -8,6 +8,7 @@
 #include <QTimer>
 #include <QTranslator>
 
+#include "crashhandler.h"
 #include "logger.h"
 #include "mainwindow.h"
 #include "startupprofiler.h"
@@ -80,6 +81,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("Exorcist"));
     app.setApplicationName(QStringLiteral("Exorcist"));
+    CrashHandler::install();
     Logger::install();
     qInfo() << "Exorcist starting";
 

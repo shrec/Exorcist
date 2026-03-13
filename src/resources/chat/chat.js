@@ -260,15 +260,16 @@ var ChatApp = (function() {
     // ── Content Part Renderers ───────────────────────────────────────────────
 
     function renderMarkdownPart(part, streaming) {
+        var text = part.markdownText || part.text || '';
         return '<div class="rendered-markdown" data-type="markdown">' +
-            MarkdownRenderer.render(part.markdownText || '', streaming) +
+            MarkdownRenderer.render(text, streaming) +
         '</div>';
     }
 
     function renderThinkingPart(part) {
         var collapsed = part.thinkingCollapsed ? ' collapsed' : '';
         var streamingClass = part._streaming ? ' streaming' : '';
-        var text = MarkdownRenderer.escapeHtml(part.thinkingText || '');
+        var text = MarkdownRenderer.escapeHtml(part.thinkingText || part.text || '');
 
         // Nested tool items
         var toolsHtml = '';
@@ -290,33 +291,201 @@ var ChatApp = (function() {
         '</div>';
     }
 
+    function toolNameOf(part) {
+        return part.toolName || part.name || '';
+    }
+
+    function toolCallIdOf(part) {
+        return part.toolCallId || part.callId || '';
+    }
+
+    function toolStateOf(part) {
+        if (part.toolState !== undefined && part.toolState !== null) return part.toolState;
+        if (part.state !== undefined && part.state !== null) return part.state;
+        return 0;
+    }
+
+    function toolInvocationMsgOf(part) {
+        return part.toolInvocationMsg || part.invocationMsg || '';
+    }
+
+    function toolPastTenseMsgOf(part) {
+        return part.toolPastTenseMsg || part.pastTenseMsg || '';
+    }
+
+    function toolTitleOf(part) {
+        return part.toolFriendlyTitle || part.title || '';
+    }
+
+    function toolInputOf(part) {
+        return part.toolInput || part.input || '';
+    }
+
+    function toolOutputOf(part) {
+        return part.toolOutput || part.output || '';
+    }
+
+    function isTerminalTool(part) {
+        var name = toolNameOf(part).toLowerCase();
+        return (name === 'run_in_terminal' || name === 'run_command');
+    }
+
+    function parseToolInputJson(input) {
+        if (!input) return null;
+        try {
+            return JSON.parse(input);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function toolStateLabel(part) {
+        var s = toolStateOf(part);
+        if (s === 3) return toolPastTenseMsgOf(part) || 'Ran command';
+        if (s === 4) return toolPastTenseMsgOf(part) || 'Command failed';
+        return toolInvocationMsgOf(part) || 'Running command';
+    }
+
+    function summarizeToolArgs(name, args) {
+        if (!args) return '';
+        var tool = (name || '').toLowerCase();
+        var pick = function(key) { return args[key] || ''; };
+        if (tool === 'read_file' || tool === 'create_file' ||
+            tool === 'edit_file' || tool === 'replace_string_in_file' ||
+            tool === 'delete_file') {
+            return pick('filePath') || pick('path');
+        }
+        if (tool === 'list_dir') {
+            return pick('path');
+        }
+        if (tool === 'grep_search' || tool === 'semantic_search' ||
+            tool === 'codebase_search' || tool === 'file_search') {
+            return pick('query');
+        }
+        if (tool === 'run_in_terminal' || tool === 'run_command') {
+            return pick('command');
+        }
+        if (tool === 'run_subagent' || tool === 'subagent') {
+            return pick('goal') || pick('prompt') || pick('task') || pick('message');
+        }
+        return '';
+    }
+
+    function formatToolInput(toolName, raw) {
+        var args = parseToolInputJson(raw);
+        if (!args || typeof args !== 'object') {
+            return raw || '';
+        }
+        var lines = [];
+        var tool = (toolName || '').toLowerCase();
+        var primary = summarizeToolArgs(toolName, args);
+        if (primary) lines.push(primary);
+        var keys = Object.keys(args);
+        for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
+            if (k === 'command' || k === 'filePath' || k === 'path' ||
+                k === 'query' || k === 'prompt' || k === 'goal' || k === 'task') {
+                continue;
+            }
+            var v = args[k];
+            var s = '';
+            try { s = JSON.stringify(v); } catch (e) { s = String(v); }
+            if (s.length > 200) s = s.slice(0, 197) + '...';
+            lines.push(k + ': ' + s);
+        }
+        if (lines.length === 0) {
+            try { return JSON.stringify(args); } catch (e) { return raw || ''; }
+        }
+        return lines.join('\n');
+    }
+
+    function renderTerminalToolPart(part) {
+        var toolState = toolStateOf(part);
+        var icon = stepIconHtml(toolState, toolState === 1);
+        var callId = MarkdownRenderer.escapeHtml(toolCallIdOf(part));
+        var args = parseToolInputJson(toolInputOf(part)) || {};
+        var cmd = args.command || '';
+        var label = toolStateLabel(part);
+        var cmdHtml = cmd ? (' <code>' + MarkdownRenderer.escapeHtml(cmd) + '</code>') : '';
+        var titleHtml = '<div class="rendered-markdown"><p>' +
+            MarkdownRenderer.escapeHtml(label) + cmdHtml +
+        '</p></div>';
+
+        var commandBlock = '';
+        if (cmd) {
+            commandBlock = '<div class="chat-terminal-command-block">' +
+                '<div class="rendered-markdown"><p>' +
+                    '<span class="terminal-command-decoration default">&#9656;</span>' +
+                    '<code>' + MarkdownRenderer.escapeHtml(cmd) + '</code>' +
+                '</p></div>' +
+            '</div>';
+        }
+
+        var output = toolOutputOf(part);
+        var hasOutput = !!output;
+        var outputHtml = '<div class="chat-terminal-output-container' +
+            (hasOutput ? ' expanded' : ' collapsed') +
+            (hasOutput ? '' : ' chat-terminal-output-container-no-output') +
+            '">' +
+            '<div class="chat-terminal-output-body">' +
+                '<pre class="chat-terminal-output">' + MarkdownRenderer.escapeHtml(output) + '</pre>' +
+            '</div>' +
+        '</div>';
+
+        var msg = (toolState === 3) ? 'Executed' : (toolState === 4 ? 'Failed' : 'Executing');
+        var msgHtml = '<div class="chat-terminal-content-message">' +
+            '<div class="rendered-markdown"><p>' + MarkdownRenderer.escapeHtml(msg) + '</p></div>' +
+        '</div>';
+
+        return '<div class="chat-tool-invocation-part chat-terminal-content-part" data-call-id="' + callId + '">' +
+            '<div class="chat-terminal-section-title">Working</div>' +
+            '<div class="chat-terminal-content-title' +
+                (hasOutput ? ' chat-terminal-content-title-no-bottom-radius' : '') + '">' +
+                '<div class="terminal-title-row">' + icon +
+                    '<div class="terminal-title-text">' + titleHtml + '</div>' +
+                '</div>' +
+                commandBlock +
+            '</div>' +
+            msgHtml +
+            outputHtml +
+        '</div>';
+    }
+
     function renderToolInvocationPart(part) {
-        var toolState = part.toolState || 0;
+        if (isTerminalTool(part)) {
+            return renderTerminalToolPart(part);
+        }
+        var toolState = toolStateOf(part);
         var isStreamingState = (toolState === 1);
         var icon = stepIconHtml(toolState, isStreamingState);
-        var title = part.toolPastTenseMsg || part.toolInvocationMsg ||
-                    part.toolFriendlyTitle || part.toolName || 'Tool';
+        var title = toolPastTenseMsgOf(part) || toolInvocationMsgOf(part) ||
+                    toolTitleOf(part) || toolNameOf(part) || 'Tool';
+        var args = parseToolInputJson(toolInputOf(part));
+        var summary = summarizeToolArgs(toolNameOf(part), args);
         var streamingClass = isStreamingState ? ' is-streaming' : '';
-        var callId = MarkdownRenderer.escapeHtml(part.toolCallId || '');
+        var callId = MarkdownRenderer.escapeHtml(toolCallIdOf(part));
 
         // Tool detail (input/output)
         var detailHtml = '';
-        if (part.toolInput || part.toolOutput) {
+        var toolInput = toolInputOf(part);
+        var toolOutput = toolOutputOf(part);
+        if (toolInput || toolOutput) {
+            var formattedInput = toolInput ? formatToolInput(toolNameOf(part), toolInput) : '';
             detailHtml = '<div class="tool-detail-container">' +
                 '<button class="tool-detail-toggle" onclick="ChatApp._toggleToolDetail(this)">' +
                     '<span>&#x25B6;</span> Details' +
                 '</button>' +
                 '<div class="tool-detail-body hidden">';
-            if (part.toolInput) {
+            if (toolInput) {
                 detailHtml += '<div class="tool-detail-section">' +
                     '<div class="detail-label">Input</div>' +
-                    MarkdownRenderer.escapeHtml(part.toolInput) +
+                    '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(formattedInput) + '</pre>' +
                 '</div>';
             }
-            if (part.toolOutput) {
+            if (toolOutput) {
                 detailHtml += '<div class="tool-detail-section">' +
                     '<div class="detail-label">Output</div>' +
-                    MarkdownRenderer.escapeHtml(part.toolOutput) +
+                    '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(toolOutput) + '</pre>' +
                 '</div>';
             }
             detailHtml += '</div></div>';
@@ -327,7 +496,7 @@ var ChatApp = (function() {
         if (toolState === 2) {
             confirmHtml = '<div class="chat-confirmation-widget">' +
                 '<div class="confirmation-title">Allow \u201C' +
-                    MarkdownRenderer.escapeHtml(part.toolName || 'tool') +
+                    MarkdownRenderer.escapeHtml(toolNameOf(part) || 'tool') +
                 '\u201D?</div>' +
                 '<div class="confirmation-actions">' +
                     '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
@@ -340,10 +509,13 @@ var ChatApp = (function() {
             '</div>';
         }
 
+        var summaryHtml = summary ? ('<span class="tool-arg">' +
+            MarkdownRenderer.escapeHtml(summary) + '</span>') : '';
         return '<div class="chat-tool-invocation-part" data-call-id="' + callId + '">' +
             '<div class="progress-step' + streamingClass + '">' +
                 icon +
                 '<span class="step-label">' + MarkdownRenderer.escapeHtml(title) + '</span>' +
+                summaryHtml +
             '</div>' +
             detailHtml +
             confirmHtml +
@@ -425,12 +597,12 @@ var ChatApp = (function() {
     }
 
     function renderConfirmationPart(part) {
-        var callId = MarkdownRenderer.escapeHtml(part.toolCallId || '');
+        var callId = MarkdownRenderer.escapeHtml(toolCallIdOf(part));
         return '<div class="chat-confirmation-widget" data-type="confirmation" data-call-id="' + callId + '">' +
             '<div class="confirmation-title">' +
-                MarkdownRenderer.escapeHtml(part.confirmTitle || 'Confirm') + '</div>' +
+                MarkdownRenderer.escapeHtml(part.confirmTitle || part.confirmationTitle || part.title || 'Confirm') + '</div>' +
             '<div class="confirmation-msg">' +
-                MarkdownRenderer.escapeHtml(part.confirmMessage || '') + '</div>' +
+                MarkdownRenderer.escapeHtml(part.confirmMessage || part.confirmationMessage || part.message || '') + '</div>' +
             '<div class="confirmation-actions">' +
                 '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
                     callId + '\', 1)">Allow</button>' +
@@ -442,20 +614,20 @@ var ChatApp = (function() {
 
     function renderWarningPart(part) {
         return '<div class="warning-box" data-type="warning">' +
-            MarkdownRenderer.escapeHtml(part.warningText || part.markdownText || '') +
+            MarkdownRenderer.escapeHtml(part.warningText || part.text || part.markdownText || '') +
         '</div>';
     }
 
     function renderErrorPart(part) {
         return '<div class="error-box" data-type="error">' +
-            MarkdownRenderer.escapeHtml(part.errorText || part.markdownText || '') +
+            MarkdownRenderer.escapeHtml(part.errorText || part.text || part.markdownText || '') +
         '</div>';
     }
 
     function renderProgressPart(part) {
         return '<div class="progress-box" data-type="progress">' +
             '<div class="progress-spinner"></div>' +
-            '<span>' + MarkdownRenderer.escapeHtml(part.progressLabel || 'Working...') + '</span>' +
+            '<span>' + MarkdownRenderer.escapeHtml(part.progressLabel || part.label || 'Working...') + '</span>' +
         '</div>';
     }
 
@@ -478,6 +650,26 @@ var ChatApp = (function() {
         '</button>';
     }
 
+    function renderReferences(refs) {
+        if (!refs || refs.length === 0) return '';
+        var html = '<div class="chat-used-context">' +
+            '<div class="chat-used-context-label">Context</div>' +
+            '<div class="chat-used-context-list">';
+        for (var i = 0; i < refs.length; i++) {
+            var r = refs[i] || {};
+            var label = r.label || '';
+            var tip = r.tooltip || '';
+            var path = r.filePath || '';
+            var click = path ? (' onclick="ChatApp._openContext(' +
+                JSON.stringify(path) + ')"') : '';
+            html += '<span class="context-chip"' + click +
+                (tip ? (' title="' + MarkdownRenderer.escapeHtml(tip) + '"') : '') +
+                '>' + MarkdownRenderer.escapeHtml(label) + '</span>';
+        }
+        html += '</div></div>';
+        return html;
+    }
+
     // Type → renderer dispatch
     var partRenderers = {
         0: renderMarkdownPart,
@@ -493,8 +685,24 @@ var ChatApp = (function() {
         10: renderCommandButtonPart
     };
 
+    var partRenderersByName = {
+        markdown: renderMarkdownPart,
+        thinking: renderThinkingPart,
+        toolInvocation: renderToolInvocationPart,
+        workspaceEdit: renderWorkspaceEditPart,
+        followup: renderFollowupsPart,
+        followups: renderFollowupsPart,
+        confirmation: renderConfirmationPart,
+        warning: renderWarningPart,
+        error: renderErrorPart,
+        progress: renderProgressPart,
+        fileTree: renderFileTreePart,
+        commandButton: renderCommandButtonPart
+    };
+
     function renderContentPart(part, streaming) {
-        var renderer = partRenderers[part.type];
+        var t = part.type;
+        var renderer = partRenderers[t] || partRenderersByName[t];
         if (renderer) return renderer(part, streaming);
         return '<div class="warning-box">Unknown part type: ' + part.type + '</div>';
     }
@@ -544,6 +752,9 @@ var ChatApp = (function() {
             '</div>';
 
             html += '<div class="value" id="parts-' + turnIndex + '">';
+            if (turn.references && turn.references.length > 0) {
+                html += renderReferences(turn.references);
+            }
             var turnIsStreaming = (turn.state === 0);
             for (var i = 0; i < parts.length; i++) {
                 var isLast = (i === parts.length - 1);
@@ -732,16 +943,22 @@ var ChatApp = (function() {
         var toolPart = partsEl.querySelector('[data-call-id="' + callId + '"]');
         if (!toolPart) return;
 
+        if (isTerminalTool(stateJson)) {
+            toolPart.outerHTML = renderTerminalToolPart(stateJson);
+            return;
+        }
+
         // Update icon
         var stepEl = toolPart.querySelector('.progress-step');
         if (stepEl) {
             var iconEl = stepEl.querySelector('.step-icon');
-            if (iconEl && stateJson.toolState !== undefined) {
-                iconEl.outerHTML = stepIconHtml(stateJson.toolState);
+            var st = toolStateOf(stateJson);
+            if (iconEl && st !== undefined) {
+                iconEl.outerHTML = stepIconHtml(st);
             }
 
             // Update streaming class
-            if (stateJson.toolState === 1) {
+            if (st === 1) {
                 stepEl.classList.add('is-streaming');
             } else {
                 stepEl.classList.remove('is-streaming');
@@ -749,30 +966,33 @@ var ChatApp = (function() {
         }
 
         // Update label
-        if (stateJson.toolPastTenseMsg) {
+        if (toolPastTenseMsgOf(stateJson)) {
             var labelEl = toolPart.querySelector('.step-label');
-            if (labelEl) labelEl.textContent = stateJson.toolPastTenseMsg;
+            if (labelEl) labelEl.textContent = toolPastTenseMsgOf(stateJson);
         }
 
         // Update or create tool detail
-        if (stateJson.toolOutput || stateJson.toolInput) {
+        var stInput = toolInputOf(stateJson);
+        var stOutput = toolOutputOf(stateJson);
+        if (stOutput || stInput) {
             var detailContainer = toolPart.querySelector('.tool-detail-container');
             if (!detailContainer) {
+                var formattedInput = stInput ? formatToolInput(toolNameOf(stateJson), stInput) : '';
                 var detailHtml = '<div class="tool-detail-container">' +
                     '<button class="tool-detail-toggle" onclick="ChatApp._toggleToolDetail(this)">' +
                         '<span>&#x25B6;</span> Details' +
                     '</button>' +
                     '<div class="tool-detail-body hidden">';
-                if (stateJson.toolInput) {
+                if (stInput) {
                     detailHtml += '<div class="tool-detail-section">' +
                         '<div class="detail-label">Input</div>' +
-                        MarkdownRenderer.escapeHtml(stateJson.toolInput) +
+                        '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(formattedInput) + '</pre>' +
                     '</div>';
                 }
-                if (stateJson.toolOutput) {
+                if (stOutput) {
                     detailHtml += '<div class="tool-detail-section">' +
                         '<div class="detail-label">Output</div>' +
-                        MarkdownRenderer.escapeHtml(stateJson.toolOutput) +
+                        '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(stOutput) + '</pre>' +
                     '</div>';
                 }
                 detailHtml += '</div></div>';
@@ -781,16 +1001,17 @@ var ChatApp = (function() {
                 var bodyEl = detailContainer.querySelector('.tool-detail-body');
                 if (bodyEl) {
                     var newDetailHtml = '';
-                    if (stateJson.toolInput) {
+                    if (stInput) {
+                        var formattedInput2 = formatToolInput(toolNameOf(stateJson), stInput);
                         newDetailHtml += '<div class="tool-detail-section">' +
                             '<div class="detail-label">Input</div>' +
-                            MarkdownRenderer.escapeHtml(stateJson.toolInput) +
+                            '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(formattedInput2) + '</pre>' +
                         '</div>';
                     }
-                    if (stateJson.toolOutput) {
+                    if (stOutput) {
                         newDetailHtml += '<div class="tool-detail-section">' +
                             '<div class="detail-label">Output</div>' +
-                            MarkdownRenderer.escapeHtml(stateJson.toolOutput) +
+                            '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(stOutput) + '</pre>' +
                         '</div>';
                     }
                     bodyEl.innerHTML = newDetailHtml;
@@ -799,7 +1020,8 @@ var ChatApp = (function() {
         }
 
         // Remove confirmation widget if tool is now complete
-        if (stateJson.toolState === 3 || stateJson.toolState === 4) {
+        var st = toolStateOf(stateJson);
+        if (st === 3 || st === 4) {
             var confirmWidget = toolPart.querySelector('.chat-confirmation-widget');
             if (confirmWidget) confirmWidget.remove();
         }
@@ -1266,6 +1488,10 @@ var ChatApp = (function() {
     };
 
     api._fileClick = function(path) {
+        if (window.exorcist) window.exorcist.sendToHost('fileClicked', { path: path });
+    };
+
+    api._openContext = function(path) {
         if (window.exorcist) window.exorcist.sendToHost('fileClicked', { path: path });
     };
 

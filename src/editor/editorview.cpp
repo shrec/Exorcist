@@ -1,6 +1,8 @@
 #include "editorview.h"
 #include "minimapwidget.h"
+#include "multicursorengine.h"
 #include "piecetablebuffer.h"
+#include "vimhandler.h"
 
 #include <QCheckBox>
 #include <QContextMenuEvent>
@@ -202,7 +204,8 @@ EditorView::EditorView(QWidget *parent)
       m_findBar(new FindBar(this)),
       m_isLargeFilePreview(false),
       m_isLoadingChunk(false),
-      m_buffer(std::make_unique<PieceTableBuffer>())
+      m_buffer(std::make_unique<PieceTableBuffer>()),
+      m_multiCursor(std::make_unique<MultiCursorEngine>())
 {
     setLineWrapMode(QPlainTextEdit::NoWrap);
     setTabStopDistance(4 * fontMetrics().horizontalAdvance(' '));
@@ -237,6 +240,10 @@ EditorView::EditorView(QWidget *parent)
                 }
                 m_bufferSyncing = false;
             });
+
+    m_multiCursor->setDocument(document());
+
+    m_vimHandler = std::make_unique<VimHandler>(this, this);
 
     updateLineNumberAreaWidth(0);
     highlightCurrentLine();
@@ -361,6 +368,12 @@ void EditorView::resizeEvent(QResizeEvent *event)
 
 void EditorView::keyPressEvent(QKeyEvent *event)
 {
+    // ── Vim handler (highest priority when enabled) ──────────────────────
+    if (m_vimHandler && m_vimHandler->isEnabled()) {
+        if (m_vimHandler->handleKeyPress(event))
+            return;
+    }
+
     if (event->key() == Qt::Key_F && event->modifiers() == Qt::ControlModifier) {
         m_findBar->isVisible() ? hideFindBar() : showFindBar();
         return;
@@ -368,6 +381,74 @@ void EditorView::keyPressEvent(QKeyEvent *event)
     if (event->key() == Qt::Key_Escape && m_findBar->isVisible()) {
         hideFindBar();
         return;
+    }
+
+    // ── Multi-cursor keybindings ──────────────────────────────────────────
+
+    // Escape — clear secondary cursors (before ghost text check)
+    if (event->key() == Qt::Key_Escape && m_multiCursor->hasMultipleCursors()) {
+        m_multiCursor->clearSecondaryCursors();
+        setTextCursor(m_multiCursor->primaryCursor());
+        viewport()->update();
+        event->accept();
+        return;
+    }
+
+    // Ctrl+D — select next occurrence
+    if (event->key() == Qt::Key_D && event->modifiers() == Qt::ControlModifier) {
+        syncPrimaryCursorToEngine();
+        if (m_multiCursor->addCursorAtNextOccurrence()) {
+            // Show the last-added cursor by scrolling to it
+            auto curs = m_multiCursor->cursors();
+            if (!curs.empty()) {
+                QTextCursor last = curs.back();
+                setTextCursor(last);
+            }
+            viewport()->update();
+        }
+        event->accept();
+        return;
+    }
+
+    // Ctrl+Shift+L — select all occurrences
+    if (event->key() == Qt::Key_L &&
+        event->modifiers() == (Qt::ControlModifier | Qt::ShiftModifier)) {
+        syncPrimaryCursorToEngine();
+        m_multiCursor->addCursorsAtAllOccurrences();
+        viewport()->update();
+        event->accept();
+        return;
+    }
+
+    // ── Multi-cursor text dispatch ────────────────────────────────────────
+    if (m_multiCursor->hasMultipleCursors()) {
+        // Route text-modifying keys through the engine
+        if (event->key() == Qt::Key_Backspace && event->modifiers() == Qt::NoModifier) {
+            document()->blockSignals(false);
+            m_multiCursor->backspace();
+            viewport()->update();
+            event->accept();
+            return;
+        }
+        if (event->key() == Qt::Key_Delete && event->modifiers() == Qt::NoModifier) {
+            m_multiCursor->deleteChar();
+            viewport()->update();
+            event->accept();
+            return;
+        }
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+            m_multiCursor->insertText(QStringLiteral("\n"));
+            viewport()->update();
+            event->accept();
+            return;
+        }
+        // Regular text input
+        if (!event->text().isEmpty() && event->text().at(0).isPrint()) {
+            m_multiCursor->insertText(event->text());
+            viewport()->update();
+            event->accept();
+            return;
+        }
     }
 
     // Ctrl+I — inline AI chat
@@ -601,6 +682,74 @@ void EditorView::keyPressEvent(QKeyEvent *event)
     }
 
     QPlainTextEdit::keyPressEvent(event);
+}
+
+// ── Mouse event handlers for multi-cursor ─────────────────────────────────────
+
+void EditorView::mousePressEvent(QMouseEvent *event)
+{
+    // Alt+Click — add a cursor at the click position
+    if (event->button() == Qt::LeftButton &&
+        event->modifiers() == Qt::AltModifier)
+    {
+        syncPrimaryCursorToEngine();
+        QTextCursor clickCur = cursorForPosition(event->pos());
+        m_multiCursor->addCursor(clickCur.position());
+        viewport()->update();
+        event->accept();
+        return;
+    }
+
+    // Alt+Drag — start rectangular/column selection
+    if (event->button() == Qt::LeftButton &&
+        event->modifiers() == (Qt::AltModifier | Qt::ShiftModifier))
+    {
+        m_altDragging = true;
+        m_altDragStart = event->pos();
+        event->accept();
+        return;
+    }
+
+    // Regular click clears multi-cursors
+    if (event->button() == Qt::LeftButton && m_multiCursor->hasMultipleCursors() &&
+        !(event->modifiers() & Qt::AltModifier))
+    {
+        m_multiCursor->clearAll();
+    }
+
+    QPlainTextEdit::mousePressEvent(event);
+}
+
+void EditorView::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_altDragging) {
+        // Update rectangular selection in real-time
+        QTextCursor startCur = cursorForPosition(m_altDragStart);
+        QTextCursor endCur   = cursorForPosition(event->pos());
+
+        int startLine = startCur.blockNumber();
+        int startCol  = startCur.positionInBlock();
+        int endLine   = endCur.blockNumber();
+        int endCol    = endCur.positionInBlock();
+
+        m_multiCursor->setRectangularSelection(startLine, startCol, endLine, endCol);
+        viewport()->update();
+        event->accept();
+        return;
+    }
+
+    QPlainTextEdit::mouseMoveEvent(event);
+}
+
+void EditorView::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (m_altDragging && event->button() == Qt::LeftButton) {
+        m_altDragging = false;
+        event->accept();
+        return;
+    }
+
+    QPlainTextEdit::mouseReleaseEvent(event);
 }
 
 void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
@@ -1114,6 +1263,12 @@ void EditorView::paintEvent(QPaintEvent *event)
     // Draw the normal editor content first
     QPlainTextEdit::paintEvent(event);
 
+    // Draw secondary multi-cursor carets and selections
+    if (m_multiCursor->hasMultipleCursors()) {
+        QPainter painter(viewport());
+        paintMultiCursors(painter);
+    }
+
     if (m_ghostText.isEmpty() || m_ghostBlock < 0)
         return;
 
@@ -1507,5 +1662,93 @@ void EditorView::lineNumberAreaMousePress(QMouseEvent *event)
         block = block.next();
         top = bottom;
         bottom = top + qRound(blockBoundingRect(block).height());
+    }
+}
+
+// ── Multi-cursor helpers ──────────────────────────────────────────────────────
+
+MultiCursorEngine *EditorView::multiCursorEngine() const
+{
+    return m_multiCursor.get();
+}
+
+VimHandler *EditorView::vimHandler() const
+{
+    return m_vimHandler.get();
+}
+
+bool EditorView::hasMultipleCursors() const
+{
+    return m_multiCursor->hasMultipleCursors();
+}
+
+void EditorView::syncPrimaryCursorToEngine()
+{
+    // Ensure the engine knows about the current editor cursor as primary.
+    if (m_multiCursor->cursorCount() == 0)
+        m_multiCursor->setPrimaryCursor(textCursor());
+    else {
+        // Update the primary cursor position from the editor widget.
+        auto curs = m_multiCursor->cursors();
+        bool found = false;
+        QTextCursor editorCur = textCursor();
+        for (auto &c : curs) {
+            if (c.position() == editorCur.position() &&
+                c.anchor() == editorCur.anchor()) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            m_multiCursor->setPrimaryCursor(editorCur);
+    }
+}
+
+void EditorView::paintMultiCursors(QPainter &painter)
+{
+    if (!m_multiCursor->hasMultipleCursors())
+        return;
+
+    painter.setRenderHint(QPainter::Antialiasing, false);
+
+    const QFontMetrics fm(font());
+    const int cursorWidth = 2;
+    const QColor cursorColor(0xAE, 0xAF, 0xAD);          // light gray caret
+    const QColor selectionColor(38, 79, 120, 160);         // blue selection with alpha
+
+    for (auto &cur : m_multiCursor->cursors()) {
+        QTextBlock block = document()->findBlock(cur.position());
+        if (!block.isValid())
+            continue;
+
+        const QRectF blockGeo = blockBoundingGeometry(block).translated(contentOffset());
+        const int col = cur.position() - block.position();
+        const int xPos = fm.horizontalAdvance(block.text().left(col));
+
+        // Draw selection background if cursor has a selection
+        if (cur.hasSelection()) {
+            int selStart = qMin(cur.anchor(), cur.position());
+            int selEnd   = qMax(cur.anchor(), cur.position());
+
+            // Iterate through blocks in the selection
+            QTextBlock selBlock = document()->findBlock(selStart);
+            while (selBlock.isValid() && selBlock.position() < selEnd) {
+                const QRectF selBlockGeo = blockBoundingGeometry(selBlock).translated(contentOffset());
+                int startInBlock = qMax(selStart - selBlock.position(), 0);
+                int endInBlock   = qMin(selEnd - selBlock.position(), selBlock.length() - 1);
+
+                int x1 = fm.horizontalAdvance(selBlock.text().left(startInBlock));
+                int x2 = fm.horizontalAdvance(selBlock.text().left(endInBlock));
+
+                QRectF selRect(x1, selBlockGeo.top(), x2 - x1, selBlockGeo.height());
+                painter.fillRect(selRect, selectionColor);
+
+                selBlock = selBlock.next();
+            }
+        }
+
+        // Draw caret line
+        QRectF caretRect(xPos, blockGeo.top(), cursorWidth, blockGeo.height());
+        painter.fillRect(caretRect, cursorColor);
     }
 }

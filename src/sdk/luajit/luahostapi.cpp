@@ -209,8 +209,22 @@ int LuaHostAPI::l_command_register(lua_State *L)
     auto *host = getHost(L);
     if (!host || !host->commands()) return 0;
 
+    // Track the command ID in a registry table so reloadSinglePlugin()
+    // can unregister all commands before lua_close().
+    lua_getfield(L, LUA_REGISTRYINDEX, "_registered_commands");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushvalue(L, -1);
+        lua_setfield(L, LUA_REGISTRYINDEX, "_registered_commands");
+    }
+    const int tblLen = static_cast<int>(lua_objlen(L, -1));
+    pushQString(L, id);
+    lua_rawseti(L, -2, tblLen + 1);
+    lua_pop(L, 1);  // pop the table
+
     // Capture L and the ref for the C++ lambda.
-    // Note: this is safe because the lua_State outlives the command registration.
+    // Safe because reloadSinglePlugin() unregisters commands before lua_close().
     lua_State *capturedL = L;
     host->commands()->registerCommand(id, title, [capturedL, callbackRef]() {
         lua_rawgeti(capturedL, LUA_REGISTRYINDEX, callbackRef);

@@ -11,18 +11,36 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QCoreApplication>
-#include <Ultralight/platform/Platform.h>
+#include <QDir>
+#include <QFile>
+#include <QShowEvent>
+#include <QTimer>
+#include <QUrl>
 
 #include <JavaScriptCore/JavaScript.h>
 
+#include <QHash>
+
 namespace exorcist {
+
+// ── Context → Widget map (JSObjectGetPrivate on global object is unreliable) ─
+static QHash<JSContextGroupRef, UltralightWidget *> s_ctxWidgetMap;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-static ultralight::String toULString(const QString &s)
+static ULString toULString(const QString &s)
 {
-    return ultralight::String16(
-        reinterpret_cast<const ultralight::Char16 *>(s.utf16()), s.size());
+    const QByteArray utf8 = s.toUtf8();
+    return ulCreateStringUTF8(utf8.constData(), utf8.size());
+}
+
+static QString fromULString(ULString s)
+{
+    if (!s)
+        return {};
+    return QString::fromUtf8(
+        ulStringGetData(s),
+        static_cast<int>(ulStringGetLength(s)));
 }
 
 static QString fromJSString(JSContextRef ctx, JSStringRef jsStr)
@@ -33,29 +51,95 @@ static QString fromJSString(JSContextRef ctx, JSStringRef jsStr)
     return QString::fromUtf8(buf.constData());
 }
 
+// ── Static Callbacks ─────────────────────────────────────────────────────────
+
+static void ulDOMReadyCallback(void *userData, ULView /*caller*/,
+                               unsigned long long frameId,
+                               bool isMainFrame, ULString /*url*/)
+{
+    auto *widget = static_cast<UltralightWidget *>(userData);
+    widget->onDOMReady(frameId, isMainFrame);
+}
+
+static void ulBeginLoadingCallback(void *userData, ULView /*caller*/,
+                                   unsigned long long /*frameId*/,
+                                   bool isMainFrame, ULString url)
+{
+    if (!isMainFrame)
+        return;
+    const QString qUrl = fromULString(url);
+    qWarning().noquote() << "UltralightWidget: begin loading" << qUrl;
+    Q_UNUSED(userData)
+}
+
+static void ulFinishLoadingCallback(void *userData, ULView /*caller*/,
+                                    unsigned long long /*frameId*/,
+                                    bool isMainFrame, ULString url)
+{
+    if (!isMainFrame)
+        return;
+    const QString qUrl = fromULString(url);
+    qWarning().noquote() << "UltralightWidget: finish loading" << qUrl;
+    Q_UNUSED(userData)
+}
+
+static void ulFailLoadingCallback(void *userData, ULView /*caller*/,
+                                  unsigned long long /*frameId*/,
+                                  bool isMainFrame, ULString url, ULString description,
+                                  ULString errorDomain, int errorCode)
+{
+    if (!isMainFrame)
+        return;
+    const QString qUrl = fromULString(url);
+    const QString desc = fromULString(description);
+    const QString domain = fromULString(errorDomain);
+    qWarning().noquote() << "UltralightWidget: load failed url=" << qUrl
+                         << "error=" << desc << "domain=" << domain
+                         << "code=" << errorCode;
+    Q_UNUSED(userData)
+}
+
+static void ulConsoleCallback(void *userData, ULView /*caller*/, ULMessageSource /*source*/,
+                              ULMessageLevel /*level*/, ULString message,
+                              unsigned int lineNumber, unsigned int columnNumber,
+                              ULString sourceId)
+{
+    const QString msg = fromULString(message);
+    const QString src = fromULString(sourceId);
+    qWarning().noquote() << "UltralightWidget console:" << msg
+                         << "(" << src << ":" << lineNumber << ":" << columnNumber << ")";
+    Q_UNUSED(userData)
+}
+
 // ── Constructor / Destructor ─────────────────────────────────────────────────
 
 UltralightWidget::UltralightWidget(QWidget *parent)
     : QWidget(parent)
 {
     setAttribute(Qt::WA_OpaquePaintEvent);
-    setAttribute(Qt::WA_InputMethodEnabled);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
 
     initView();
 
-    // Tick timer: drives Ultralight's update + render at 60fps
+    // Tick timer: drives Ultralight's update + render at ~60fps.
+    // Starts paused — activated by loadHTML/loadURL.
     m_tickTimer = new QTimer(this);
-    m_tickTimer->setInterval(16); // ~60fps
+    m_tickTimer->setInterval(16);
     connect(m_tickTimer, &QTimer::timeout, this, &UltralightWidget::tick);
-    m_tickTimer->start();
 }
 
 UltralightWidget::~UltralightWidget()
 {
     if (m_tickTimer)
         m_tickTimer->stop();
+    if (m_view) {
+        // Remove from context map before destroying the view
+        JSContextRef ctx = ulViewLockJSContext(m_view);
+        s_ctxWidgetMap.remove(JSContextGetGroup(ctx));
+        ulViewUnlockJSContext(m_view);
+        ulDestroyView(m_view);
+    }
     m_view = nullptr;
 }
 
@@ -63,42 +147,51 @@ void UltralightWidget::initView()
 {
     auto &engine = UltralightEngine::instance();
     if (!engine.isInitialized()) {
-        // Auto-initialize with default resource path next to executable
         const QString resPath = QCoreApplication::applicationDirPath()
                                 + QStringLiteral("/ultralight-resources/");
         engine.initialize(resPath);
     }
 
-    auto renderer = engine.renderer();
+    ULRenderer renderer = engine.renderer();
     if (!renderer)
         return;
 
-    ultralight::ViewConfig config;
-    config.is_accelerated = false; // CPU rendering
-    config.is_transparent = false;
+    ULViewConfig config = ulCreateViewConfig();
+    ulViewConfigSetIsAccelerated(config, false); // CPU rendering
+    ulViewConfigSetIsTransparent(config, false);
 
-    const int w = qMax(width(), 100);
-    const int h = qMax(height(), 100);
+    const unsigned int w = static_cast<unsigned int>(qMax(width(), 100));
+    const unsigned int h = static_cast<unsigned int>(qMax(height(), 100));
 
-    m_view = renderer->CreateView(w, h, config, nullptr);
-    m_view->set_load_listener(this);
-    m_view->set_view_listener(this);
+    m_view = ulCreateView(renderer, w, h, config, nullptr);
+    ulDestroyViewConfig(config);
 
-    m_bitmap = QImage(w, h, QImage::Format_ARGB32_Premultiplied);
+    // Register DOMReady callback
+    ulViewSetDOMReadyCallback(m_view, ulDOMReadyCallback, this);
+    ulViewSetBeginLoadingCallback(m_view, ulBeginLoadingCallback, this);
+    ulViewSetFinishLoadingCallback(m_view, ulFinishLoadingCallback, this);
+    ulViewSetFailLoadingCallback(m_view, ulFailLoadingCallback, this);
+    ulViewSetAddConsoleMessageCallback(m_view, ulConsoleCallback, this);
+
+    m_bitmap = QImage(static_cast<int>(w), static_cast<int>(h),
+                      QImage::Format_ARGB32_Premultiplied);
     m_bitmap.fill(Qt::black);
 }
 
 // ── HTML Loading ─────────────────────────────────────────────────────────────
 
-void UltralightWidget::loadHTML(const QString &html, const QString &baseUrl)
+void UltralightWidget::loadHTML(const QString &html, const QString & /*baseUrl*/)
 {
     if (!m_view)
         return;
     m_domReady = false;
-    const auto ulBase = baseUrl.isEmpty()
-                            ? ultralight::String("file:///")
-                            : toULString(baseUrl);
-    m_view->LoadHTML(toULString(html), ulBase);
+
+    // Both ulViewLoadHTML and file:// URLs crash in Ultralight 1.4 beta.
+    // Strategy: load about:blank (safe), then inject the full HTML via JS
+    // once DOM is ready.  Scripts injected via innerHTML don't execute,
+    // so we parse <style>/<script> tags and create real DOM elements.
+    m_pendingHtml = html;
+    loadURL(QStringLiteral("about:blank"));
 }
 
 void UltralightWidget::loadURL(const QString &url)
@@ -106,7 +199,11 @@ void UltralightWidget::loadURL(const QString &url)
     if (!m_view)
         return;
     m_domReady = false;
-    m_view->LoadURL(toULString(url));
+    ULString ulUrl = toULString(url);
+    ulViewLoadURL(m_view, ulUrl);
+    ulDestroyString(ulUrl);
+    if (m_tickTimer && !m_tickTimer->isActive())
+        m_tickTimer->start();
 }
 
 // ── JS Evaluation ────────────────────────────────────────────────────────────
@@ -119,7 +216,16 @@ void UltralightWidget::evaluateScript(const QString &js)
     }
     if (!m_view)
         return;
-    m_view->EvaluateScript(toULString(js));
+    ULString ulJs = toULString(js);
+    ULString exception = nullptr;
+    ulViewEvaluateScript(m_view, ulJs, &exception);
+    if (exception && ulStringGetLength(exception) > 0) {
+        const QString errMsg = fromULString(exception);
+        const QString snippet = js.left(120);
+        qWarning("UltralightWidget JS error: %s\n  script: %s",
+                 qPrintable(errMsg), qPrintable(snippet));
+    }
+    ulDestroyString(ulJs);
 }
 
 void UltralightWidget::registerJSCallback(const QString &type,
@@ -132,47 +238,130 @@ void UltralightWidget::registerJSCallback(const QString &type,
 
 void UltralightWidget::tick()
 {
-    auto renderer = UltralightEngine::instance().renderer();
+    ULRenderer renderer = UltralightEngine::instance().renderer();
     if (!renderer || !m_view)
         return;
 
-    renderer->Update();
-    renderer->Render();
+    if (!m_loggedTick) {
+        m_loggedTick = true;
+        qWarning("UltralightWidget: tick running (firstPaint=%d)", m_loggedFirstPaint ? 1 : 0);
+    }
+
+    if (m_view && width() > 0 && height() > 0) {
+        const unsigned int vw = ulViewGetWidth(m_view);
+        const unsigned int vh = ulViewGetHeight(m_view);
+        if (vw != static_cast<unsigned int>(width()) ||
+            vh != static_cast<unsigned int>(height())) {
+            if (!m_loggedResizeMismatch) {
+                m_loggedResizeMismatch = true;
+                qWarning("UltralightWidget: view resize %ux%u -> %dx%d",
+                         vw, vh, width(), height());
+            }
+            ulViewResize(m_view,
+                         static_cast<unsigned int>(width()),
+                         static_cast<unsigned int>(height()));
+            ulViewSetNeedsPaint(m_view, true);
+        }
+    }
+
+    if (!m_loggedFirstPaint)
+        ulViewSetNeedsPaint(m_view, true);
+
+    ulUpdate(renderer);
+    ulRender(renderer);
+
+    if (!m_loggedFirstPaint) {
+        qWarning("UltralightWidget: tick pre-updateBitmap");
+        updateBitmap();
+        update();
+        return;
+    }
 
     // Check if the view surface has changed
-    auto *surface = static_cast<ultralight::BitmapSurface *>(m_view->surface());
-    if (surface && !surface->dirty_bounds().IsEmpty()) {
-        updateBitmap();
-        surface->ClearDirtyBounds();
-        update(); // schedule paintEvent
+    ULSurface surface = ulViewGetSurface(m_view);
+    if (!surface && !m_loggedNoSurface) {
+        m_loggedNoSurface = true;
+        qWarning("UltralightWidget: no surface available");
+    }
+    if (surface) {
+        ULIntRect dirty = ulSurfaceGetDirtyBounds(surface);
+        if (dirty.right > dirty.left && dirty.bottom > dirty.top) {
+            updateBitmap();
+            ulSurfaceClearDirtyBounds(surface);
+            update(); // schedule paintEvent
+        }
     }
 }
 
 void UltralightWidget::updateBitmap()
 {
-    auto *surface = static_cast<ultralight::BitmapSurface *>(m_view->surface());
-    if (!surface)
+    if (!m_loggedUpdateBitmap) {
+        m_loggedUpdateBitmap = true;
+        qWarning("UltralightWidget: updateBitmap called");
+    }
+    ULSurface surface = ulViewGetSurface(m_view);
+    if (!surface) {
+        if (!m_loggedNoSurface) {
+            m_loggedNoSurface = true;
+            qWarning("UltralightWidget: updateBitmap no surface");
+        }
         return;
+    }
 
-    auto bitmap = surface->bitmap();
-    void *pixels = bitmap->LockPixels();
-    const uint32_t w = bitmap->width();
-    const uint32_t h = bitmap->height();
-    const uint32_t stride = bitmap->row_bytes();
+    ULBitmap bitmap = ulBitmapSurfaceGetBitmap(surface);
+    if (!bitmap) {
+        if (!m_loggedNoBitmap) {
+            m_loggedNoBitmap = true;
+            qWarning("UltralightWidget: updateBitmap no bitmap");
+        }
+        return;
+    }
+
+    void *pixels = ulBitmapLockPixels(bitmap);
+    if (!pixels) {
+        if (!m_loggedNoPixels) {
+            m_loggedNoPixels = true;
+            qWarning("UltralightWidget: updateBitmap no pixels");
+        }
+        ulBitmapUnlockPixels(bitmap);
+        return;
+    }
+
+    const unsigned int w = ulBitmapGetWidth(bitmap);
+    const unsigned int h = ulBitmapGetHeight(bitmap);
+    const unsigned int srcStride = ulBitmapGetRowBytes(bitmap);
+
+    if (w == 0 || h == 0) {
+        if (!m_loggedZeroSize) {
+            m_loggedZeroSize = true;
+            qWarning("UltralightWidget: updateBitmap zero size w=%u h=%u", w, h);
+        }
+        ulBitmapUnlockPixels(bitmap);
+        return;
+    }
 
     if (m_bitmap.width() != static_cast<int>(w) ||
         m_bitmap.height() != static_cast<int>(h))
         m_bitmap = QImage(static_cast<int>(w), static_cast<int>(h),
                           QImage::Format_ARGB32_Premultiplied);
 
-    // Copy BGRA pixels row by row (Ultralight uses BGRA premultiplied alpha)
-    for (uint32_t y = 0; y < h; ++y) {
-        const auto *src = static_cast<const uint8_t *>(pixels) + y * stride;
+    const unsigned int dstStride = static_cast<unsigned int>(m_bitmap.bytesPerLine());
+    const unsigned int copyBytes = qMin(srcStride, dstStride);
+
+    // Copy BGRA pixels row by row (Ultralight uses BGRA premultiplied alpha,
+    // which matches QImage::Format_ARGB32_Premultiplied on little-endian)
+    for (unsigned int y = 0; y < h; ++y) {
+        const auto *src = static_cast<const uint8_t *>(pixels) + y * srcStride;
         auto *dst = m_bitmap.scanLine(static_cast<int>(y));
-        memcpy(dst, src, w * 4);
+        memcpy(dst, src, copyBytes);
     }
 
-    bitmap->UnlockPixels();
+    ulBitmapUnlockPixels(bitmap);
+
+    if (!m_loggedFirstPaint) {
+        m_loggedFirstPaint = true;
+        qWarning("UltralightWidget: first paint %ux%u", w, h);
+    }
 }
 
 void UltralightWidget::paintEvent(QPaintEvent * /*event*/)
@@ -185,102 +374,123 @@ void UltralightWidget::paintEvent(QPaintEvent * /*event*/)
 void UltralightWidget::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
+    qWarning("UltralightWidget: resizeEvent %dx%d", width(), height());
     if (m_view && width() > 0 && height() > 0) {
-        m_view->Resize(static_cast<uint32_t>(width()),
-                       static_cast<uint32_t>(height()));
-        m_bitmap = QImage(width(), height(), QImage::Format_ARGB32_Premultiplied);
-        m_bitmap.fill(Qt::black);
+        ulViewResize(m_view,
+                     static_cast<unsigned int>(width()),
+                     static_cast<unsigned int>(height()));
+        ulViewSetNeedsPaint(m_view, true);
+    }
+}
+
+void UltralightWidget::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    if (m_view && width() > 0 && height() > 0) {
+        qWarning("UltralightWidget: showEvent resize %dx%d", width(), height());
+        ulViewResize(m_view,
+                     static_cast<unsigned int>(width()),
+                     static_cast<unsigned int>(height()));
+        ulViewSetNeedsPaint(m_view, true);
     }
 }
 
 // ── Mouse Events ─────────────────────────────────────────────────────────────
 
-ultralight::MouseEvent::Button UltralightWidget::qtButtonToUL(Qt::MouseButton btn)
+static ULMouseButton qtButtonToUL(Qt::MouseButton btn)
 {
     switch (btn) {
-    case Qt::LeftButton:   return ultralight::MouseEvent::kButton_Left;
-    case Qt::MiddleButton: return ultralight::MouseEvent::kButton_Middle;
-    case Qt::RightButton:  return ultralight::MouseEvent::kButton_Right;
-    default:               return ultralight::MouseEvent::kButton_None;
+    case Qt::LeftButton:   return kMouseButton_Left;
+    case Qt::MiddleButton: return kMouseButton_Middle;
+    case Qt::RightButton:  return kMouseButton_Right;
+    default:               return kMouseButton_None;
     }
 }
 
 void UltralightWidget::mousePressEvent(QMouseEvent *event)
 {
     if (!m_view) return;
-    ultralight::MouseEvent evt;
-    evt.type = ultralight::MouseEvent::kType_MouseDown;
-    evt.x = event->pos().x();
-    evt.y = event->pos().y();
-    evt.button = qtButtonToUL(event->button());
-    m_view->FireMouseEvent(evt);
+    ULMouseEvent evt = ulCreateMouseEvent(kMouseEventType_MouseDown,
+                                          event->pos().x(), event->pos().y(),
+                                          qtButtonToUL(event->button()));
+    ulViewFireMouseEvent(m_view, evt);
+    ulDestroyMouseEvent(evt);
     event->accept();
 }
 
 void UltralightWidget::mouseReleaseEvent(QMouseEvent *event)
 {
     if (!m_view) return;
-    ultralight::MouseEvent evt;
-    evt.type = ultralight::MouseEvent::kType_MouseUp;
-    evt.x = event->pos().x();
-    evt.y = event->pos().y();
-    evt.button = qtButtonToUL(event->button());
-    m_view->FireMouseEvent(evt);
+    ULMouseEvent evt = ulCreateMouseEvent(kMouseEventType_MouseUp,
+                                          event->pos().x(), event->pos().y(),
+                                          qtButtonToUL(event->button()));
+    ulViewFireMouseEvent(m_view, evt);
+    ulDestroyMouseEvent(evt);
     event->accept();
 }
 
 void UltralightWidget::mouseMoveEvent(QMouseEvent *event)
 {
     if (!m_view) return;
-    ultralight::MouseEvent evt;
-    evt.type = ultralight::MouseEvent::kType_MouseMoved;
-    evt.x = event->pos().x();
-    evt.y = event->pos().y();
-    evt.button = ultralight::MouseEvent::kButton_None;
-    m_view->FireMouseEvent(evt);
+    ULMouseEvent evt = ulCreateMouseEvent(kMouseEventType_MouseMoved,
+                                          event->pos().x(), event->pos().y(),
+                                          kMouseButton_None);
+    ulViewFireMouseEvent(m_view, evt);
+    ulDestroyMouseEvent(evt);
     event->accept();
 }
 
 void UltralightWidget::wheelEvent(QWheelEvent *event)
 {
     if (!m_view) return;
-    ultralight::ScrollEvent evt;
-    evt.type = ultralight::ScrollEvent::kType_ScrollByPixel;
-    evt.delta_x = event->angleDelta().x();
-    evt.delta_y = event->angleDelta().y();
-    m_view->FireScrollEvent(evt);
+    ULScrollEvent evt = ulCreateScrollEvent(kScrollEventType_ScrollByPixel,
+                                            event->angleDelta().x(),
+                                            event->angleDelta().y());
+    ulViewFireScrollEvent(m_view, evt);
+    ulDestroyScrollEvent(evt);
     event->accept();
 }
 
 // ── Keyboard Events ──────────────────────────────────────────────────────────
 
-ultralight::KeyEvent UltralightWidget::qtKeyToUL(QKeyEvent *event,
-                                                  ultralight::KeyEvent::Type type)
+static unsigned int qtModsToUL(Qt::KeyboardModifiers mods)
 {
-    ultralight::KeyEvent evt;
-    evt.type = type;
-    evt.virtual_key_code = event->nativeVirtualKey();
-    evt.native_key_code = event->nativeScanCode();
-    evt.modifiers = 0;
+    unsigned int m = 0;
+    if (mods & Qt::AltModifier)     m |= (1 << 0); // kMod_AltKey
+    if (mods & Qt::ControlModifier) m |= (1 << 1); // kMod_CtrlKey
+    if (mods & Qt::MetaModifier)    m |= (1 << 2); // kMod_MetaKey
+    if (mods & Qt::ShiftModifier)   m |= (1 << 3); // kMod_ShiftKey
+    return m;
+}
 
-    if (event->modifiers() & Qt::AltModifier)
-        evt.modifiers |= ultralight::KeyEvent::kMod_AltKey;
-    if (event->modifiers() & Qt::ControlModifier)
-        evt.modifiers |= ultralight::KeyEvent::kMod_CtrlKey;
-    if (event->modifiers() & Qt::ShiftModifier)
-        evt.modifiers |= ultralight::KeyEvent::kMod_ShiftKey;
-    if (event->modifiers() & Qt::MetaModifier)
-        evt.modifiers |= ultralight::KeyEvent::kMod_MetaKey;
-
-    // For char events, set the text
-    if (type == ultralight::KeyEvent::kType_Char && !event->text().isEmpty()) {
-        evt.text = toULString(event->text());
+static void fireKeyEvent(ULView view, QKeyEvent *event, ULKeyEventType type)
+{
+    ULString text = ulCreateStringUTF8("", 0);
+    ULString unmod = ulCreateStringUTF8("", 0);
+    if (type == kKeyEventType_Char && !event->text().isEmpty()) {
+        ulDestroyString(text);
+        ulDestroyString(unmod);
+        const QByteArray utf8 = event->text().toUtf8();
+        text = ulCreateStringUTF8(utf8.constData(), utf8.size());
+        unmod = ulCreateStringUTF8(utf8.constData(), utf8.size());
     }
 
-    ultralight::GetKeyIdentifierFromVirtualKeyCode(
-        evt.virtual_key_code, evt.key_identifier);
+    ULKeyEvent evt = ulCreateKeyEvent(
+        type,
+        qtModsToUL(event->modifiers()),
+        event->nativeVirtualKey(),
+        event->nativeScanCode(),
+        text,
+        unmod,
+        false,  // is_keypad
+        event->isAutoRepeat(),
+        false   // is_system_key
+    );
 
-    return evt;
+    ulViewFireKeyEvent(view, evt);
+    ulDestroyKeyEvent(evt);
+    ulDestroyString(text);
+    ulDestroyString(unmod);
 }
 
 void UltralightWidget::keyPressEvent(QKeyEvent *event)
@@ -288,11 +498,11 @@ void UltralightWidget::keyPressEvent(QKeyEvent *event)
     if (!m_view) return;
 
     // Fire RawKeyDown first
-    m_view->FireKeyEvent(qtKeyToUL(event, ultralight::KeyEvent::kType_RawKeyDown));
+    fireKeyEvent(m_view, event, kKeyEventType_RawKeyDown);
 
     // Then fire Char event if it produces text
     if (!event->text().isEmpty())
-        m_view->FireKeyEvent(qtKeyToUL(event, ultralight::KeyEvent::kType_Char));
+        fireKeyEvent(m_view, event, kKeyEventType_Char);
 
     event->accept();
 }
@@ -300,41 +510,134 @@ void UltralightWidget::keyPressEvent(QKeyEvent *event)
 void UltralightWidget::keyReleaseEvent(QKeyEvent *event)
 {
     if (!m_view) return;
-    m_view->FireKeyEvent(qtKeyToUL(event, ultralight::KeyEvent::kType_KeyUp));
+    fireKeyEvent(m_view, event, kKeyEventType_KeyUp);
     event->accept();
 }
 
 void UltralightWidget::focusInEvent(QFocusEvent *event)
 {
     QWidget::focusInEvent(event);
-    if (m_view) m_view->Focus();
+    if (m_view) ulViewFocus(m_view);
 }
 
 void UltralightWidget::focusOutEvent(QFocusEvent *event)
 {
     QWidget::focusOutEvent(event);
-    if (m_view) m_view->Unfocus();
+    if (m_view) ulViewUnfocus(m_view);
 }
 
 // ── Ultralight Callbacks ─────────────────────────────────────────────────────
 
-void UltralightWidget::OnDOMReady(ultralight::View * /*caller*/,
-                                  uint64_t /*frame_id*/,
-                                  bool is_main_frame,
-                                  const ultralight::String & /*url*/)
+void UltralightWidget::onDOMReady(unsigned long long /*frameId*/,
+                                  bool isMainFrame)
 {
-    if (!is_main_frame)
+    if (!isMainFrame)
         return;
 
+    // If we have pending HTML (from loadHTML workaround), inject it now
+    // via document.write().  This triggers a second DOM load cycle —
+    // onDOMReady will fire again with m_pendingHtml empty.
+    if (!m_pendingHtml.isEmpty()) {
+        const QString html = m_pendingHtml;
+        m_pendingHtml.clear();
+
+        // Use base64 + a JS bootstrap that:
+        //  1. Decodes the full HTML
+        //  2. Extracts <style> blocks and creates real <style> elements
+        //  3. Extracts <script> blocks and creates real <script> elements
+        //  4. Sets body innerHTML for everything else
+        // This is necessary because innerHTML does not execute <script> tags.
+        const QByteArray b64 = html.toUtf8().toBase64();
+        const QString inject = QStringLiteral(
+            "(function(){"
+            "  var html = atob('%1');"
+            // Extract and inject all <style> blocks
+            "  var styles = html.match(/<style[^>]*>[\\s\\S]*?<\\/style>/gi) || [];"
+            "  for(var i=0;i<styles.length;i++){"
+            "    var c = styles[i].replace(/<\\/?style[^>]*>/gi,'');"
+            "    var el = document.createElement('style');"
+            "    el.textContent = c;"
+            "    document.head.appendChild(el);"
+            "  }"
+            // Extract body content (between <body> and </body>)
+            "  var bodyMatch = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);"
+            "  var bodyHtml = bodyMatch ? bodyMatch[1] : html;"
+            // Separate scripts from body HTML
+            "  var scripts = [];"
+            "  bodyHtml = bodyHtml.replace(/<script[^>]*>([\\s\\S]*?)<\\/script>/gi,"
+            "    function(m, code){ scripts.push(code); return ''; });"
+            "  document.body.innerHTML = bodyHtml;"
+            // Create and execute script elements
+            "  for(var j=0;j<scripts.length;j++){"
+            "    var s = document.createElement('script');"
+            "    s.textContent = scripts[j];"
+            "    document.body.appendChild(s);"
+            "  }"
+            "})();").arg(QString::fromLatin1(b64));
+
+        ULString ulJs = toULString(inject);
+        ULString exception = nullptr;
+        ulViewEvaluateScript(m_view, ulJs, &exception);
+        if (exception && ulStringGetLength(exception) > 0) {
+            qWarning("UltralightWidget: HTML inject error: %s",
+                     qPrintable(fromULString(exception)));
+        }
+        ulDestroyString(ulJs);
+        // Fall through — DOM is already ready, proceed with bridge + scripts
+    }
+
+    qWarning("UltralightWidget: DOM ready");
     injectBridge();
-    m_domReady = true;
+    if (!m_loggedFirstPaint) {
+        updateBitmap();
+        update();
+    }
 
-    // Execute queued scripts
-    for (const auto &js : m_pendingScripts)
-        m_view->EvaluateScript(toULString(js));
-    m_pendingScripts.clear();
+    // Ultralight fires DOMReady before inline <script> tags finish
+    // executing. We poll for ChatApp availability before flushing
+    // queued scripts and emitting domReady.
+    m_domReadyRetries = 0;
+    flushPendingOrRetry();
+}
 
-    emit domReady();
+void UltralightWidget::flushPendingOrRetry()
+{
+    // Probe whether inline <script> tags have finished executing
+    // by checking if the ChatApp global exists.
+    ULString probe = toULString(QStringLiteral("ChatApp"));
+    ULString exception = nullptr;
+    ulViewEvaluateScript(m_view, probe, &exception);
+    const bool ready = (exception == nullptr) || (ulStringGetLength(exception) == 0);
+    ulDestroyString(probe);
+
+    if (ready) {
+        m_domReady = true;
+        for (int i = 0; i < m_pendingScripts.size(); ++i) {
+            const auto &js = m_pendingScripts[i];
+            ULString ulJs = toULString(js);
+            exception = nullptr;
+            ulViewEvaluateScript(m_view, ulJs, &exception);
+            if (exception && ulStringGetLength(exception) > 0) {
+                const QString errMsg = fromULString(exception);
+                const QString snippet = js.left(120);
+                qWarning("UltralightWidget queued JS error [%d]: %s\n  script: %s",
+                         i, qPrintable(errMsg), qPrintable(snippet));
+            }
+            ulDestroyString(ulJs);
+        }
+        m_pendingScripts.clear();
+        emit domReady();
+    } else if (m_domReadyRetries < 50) {
+        // Retry after a tick (16ms) — inline scripts may still be loading
+        ++m_domReadyRetries;
+        QTimer::singleShot(16, this, &UltralightWidget::flushPendingOrRetry);
+    } else {
+        qWarning("UltralightWidget: ChatApp not available after %d retries, flushing anyway",
+                 m_domReadyRetries);
+        m_domReady = true;
+        m_pendingScripts.clear();
+        emit domReady();
+    }
 }
 
 // ── JS Bridge Injection ──────────────────────────────────────────────────────
@@ -360,23 +663,27 @@ static JSValueRef bridgeCallback(JSContextRef ctx,
     const QString payload = fromJSString(ctx, jsPayload);
     JSStringRelease(jsPayload);
 
-    // Find the widget from the private data
-    auto *widget = static_cast<UltralightWidget *>(
-        JSObjectGetPrivate(JSContextGetGlobalObject(ctx)));
+    // Find the widget from the context group → widget map
+    JSContextGroupRef group = JSContextGetGroup(ctx);
+    auto *widget = s_ctxWidgetMap.value(group, nullptr);
 
-    if (widget) {
-        const auto doc = QJsonDocument::fromJson(payload.toUtf8());
-        const auto obj = doc.isObject() ? doc.object() : QJsonObject();
-
-        // Invoke registered callback
-        auto it = widget->m_jsCallbacks.constFind(type);
-        if (it != widget->m_jsCallbacks.constEnd())
-            (*it)(QJsonValue(obj));
-
-        emit widget->jsMessage(type, obj);
-    }
+    if (widget)
+        widget->dispatchBridgeMessage(type, payload);
 
     return JSValueMakeUndefined(ctx);
+}
+
+void UltralightWidget::dispatchBridgeMessage(const QString &type,
+                                              const QString &payload)
+{
+    const auto doc = QJsonDocument::fromJson(payload.toUtf8());
+    const auto obj = doc.isObject() ? doc.object() : QJsonObject();
+
+    auto it = m_jsCallbacks.constFind(type);
+    if (it != m_jsCallbacks.constEnd())
+        (*it)(QJsonValue(obj));
+
+    emit jsMessage(type, obj);
 }
 
 void UltralightWidget::injectBridge()
@@ -384,11 +691,10 @@ void UltralightWidget::injectBridge()
     if (!m_view)
         return;
 
-    auto jsCtx = m_view->LockJSContext();
-    JSContextRef ctx = jsCtx->ctx();
+    JSContextRef ctx = ulViewLockJSContext(m_view);
 
-    // Store widget pointer in global object's private data
-    JSObjectSetPrivate(JSContextGetGlobalObject(ctx), this);
+    // Register this widget in the context group → widget map
+    s_ctxWidgetMap[JSContextGetGroup(ctx)] = this;
 
     // Create window.__exorcist_bridge function
     JSStringRef fnName = JSStringCreateWithUTF8CString("__exorcist_bridge");
@@ -408,6 +714,8 @@ void UltralightWidget::injectBridge()
     JSStringRef script = JSStringCreateWithUTF8CString(bridgeJS);
     JSEvaluateScript(ctx, script, nullptr, nullptr, 0, nullptr);
     JSStringRelease(script);
+
+    ulViewUnlockJSContext(m_view);
 }
 
 } // namespace exorcist

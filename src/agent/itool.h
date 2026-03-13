@@ -90,121 +90,43 @@ class ToolRegistry : public QObject
     Q_OBJECT
 
 public:
-    explicit ToolRegistry(QObject *parent = nullptr) : QObject(parent) {}
+    explicit ToolRegistry(QObject *parent = nullptr);
+    ~ToolRegistry() override = default;
 
     // ── Registration ──────────────────────────────────────────────────────
 
-    /// Register a tool. ToolRegistry takes ownership via unique_ptr.
-    ~ToolRegistry() override = default;
-
-    void registerTool(std::unique_ptr<ITool> tool)
-    {
-        if (!tool) return;
-        const QString name = tool->spec().name;
-        m_tools[name] = std::move(tool);
-    }
-
-    /// Unregister (and destroy) a tool by name.
-    void removeTool(const QString &name)
-    {
-        m_tools.erase(name);
-    }
+    void registerTool(std::unique_ptr<ITool> tool);
+    void removeTool(const QString &name);
 
     // ── Lookup ────────────────────────────────────────────────────────────
 
-    ITool *tool(const QString &name) const
-    {
-        auto it = m_tools.find(name);
-        return it != m_tools.end() ? it->second.get() : nullptr;
-    }
-
-    bool hasTool(const QString &name) const
-    {
-        return m_tools.find(name) != m_tools.end();
-    }
-
-    QStringList toolNames() const
-    {
-        QStringList names;
-        names.reserve(static_cast<int>(m_tools.size()));
-        for (const auto &[key, _] : m_tools)
-            names.append(key);
-        return names;
-    }
+    ITool *tool(const QString &name) const;
+    bool hasTool(const QString &name) const;
+    QStringList toolNames() const;
 
     // ── Build ToolDefinition list for model requests ──────────────────────
 
-    QList<ToolDefinition> allDefinitions() const
-    {
-        QList<ToolDefinition> defs;
-        for (const auto &[name, t] : m_tools)
-            defs.append(toolToDefinition(t.get()));
-        return defs;
-    }
+    QList<ToolDefinition> allDefinitions() const;
 
     /// Definitions filtered by permission level and active contexts
-    QList<ToolDefinition> definitions(AgentToolPermission maxLevel) const
-    {
-        QList<ToolDefinition> defs;
-        for (const auto &[name, t] : m_tools) {
-            if (m_disabled.contains(name))
-                continue;
-            const ToolSpec &sp = t->spec();
-            if (static_cast<int>(sp.permission) > static_cast<int>(maxLevel))
-                continue;
-            // Context filtering: universal tools (empty contexts) always pass;
-            // managed tools pass only if at least one context is active.
-            if (!sp.contexts.isEmpty() && !m_activeContexts.isEmpty()) {
-                bool match = false;
-                for (const QString &ctx : sp.contexts) {
-                    if (m_activeContexts.contains(ctx)) { match = true; break; }
-                }
-                if (!match) continue;
-            }
-            defs.append(toolToDefinition(t.get()));
-        }
-        return defs;
-    }
+    QList<ToolDefinition> definitions(AgentToolPermission maxLevel) const;
 
     // ── Context management ────────────────────────────────────────────────
 
-    /// Set active language/framework contexts detected from workspace.
-    /// Only tools whose contexts intersect these (or have empty contexts)
-    /// will be included in definitions().
     void setActiveContexts(const QSet<QString> &contexts) { m_activeContexts = contexts; }
     QSet<QString> activeContexts() const { return m_activeContexts; }
 
-    /// Enable/disable individual tools
     void setDisabledTools(const QSet<QString> &names) { m_disabled = names; }
     QSet<QString> disabledTools() const { return m_disabled; }
     bool isToolEnabled(const QString &name) const { return !m_disabled.contains(name); }
 
 private:
-    static ToolDefinition toolToDefinition(ITool *tool)
-    {
-        const ToolSpec &s = tool->spec();
-        ToolDefinition td;
-        td.name        = s.name;
-        td.description = s.description;
-        const QJsonObject props =
-            s.inputSchema[QLatin1String("properties")].toObject();
-        const QJsonArray req =
-            s.inputSchema[QLatin1String("required")].toArray();
-        for (auto pit = props.begin(); pit != props.end(); ++pit) {
-            ToolParameter tp;
-            tp.name        = pit.key();
-            tp.type        = pit.value().toObject()[QLatin1String("type")].toString();
-            tp.description = pit.value().toObject()[QLatin1String("description")].toString();
-            tp.required    = req.contains(pit.key());
-            td.parameters.append(tp);
-        }
-        return td;
-    }
+    static ToolDefinition toolToDefinition(ITool *tool);
 
     struct QStringHash {
         size_t operator()(const QString &s) const { return qHash(s); }
     };
     std::unordered_map<QString, std::unique_ptr<ITool>, QStringHash> m_tools;
     QSet<QString> m_disabled;
-    QSet<QString> m_activeContexts;   // e.g. {"python", "cpp", "web"}
+    QSet<QString> m_activeContexts;
 };

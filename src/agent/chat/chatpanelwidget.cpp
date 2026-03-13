@@ -4,6 +4,7 @@
 #include <QComboBox>
 #include <QDir>
 #include <QEventLoop>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -264,7 +265,15 @@ void ChatPanelWidget::buildUi()
     });
     connect(m_jsBridge, &exorcist::ChatJSBridge::attachFileRequested,
             this, [this]() {
-        // TODO: open QFileDialog, store attachment, call addAttachmentChip
+        const QString path = QFileDialog::getOpenFileName(
+            this, tr("Attach File"), m_workspaceRoot,
+            tr("All Files (*.*)"));
+        if (path.isEmpty()) return;
+
+        const QFileInfo fi(path);
+        const int idx = m_pendingFileAttachments.size();
+        m_pendingFileAttachments.append(path);
+        m_jsBridge->addAttachmentChip(fi.fileName(), idx);
     });
     connect(m_jsBridge, &exorcist::ChatJSBridge::mentionQueryRequested,
             this, [this](const QString &trigger, const QString &filter) {
@@ -1280,7 +1289,26 @@ void ChatPanelWidget::startRequest(const QString &text, int mode,
     // Collect attachments from input widget before they are cleared
     QStringList attachmentNames;
     QList<Attachment> reqAttachments;
-#ifndef EXORCIST_HAS_ULTRALIGHT
+#ifdef EXORCIST_HAS_ULTRALIGHT
+    for (const QString &path : m_pendingFileAttachments) {
+        const QFileInfo fi(path);
+        attachmentNames << fi.fileName();
+        Attachment att;
+        att.path = path;
+        att.type = Attachment::Type::File;
+        QMimeDatabase db;
+        const QString mime = db.mimeTypeForFile(path).name();
+        att.mimeType = mime;
+        if (mime.startsWith(QLatin1String("image/"))) {
+            att.type = Attachment::Type::Image;
+            QFile f(path);
+            if (f.open(QIODevice::ReadOnly))
+                att.data = f.readAll();
+        }
+        reqAttachments.append(att);
+    }
+    m_pendingFileAttachments.clear();
+#else
     const auto &inputAtts = m_inputWidget->attachments();
     for (const auto &a : inputAtts) {
         attachmentNames << a.name;

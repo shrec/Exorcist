@@ -1,0 +1,7 @@
+2026-03-13 00:55:36.262 INFO  [main.cpp:84]  Exorcist starting
+2026-03-13 00:55:36.617 WARN  [chatpanelwidget.cpp:100]  ChatPanel: css=46094 bytes, markdownJs=12497 bytes, chatJs=67903 bytes
+2026-03-13 00:55:36.618 WARN  [ultralightwidget.cpp:69]  UltralightWidget: begin loading about:blank
+2026-03-13 00:55:36.644 WARN  [ultralightwidget.cpp:564]  UltralightWidget: DOM ready
+2026-03-13 00:55:36.645 WARN  [ultralightwidget.cpp:297]  UltralightWidget: updateBitmap called
+2026-03-13 00:55:36.646 WARN  [ultralightwidget.cpp:360]  UltralightWidget: first paint 100x100
+2026-03-13 00:55:36.646 WARN  [ultralightwidget.cpp:80]  UltralightWidget: finish loading about:blank

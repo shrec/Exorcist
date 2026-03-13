@@ -255,7 +255,7 @@ See [docs/luajit.md](luajit.md)
 
 ---
 
-## Phase 11 — Self-Hosting Dogfood  🔄 In Progress
+## Phase 11 — Self-Hosting Dogfood  ✅ Done
 
 **Goal:** Use Exorcist to develop Exorcist daily. Every pain point found while self-hosting becomes a bug fix or feature task.
 
@@ -279,6 +279,8 @@ See [docs/luajit.md](luajit.md)
 | Terminal | ✅ | ConPTY, VT100, search, tabs |
 | Git (status/commit/blame/diff) | ✅ | GitPanel, inline diff gutter, branch switcher |
 | Search (workspace/file/regex) | ✅ | SearchPanel, command palette |
+| Test Explorer | ✅ | TestDiscoveryService + TestExplorerPanel dock |
+| Problems Panel | ✅ | Unified LSP + build diagnostics, severity filter |
 | File watcher | ✅ | auto-reload on external change |
 | AI chat (optional) | ✅ | Claude/Copilot/Codex/Ollama plugins |
 
@@ -290,9 +292,13 @@ See [docs/luajit.md](luajit.md)
   - 6 Lua script plugins loaded, 79 agent tools registered
   - Session restore: 50+ JSONL session files, auto-restore with mode/title preservation
   - No crashes, no OOM — **stable at 265 MB** (VS Code: 800MB–2GB for same project)
-- [ ] Document pain points and file issues
+- [x] Document pain points and file issues
 - [x] OAuthManager bare `new` → `std::unique_ptr`, PKCE flow complete
-- [ ] MainWindow god object further decomposition (120+ members → target <80) — **deferred to Phase 12**
+- [x] MainWindow god object decomposition — **145 → 69 members** (target was <80)
+  - `StatusBarManager`: extracted 7 QLabel members + memory timer + copilot click handler
+  - `AIServicesBootstrap`: extracted 28 AI/utility service members with internal wiring
+  - Dock pointers: 19 `ExDockWidget*` members replaced with `DockManager::dockWidget()` lookups via `dock()` helper
+  - Removed 16 never-instantiated member declarations (dead code cleanup)
 
 ### Selfdogfood tool parity — completed
 - [x] 79 agent tools registered (74 core + terminal_selection, terminal_last_command, test_failure, run_ide_command)
@@ -302,3 +308,53 @@ See [docs/luajit.md](luajit.md)
 - [x] SonarCloud CI: build-wrapper + coverage instrumentation + ReserchRepos excluded
 - [x] `run_ide_command` tool — agent can list and execute any registered IDE command
 - [x] MainWindow god object **FREEZE rule** added to copilot-instructions.md (decomposition deferred to Phase 12)
+
+### Test coverage expansion — completed
+- [x] 29 test targets (was 12), 646+ test cases, **29/29 pass**
+- [x] New tests: test_projectmanager (20 cases), test_terminalscreen (60 cases), test_treesitter_highlighter (42 cases), test_syntaxhighlighter (43 cases), test_highlighterfactory (24 cases), test_keymapmanager (19 cases), test_commandpalette (17 cases), test_testdiscovery (13 cases), test_problemspanel (9 cases), test_gitignorefilter (24 cases), test_contextpruner (23 cases), test_autocompactor (19 cases)
+- [x] TerminalScreen OSC ESC\ bug fix — `m_pbuf` was cleared before ST arrived
+
+### IDE panels — completed
+- [x] **Test Explorer Panel** (`src/testing/`) — TestDiscoveryService (CTest --show-only=json-v1), TestExplorerPanel dock widget with Run All / Refresh / per-test run / status icons / duration display
+- [x] **Problems Panel** (`src/problems/`) — unified diagnostics aggregating LSP (IDiagnosticsService) + build errors (OutputPanel::problems()), severity filtering, double-click navigation
+- [x] **Ghost Text UX** — multi-line rendering, Tab/Esc/Ctrl+→ keybindings, 500ms debounce — all already fully implemented in InlineCompletionEngine + EditorView
+
+### Workspace settings & diff/merge — completed
+- [x] **WorkspaceSettings** (`src/settings/`) — hierarchical settings (global QSettings → workspace `.exorcist/settings.json`), typed accessors, QFileSystemWatcher, ServiceRegistry integration. 28 tests pass.
+- [x] **DiffExplorerPanel** (`src/git/diffexplorerpanel.h/.cpp`) — revision picker (branch/commit combos), file list with status icons, side-by-side diff view with synchronized scrolling and line-level highlighting
+- [x] **MergeEditor** (`src/git/mergeeditor.h/.cpp`) — 3-way merge conflict editor, ours/theirs panes, Accept Ours/Theirs/Both, editable result pane, Save Resolution with git stage
+- [x] **GitService extensions** — `showAtRevision()`, `diffRevisions()`, `changedFilesBetween()` (ChangedFile struct), `log()` (LogEntry struct), `workingDirectory()` getter
+- [x] **test_diffmerge** — 17 tests covering GitService new methods, conflict parsing, accept strategies. 19/19 total suite pass.
+- [x] **VimHandler** (`src/editor/vimhandler.h/.cpp`) — modal editing engine: Normal/Insert/Visual/VisualLine/Command modes, hjkl + w/b/e + 0/$ + gg/G + f/F + % motions, d/c/y/x operators with motions, numeric prefix, dd/yy/cc linewise, ex-commands (:w/:q/:wq/:e/:N), p/P paste, u/Ctrl+R undo/redo. Wired into EditorView keyPressEvent. 50 tests pass.
+
+### Remote LSP bridging — completed
+- [x] **SocketLspTransport** (`src/lsp/socketlsptransport.h/.cpp`) — TCP socket-based LspTransport implementation with Content-Length framing, QTcpSocket, connectToServer/isConnected API
+- [x] **SshSession port forwarding** — `startLocalPortForward()`/`stopPortForward()` using `ssh -N -L`, 2s readiness timer, `portForwardReady`/`portForwardError` signals
+- [x] **RemoteLspManager** (`src/remote/remotelspmanager.h/.cpp`) — orchestrates remote clangd lifecycle: SSH runCommand (socat+clangd) → port forward → SocketLspTransport connect → ready signal. Auto-port selection, retry logic, graceful stop with remote pkill.
+- [x] **test_remotelsp** — 11 tests: transport connect/send/receive/partial/multi-message/stop/error, SSH port forward guard. 21/21 total suite pass.
+
+### Plugin Marketplace — completed
+- [x] **PluginMarketplaceService** (`src/plugin/pluginmarketplaceservice.h/.cpp`) — registry loading (local JSON + remote URL via QNetworkAccessManager), async download with progress signals, .zip extraction (PowerShell on Windows, unzip/tar on Unix), uninstall (removeRecursively), update checking against installed versions
+- [x] **MainWindow wiring** — service created as child of PluginGalleryPanel (FREEZE-compliant), registered in ServiceRegistry as "pluginMarketplace", installRequested signal connected to downloadAndInstall, pluginInstalled signal refreshes gallery
+- [x] **plugin_registry.json** — bundled registry with 11 entries (Copilot, Claude, Codex, Ollama, BYOK, 6 Lua plugins)
+- [x] **test_pluginmarketplace** — 16 tests: MarketplaceEntry serialization/roundtrip/tags, registry file loading (valid/invalid/empty/multi/nonexistent), uninstall, update check, download error. 22/22 total suite pass.
+
+### ExoBridge shared resource delegation — completed
+- [x] **ExoBridgeCore service dispatch** — `installServiceHandler()` infrastructure, `ServiceCallHandler` callback, `broadcastServiceEvent()`, managed process tracking. `QLocalServer` managed via `std::unique_ptr` for deterministic cleanup.
+- [x] **McpBridgeService** (`server/mcpbridgeservice.h/.cpp`) — centralized MCP server process management in ExoBridge daemon. JSON-RPC framing, tool discovery (`tools/list`), tool invocation (`tools/call`), shared across IDE instances. Services: `start`, `stop`, `list`, `callTool`.
+- [x] **GitWatchBridgeService** (`server/gitwatchservice.h/.cpp`) — centralized git file watching. One `QFileSystemWatcher` per repo shared across all IDE instances. Broadcasts change events to subscribed clients. Services: `watch`, `unwatch`, `list`.
+- [x] **AuthTokenBridgeService** (`server/authtokenbridgeservice.h/.cpp`) — centralized token cache. One login benefits all instances. Platform-native encrypted persistence (DPAPI/Keychain/libsecret). Services: `store`, `retrieve`, `has`, `delete`, `list`.
+- [x] **McpClient bridge delegation** — `setBridgeClient()` on McpClient: when set, MCP operations (connect/callTool/disconnect) go through ExoBridge IPC instead of local QProcess spawning.
+- [x] **GitService bridge delegation** — `setBridgeClient()` on GitService: when set, file watching is delegated to ExoBridge's GitWatchBridgeService; change events trigger async refresh via `serviceEvent` signal.
+- [x] **ExoBridge daemon wiring** — `server/main.cpp` instantiates and installs all 3 bridge services into ExoBridgeCore. Graceful shutdown cleanup.
+- [x] **test_exobridge** — 18 tests: IPC packet framing (encode/decode/incomplete/multiple), message serialization (request/response/error/notification), ExoBridgeCore lifecycle (start/stop/handshake/service dispatch/service not found/list services/idle timeout/handler error). Fixed flaky tests: unique pipe names via `QUuid` to avoid conflicts with running daemon + `ExoBridgeCore::start(pipeName)` overload. **33/33 total suite pass (100%)**.
+- [x] **test_bridgeservices** — 18 tests: GitWatchBridgeService (valid watch/duplicate/list/unwatch/file change/invalid/unknown method), AuthTokenBridgeService (store/retrieve/has/delete/list/missing/unknown/overwrite). 31/31 total suite pass.
+
+### Crash Handler — completed
+- [x] **CrashHandler** (`src/crashhandler.h/.cpp`) — comprehensive crash diagnostics infrastructure:
+  - Windows: SEH filter with `StackWalk64` from exception context, minidumps (`MiniDumpWriteDump` with data segs + handle data + thread info + unloaded modules), CPU register dump (x64/x86/ARM64), exception code → human string mapping, access violation details (read/write + target address), faulting module identification (`GetModuleHandleEx`), loaded modules enumeration (`CreateToolhelp32Snapshot`)
+  - POSIX: signal handlers (SIGSEGV/SIGABRT/SIGFPE/SIGBUS/SIGILL) with `backtrace()` + `abi::__cxa_demangle()` + `dladdr()`, re-raise for core dump
+  - Ring buffer: last 50 log lines captured automatically via Logger integration, included in crash reports
+  - System info section: OS, arch, kernel, app version, PID, thread ID
+  - Logger integration: `CrashHandler::recordLogLine()` called from Logger's `messageHandler()` — automatic, zero-config
+- [x] **test_crashhandler** — 9 tests: install creates directory, path retrieval, default directory, double install, nested directory, ring buffer record/retrieve, wrap-around, empty buffer, capacity check. 33/33 total suite pass.

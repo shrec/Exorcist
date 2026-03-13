@@ -31,6 +31,7 @@
 #include "tools/introspecttool.h"
 #include "tools/httptool.h"
 #include "tools/luatool.h"
+#include "tools/luaagenttoolstore.h"
 #include "tools/codegraphtool.h"
 #include "tools/buildtools.h"
 #include "tools/navigationtools.h"
@@ -55,6 +56,8 @@
 #include "tools/notebooktools.h"
 #include "tools/githubmcptools.h"
 #include "tools/idecommandtool.h"
+#include "tools/sandboxtools.h"
+#include "tools/devtools.h"
 #include "terminalsessionmanager.h"
 #include "workspacecontextdetector.h"
 #include "../core/qtprocess.h"
@@ -210,6 +213,14 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
             m_callbacks.luaExecutor));
     }
 
+    // ── Agent tool store (save/list/run custom Lua tools) ────────────────
+    m_toolRegistry->registerTool(std::make_unique<SaveLuaToolTool>());
+    m_toolRegistry->registerTool(std::make_unique<ListLuaToolsTool>());
+    if (m_callbacks.luaExecutor) {
+        m_toolRegistry->registerTool(std::make_unique<RunLuaToolTool>(
+            m_callbacks.luaExecutor));
+    }
+
     // ── Code graph / intelligence tool ───────────────────────────────────
     if (m_callbacks.symbolSearchFn) {
         m_toolRegistry->registerTool(std::make_unique<CodeGraphTool>(
@@ -340,6 +351,50 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
     if (m_callbacks.commandExecutor) {
         m_toolRegistry->registerTool(std::make_unique<RunIdeCommandTool>(
             m_callbacks.commandExecutor, m_callbacks.commandListGetter));
+    }
+
+    // ── Sandbox utility tools (JSON, time, regex, env vars, hash, config) ──
+    m_toolRegistry->registerTool(std::make_unique<JsonParseFormatTool>());
+    m_toolRegistry->registerTool(std::make_unique<CurrentTimeTool>());
+    m_toolRegistry->registerTool(std::make_unique<RegexTestTool>());
+    m_toolRegistry->registerTool(std::make_unique<EnvironmentVariablesTool>());
+    m_toolRegistry->registerTool(std::make_unique<FileHashTool>());
+    m_toolRegistry->registerTool(std::make_unique<WorkspaceConfigTool>(m_fileSystem));
+
+    // ── Development workflow tools ────────────────────────────────────────
+    m_toolRegistry->registerTool(std::make_unique<CompileAndRunTool>());
+    m_toolRegistry->registerTool(std::make_unique<ArchiveTool>());
+    m_toolRegistry->registerTool(std::make_unique<CreatePatchTool>());
+    m_toolRegistry->registerTool(std::make_unique<ImageInfoTool>());
+
+    // ── Tree-sitter AST parsing ───────────────────────────────────────────
+    if (m_callbacks.treeSitterParser) {
+        m_toolRegistry->registerTool(std::make_unique<TreeSitterParseTool>(
+            m_callbacks.treeSitterParser));
+    }
+
+    // ── Diagram generation (Mermaid/PlantUML) ─────────────────────────────
+    if (m_callbacks.diagramRenderer) {
+        m_toolRegistry->registerTool(std::make_unique<GenerateDiagramTool>(
+            m_callbacks.diagramRenderer));
+    }
+
+    // ── Performance profiling ─────────────────────────────────────────────
+    if (m_callbacks.profiler) {
+        m_toolRegistry->registerTool(std::make_unique<PerformanceProfileTool>(
+            m_callbacks.profiler));
+    }
+
+    // ── Symbol documentation (LSP hover) ──────────────────────────────────
+    if (m_callbacks.symbolDocGetter) {
+        m_toolRegistry->registerTool(std::make_unique<SymbolDocTool>(
+            m_callbacks.symbolDocGetter));
+    }
+
+    // ── Code completion (LSP) ─────────────────────────────────────────────
+    if (m_callbacks.completionGetter) {
+        m_toolRegistry->registerTool(std::make_unique<CodeCompletionTool>(
+            m_callbacks.completionGetter));
     }
 
     // ── Managed tools (language-specific, context-filtered) ────────────
@@ -508,4 +563,26 @@ void AgentPlatformBootstrap::setWorkspaceRoot(const QString &root)
 
     auto *dbTool = dynamic_cast<DatabaseTool *>(m_toolRegistry->tool(QStringLiteral("database")));
     if (dbTool) dbTool->setWorkspaceRoot(root);
+
+    // ── Set workspace root on sandbox & dev tools ─────────────────────────
+    auto *hashTool = dynamic_cast<FileHashTool *>(m_toolRegistry->tool(QStringLiteral("file_content_hash")));
+    if (hashTool) hashTool->setWorkspaceRoot(root);
+
+    auto *wsConfigTool = dynamic_cast<WorkspaceConfigTool *>(m_toolRegistry->tool(QStringLiteral("workspace_config")));
+    if (wsConfigTool) wsConfigTool->setWorkspaceRoot(root);
+
+    auto *compileRunTool = dynamic_cast<CompileAndRunTool *>(m_toolRegistry->tool(QStringLiteral("compile_and_run")));
+    if (compileRunTool) compileRunTool->setWorkspaceRoot(root);
+
+    auto *archiveTool = dynamic_cast<ArchiveTool *>(m_toolRegistry->tool(QStringLiteral("archive")));
+    if (archiveTool) archiveTool->setWorkspaceRoot(root);
+
+    auto *patchTool = dynamic_cast<CreatePatchTool *>(m_toolRegistry->tool(QStringLiteral("create_patch_file")));
+    if (patchTool) patchTool->setWorkspaceRoot(root);
+
+    auto *imgTool = dynamic_cast<ImageInfoTool *>(m_toolRegistry->tool(QStringLiteral("image_info")));
+    if (imgTool) imgTool->setWorkspaceRoot(root);
+
+    auto *diagramTool = dynamic_cast<GenerateDiagramTool *>(m_toolRegistry->tool(QStringLiteral("generate_diagram")));
+    if (diagramTool) diagramTool->setWorkspaceRoot(root);
 }

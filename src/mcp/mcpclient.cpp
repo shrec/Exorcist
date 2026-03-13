@@ -4,6 +4,8 @@
 #include <QJsonObject>
 #include <QJsonArray>
 
+#include "process/bridgeclient.h"
+
 McpClient::McpClient(QObject *parent)
     : QObject(parent)
 {
@@ -33,6 +35,10 @@ bool McpClient::connectServer(const QString &name)
 {
     if (!m_servers.contains(name))
         return false;
+
+    // Delegate to ExoBridge if bridge is set
+    if (m_bridgeClient)
+        return connectServerViaBridge(name);
 
     auto &state = m_servers[name];
     if (state.process)
@@ -123,6 +129,12 @@ QList<McpToolInfo> McpClient::allTools() const
 void McpClient::callTool(const QString &toolName, const QJsonObject &arguments,
                          const QString &requestId)
 {
+    // Delegate to ExoBridge if bridge is set
+    if (m_bridgeClient) {
+        callToolViaBridge(toolName, arguments, requestId);
+        return;
+    }
+
     // Find which server owns this tool
     for (auto it = m_servers.begin(); it != m_servers.end(); ++it) {
         if (!it->initialized) continue;
@@ -295,4 +307,113 @@ int McpClient::sendRequest(const QString &name, const QString &method,
 
     sendMessage(name, msg);
     return id;
+}
+
+// ── Bridge delegation ────────────────────────────────────────────────────────
+
+void McpClient::setBridgeClient(BridgeClient *client)
+{
+    m_bridgeClient = client;
+}
+
+bool McpClient::connectServerViaBridge(const QString &name)
+{
+    if (!m_bridgeClient || !m_servers.contains(name))
+        return false;
+
+    auto &state = m_servers[name];
+    if (state.initialized)
+        return true;
+
+    QJsonObject args;
+    args[QLatin1String("name")]    = state.config.name;
+    args[QLatin1String("command")] = state.config.command;
+    QJsonArray argsArr;
+    for (const auto &a : state.config.args)
+        argsArr.append(a);
+    args[QLatin1String("args")] = argsArr;
+
+    if (!state.config.env.isEmpty()) {
+        QJsonObject envObj;
+        for (auto it = state.config.env.begin();
+             it != state.config.env.end(); ++it)
+            envObj.insert(it.key(), it.value());
+        args[QLatin1String("env")] = envObj;
+    }
+
+    m_bridgeClient->callService(
+        QStringLiteral("mcp"), QStringLiteral("start"), args,
+        [this, name](bool ok, const QJsonObject &result) {
+            if (!m_servers.contains(name)) return;
+            auto &st = m_servers[name];
+
+            if (!ok) {
+                emit serverError(name, result.value(
+                    QLatin1String("message")).toString());
+                return;
+            }
+
+            st.initialized = true;
+            st.tools.clear();
+
+            // Parse tool list from bridge response
+            const QJsonArray toolsArr = result.value(
+                QLatin1String("tools")).toArray();
+            for (const auto &v : toolsArr) {
+                const QJsonObject tObj = v.toObject();
+                McpToolInfo info;
+                info.name        = tObj[QLatin1String("name")].toString();
+                info.description = tObj[QLatin1String("description")].toString();
+                info.inputSchema = tObj[QLatin1String("inputSchema")].toObject();
+                info.serverName  = name;
+                st.tools.append(info);
+            }
+
+            emit serverConnected(name);
+            emit toolsDiscovered(name, st.tools);
+        });
+
+    return true;  // async — completion via signals
+}
+
+void McpClient::callToolViaBridge(const QString &toolName,
+                                   const QJsonObject &arguments,
+                                   const QString &requestId)
+{
+    if (!m_bridgeClient) {
+        McpToolResult result;
+        result.ok    = false;
+        result.error = QStringLiteral("No bridge client");
+        emit toolCallFinished(requestId, result);
+        return;
+    }
+
+    QJsonObject args;
+    args[QLatin1String("tool")]      = toolName;
+    args[QLatin1String("arguments")] = arguments;
+
+    m_bridgeClient->callService(
+        QStringLiteral("mcp"), QStringLiteral("callTool"), args,
+        [this, requestId](bool ok, const QJsonObject &result) {
+            McpToolResult res;
+            if (!ok) {
+                res.ok    = false;
+                res.error = result.value(QLatin1String("message")).toString();
+            } else {
+                res.ok      = true;
+                res.content = result.value(QLatin1String("content")).toArray();
+                for (const auto &v : res.content) {
+                    const QJsonObject piece = v.toObject();
+                    if (piece[QLatin1String("type")].toString()
+                        == QLatin1String("text"))
+                        res.text += piece[QLatin1String("text")].toString();
+                }
+                if (result.contains(QLatin1String("isError"))
+                    && result[QLatin1String("isError")].toBool()) {
+                    res.ok    = false;
+                    res.error = res.text;
+                }
+            }
+            emit toolCallFinished(requestId, res);
+        });
 }

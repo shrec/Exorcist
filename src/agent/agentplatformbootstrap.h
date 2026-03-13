@@ -23,6 +23,7 @@
 #include "tools/lsptools.h"
 #include "tools/difftool.h"
 #include "tools/staticanalysistool.h"
+#include "tools/devtools.h"
 
 class IFileSystem;
 class PluginManager;
@@ -127,6 +128,21 @@ public:
         // IDE command execution
         std::function<bool(const QString &)> commandExecutor;
         std::function<QStringList()>         commandListGetter;
+
+        // Tree-sitter AST parsing
+        TreeSitterParseTool::TreeSitterParser treeSitterParser;
+
+        // Diagram generation (Mermaid/PlantUML)
+        GenerateDiagramTool::DiagramRenderer diagramRenderer;
+
+        // Performance profiling
+        PerformanceProfileTool::Profiler     profiler;
+
+        // Symbol documentation (LSP hover)
+        SymbolDocTool::DocGetter             symbolDocGetter;
+
+        // Code completion (LSP)
+        CodeCompletionTool::CompletionGetter completionGetter;
     };
 
     explicit AgentPlatformBootstrap(AgentOrchestrator *orchestrator,

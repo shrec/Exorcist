@@ -1,15 +1,18 @@
 #pragma once
 // ── UltralightEngine ─────────────────────────────────────────────────────────
 //
-// Process-wide singleton managing the shared ultralight::Renderer.
+// Process-wide singleton managing the shared Ultralight Renderer (C API).
 // Ultralight requires exactly one Renderer per process; all Views share it.
 //
 // Call initialize() once from main thread before creating any UltralightWidget.
 // The engine uses CPU rendering (BitmapSurface) — no GPU/OpenGL dependency.
+//
+// Uses the Ultralight C API to avoid ABI/mangling issues with llvm-mingw.
 
 #ifdef EXORCIST_HAS_ULTRALIGHT
 
-#include <Ultralight/Ultralight.h>
+#include <cstdint>
+#include <Ultralight/CAPI.h>
 #include <QString>
 
 namespace exorcist {
@@ -27,7 +30,7 @@ public:
     void shutdown();
 
     /// Access the shared renderer. Returns nullptr if not initialized.
-    ultralight::RefPtr<ultralight::Renderer> renderer() const { return m_renderer; }
+    ULRenderer renderer() const { return m_renderer; }
 
     bool isInitialized() const { return m_initialized; }
 
@@ -37,7 +40,7 @@ private:
     UltralightEngine(const UltralightEngine &) = delete;
     UltralightEngine &operator=(const UltralightEngine &) = delete;
 
-    ultralight::RefPtr<ultralight::Renderer> m_renderer;
+    ULRenderer m_renderer = nullptr;
     bool m_initialized = false;
 };
 

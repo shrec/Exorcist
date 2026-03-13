@@ -1,10 +1,12 @@
 #pragma once
 // ── UltralightWidget ─────────────────────────────────────────────────────────
 //
-// QWidget hosting an Ultralight HTML view with CPU rendering.
-// BitmapSurface pixels are copied to a QImage and drawn via QPainter.
+// QWidget hosting an Ultralight HTML view with CPU rendering (C API).
+// Surface pixels are copied to a QImage and drawn via QPainter.
 // Mouse/keyboard events are forwarded from Qt to Ultralight.
 // JS↔C++ bridge via evaluateScript() and registerJSCallback().
+//
+// Uses the Ultralight C API to avoid ABI/mangling issues with llvm-mingw.
 
 #ifdef EXORCIST_HAS_ULTRALIGHT
 
@@ -16,13 +18,13 @@
 #include <functional>
 #include <QMap>
 
-#include <Ultralight/Ultralight.h>
-#include <Ultralight/Listener.h>
+#include <cstdint>
+#include <Ultralight/CAPI.h>
+#include <JavaScriptCore/JavaScript.h>
 
 namespace exorcist {
 
-class UltralightWidget : public QWidget, public ultralight::LoadListener,
-                         public ultralight::ViewListener
+class UltralightWidget : public QWidget
 {
     Q_OBJECT
 public:
@@ -39,13 +41,17 @@ public:
     void evaluateScript(const QString &js);
 
     /// Register a C++ callback callable from JS via window.exorcist.sendToHost(type, payload).
-    /// @param type   Message type string.
-    /// @param callback  Receives the JSON payload.
     void registerJSCallback(const QString &type,
                             std::function<void(const QJsonValue &)> callback);
 
     /// True after the initial HTML has loaded and DOMContentLoaded fired.
     bool isDomReady() const { return m_domReady; }
+
+    /// Dispatch a JS→C++ bridge message (called by internal bridge callback).
+    void dispatchBridgeMessage(const QString &type, const QString &payload);
+
+    /// Called by the static DOMReady callback.
+    void onDOMReady(unsigned long long frameId, bool isMainFrame);
 
 signals:
     /// Emitted when the JS side sends a message to C++.
@@ -66,35 +72,39 @@ protected:
     void keyReleaseEvent(QKeyEvent *event) override;
     void focusInEvent(QFocusEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
-
-    // Ultralight::LoadListener
-    void OnDOMReady(ultralight::View *caller,
-                    uint64_t frame_id,
-                    bool is_main_frame,
-                    const ultralight::String &url) override;
+    void showEvent(QShowEvent *event) override;
 
 private:
     void initView();
     void tick();
     void updateBitmap();
 
-    // Input helpers
-    static ultralight::MouseEvent::Button qtButtonToUL(Qt::MouseButton btn);
-    static ultralight::KeyEvent qtKeyToUL(QKeyEvent *event, ultralight::KeyEvent::Type type);
-
-    // JS bridge setup (called from OnDOMReady)
+    // JS bridge setup (called from OnDOMReady callback)
     void injectBridge();
+    void flushPendingOrRetry();
 
-    ultralight::RefPtr<ultralight::View> m_view;
+    ULView m_view = nullptr;
     QImage m_bitmap;
     QTimer *m_tickTimer = nullptr;
     bool m_domReady = false;
-    bool m_needsPaint = true;
+    int m_domReadyRetries = 0;
+    bool m_loggedFirstPaint = false;
+    bool m_loggedNoSurface = false;
+    bool m_loggedNoBitmap = false;
+    bool m_loggedNoPixels = false;
+    bool m_loggedTick = false;
+    bool m_loggedZeroSize = false;
+    bool m_loggedUpdateBitmap = false;
+    bool m_loggedResizeMismatch = false;
 
     QMap<QString, std::function<void(const QJsonValue &)>> m_jsCallbacks;
 
     // Queue of JS to evaluate once DOM is ready
     QStringList m_pendingScripts;
+
+    // HTML to inject after about:blank DOM is ready (workaround for
+    // ulViewLoadHTML / file:// crashes in Ultralight 1.4 beta)
+    QString m_pendingHtml;
 };
 
 } // namespace exorcist

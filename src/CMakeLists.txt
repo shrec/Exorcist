@@ -62,6 +62,8 @@ add_executable(exorcist WIN32
     remote/remotesyncservice.h
     remote/remotehostinfo.cpp
     remote/remotehostinfo.h
+    remote/remotelspmanager.h
+    remote/remotelspmanager.cpp
     search/searchquery.h
     search/searchmatch.h
     search/searchindex.cpp
@@ -93,6 +95,8 @@ add_executable(exorcist WIN32
     lsp/hovertooltipwidget.h
     lsp/referencespanel.cpp
     lsp/referencespanel.h
+    lsp/socketlsptransport.h
+    lsp/socketlsptransport.cpp
     project/projecttypes.h
     project/projectmanager.cpp
     project/projectmanager.h
@@ -102,6 +106,10 @@ add_executable(exorcist WIN32
     git/gitservice.h
     git/gitpanel.cpp
     git/gitpanel.h
+    git/diffexplorerpanel.h
+    git/diffexplorerpanel.cpp
+    git/mergeeditor.h
+    git/mergeeditor.cpp
     github/ghservice.cpp
     github/ghservice.h
     github/ghpanel.cpp
@@ -110,6 +118,10 @@ add_executable(exorcist WIN32
     github/ghbootstrap.h
     editor/symboloutlinepanel.cpp
     editor/symboloutlinepanel.h
+    editor/multicursorengine.h
+    editor/multicursorengine.cpp
+    editor/vimhandler.h
+    editor/vimhandler.cpp
     terminal/terminalscreen.cpp
     terminal/terminalscreen.h
     terminal/ptybackend.cpp
@@ -134,6 +146,10 @@ add_executable(exorcist WIN32
     bootstrap/builddebugbootstrap.h
     bootstrap/bridgebootstrap.cpp
     bootstrap/bridgebootstrap.h
+    bootstrap/aiservicesbootstrap.h
+    bootstrap/aiservicesbootstrap.cpp
+    bootstrap/statusbarmanager.h
+    bootstrap/statusbarmanager.cpp
     agent/agentproviderregistry.cpp
     agent/agentproviderregistry.h
     agent/agentrequestrouter.cpp
@@ -143,23 +159,28 @@ add_executable(exorcist WIN32
     agent/toolapprovalservice.cpp
     agent/toolapprovalservice.h
     agent/toolpresentation.h
+    agent/toolpresentation.cpp
     agent/agentchatpanel.cpp
     agent/agentchatpanel.h
     agent/agentcontroller.cpp
     agent/agentcontroller.h
     agent/agentmodes.h
+    agent/agentmodes.cpp
     agent/agentsession.h
+    agent/agentsession.cpp
     agent/braincontextbuilder.cpp
     agent/braincontextbuilder.h
     agent/contextbuilder.cpp
     agent/contextbuilder.h
     agent/icontextprovider.h
     agent/itool.h
+    agent/itool.cpp
     agent/memorysuggestionengine.cpp
     agent/memorysuggestionengine.h
     agent/projectbrainservice.cpp
     agent/projectbrainservice.h
     agent/projectbraintypes.h
+    agent/projectbraintypes.cpp
     agent/promptvariables.cpp
     agent/promptvariables.h
     agent/sessionstore.cpp
@@ -206,11 +227,13 @@ add_executable(exorcist WIN32
     agent/tools/githubmcptools.h
     agent/tools/staticanalysistool.h
     agent/notebookstubs.h
+    agent/notebookstubs.cpp
     agent/terminalsessionmanager.h
     agent/workspacecontextdetector.h
     ui/markdownrenderer.cpp
     ui/markdownrenderer.h
     agent/promptfileloader.h
+    agent/promptfileloader.cpp
     agent/quickchatdialog.cpp
     agent/quickchatdialog.h
     agent/requestlogpanel.cpp
@@ -270,6 +293,8 @@ add_executable(exorcist WIN32
     ui/dock/IToolBarService.h
     commandpalette.cpp
     commandpalette.h
+    crashhandler.cpp
+    crashhandler.h
     logger.cpp
     logger.h
     resources.qrc
@@ -280,17 +305,26 @@ add_executable(exorcist WIN32
     pluginmanager.h
     plugin/plugingallerypanel.cpp
     plugin/plugingallerypanel.h
+    plugin/pluginmarketplaceservice.h
+    plugin/pluginmarketplaceservice.cpp
     serviceregistry.cpp
     serviceregistry.h
     startupprofiler.h
+    startupprofiler.cpp
     thememanager.cpp
     thememanager.h
     core/ifilesystem.h
+    core/ifilewatcher.h
+    core/ienvironment.h
     core/iprocess.h
     core/iterminal.h
     core/inetwork.h
     core/qtfilesystem.cpp
     core/qtfilesystem.h
+    core/qtfilewatcher.cpp
+    core/qtfilewatcher.h
+    core/qtenvironment.cpp
+    core/qtenvironment.h
     core/qtprocess.cpp
     core/qtprocess.h
     core/qtterminal.cpp
@@ -309,6 +343,8 @@ add_executable(exorcist WIN32
     build/buildtoolbar.h
     build/debuglaunchcontroller.cpp
     build/debuglaunchcontroller.h
+    problems/problemspanel.h
+    problems/problemspanel.cpp
     editor/filewatchservice.cpp
     editor/filewatchservice.h
     agent/contextpruner.cpp
@@ -329,15 +365,18 @@ add_executable(exorcist WIN32
     editor/inlinereviewwidget.cpp
     editor/inlinereviewwidget.h
     agent/modelregistry.h
+    agent/modelregistry.cpp
     agent/oauthmanager.h
     agent/domainfilter.h
     git/commitmessagegenerator.h
+    git/commitmessagegenerator.cpp
     editor/multichunkeditor.h
     editor/languagecompletionconfig.h
     agent/contexteditor.cpp
     agent/contexteditor.h
     agent/trajectoryrecorder.h
     agent/featureflags.h
+    agent/featureflags.cpp
     agent/notebookstubs.h
     agent/reviewmanager.h
     agent/testgenerator.h
@@ -348,7 +387,9 @@ add_executable(exorcist WIN32
     agent/networkmonitor.h
     agent/citationmanager.h
     mcp/mcpservermanager.h
+    mcp/mcpservermanager.cpp
     search/workspacechunkindex.h
+    search/workspacechunkindex.cpp
     agent/modelconfigwidget.h
     agent/contextinspector.h
     agent/toolcalltrace.h
@@ -362,7 +403,9 @@ add_executable(exorcist WIN32
     agent/accessibilityhelper.h
     agent/tooltogglemanager.h
     agent/contextscopeconfig.h
+    agent/contextscopeconfig.cpp
     search/embeddingindex.h
+    search/embeddingindex.cpp
     search/gitignorefilter.h
     search/regexsearchengine.h
     agent/tools/notebooktools.h
@@ -413,9 +456,20 @@ add_executable(exorcist WIN32
     sdk/luajit/luascriptengine.cpp
     sdk/luajit/luahostapi.h
     sdk/luajit/luahostapi.cpp
+    process/exobridgecore.h
+    process/exobridgecore.cpp
     process/ipcprotocol.h
+    process/ipcprotocol.cpp
     process/bridgeclient.h
+    process/bridgeclient.cpp
     process/processmanager.h
+    process/processmanager.cpp
+    settings/workspacesettings.h
+    settings/workspacesettings.cpp
+    testing/testdiscoveryservice.h
+    testing/testdiscoveryservice.cpp
+    testing/testexplorerpanel.h
+    testing/testexplorerpanel.cpp
 )
 
 # ── Chat renderer: Ultralight (HTML/JS) vs Qt widgets ────────────────────────
@@ -435,6 +489,7 @@ else()
         agent/chat/chatthinkingwidget.h
         agent/chat/chattoolinvocationwidget.h
         agent/chat/chattranscriptview.h
+        agent/chat/chattranscriptview.cpp
         agent/chat/chatturnwidget.h
         agent/chat/chatwelcomewidget.h
         agent/chat/chatworkspaceeditwidget.h
@@ -442,6 +497,9 @@ else()
 endif()
 
 target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent Qt6::Sql libluajit)
+if(WIN32)
+    target_link_libraries(exorcist PRIVATE dbghelp)
+endif()
 target_include_directories(exorcist PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(EXORCIST_USE_TREESITTER)
@@ -485,3 +543,18 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/plugins/lua")
         COMMENT "Copying Lua script plugins..."
     )
 endif()
+
+# Performance budget: report binary size after build
+# Debug builds include debug symbols — use generous limit; Release is tighter.
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(EXORCIST_BINARY_SIZE_BUDGET 52428800 CACHE STRING "Max binary size in bytes (50 MB Release)")
+else()
+    set(EXORCIST_BINARY_SIZE_BUDGET 209715200 CACHE STRING "Max binary size in bytes (200 MB Debug)")
+endif()
+add_custom_command(TARGET exorcist POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        -DBINARY_PATH=$<TARGET_FILE:exorcist>
+        -DMAX_BYTES=${EXORCIST_BINARY_SIZE_BUDGET}
+        -P "${CMAKE_SOURCE_DIR}/cmake/report_binary_size.cmake"
+    COMMENT "Checking binary size budget..."
+)

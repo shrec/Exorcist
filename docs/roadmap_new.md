@@ -208,11 +208,11 @@ Update README.md	< 1 hour	✅ Done — Full feature list, build instructions, ar
 Add buildTypeScript()	1–2 hours	✅ Done — Dedicated TS highlighter with type-specific keywords (interface, enum, type, declare, etc.) and JSX support for .tsx. Committed in 450fcf5.
 Add shebang detection	1 hour	✅ Done — findByShebang() in syntaxhighlighter.cpp reads first line and matches #!.*python, #!.*node, #!.*bash, #!.*ruby, #!.*perl, #!.*lua, #!.*elixir. Committed in 450fcf5.
 Add .cpp extension → C highlighter	30 min	✅ Already correct — .c maps to buildCpp() in the extension table.
-Write SyntaxHighlighter tests	2–3 hours	Pending — needs test framework setup.
-Fix sonar-project.properties	30 min	Pending.
+Write SyntaxHighlighter tests	2–3 hours	✅ Done — test_syntaxhighlighter.cpp (43 cases): factory creation for 12+ languages, filename/shebang detection, null for unknown, format application with processEvents, block comment state machine, edge cases, case-insensitive extensions. test_treesitter_highlighter.cpp expanded to 42 cases: added 18 integration tests for setLanguage with 5 grammars (C/C++/Python/JS/JSON), format verification, multiline highlighting, incremental reparse, empty/UTF-8 documents.
+Fix sonar-project.properties	30 min	✅ Done — Added server/ to sonar.sources, added third_party/** and build-release/** and _deps/** to exclusions, updated comment.
 Add BUILDING.md	1 hour	✅ Done — README.md already contains complete build instructions with platform-specific commands and LLVM optional setup.
 
 7. Current Status
 Phases 1–4 are complete. The project builds cleanly with zero errors on Windows (LLVM MinGW / Clang 17, Qt 6.10.1, CMake + Ninja). All core subsystems are fully implemented: editor, LSP, terminal, git, search, project, MCP, debug, remote SSH, agent framework, plugin gallery. Tree-sitter syntax highlighting is integrated with 7 language grammars (C, C++, Python, JS, TS, Rust, JSON) and regex fallback. StartupProfiler provides phase-level timing and RSS measurement. ThemeGalleryPanel and editor token colors support theme browsing. CPack + GitHub Actions produce release artifacts for all platforms.
 
-Next priorities: Write SyntaxHighlighter/TreeSitter tests, implement remaining stub headers (chat UI widgets, agent tools), fix sonar-project.properties.
+Next priorities: Continue expanding test coverage for untested subsystems (McpClient, PluginManager, WorkspaceIndexer), implement remaining stub headers (chat UI widgets, agent tools).

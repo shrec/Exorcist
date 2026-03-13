@@ -45,6 +45,8 @@ private:
     // map to 2 Qt code units (surrogate pair).
     static uint32_t charToByteOffset(const QByteArray &utf8, int charOffset);
     static int      byteToCharOffset(const QByteArray &utf8, uint32_t byteOffset);
+
+    friend class TestTreeSitterHighlighter;
 #ifdef EXORCIST_HAS_TREESITTER
     static TSPoint  byteToPoint(const QByteArray &utf8, uint32_t byteOffset);
 #endif

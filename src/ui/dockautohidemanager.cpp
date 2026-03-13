@@ -11,6 +11,133 @@
 #include <QStyle>
 #include <QToolButton>
 
+// ── AutoHideTab implementation ────────────────────────────────────────────
+
+AutoHideTab::AutoHideTab(const QString &text, Qt::DockWidgetArea area,
+                         QWidget *parent)
+    : QToolButton(parent), m_area(area)
+{
+    setText(text);
+    setCheckable(true);
+    setCursor(Qt::PointingHandCursor);
+
+    const bool vertical = (area == Qt::LeftDockWidgetArea
+                        || area == Qt::RightDockWidgetArea);
+    if (vertical)
+        setFixedWidth(22);
+    else
+        setFixedHeight(22);
+
+    setStyleSheet(
+        QStringLiteral(
+            "QToolButton { background:#252526; color:#858585; border:none;"
+            " padding:6px 2px; font-size:11px; }"
+            "QToolButton:hover { color:#e0e0e0; background:#2a2d2e; }"
+            "QToolButton:checked { color:#e0e0e0; background:#37373d; }"));
+}
+
+QSize AutoHideTab::sizeHint() const
+{
+    const QFontMetrics fm(font());
+    const int textLen = fm.horizontalAdvance(text()) + 16;
+    const bool vertical = (m_area == Qt::LeftDockWidgetArea
+                        || m_area == Qt::RightDockWidgetArea);
+    if (vertical)
+        return {22, textLen};
+    return {textLen, 22};
+}
+
+void AutoHideTab::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    QStyleOptionToolButton opt;
+    initStyleOption(&opt);
+    const bool hovered = opt.state & QStyle::State_MouseOver;
+    const bool checked = opt.state & QStyle::State_On;
+
+    if (checked)
+        p.fillRect(rect(), QColor(0x37, 0x37, 0x3d));
+    else if (hovered)
+        p.fillRect(rect(), QColor(0x2a, 0x2d, 0x2e));
+    else
+        p.fillRect(rect(), QColor(0x25, 0x25, 0x26));
+
+    if (checked) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0x00, 0x7a, 0xcc));
+        if (m_area == Qt::LeftDockWidgetArea)
+            p.drawRect(0, 0, 2, height());
+        else if (m_area == Qt::RightDockWidgetArea)
+            p.drawRect(width() - 2, 0, 2, height());
+        else
+            p.drawRect(0, 0, width(), 2);
+    }
+
+    p.setPen(checked || hovered ? QColor(0xe0, 0xe0, 0xe0)
+                                : QColor(0x85, 0x85, 0x85));
+    p.setFont(font());
+
+    const bool vertical = (m_area == Qt::LeftDockWidgetArea
+                        || m_area == Qt::RightDockWidgetArea);
+    if (vertical) {
+        p.save();
+        if (m_area == Qt::LeftDockWidgetArea) {
+            p.translate(0, height());
+            p.rotate(-90);
+        } else {
+            p.translate(width(), 0);
+            p.rotate(90);
+        }
+        p.drawText(QRect(4, 0, height() - 8, width()),
+                   Qt::AlignCenter, text());
+        p.restore();
+    } else {
+        p.drawText(rect(), Qt::AlignCenter, text());
+    }
+}
+
+// ── AutoHideSideBar implementation ────────────────────────────────────────
+
+AutoHideSideBar::AutoHideSideBar(Qt::DockWidgetArea area, QWidget *parent)
+    : QWidget(parent), m_area(area)
+{
+    const bool vertical = (area == Qt::LeftDockWidgetArea
+                        || area == Qt::RightDockWidgetArea);
+    if (vertical) {
+        m_layout = new QVBoxLayout(this);
+        setFixedWidth(22);
+    } else {
+        m_layout = new QHBoxLayout(this);
+        setFixedHeight(22);
+    }
+    m_layout->setContentsMargins(0, 0, 0, 0);
+    m_layout->setSpacing(1);
+    m_layout->addStretch();
+
+    setStyleSheet(QStringLiteral("background:#252526;"));
+    hide();
+}
+
+AutoHideTab *AutoHideSideBar::addTab(const QString &title)
+{
+    auto *tab = new AutoHideTab(title, m_area, this);
+    m_layout->insertWidget(m_layout->count() - 1, tab);
+    m_tabs.append(tab);
+    show();
+    return tab;
+}
+
+void AutoHideSideBar::removeTab(AutoHideTab *tab)
+{
+    m_tabs.removeAll(tab);
+    m_layout->removeWidget(tab);
+    tab->deleteLater();
+    if (m_tabs.isEmpty())
+        hide();
+}
+
 // ── Custom title-bar widget with pin/unpin toggle ─────────────────────────
 
 class DockTitleBar : public QWidget

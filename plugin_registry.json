@@ -1,0 +1,123 @@
+[
+  {
+    "id": "org.exorcist.copilot",
+    "name": "Copilot",
+    "version": "1.0.0",
+    "author": "Exorcist Team",
+    "description": "GitHub Copilot AI provider — code completions and chat powered by OpenAI Codex.",
+    "homepage": "https://github.com/ExorcistIDE/exorcist",
+    "downloadUrl": "",
+    "minIdeVersion": "1.0.0",
+    "tags": ["ai", "copilot", "completion"]
+  },
+  {
+    "id": "org.exorcist.claude",
+    "name": "Claude",
+    "version": "1.0.0",
+    "author": "Exorcist Team",
+    "description": "Anthropic Claude AI provider — chat and agentic coding powered by Claude models.",
+    "homepage": "https://github.com/ExorcistIDE/exorcist",
+    "downloadUrl": "",
+    "minIdeVersion": "1.0.0",
+    "tags": ["ai", "claude", "anthropic"]
+  },
+  {
+    "id": "org.exorcist.codex",
+    "name": "Codex",
+    "version": "1.0.0",
+    "author": "Exorcist Team",
+    "description": "OpenAI Codex/GPT provider — chat and code generation via OpenAI API.",
+    "homepage": "https://github.com/ExorcistIDE/exorcist",
+    "downloadUrl": "",
+    "minIdeVersion": "1.0.0",
+    "tags": ["ai", "codex", "openai", "gpt"]
+  },
+  {
+    "id": "org.exorcist.ollama",
+    "name": "Ollama",
+    "version": "1.0.0",
+    "author": "Exorcist Team",
+    "description": "Ollama local AI provider — run LLMs locally for chat and completions.",
+    "homepage": "https://github.com/ExorcistIDE/exorcist",
+    "downloadUrl": "",
+    "minIdeVersion": "1.0.0",
+    "tags": ["ai", "ollama", "local", "llm"]
+  },
+  {
+    "id": "org.exorcist.byok",
+    "name": "BYOK (Bring Your Own Key)",
+    "version": "1.0.0",
+    "author": "Exorcist Team",
+    "description": "Bring Your Own Key provider — use any OpenAI-compatible API endpoint with your own API key.",
+    "homepage": "https://github.com/ExorcistIDE/exorcist",
+    "downloadUrl": "",
+    "minIdeVersion": "1.0.0",
+    "tags": ["ai", "byok", "custom", "api"]
+  },
+  {
+    "id": "org.exorcist.hello-world",
+    "name": "Hello World (Lua)",
+    "version": "1.0.0",
+    "author": "Exorcist Team",
+    "description": "Sample Lua plugin — registers a greeting command and listens for editor events.",
+    "homepage": "https://github.com/ExorcistIDE/exorcist",
+    "downloadUrl": "",
+    "minIdeVersion": "1.0.0",
+    "tags": ["lua", "sample", "demo"]
+  },
+  {
+    "id": "org.exorcist.git-reminder",
+    "name": "Git Reminder (Lua)",
+    "version": "1.0.0",
+    "author": "Exorcist Team",
+    "description": "Reminds you to commit after accumulating unsaved work.",
+    "homepage": "https://github.com/ExorcistIDE/exorcist",
+    "downloadUrl": "",
+    "minIdeVersion": "1.0.0",
+    "tags": ["lua", "git", "productivity"]
+  },
+  {
+    "id": "org.exorcist.word-count",
+    "name": "Word Count (Lua)",
+    "version": "1.0.0",
+    "author": "Exorcist Team",
+    "description": "Displays word and character count for the current document in the status bar.",
+    "homepage": "https://github.com/ExorcistIDE/exorcist",
+    "downloadUrl": "",
+    "minIdeVersion": "1.0.0",
+    "tags": ["lua", "editor", "statistics"]
+  },
+  {
+    "id": "org.exorcist.file-stats",
+    "name": "File Stats (Lua)",
+    "version": "1.0.0",
+    "author": "Exorcist Team",
+    "description": "Shows file statistics — line count, size, encoding — in a notification.",
+    "homepage": "https://github.com/ExorcistIDE/exorcist",
+    "downloadUrl": "",
+    "minIdeVersion": "1.0.0",
+    "tags": ["lua", "editor", "info"]
+  },
+  {
+    "id": "org.exorcist.save-guard",
+    "name": "Save Guard (Lua)",
+    "version": "1.0.0",
+    "author": "Exorcist Team",
+    "description": "Warns before saving files with potential issues (TODO markers, debug prints).",
+    "homepage": "https://github.com/ExorcistIDE/exorcist",
+    "downloadUrl": "",
+    "minIdeVersion": "1.0.0",
+    "tags": ["lua", "editor", "safety"]
+  },
+  {
+    "id": "org.exorcist.quick-insert",
+    "name": "Quick Insert (Lua)",
+    "version": "1.0.0",
+    "author": "Exorcist Team",
+    "description": "Insert common code snippets (timestamps, UUIDs, Lorem Ipsum) via commands.",
+    "homepage": "https://github.com/ExorcistIDE/exorcist",
+    "downloadUrl": "",
+    "minIdeVersion": "1.0.0",
+    "tags": ["lua", "editor", "snippets"]
+  }
+]

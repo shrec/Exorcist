@@ -8,6 +8,7 @@
 
 #include <QDir>
 #include <QDirIterator>
+#include <QCoreApplication>
 #include <QEventLoop>
 #include <QFutureWatcher>
 #include <QJsonArray>
@@ -328,11 +329,52 @@ void AgentController::sendModelRequest()
                      QSysInfo::currentCpuArchitecture(),
                      QSysInfo::kernelVersion());
 
+            // Check for saved agent tools — always tell the model about
+            // the persistent toolkit capability, even if no tools exist yet.
+            QString agentToolsSection;
+            {
+                const QDir atDir(QCoreApplication::applicationDirPath()
+                                 + QStringLiteral("/AgentTools"));
+                QStringList luaFiles;
+                if (atDir.exists())
+                    luaFiles = atDir.entryList(
+                        {QStringLiteral("*.lua")}, QDir::Files, QDir::Name);
+
+                if (!luaFiles.isEmpty()) {
+                    QStringList summaries;
+                    for (const QString &f : luaFiles) {
+                        const QString base = f.chopped(4);
+                        const QString metaPath = atDir.filePath(base + QStringLiteral(".json"));
+                        QString desc;
+                        QFile mf(metaPath);
+                        if (mf.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                            const auto doc = QJsonDocument::fromJson(mf.readAll());
+                            desc = doc.object()[QLatin1String("description")].toString();
+                        }
+                        summaries << QStringLiteral("  - %1: %2").arg(base, desc);
+                    }
+                    agentToolsSection = QStringLiteral(
+                        "\nYou have a persistent Lua toolkit with %1 saved tool(s):\n%2\n"
+                        "Call list_lua_tools to see full script contents. "
+                        "Use run_lua_tool to execute them by name instead of "
+                        "rewriting scripts. Use save_lua_tool to add new tools.\n")
+                        .arg(luaFiles.size())
+                        .arg(summaries.join(QLatin1Char('\n')));
+                } else {
+                    agentToolsSection = QStringLiteral(
+                        "\nYou have a persistent Lua toolkit (currently empty). "
+                        "Use save_lua_tool to save reusable Lua scripts that persist "
+                        "across sessions and projects. Saved tools can be listed with "
+                        "list_lua_tools and executed with run_lua_tool by name.\n");
+                }
+            }
+
             const QString contextMsg =
                 QStringLiteral("<environment_info>\n")
                 + QStringLiteral("OS: %1\n").arg(osInfo)
                 + QStringLiteral("Workspace: %1\n").arg(wsRoot)
                 + QStringLiteral("Directory tree:\n%1\n").arg(tree.join(QLatin1Char('\n')))
+                + agentToolsSection
                 + QStringLiteral("</environment_info>");
 
             // Only prepend if no environment_info block is already present

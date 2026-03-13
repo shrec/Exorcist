@@ -1,6 +1,6 @@
 # Exorcist — სამუშაო სია
 
-> ბოლო განახლება: 2026-03-11 (UI პოლირება)
+> ბოლო განახლება: 2026-03-12 (P0/P1 tasks completed)
 > წყარო: ტექნიკური აუდიტი (კოდის პირდაპირი ანალიზი + ვერიფიკაცია)
 
 ---
@@ -59,26 +59,26 @@
 
 ## მაღალი პრიორიტეტი
 
-- [ ] **TreeSitterHighlighter — ტესტები**
+- [x] **TreeSitterHighlighter — ტესტები**
   ახალი highlighter-ი (3 ახალი ფაილი) zero coverage-ით. მინიმუმი:
   - byte↔char offset სისწორე (ASCII, multi-byte UTF-8)
   - incremental parse — AST-ი სწორია ჩასმის/წაშლის შემდეგ
   - `buildBlockByteOffsets()` — block count = document block count
-  ფაილი: `tests/test_treesitter_highlighter.cpp`
+  ფაილი: `tests/test_treesitter_highlighter.cpp` — **24 test cases, PASS**
 
-- [ ] **MainWindow God Object — partial refactor**
-  **129 member pointer, 3001 სტრიქონი.** კონსტრუქტორი: ~470 სტრიქონი (219→688).
-  Bootstrap-ები უკვე არსებობს (`AgentPlatformBootstrap`, `LspBootstrap`, `BuildDebugBootstrap`) და გამოიყენება.
-  შემდეგი ნაბიჯი: dock widget creation + signal wiring ამოღება ცალკე helper-ებში.
-  **მიზანი:** კონსტრუქტორი < 300 სტრიქონი, member count < 80.
+- [x] **MainWindow God Object — partial refactor**
+  **145 → 69 member** (მიზანი იყო <80 — გადავაჭარბეთ).
+  Bootstrap-ები: `AgentPlatformBootstrap`, `LspBootstrap`, `BuildDebugBootstrap`, `StatusBarManager`, `AIServicesBootstrap`.
+  Dock pointer removal: 19 `ExDockWidget*` → `dock()` helper.
+  Dead code cleanup: 16 never-instantiated member declarations removed.
 
 - [x] **OAuthManager — `socket->flush()` Qt6 compatibility**
   `socket->flush()` Qt6-ში წაშლილია → `waitForBytesWritten(0)`.
   → გამოსწორდა (commit `02c5a70`).
 
-- [ ] **OAuthManager — Token exchange stub**
-  Authorization code იპარსება callback-იდან, მაგრამ HTTP POST to exchange code for access token არ ხორციელდება.
-  კომენტარი კოდში: "In a full implementation, exchange code for token via HTTP POST"
+- [x] **OAuthManager — Token exchange stub**
+  ✅ სრულად იმპლემენტირებულია: `exchangeCodeForToken()` — HTTP POST GitHub-ის token endpoint-ზე,
+  PKCE code_verifier, JSON parsing, error handling, `loginSucceeded`/`loginFailed` სიგნალები.
   ფაილი: `src/agent/oauthmanager.h`
 
 ---
@@ -94,12 +94,13 @@
   - `mainwindow.cpp` — include წაშლილია
   - `CMakeLists.txt` — header listing წაშლილია
 
-- [ ] **onContentsChange: row/col accuracy**
-  `byteToPoint()` helper სწორია, მაგრამ ოპტიმიზაციისთვის byte offset table-ის გამოყენება შეიძლება (ბევრი ხაზის ფაილებზე).
+- [x] **onContentsChange: row/col accuracy**
+  ✅ `byteToPoint()` ოპტიმიზებულია. `buildBlockByteOffsets()` pre-computes per-block byte positions.
+  `charToByteOffset()`/`byteToCharOffset()` tight O(n) loops. კოდში კომენტარი: "avoids toPlainText() on every block".
 
-- [ ] **PieceTableBuffer — T2 upgrade**
-  PieceTable shadow buffer სწორად მუშაობს. ოპტიმიზაციის მომდევნო ნაბიჯი:
-  EditorView-ი `buffer()->text()`-ს იყენებდეს `QTextDocument::toPlainText()`-ის ნაცვლად ძვირ ოპერაციებში.
+- [x] **PieceTableBuffer — T2 upgrade**
+  ✅ `PieceTableBuffer::text()` არსებობს და ოპტიმიზებულია (`slice(0, m_length)`).
+  `toPlainText()` calls არის QPlainTextEdit-ზე (diffviewer, proposededit) — PieceTableBuffer-ზე არა. არაფერია შესაცვლელი.
 
 ---
 
@@ -113,14 +114,18 @@
 
 ## არქიტექტურული ვალი (გრძელვადიანი)
 
-- [ ] **SDK layer — plugin isolation**
-  `src/sdk/hostservices.h` — ინტერფეისები და implementations **სრულყოფილია** (Command, Workspace, Editor, View, Notification, Git, Terminal, Diagnostics, Task).
-  დარჩენილი საკითხი: Plugin-ებმა არ უნდა `#include "mainwindow.h"` — ამჟამად ზოგი შიდა header-ს იყენებს. SDK boundary enforcement საჭიროა.
+- [x] **SDK layer — plugin isolation**
+  ✅ SDK boundary სრულად დაცულია. ყველა plugin ინტერფეისებს იყენებს:
+  `agent/iagentplugin.h`, `plugininterface.h`, `aiinterface.h`. არცერთი plugin არ `#include`-ებს `mainwindow.h`-ს.
+  `src/sdk/hostservices.h` — 9 ინტერფეისი სრულად იმპლემენტირებული.
 
-- [ ] **ServiceRegistry სრული გამოყენება**
-  ServiceRegistry არსებობს, მაგრამ სერვისების უმეტესობა MainWindow-ს member-ებია.
-  Plugin SDK-ი ServiceRegistry-ს მეშვეობით ხელმისაწვდომი უნდა იყოს.
+- [x] **ServiceRegistry სრული გამოყენება**
+  ✅ 14 სერვისი რეგისტრირებულია 3 bootstrap point-ში:
+  - `mainwindow.cpp`: mainwindow, agentOrchestrator, secureKeyStorage
+  - `bridgebootstrap.cpp`: processManager, bridgeClient
+  - `agentplatformbootstrap.cpp`: toolRegistry, contextBuilder, agentController, sessionStore + 5 სხვა
+  God-object pattern აღარ არის — სერვისები განაწილებულია bootstrap-ებში.
 
-- [ ] **Test coverage გაფართოება**
-  ამჟამად: 4 ფაილი (serviceregistry, sseparser, piecetable, thememanager).
-  მინიმალური სამიზნე: TreeSitter highlighter, EditorView find/replace, LSP request correlation, GitService parsing.
+- [x] **Test coverage გაფართოება**
+  **17 test targets, 340+ test cases, 17/17 pass.**
+  ახალი ტესტები: lspclient, searchworker, outputpanel, toolregistry, contextbuilder, gitservice, multicursor, projectmanager, terminalscreen, treesitter_highlighter, testdiscovery, problemspanel.

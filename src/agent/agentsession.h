@@ -107,10 +107,7 @@ struct AgentTurn
 class AgentSession
 {
 public:
-    AgentSession()
-        : m_id(QUuid::createUuid().toString(QUuid::WithoutBraces))
-        , m_createdAt(QDateTime::currentDateTime())
-    {}
+    AgentSession();
 
     // ── Identity ──────────────────────────────────────────────────────────
     QString id() const { return m_id; }
@@ -136,95 +133,24 @@ public:
         return m_turns.last();
     }
 
-    void beginTurn(const QString &userMessage)
-    {
-        AgentTurn turn;
-        turn.userMessage = userMessage;
-        m_turns.append(turn);
-
-        // Add to conversation history
-        m_messages.append({AgentMessage::Role::User, userMessage});
-    }
-
-    void addStep(const AgentStep &step)
-    {
-        Q_ASSERT(!m_turns.isEmpty());
-        m_turns.last().steps.append(step);
-
-        // Update conversation history based on step type
-        if (step.type == AgentStep::Type::ModelCall) {
-            AgentMessage msg;
-            msg.role    = AgentMessage::Role::Assistant;
-            msg.content = step.modelResponse;
-            m_messages.append(msg);
-        } else if (step.type == AgentStep::Type::ToolCall) {
-            // Record tool call in assistant message
-            AgentMessage assistMsg;
-            assistMsg.role = AgentMessage::Role::Assistant;
-            assistMsg.toolCalls.append(step.toolCall);
-            m_messages.append(assistMsg);
-
-            // Record tool result
-            AgentMessage toolMsg;
-            toolMsg.role       = AgentMessage::Role::Tool;
-            toolMsg.toolCallId = step.toolCall.id;
-            toolMsg.content    = step.toolResult;
-            m_messages.append(toolMsg);
-        } else if (step.type == AgentStep::Type::FinalAnswer) {
-            AgentMessage msg;
-            msg.role    = AgentMessage::Role::Assistant;
-            msg.content = step.finalText;
-            m_messages.append(msg);
-
-            // Accumulate patches
-            m_turns.last().patchProposals.append(step.patches);
-        }
-    }
+    void beginTurn(const QString &userMessage);
+    void addStep(const AgentStep &step);
 
     // ── Conversation history (for model context) ──────────────────────────
     const QList<AgentMessage> &messages() const { return m_messages; }
-
-    /// Pre-populate conversation history (e.g. when restoring a saved session).
     void setMessages(const QList<AgentMessage> &msgs) { m_messages = msgs; }
 
     // ── All patches across all turns ──────────────────────────────────────
-    QList<PatchProposal> allPatches() const
-    {
-        QList<PatchProposal> all;
-        for (const auto &turn : m_turns)
-            all.append(turn.patchProposals);
-        return all;
-    }
+    QList<PatchProposal> allPatches() const;
 
     // ── File change tracking ──────────────────────────────────────────────
-    void recordFileChange(const QString &filePath, const QString &beforeContent)
-    {
-        if (!m_fileSnapshots.contains(filePath))
-            m_fileSnapshots[filePath] = beforeContent;
-    }
-
+    void recordFileChange(const QString &filePath, const QString &beforeContent);
     QHash<QString, QString> fileSnapshots() const { return m_fileSnapshots; }
 
     // ── Summary ───────────────────────────────────────────────────────────
     int turnCount() const { return m_turns.size(); }
-
-    int totalSteps() const
-    {
-        int n = 0;
-        for (const auto &t : m_turns)
-            n += t.steps.size();
-        return n;
-    }
-
-    int totalToolCalls() const
-    {
-        int n = 0;
-        for (const auto &t : m_turns)
-            for (const auto &s : t.steps)
-                if (s.type == AgentStep::Type::ToolCall)
-                    ++n;
-        return n;
-    }
+    int totalSteps() const;
+    int totalToolCalls() const;
 
 private:
     QString              m_id;

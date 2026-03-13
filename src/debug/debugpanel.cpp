@@ -495,17 +495,78 @@ void DebugPanel::setRunning(bool running, bool stopped)
 
 void DebugPanel::onQuickWatch()
 {
-    // TODO: show QuickWatch dialog
+    if (!m_adapter) return;
+
+    auto *dlg = new QuickWatchDialog(m_adapter, this);
+    connect(dlg, &QuickWatchDialog::addToWatch, this, [this](const QString &expr) {
+        m_watchModel->addWatch(expr);
+    });
+
+    // Pre-fill from selected locals item if available
+    const QModelIndex idx = m_localsView->currentIndex();
+    if (idx.isValid()) {
+        const QString expr = idx.sibling(idx.row(), 0).data().toString();
+        dlg->setExpression(expr);
+    }
+
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
 }
 
 void DebugPanel::onLocalsContextMenu(const QPoint &pos)
 {
-    Q_UNUSED(pos)
-    // TODO: context menu for locals tree (copy, add watch, etc.)
+    const QModelIndex idx = m_localsView->indexAt(pos);
+    if (!idx.isValid()) return;
+
+    const QString name  = idx.sibling(idx.row(), 0).data().toString();
+    const QString value = idx.sibling(idx.row(), 1).data().toString();
+
+    QMenu menu(this);
+
+    menu.addAction(tr("Copy Name"), this, [name]() {
+        QApplication::clipboard()->setText(name);
+    });
+    menu.addAction(tr("Copy Value"), this, [value]() {
+        QApplication::clipboard()->setText(value);
+    });
+    menu.addAction(tr("Copy Name = Value"), this, [name, value]() {
+        QApplication::clipboard()->setText(
+            QStringLiteral("%1 = %2").arg(name, value));
+    });
+    menu.addSeparator();
+    menu.addAction(tr("Add to Watch"), this, [this, name]() {
+        m_watchModel->addWatch(name);
+    });
+
+    menu.exec(m_localsView->viewport()->mapToGlobal(pos));
 }
 
 void DebugPanel::onWatchContextMenu(const QPoint &pos)
 {
-    Q_UNUSED(pos)
-    // TODO: context menu for watch tree (remove, edit, copy, etc.)
+    const QModelIndex idx = m_watchView->indexAt(pos);
+
+    QMenu menu(this);
+
+    if (idx.isValid()) {
+        const QString name  = idx.sibling(idx.row(), 0).data().toString();
+        const QString value = idx.sibling(idx.row(), 1).data().toString();
+
+        menu.addAction(tr("Copy Name"), this, [name]() {
+            QApplication::clipboard()->setText(name);
+        });
+        menu.addAction(tr("Copy Value"), this, [value]() {
+            QApplication::clipboard()->setText(value);
+        });
+        menu.addSeparator();
+        menu.addAction(tr("Remove Watch"), this, [this, name]() {
+            m_watchModel->removeWatch(name);
+        });
+    }
+
+    menu.addSeparator();
+    menu.addAction(tr("Remove All Watches"), this, [this]() {
+        m_watchModel->clearAll();
+    });
+
+    menu.exec(m_watchView->viewport()->mapToGlobal(pos));
 }

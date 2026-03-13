@@ -6,6 +6,8 @@
 #include <QObject>
 #include <QProcess>
 
+class BridgeClient;
+
 /// MCP Tool descriptor discovered from a server.
 struct McpToolInfo {
     QString name;
@@ -68,6 +70,14 @@ public:
     /// Check if a server is connected and initialized.
     bool isConnected(const QString &name) const;
 
+    /// Set a BridgeClient for shared MCP server delegation.
+    /// When set, connectServer() delegates to ExoBridge instead of
+    /// spawning local processes.
+    void setBridgeClient(BridgeClient *client);
+
+    /// Whether bridge delegation is active.
+    bool useBridge() const { return m_bridgeClient != nullptr; }
+
 signals:
     void serverConnected(const QString &name);
     void serverDisconnected(const QString &name);
@@ -93,5 +103,11 @@ private:
     int sendRequest(const QString &name, const QString &method,
                     const QJsonObject &params, const QString &externalId = {});
 
+    // Bridge delegation helpers
+    bool connectServerViaBridge(const QString &name);
+    void callToolViaBridge(const QString &toolName, const QJsonObject &arguments,
+                           const QString &requestId);
+
     QHash<QString, ServerState> m_servers;
+    BridgeClient *m_bridgeClient = nullptr;
 };

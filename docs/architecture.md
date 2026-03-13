@@ -21,7 +21,7 @@ organized into layers with clear dependency direction.
 │     Concrete Qt implementations — replaceable                     │
 ├────────────────────────────────────────────────────────────────────┤
 │  1. Core interfaces   (src/core/i*)                               │
-│     IFileSystem, IProcess, ITerminal, INetwork — no UI deps       │
+│     IFileSystem, IFileWatcher, IEnvironment, IProcess, ITerminal  │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -33,31 +33,38 @@ concrete core classes or MainWindow.
 | Subsystem | Directory | Purpose | Key interfaces / types |
 |-----------|-----------|---------|----------------------|
 | **App shell** | `mainwindow.*`, `main.cpp` | Window, tabs, docks, menus, status bar | `MainWindow` |
-| **Editor** | `editor/` | Text editing, syntax highlighting (tree-sitter + regex fallback), piece table, minimap | `EditorView`, `HighlighterFactory`, `TreeSitterHighlighter`, `SyntaxHighlighter`, `PieceTableBuffer` |
-| **Language Intelligence** | `lsp/` | LSP client, Clangd lifecycle, completion, hover, diagnostics | `LspClient`, `ClangdManager`, `LspEditorBridge` |
+| **Editor** | `editor/` | Text editing, syntax highlighting (tree-sitter + regex fallback), piece table, minimap, vim emulation | `EditorView`, `HighlighterFactory`, `TreeSitterHighlighter`, `SyntaxHighlighter`, `PieceTableBuffer`, `VimHandler` |
+| **Language Intelligence** | `lsp/` | LSP client, Clangd lifecycle, completion, hover, diagnostics, TCP socket transport for remote LSP | `LspClient`, `ClangdManager`, `LspEditorBridge`, `SocketLspTransport` |
 | **Terminal** | `terminal/` | ConPTY/PTY emulator, VT100/xterm, scrollback | `TerminalView`, `TerminalPanel` |
 | **Build System** | `build/` | Task runner, build profiles, problem matchers, toolchain detection, CMake integration, build toolbar, debug launch | `OutputPanel`, `RunPanel`, `TaskProfile`, `ToolchainManager`, `CMakeIntegration`, `BuildToolbar`, `DebugLaunchController` |
-| **Source Control** | `git/` | Git status, blame, diff, staging, branches | `GitService`, `GitPanel` |
+| **Testing** | `testing/` | Test discovery (CTest JSON), test runner, test explorer UI | `TestDiscoveryService`, `TestExplorerPanel` |
+| **Problems** | `problems/` | Unified diagnostics panel aggregating LSP + build errors | `ProblemsPanel` |
+| **Source Control** | `git/` | Git status, blame, diff, staging, branches, multi-file diff explorer, 3-way merge editor | `GitService`, `GitPanel`, `DiffExplorerPanel`, `MergeEditor` |
 | **Search** | `search/` | Workspace search, file search, regex search | `SearchPanel`, `WorkspaceIndexer` |
 | **Project** | `project/` | Solution/project tree, workspace management | `ProjectManager`, `SolutionModel` |
 | **MCP** | `mcp/` | Model Context Protocol client for tool servers | `McpManager`, `McpConnection` |
 | **Debug** | `debug/` | Debug adapter framework, GDB/MI, breakpoints | `IDebugAdapter`, `GdbMiAdapter`, `DebugPanel` |
-| **Remote / SSH** | `remote/` | SSH connections, remote FS, multi-arch probing, sync | `SshSession`, `SshConnectionManager`, `RemoteFilePanel`, `RemoteHostProber`, `RemoteSyncService` |
+| **Remote / SSH** | `remote/` | SSH connections, remote FS, multi-arch probing, sync, remote LSP bridging | `SshSession`, `SshConnectionManager`, `RemoteFilePanel`, `RemoteHostProber`, `RemoteSyncService`, `RemoteLspManager` |
 | **Agent framework** | `agent/` | Agent runtime, tools, chat UI (Qt widgets or Ultralight HTML renderer), session management | `AgentController`, `AgentOrchestrator`, `ChatPanelWidget`, `UltralightWidget`, `ChatJSBridge` |
 | **ExoBridge** | `process/`, `server/` | IPC protocol, shared daemon, cross-instance process management | `ExoBridgeCore`, `BridgeClient`, `ProcessManager`, `Ipc::Message` |
 | **Project Brain** | `agent/projectbrain*` | Persistent workspace knowledge (rules, facts, sessions) | `ProjectBrainService`, `BrainContextBuilder`, `MemorySuggestionEngine` |
-| **Core abstractions** | `core/` | OS interfaces (filesystem, process, terminal, network) | `IFileSystem`, `IProcess`, `ITerminal`, `INetwork` |
-| **Plugin system** | `pluginmanager.*`, `serviceregistry.*`, `plugin/` | Plugin loader, typed service resolution, extension gallery | `PluginManager`, `ServiceRegistry`, `PluginGalleryPanel` |
-| **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code | `LspBootstrap`, `BuildDebugBootstrap`, `ProcessBootstrap` |
+| **Core abstractions** | `core/` | OS interfaces (filesystem, file watching, environment, process, terminal, network) | `IFileSystem`, `IFileWatcher`, `IEnvironment`, `IProcess`, `ITerminal`, `INetwork` |
+| **Plugin system** | `pluginmanager.*`, `serviceregistry.*`, `plugin/` | Plugin loader, typed service resolution, extension gallery, marketplace (registry, download, install) | `PluginManager`, `ServiceRegistry`, `PluginGalleryPanel`, `PluginMarketplaceService` |
+| **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code | `LspBootstrap`, `BuildDebugBootstrap`, `BridgeBootstrap`, `StatusBarManager`, `AIServicesBootstrap` |
+| **Settings** | `settings/` | Hierarchical settings: global QSettings → workspace `.exorcist/settings.json` override layer | `WorkspaceSettings` |
 | **SDK** | `sdk/` | Stable plugin API — typed host services, permissions | `IHostServices`, `HostServices`, `PluginPermission` |
 | **UI framework** | `ui/`, `commandpalette.*`, `thememanager.*` | Command palette, theme engine with token colors, keymap, notifications, custom docking, theme gallery | `CommandPalette`, `ThemeManager`, `KeymapManager`, `NotificationToast`, `DockManager`, `ExDockWidget`, `ThemeGalleryPanel` |
 | **Logger** | `logger.*` | Thread-safe timestamped logging | `Logger` |
+| **Crash Handler** | `crashhandler.*` | Catches unhandled exceptions/signals; writes minidumps (Windows), CPU register dumps, faulting module identification, access violation details, stack traces via StackWalk64, loaded modules list, and recent log lines ring buffer to `crashes/` directory. Integrated with Logger for automatic log capture. | `CrashHandler` |
+| **Performance** | `startupprofiler.*`, `cmake/report_binary_size.cmake` | Startup phase timing, RSS measurement, budget enforcement (300 ms / 80 MB), post-build binary size reporting | `StartupProfiler` |
 
 ## Core interfaces (`src/core/`)
 
 | Interface | Implementation | Purpose |
 |-----------|---------------|---------|
 | `IFileSystem` | `QtFileSystem` | File read/write/exist/list |
+| `IFileWatcher` | `QtFileWatcher` | File/directory change monitoring |
+| `IEnvironment` | `QtEnvironment` | Environment variables, platform detection |
 | `IProcess` | `QtProcess` | Process launch and I/O |
 | `ITerminal` | `QtTerminal` | Terminal emulator backend |
 | `INetwork` | `NullNetwork` | HTTP requests (stub) |
@@ -67,13 +74,22 @@ concrete core classes or MainWindow.
 All core subsystems register services in `ServiceRegistry` by string key.
 Plugins resolve services at runtime — never via direct `#include` of core classes.
 
-```cpp
-// Registration (core)
-registry->registerService("projectBrainService", m_brain);
+Services can be registered with version metadata (`ServiceContract`) for
+compatibility checking at resolution time:
 
-// Resolution (plugin or other subsystem)
+```cpp
+// Registration with version contract
+registry->registerService("projectBrainService", m_brain,
+                           ServiceContract{1, 2, "Project brain service"});
+
+// Typed resolution
 auto *brain = registry->service<ProjectBrainService>("projectBrainService");
+
+// Version compatibility check (major must match, minor >= required)
+if (registry->isCompatible("projectBrainService", 1, 2)) { /* safe to use */ }
 ```
+
+Legacy `registerService(name, service)` without a contract defaults to v1.0.
 
 ## Plugin SDK (`src/sdk/`)
 
@@ -322,8 +338,11 @@ JSON-RPC 2.0 over length-prefixed frames:
 | Type | File | Purpose |
 |------|------|---------|
 | `Ipc::Message` | `process/ipcprotocol.h` | Wire message — serialize/deserialize, frame/unframe |
-| `ExoBridgeCore` | `process/exobridgecore.h` | Daemon core — QLocalServer, client tracking, request routing |
+| `ExoBridgeCore` | `process/exobridgecore.h` | Daemon core — QLocalServer, client tracking, service handler dispatch |
 | `BridgeClient` | `process/bridgeclient.h` | IDE-side IPC client — auto-launch, reconnect, service calls |
+| `McpBridgeService` | `server/mcpbridgeservice.h` | Centralized MCP server process management (start/stop/callTool) |
+| `GitWatchBridgeService` | `server/gitwatchservice.h` | Centralized git file watching — one watcher per repo |
+| `AuthTokenBridgeService` | `server/authtokenbridgeservice.h` | Centralized auth token cache — DPAPI/Keychain/libsecret |
 | `ProcessManager` | `process/processmanager.h` | Unified API for local (per-window) and shared (daemon) processes |
 | `BridgeBootstrap` | `bootstrap/bridgebootstrap.h` | Wires BridgeClient + ProcessManager into ServiceRegistry |
 

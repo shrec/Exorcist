@@ -1,4 +1,5 @@
 #include "logger.h"
+#include "crashhandler.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -56,6 +57,9 @@ void messageHandler(QtMsgType type,
 
     // Also write to stderr so the developer sees output when running from a terminal.
     fprintf(stderr, "%s", qPrintable(line));
+
+    // Feed crash handler ring buffer so crash reports include recent logs
+    CrashHandler::recordLogLine(line);
 
     if (type == QtFatalMsg) {
         g_logFile.close();

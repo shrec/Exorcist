@@ -18,6 +18,7 @@
 #include "chattoolinvocationwidget.h"
 #include "chatturnmodel.h"
 #include "chatworkspaceeditwidget.h"
+#include "aiinterface.h"
 
 // ── ChatTurnWidget ────────────────────────────────────────────────────────────
 //

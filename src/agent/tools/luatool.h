@@ -20,7 +20,7 @@
 //   ex.commands.*     — register, execute
 //
 // Blocked: FFI, io, os, loadfile, dofile, require
-// Limits: 10M instructions, 16MB memory
+// Limits: 10M instructions, 64MB memory
 
 class LuaExecuteTool : public ITool
 {
@@ -58,7 +58,7 @@ public:
             "  print(...) — output captured and returned\n"
             "  return value — last expression returned as text\n\n"
             "Sandboxed: no file I/O, no OS access, no FFI. "
-            "16MB memory limit, 10M instruction limit.");
+            "64MB memory limit, 10M instruction limit.");
         s.permission  = AgentToolPermission::SafeMutate;
         s.timeoutMs   = 30000;
         s.inputSchema = QJsonObject{

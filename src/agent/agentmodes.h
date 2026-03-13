@@ -27,39 +27,10 @@ static const char * const AgentPrompt =
     "Use all available tools. Think step by step. "
     "Summarise what you did in the final response.";
 
-inline QString systemPrompt(int modeIndex)
-{
-    switch (modeIndex) {
-    case 0: return QString::fromUtf8(AskPrompt);
-    case 1: return QString::fromUtf8(EditPrompt);
-    case 2: return QString::fromUtf8(AgentPrompt);
-    default: return {};
-    }
-}
-
-inline AgentToolPermission maxPermission(int modeIndex)
-{
-    switch (modeIndex) {
-    case 0: return AgentToolPermission::ReadOnly;
-    case 1: return AgentToolPermission::SafeMutate;
-    case 2: return AgentToolPermission::Dangerous;
-    default: return AgentToolPermission::SafeMutate;
-    }
-}
-
-inline bool usesAgentLoop(int modeIndex)
-{
-    return modeIndex == 2;
-}
-
-inline QString systemPromptForMode(int modeIndex)
-{
-    return systemPrompt(modeIndex);
-}
-
-inline AgentToolPermission maxPermissionForMode(int modeIndex)
-{
-    return maxPermission(modeIndex);
-}
+QString systemPrompt(int modeIndex);
+AgentToolPermission maxPermission(int modeIndex);
+bool usesAgentLoop(int modeIndex);
+QString systemPromptForMode(int modeIndex);
+AgentToolPermission maxPermissionForMode(int modeIndex);
 
 } // namespace AgentModes

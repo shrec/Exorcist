@@ -1,0 +1,4 @@
+2026-03-13 00:48:55.378 INFO  [main.cpp:84]  Exorcist starting
+2026-03-13 00:48:55.792 WARN  [chatpanelwidget.cpp:100]  ChatPanel: css=46094 bytes, markdownJs=12497 bytes, chatJs=67903 bytes
+[UL] loading via URL: file:///exorcist_chat.html
+2026-03-13 00:48:55.794 WARN  [ultralightwidget.cpp:71]  UltralightWidget: begin loading file:///exorcist_chat.html

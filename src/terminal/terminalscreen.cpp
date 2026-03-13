@@ -188,7 +188,7 @@ void TerminalScreen::eat(unsigned char c)
         m_st     = St::Esc;
         m_priv   = false;
         m_pars.clear();
-        m_pbuf.clear();
+        if (!m_wasOsc) m_pbuf.clear(); // preserve OSC data for ESC\ terminator
         return;
     }
 

@@ -4,6 +4,7 @@
 #include <QHash>
 #include <functional>
 
+class BridgeClient;
 class QFileSystemWatcher;
 class QTimer;
 
@@ -15,6 +16,7 @@ public:
     explicit GitService(QObject *parent = nullptr);
 
     void setWorkingDirectory(const QString &path);
+    QString workingDirectory() const { return m_gitRoot; }
     QString currentBranch() const;
     QHash<QString, QString> fileStatuses() const;
     QChar statusChar(const QString &absPath) const;
@@ -60,6 +62,29 @@ public:
     /// Return file contents at HEAD (empty on error/untracked).
     QString showAtHead(const QString &absFilePath) const;
 
+    /// Return file contents at a specific revision (commit hash, branch, tag).
+    QString showAtRevision(const QString &absFilePath, const QString &rev) const;
+
+    /// Diff between two revisions (commit hashes, branches, tags).
+    /// Returns unified diff output.
+    QString diffRevisions(const QString &rev1, const QString &rev2) const;
+
+    /// List files changed between two revisions.
+    struct ChangedFile {
+        QString path;           // relative to git root
+        QChar   status;         // M, A, D, R, C, T
+    };
+    QList<ChangedFile> changedFilesBetween(const QString &rev1, const QString &rev2) const;
+
+    /// Return short log entries (for commit picker).
+    struct LogEntry {
+        QString hash;           // abbreviated commit hash
+        QString author;
+        QString date;           // ISO short
+        QString subject;        // first line of commit message
+    };
+    QList<LogEntry> log(int maxCount = 50) const;
+
     // ── Async variants (Manifesto #2: never block UI thread) ─────────
     /// Async blame — result delivered via blameReady signal.
     void blameAsync(const QString &absFilePath);
@@ -67,6 +92,14 @@ public:
     void diffAsync(const QString &filePath = {});
     /// Async showAtHead — result delivered via showAtHeadReady signal.
     void showAtHeadAsync(const QString &absFilePath);
+
+    /// Set a BridgeClient for centralized git file watching.
+    /// When set, file watching is delegated to ExoBridge's GitWatchService
+    /// instead of using a per-instance QFileSystemWatcher.
+    void setBridgeClient(BridgeClient *client);
+
+    /// Whether bridge-based file watching is active.
+    bool useBridge() const { return m_bridgeClient != nullptr; }
 
 signals:
     void statusRefreshed();
@@ -91,4 +124,5 @@ private:
     QFileSystemWatcher *m_watcher;
     QTimer *m_refreshTimer;
     bool m_isRepo;
+    BridgeClient *m_bridgeClient = nullptr;
 };

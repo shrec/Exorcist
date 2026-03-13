@@ -41,16 +41,16 @@ var MarkdownRenderer = (function() {
         var fileAttr = filePath ? (' data-file="' + escapeHtml(filePath) + '"') : '';
         var langAttr = lang ? (' data-lang="' + escapeHtml(lang) + '"') : '';
         var runBtn = isShellLang(lang)
-            ? '<button class="code-action-btn" onclick="ChatApp._runCode(\\'' + id + '\\')" title="Run">&#x25B6; Run</button>'
+            ? '<button class="code-action-btn" onclick="ChatApp._runCode(\'' + id + '\')" title="Run">&#x25B6; Run</button>'
             : '';
 
         return '<div class="interactive-result-code-block" id="' + id + '"' + fileAttr + langAttr + '>' +
             '<div class="code-block-toolbar">' +
                 '<span class="code-block-lang-label" title="' + labelTitle + '">' + label + '</span>' +
                 '<div class="code-block-actions">' +
-                    '<button class="code-action-btn" onclick="ChatApp._applyCode(\\'' + id + '\\')" title="Apply">&#x2199; Apply</button>' +
-                    '<button class="code-action-btn" onclick="ChatApp._copyCode(\\'' + id + '\\')" title="Copy">&#x2398; Copy</button>' +
-                    '<button class="code-action-btn" onclick="ChatApp._insertCode(\\'' + id + '\\')" title="Insert at Cursor">&#x2913; Insert</button>' +
+                    '<button class="code-action-btn" onclick="ChatApp._applyCode(\'' + id + '\')" title="Apply">&#x2199; Apply</button>' +
+                    '<button class="code-action-btn" onclick="ChatApp._copyCode(\'' + id + '\')" title="Copy">&#x2398; Copy</button>' +
+                    '<button class="code-action-btn" onclick="ChatApp._insertCode(\'' + id + '\')" title="Insert at Cursor">&#x2913; Insert</button>' +
                     runBtn +
                 '</div>' +
             '</div>' +
@@ -296,7 +296,7 @@ var MarkdownRenderer = (function() {
 
         // Italic: *text* or _text_
         s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
-        s = s.replace(/(?<!\w)_(.+?)_(?!\w)/g, '<em>$1</em>');
+        s = s.replace(/(^|\\W)_(.+?)_(?=\\W|$)/g, '$1<em>$2</em>');
 
         // Strikethrough: ~~text~~
         s = s.replace(/~~(.+?)~~/g, '<del>$1</del>');

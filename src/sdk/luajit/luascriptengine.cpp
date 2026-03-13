@@ -1,5 +1,7 @@
 #include "luascriptengine.h"
 #include "luahostapi.h"
+#include "../ihostservices.h"
+#include "../icommandservice.h"
 
 #include <QDir>
 #include <QFile>
@@ -10,6 +12,7 @@
 
 #include <cstdlib>   // malloc, realloc, free
 #include <cstring>   // memset
+#include <ctime>     // clock()
 
 extern "C" {
 #include <lua.h>
@@ -110,6 +113,170 @@ uint32_t LuaScriptEngine::parsePermissions(const QStringList &permStrings)
     return flags;
 }
 
+// ── Built-in JSON module ─────────────────────────────────────────────────────
+// Provides json.decode(str) → table and json.encode(tbl) → string inside the
+// sandbox, so Lua plugins can work with structured data without leaving the VM.
+
+// Forward: push a QJsonValue onto the Lua stack as a native Lua type.
+static void pushJsonValue(lua_State *L, const QJsonValue &val)
+{
+    switch (val.type()) {
+    case QJsonValue::Bool:
+        lua_pushboolean(L, val.toBool() ? 1 : 0);
+        break;
+    case QJsonValue::Double:
+        lua_pushnumber(L, val.toDouble());
+        break;
+    case QJsonValue::String: {
+        const QByteArray utf8 = val.toString().toUtf8();
+        lua_pushlstring(L, utf8.constData(), static_cast<size_t>(utf8.size()));
+        break;
+    }
+    case QJsonValue::Array: {
+        const QJsonArray arr = val.toArray();
+        lua_createtable(L, arr.size(), 0);
+        for (int i = 0; i < arr.size(); ++i) {
+            pushJsonValue(L, arr[i]);
+            lua_rawseti(L, -2, i + 1);  // Lua arrays are 1-based
+        }
+        break;
+    }
+    case QJsonValue::Object: {
+        const QJsonObject obj = val.toObject();
+        lua_createtable(L, 0, obj.size());
+        for (auto it = obj.begin(); it != obj.end(); ++it) {
+            const QByteArray key = it.key().toUtf8();
+            lua_pushlstring(L, key.constData(), static_cast<size_t>(key.size()));
+            pushJsonValue(L, it.value());
+            lua_rawset(L, -3);
+        }
+        break;
+    }
+    default:  // Null / Undefined
+        lua_pushnil(L);
+        break;
+    }
+}
+
+// Forward: convert a Lua value at the given stack index to a QJsonValue.
+static QJsonValue luaToJsonValue(lua_State *L, int idx, int depth = 0)
+{
+    if (depth > 64) return QJsonValue();   // prevent infinite recursion
+
+    switch (lua_type(L, idx)) {
+    case LUA_TBOOLEAN:
+        return QJsonValue(lua_toboolean(L, idx) != 0);
+    case LUA_TNUMBER:
+        return QJsonValue(lua_tonumber(L, idx));
+    case LUA_TSTRING:
+        return QJsonValue(QString::fromUtf8(lua_tostring(L, idx)));
+    case LUA_TTABLE: {
+        // Detect array vs object: if all keys are consecutive integers → array
+        const int absIdx = (idx > 0) ? idx : lua_gettop(L) + idx + 1;
+        const int len = static_cast<int>(lua_objlen(L, absIdx));
+        bool isArray = (len > 0);
+
+        if (isArray) {
+            // Verify it's a pure array (no non-integer keys)
+            int count = 0;
+            lua_pushnil(L);
+            while (lua_next(L, absIdx) != 0) {
+                lua_pop(L, 1);  // pop value, keep key
+                ++count;
+            }
+            isArray = (count == len);
+        }
+
+        if (isArray) {
+            QJsonArray arr;
+            for (int i = 1; i <= len; ++i) {
+                lua_rawgeti(L, absIdx, i);
+                arr.append(luaToJsonValue(L, -1, depth + 1));
+                lua_pop(L, 1);
+            }
+            return arr;
+        } else {
+            QJsonObject obj;
+            lua_pushnil(L);
+            while (lua_next(L, absIdx) != 0) {
+                QString key;
+                if (lua_type(L, -2) == LUA_TSTRING)
+                    key = QString::fromUtf8(lua_tostring(L, -2));
+                else if (lua_type(L, -2) == LUA_TNUMBER)
+                    key = QString::number(lua_tonumber(L, -2));
+                else {
+                    lua_pop(L, 1);
+                    continue;
+                }
+                obj[key] = luaToJsonValue(L, -1, depth + 1);
+                lua_pop(L, 1);
+            }
+            return obj;
+        }
+    }
+    default:
+        return QJsonValue();
+    }
+}
+
+void LuaScriptEngine::registerJsonModule(lua_State *L)
+{
+    lua_newtable(L);
+
+    // json.decode(str) → table/value
+    lua_pushcfunction(L, [](lua_State *Ls) -> int {
+        size_t len = 0;
+        const char *s = luaL_checklstring(Ls, 1, &len);
+        const QByteArray data(s, static_cast<int>(len));
+
+        QJsonParseError err;
+        const QJsonDocument doc = QJsonDocument::fromJson(data, &err);
+        if (err.error != QJsonParseError::NoError) {
+            lua_pushnil(Ls);
+            const QByteArray msg = err.errorString().toUtf8();
+            lua_pushlstring(Ls, msg.constData(), static_cast<size_t>(msg.size()));
+            return 2;  // nil, errorString
+        }
+
+        if (doc.isArray())
+            pushJsonValue(Ls, QJsonValue(doc.array()));
+        else if (doc.isObject())
+            pushJsonValue(Ls, QJsonValue(doc.object()));
+        else
+            lua_pushnil(Ls);
+
+        return 1;
+    });
+    lua_setfield(L, -2, "decode");
+
+    // json.encode(value [, pretty]) → string
+    lua_pushcfunction(L, [](lua_State *Ls) -> int {
+        luaL_checkany(Ls, 1);
+        const bool pretty = lua_toboolean(Ls, 2) != 0;
+
+        const QJsonValue val = luaToJsonValue(Ls, 1);
+        QJsonDocument doc;
+        if (val.isArray())
+            doc.setArray(val.toArray());
+        else if (val.isObject())
+            doc.setObject(val.toObject());
+        else {
+            // Wrap scalar in array for valid JSON
+            QJsonArray arr;
+            arr.append(val);
+            doc.setArray(arr);
+        }
+
+        const QByteArray out = doc.toJson(pretty ? QJsonDocument::Indented
+                                                  : QJsonDocument::Compact);
+        lua_pushlstring(Ls, out.constData(), static_cast<size_t>(out.size()));
+        return 1;
+    });
+    lua_setfield(L, -2, "encode");
+
+    lua_setglobal(L, "json");
+}
+
 // ── Sandbox creation ─────────────────────────────────────────────────────────
 
 lua_State *LuaScriptEngine::createSandboxedState(uint32_t permissions,
@@ -165,6 +332,18 @@ void LuaScriptEngine::applySandbox(lua_State *L, uint32_t /*permissions*/)
 
     // ── Set instruction count hook ───────────────────────────────────────
     lua_sethook(L, instructionHook, LUA_MASKCOUNT, kMaxInstructions);
+
+    // ── Provide os.clock() only (safe, no side effects) ──────────────────
+    lua_newtable(L);
+    lua_pushcfunction(L, [](lua_State *Ls) -> int {
+        lua_pushnumber(Ls, static_cast<double>(std::clock()) / CLOCKS_PER_SEC);
+        return 1;
+    });
+    lua_setfield(L, -2, "clock");
+    lua_setglobal(L, "os");
+
+    // ── Built-in json module (decode/encode) ─────────────────────────────
+    registerJsonModule(L);
 }
 
 // ── Host API registration (delegated to luahostapi.h) ────────────────────────
@@ -306,6 +485,24 @@ void LuaScriptEngine::shutdownAll()
             } else {
                 lua_pop(lp.L, 1);
             }
+
+            // Unregister commands before closing the state
+            if (m_host && m_host->commands()) {
+                lua_getfield(lp.L, LUA_REGISTRYINDEX, "_registered_commands");
+                if (lua_istable(lp.L, -1)) {
+                    const int len = static_cast<int>(lua_objlen(lp.L, -1));
+                    for (int i = 1; i <= len; ++i) {
+                        lua_rawgeti(lp.L, -1, i);
+                        if (lua_isstring(lp.L, -1)) {
+                            const QString cmdId = QString::fromUtf8(lua_tostring(lp.L, -1));
+                            m_host->commands()->unregisterCommand(cmdId);
+                        }
+                        lua_pop(lp.L, 1);
+                    }
+                }
+                lua_pop(lp.L, 1);
+            }
+
             lua_close(lp.L);
             lp.L = nullptr;
         }
@@ -381,6 +578,28 @@ bool LuaScriptEngine::reloadSinglePlugin(LoadedLuaPlugin &lp)
         else
             lua_pop(lp.L, 1);
     }
+
+    // ── Unregister commands BEFORE closing the state ─────────────────
+    // Commands registered via ex.commands.register() hold lambdas that
+    // capture the lua_State*. We must remove them before lua_close()
+    // to avoid use-after-free when the command is invoked later.
+    if (lp.L && m_host && m_host->commands()) {
+        // Read command IDs from the _registered_commands registry table
+        lua_getfield(lp.L, LUA_REGISTRYINDEX, "_registered_commands");
+        if (lua_istable(lp.L, -1)) {
+            const int len = static_cast<int>(lua_objlen(lp.L, -1));
+            for (int i = 1; i <= len; ++i) {
+                lua_rawgeti(lp.L, -1, i);
+                if (lua_isstring(lp.L, -1)) {
+                    const QString cmdId = QString::fromUtf8(lua_tostring(lp.L, -1));
+                    m_host->commands()->unregisterCommand(cmdId);
+                }
+                lua_pop(lp.L, 1);
+            }
+        }
+        lua_pop(lp.L, 1);
+    }
+    lp.registeredCommandIds.clear();
 
     // Close old state (frees all memory through our custom allocator).
     if (lp.L) {
@@ -526,8 +745,9 @@ LuaScriptEngine::AdhocResult LuaScriptEngine::executeAdhoc(const QString &script
 {
     AdhocResult result;
 
-    // Create a temporary memory budget (16 MB).
+    // Create a temporary memory budget (64 MB for agent use).
     auto budget = std::make_unique<MemoryBudget>();
+    budget->limit = 64 * 1024 * 1024;
 
     // Create a fresh sandboxed state — no host API, bare sandbox.
     lua_State *L = createSandboxedState(0, budget.get());

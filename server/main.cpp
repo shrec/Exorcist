@@ -7,6 +7,10 @@
 
 #include "process/exobridgecore.h"
 
+#include "mcpbridgeservice.h"
+#include "gitwatchservice.h"
+#include "authtokenservice.h"
+
 static QString pidFilePath()
 {
     const QString dir = QStandardPaths::writableLocation(
@@ -54,6 +58,39 @@ int main(int argc, char *argv[])
     // ── ExoBridge core ────────────────────────────────────────────────────
     ExoBridgeCore bridge;
 
+    // ── Shared services ──────────────────────────────────────────────────
+    McpBridgeService mcpService(&bridge);
+    bridge.installServiceHandler(
+        QStringLiteral("mcp"),
+        [&mcpService](const QString &method, const QJsonObject &args,
+                      std::function<void(bool, QJsonObject)> respond) {
+            mcpService.handleCall(method, args, std::move(respond));
+        });
+
+    GitWatchBridgeService gitWatchService(&bridge);
+    bridge.installServiceHandler(
+        QStringLiteral("gitwatch"),
+        [&gitWatchService](const QString &method, const QJsonObject &args,
+                           std::function<void(bool, QJsonObject)> respond) {
+            gitWatchService.handleCall(method, args, std::move(respond));
+        });
+    // Broadcast git change notifications to all IDE clients
+    QObject::connect(&gitWatchService, &GitWatchBridgeService::repoChanged,
+                     &bridge, [&bridge](const QString &repoPath) {
+        QJsonObject event;
+        event[QLatin1String("type")]     = QStringLiteral("gitChanged");
+        event[QLatin1String("repoPath")] = repoPath;
+        bridge.broadcastServiceEvent(QStringLiteral("gitwatch"), event);
+    });
+
+    AuthTokenBridgeService authService(&bridge);
+    bridge.installServiceHandler(
+        QStringLiteral("auth"),
+        [&authService](const QString &method, const QJsonObject &args,
+                       std::function<void(bool, QJsonObject)> respond) {
+            authService.handleCall(method, args, std::move(respond));
+        });
+
     if (idleTimeout > 0) {
         bridge.setPersistent(false);
         bridge.setIdleTimeout(idleTimeout);
@@ -74,6 +111,8 @@ int main(int argc, char *argv[])
           idleTimeout);
 
     const int ret = app.exec();
+    mcpService.shutdown();
+    gitWatchService.shutdown();
     bridge.stop();
     return ret;
 }

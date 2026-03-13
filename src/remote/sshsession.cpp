@@ -6,6 +6,7 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QTemporaryFile>
+#include <QTimer>
 
 SshSession::SshSession(const SshProfile &profile, QObject *parent)
     : QObject(parent)
@@ -470,4 +471,68 @@ void SshSession::exists(const QString &remotePath)
         const QString out = QString::fromUtf8(proc->readAllStandardOutput()).trimmed();
         emit existsResult(remotePath, out.contains(QLatin1String("EXISTS")));
     });
+}
+
+// ── Port forwarding ──────────────────────────────────────────────────────────
+
+int SshSession::startLocalPortForward(int localPort, const QString &remoteHost, int remotePort)
+{
+    if (!m_connected) {
+        return -1;
+    }
+
+    const int requestId = m_nextRequestId++;
+    const QString fwdSpec = QStringLiteral("%1:%2:%3")
+                                .arg(localPort)
+                                .arg(remoteHost)
+                                .arg(remotePort);
+
+    QStringList args = sshBaseArgs();
+    args << QStringLiteral("-N")   // No remote command
+         << QStringLiteral("-L") << fwdSpec;
+
+    auto *proc = startSshProcess(args);
+    if (!proc) {
+        emit portForwardError(requestId, QStringLiteral("Failed to start SSH port forward"));
+        return -1;
+    }
+
+    m_portForwards.insert(requestId, proc);
+
+    // Detect when tunnel is ready (SSH connects and stays open)
+    // We use a short timer: if the process is still running after 2s,
+    // the tunnel is established.
+    auto *readyTimer = new QTimer(proc);
+    readyTimer->setSingleShot(true);
+    connect(readyTimer, &QTimer::timeout, this, [this, requestId, localPort]() {
+        emit portForwardReady(requestId, localPort);
+    });
+    readyTimer->start(2000);
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc, requestId, readyTimer](int exitCode, QProcess::ExitStatus) {
+        readyTimer->stop();
+        m_portForwards.remove(requestId);
+        cleanupProcess(proc);
+        if (exitCode != 0) {
+            const QString err = QString::fromUtf8(proc->readAllStandardError()).trimmed();
+            emit portForwardError(requestId, err.isEmpty() ? QStringLiteral("SSH tunnel exited") : err);
+        }
+    });
+
+    return requestId;
+}
+
+void SshSession::stopPortForward(int requestId)
+{
+    auto *proc = m_portForwards.value(requestId);
+    if (!proc) return;
+
+    m_portForwards.remove(requestId);
+    proc->terminate();
+    if (!proc->waitForFinished(2000)) {
+        proc->kill();
+        proc->waitForFinished(1000);
+    }
+    cleanupProcess(proc);
 }

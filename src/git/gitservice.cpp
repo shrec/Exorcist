@@ -8,6 +8,8 @@
 #include <QDir>
 #include <QtConcurrent>
 
+#include "process/bridgeclient.h"
+
 GitService::GitService(QObject *parent)
     : QObject(parent),
       m_watcher(new QFileSystemWatcher(this)),
@@ -299,6 +301,94 @@ QString GitService::showAtHead(const QString &absFilePath) const
     return QString::fromUtf8(proc.readAllStandardOutput());
 }
 
+QString GitService::showAtRevision(const QString &absFilePath, const QString &rev) const
+{
+    if (!m_isRepo || m_gitRoot.isEmpty())
+        return {};
+    const QString relPath = QDir(m_gitRoot).relativeFilePath(absFilePath);
+    QProcess proc;
+    proc.setWorkingDirectory(m_gitRoot);
+    proc.start(QStringLiteral("git"),
+               {QStringLiteral("show"), rev + QStringLiteral(":") + relPath});
+    proc.waitForFinished(10000);
+    if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0)
+        return {};
+    return QString::fromUtf8(proc.readAllStandardOutput());
+}
+
+QString GitService::diffRevisions(const QString &rev1, const QString &rev2) const
+{
+    if (!m_isRepo || m_gitRoot.isEmpty())
+        return {};
+    QProcess proc;
+    proc.setWorkingDirectory(m_gitRoot);
+    proc.start(QStringLiteral("git"),
+               {QStringLiteral("diff"), rev1, rev2});
+    proc.waitForFinished(30000);
+    if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0)
+        return {};
+    return QString::fromUtf8(proc.readAllStandardOutput());
+}
+
+QList<GitService::ChangedFile> GitService::changedFilesBetween(const QString &rev1,
+                                                               const QString &rev2) const
+{
+    QList<ChangedFile> result;
+    if (!m_isRepo || m_gitRoot.isEmpty())
+        return result;
+    QProcess proc;
+    proc.setWorkingDirectory(m_gitRoot);
+    proc.start(QStringLiteral("git"),
+               {QStringLiteral("diff"), QStringLiteral("--name-status"), rev1, rev2});
+    proc.waitForFinished(10000);
+    if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0)
+        return result;
+    const QString out = QString::fromUtf8(proc.readAllStandardOutput());
+    const auto lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString &line : lines) {
+        if (line.size() < 3) continue;
+        ChangedFile cf;
+        cf.status = line.at(0);
+        cf.path = line.mid(2).trimmed();
+        // For renames (R100\toldpath\tnewpath), take the new path
+        if (cf.status == QLatin1Char('R') || cf.status == QLatin1Char('C')) {
+            const int tab = cf.path.indexOf(QLatin1Char('\t'));
+            if (tab >= 0)
+                cf.path = cf.path.mid(tab + 1);
+        }
+        result.append(cf);
+    }
+    return result;
+}
+
+QList<GitService::LogEntry> GitService::log(int maxCount) const
+{
+    QList<LogEntry> result;
+    if (!m_isRepo || m_gitRoot.isEmpty())
+        return result;
+    QProcess proc;
+    proc.setWorkingDirectory(m_gitRoot);
+    proc.start(QStringLiteral("git"),
+               {QStringLiteral("log"), QStringLiteral("--format=%h|%an|%as|%s"),
+                QStringLiteral("-n"), QString::number(maxCount)});
+    proc.waitForFinished(10000);
+    if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0)
+        return result;
+    const QString out = QString::fromUtf8(proc.readAllStandardOutput());
+    const auto lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString &line : lines) {
+        const auto parts = line.split(QLatin1Char('|'));
+        if (parts.size() < 4) continue;
+        LogEntry e;
+        e.hash = parts[0];
+        e.author = parts[1];
+        e.date = parts[2];
+        e.subject = parts.mid(3).join(QLatin1Char('|'));  // subject may contain |
+        result.append(e);
+    }
+    return result;
+}
+
 // ── Async variants (Manifesto #2: never block UI thread) ─────────────────────
 
 void GitService::blameAsync(const QString &absFilePath)
@@ -497,9 +587,28 @@ void GitService::resetWatcher()
 {
     m_watcher->removePaths(m_watcher->files());
     if (!m_isRepo || m_gitRoot.isEmpty()) {
+        // Unwatch from bridge if applicable
+        if (m_bridgeClient && !m_gitRoot.isEmpty()) {
+            QJsonObject args;
+            args[QLatin1String("repoPath")] = m_gitRoot;
+            m_bridgeClient->callService(
+                QStringLiteral("gitwatch"), QStringLiteral("unwatch"),
+                args, {});
+        }
         return;
     }
 
+    // If bridge is available, delegate watching to ExoBridge
+    if (m_bridgeClient && m_bridgeClient->isConnected()) {
+        QJsonObject args;
+        args[QLatin1String("repoPath")] = m_gitRoot;
+        m_bridgeClient->callService(
+            QStringLiteral("gitwatch"), QStringLiteral("watch"),
+            args, {});
+        return;
+    }
+
+    // Fallback: local QFileSystemWatcher
     const QString indexPath = QDir(m_gitRoot).absoluteFilePath(".git/index");
     const QString headPath = QDir(m_gitRoot).absoluteFilePath(".git/HEAD");
 
@@ -556,4 +665,28 @@ QList<GitService::BlameEntry> GitService::parseBlameOutput(const QString &out)
     }
 
     return result;
+}
+
+// ── Bridge delegation ────────────────────────────────────────────────────────
+
+void GitService::setBridgeClient(BridgeClient *client)
+{
+    m_bridgeClient = client;
+
+    if (m_bridgeClient) {
+        // Listen for git change events from ExoBridge
+        connect(m_bridgeClient, &BridgeClient::serviceEvent,
+                this, [this](const QString &service, const QString &event) {
+            Q_UNUSED(event)
+            if (service != QLatin1String("gitwatch"))
+                return;
+            // ExoBridge notified us that a watched repo changed —
+            // trigger async refresh
+            m_refreshTimer->start();
+        });
+
+        // If we already have a repo set, re-register with the bridge
+        if (m_isRepo && !m_gitRoot.isEmpty())
+            resetWatcher();
+    }
 }

@@ -65,6 +65,15 @@ public:
     /// Check if a remote path exists. Async — result via existsResult.
     void exists(const QString &remotePath);
 
+    // ── Port forwarding ───────────────────────────────────────────────────
+
+    /// Start a local port forward: localhost:localPort → remoteHost:remotePort
+    /// The SSH process runs in the background. Returns request ID (>0) or -1.
+    int startLocalPortForward(int localPort, const QString &remoteHost, int remotePort);
+
+    /// Stop a running port forward by request ID.
+    void stopPortForward(int requestId);
+
 signals:
     void connectionEstablished();
     void connectionLost(const QString &error);
@@ -94,6 +103,12 @@ signals:
     /// Emitted when exists check completes.
     void existsResult(const QString &remotePath, bool exists);
 
+    /// Emitted when a port forward SSH process is running (tunnel ready).
+    void portForwardReady(int requestId, int localPort);
+
+    /// Emitted if port forward fails.
+    void portForwardError(int requestId, const QString &error);
+
 private:
     QStringList sshBaseArgs() const;
     QStringList scpBaseArgs() const;
@@ -109,4 +124,5 @@ private:
 
     // Track running processes for cleanup
     QList<QProcess *> m_activeProcesses;
+    QMap<int, QProcess *> m_portForwards;  // requestId → SSH -L process
 };

@@ -7,17 +7,23 @@
     <link rel="stylesheet" href="chat.css">
 </head>
 <body>
-    <!-- Welcome screen (shown when no conversation active) -->
-    <div id="welcome" class="welcome">
-        <div class="welcome-icon">&#10024;</div>
-        <h2 class="welcome-title">Ask Copilot</h2>
-        <p class="welcome-subtitle">Ask a question or type <span class="kbd">/</span> for commands</p>
-        <div id="welcome-suggestions" class="welcome-suggestions"></div>
-        <div id="welcome-tool-count" class="welcome-tool-count"></div>
-    </div>
+    <div class="interactive-session">
+        <!-- Welcome screen -->
+        <div id="welcome" class="welcome">
+            <div class="welcome-icon">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2L14.09 8.26L20 9.27L15.55 13.97L16.91 20L12 16.9L7.09 20L8.45 13.97L4 9.27L9.91 8.26L12 2Z" fill="currentColor" opacity="0.5"/>
+                </svg>
+            </div>
+            <h2 class="welcome-title">Ask Copilot</h2>
+            <p class="welcome-subtitle">Ask a question or type <span class="kbd">/</span> for commands</p>
+            <div id="welcome-suggestions" class="welcome-suggestions"></div>
+            <div id="welcome-tool-count" class="welcome-tool-count"></div>
+        </div>
 
-    <!-- Transcript (hidden until first message) -->
-    <div id="transcript" class="transcript" style="display:none;" role="log" aria-label="Chat transcript">
+        <!-- Transcript -->
+        <div id="transcript" class="interactive-list" style="display:none;" role="log" aria-label="Chat transcript">
+        </div>
     </div>
 
     <script src="markdown.js"></script>

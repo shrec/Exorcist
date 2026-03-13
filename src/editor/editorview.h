@@ -11,7 +11,9 @@
 
 class LineNumberArea;
 class FindBar;
+class MultiCursorEngine;
 class PieceTableBuffer;
+class VimHandler;
 
 // Diagnostic severity — matches LSP DiagnosticSeverity values
 enum class DiagSeverity { Error = 1, Warning = 2, Info = 3, Hint = 4 };
@@ -151,9 +153,17 @@ public:
     /// Called by LineNumberArea on mouse click.
     void lineNumberAreaMousePress(QMouseEvent *event);
 
+    // ── Multi-cursor ──────────────────────────────────────────────────────
+    MultiCursorEngine *multiCursorEngine() const;
+    VimHandler *vimHandler() const;
+    bool hasMultipleCursors() const;
+
 protected:
     void resizeEvent(QResizeEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     void contextMenuEvent(QContextMenuEvent *event) override;
 
@@ -170,6 +180,8 @@ private:
     QString includePathUnderCursor() const;
     static QChar matchingBracket(QChar ch);
     int scanForMatchingBracket(int pos, QChar open, QChar close, bool forward) const;
+    void paintMultiCursors(QPainter &painter);
+    void syncPrimaryCursorToEngine();
 
     LineNumberArea          *m_lineNumberArea;
     FindBar                 *m_findBar;
@@ -210,4 +222,12 @@ private:
     // Shadow buffer kept in sync with QTextDocument via contentsChanged
     std::unique_ptr<PieceTableBuffer> m_buffer;
     bool                     m_bufferSyncing = false;  // guard re-entrant syncs
+
+    // Multi-cursor engine
+    std::unique_ptr<MultiCursorEngine> m_multiCursor;
+
+    // Vim emulation
+    std::unique_ptr<VimHandler> m_vimHandler;
+    bool                     m_altDragging = false;
+    QPoint                   m_altDragStart;  // viewport coords where Alt+drag began
 };

@@ -76,6 +76,7 @@ struct LoadedLuaPlugin
     uint32_t      permissions = 0;
     bool          initialized = false;
     std::unique_ptr<MemoryBudget> memory = std::make_unique<MemoryBudget>();
+    QStringList   registeredCommandIds;  // tracked for cleanup on hot reload
 };
 
 // ── LuaScriptEngine ─────────────────────────────────────────────────────────
@@ -142,6 +143,9 @@ private:
 
     /// Apply the sandbox: remove dangerous globals, set instruction hook.
     void applySandbox(lua_State *L, uint32_t permissions);
+
+    /// Register built-in json.decode()/json.encode() module.
+    static void registerJsonModule(lua_State *L);
 
     /// Register host API functions into the lua_State based on permissions.
     void registerHostAPI(lua_State *L, uint32_t permissions);

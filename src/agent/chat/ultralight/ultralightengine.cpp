@@ -1,11 +1,7 @@
 #ifdef EXORCIST_HAS_ULTRALIGHT
 
 #include "ultralightengine.h"
-#include <Ultralight/platform/Platform.h>
-#include <Ultralight/platform/Config.h>
-#include <Ultralight/platform/FontLoader.h>
-#include <Ultralight/platform/FileSystem.h>
-#include <Ultralight/platform/Logger.h>
+#include <AppCore/CAPI.h>
 #include <QCoreApplication>
 #include <QDir>
 #include <QStandardPaths>
@@ -28,48 +24,45 @@ void UltralightEngine::initialize(const QString &resourcePath)
     if (m_initialized)
         return;
 
-    namespace ul = ultralight;
+    // Configure the renderer via C API
+    ULConfig config = ulCreateConfig();
 
-    // Configure the renderer
-    ul::Config config;
-    config.resource_path_prefix = ul::String16(
-        reinterpret_cast<const ul::Char16 *>(resourcePath.utf16()),
-        resourcePath.size());
+    // Resource path prefix
+    const QByteArray resPathUtf8 = resourcePath.toUtf8();
+    ULString ulResPath = ulCreateStringUTF8(resPathUtf8.constData(),
+                                            resPathUtf8.size());
+    ulConfigSetResourcePathPrefix(config, ulResPath);
 
     // Cache path: use app-local temp
     const QString cachePath = QStandardPaths::writableLocation(
         QStandardPaths::CacheLocation) + QStringLiteral("/ultralight");
     QDir().mkpath(cachePath);
-    config.cache_path = ul::String16(
-        reinterpret_cast<const ul::Char16 *>(cachePath.utf16()),
-        cachePath.size());
+    const QByteArray cachePathUtf8 = cachePath.toUtf8();
+    ULString ulCachePath = ulCreateStringUTF8(cachePathUtf8.constData(),
+                                              cachePathUtf8.size());
+    ulConfigSetCachePath(config, ulCachePath);
 
     // CPU rendering — no GPU
-    config.force_repaint = false;
-    config.animation_timer_delay = 1.0 / 60.0; // 60fps
+    ulConfigSetForceRepaint(config, false);
+    ulConfigSetAnimationTimerDelay(config, 1.0 / 60.0); // 60fps
 
-    // Default font
-    config.font_family_standard = "Segoe UI";
-    config.font_family_fixed = "Cascadia Code";
+    // Use AppCore default platform providers
+    ulEnablePlatformFontLoader();
+    ulEnablePlatformFileSystem(ulResPath);
 
-    ul::Platform &platform = ul::Platform::instance();
-    platform.set_config(config);
-
-    // Use platform default font loader & file system if available.
-    // Ultralight 1.4 bundles default implementations.
-    platform.set_font_loader(ul::GetPlatformFontLoader());
-    platform.set_file_system(ul::GetPlatformFileSystem(
-        ul::String16(reinterpret_cast<const ul::Char16 *>(resourcePath.utf16()),
-                     resourcePath.size())));
-
-    m_renderer = ul::Renderer::Create();
+    m_renderer = ulCreateRenderer(config);
     m_initialized = true;
+
+    ulDestroyString(ulResPath);
+    ulDestroyString(ulCachePath);
+    ulDestroyConfig(config);
 }
 
 void UltralightEngine::shutdown()
 {
     if (!m_initialized)
         return;
+    ulDestroyRenderer(m_renderer);
     m_renderer = nullptr;
     m_initialized = false;
 }

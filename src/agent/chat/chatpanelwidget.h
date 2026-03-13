@@ -157,6 +157,8 @@ private:
 #ifdef EXORCIST_HAS_ULTRALIGHT
     exorcist::UltralightWidget *m_ultralightView = nullptr;
     exorcist::ChatJSBridge     *m_jsBridge       = nullptr;
+    bool                        m_thinkingEnabled = false;
+    QStringList                 m_pendingFileAttachments;
 #else
     QStackedWidget        *m_stack            = nullptr;
     ChatWelcomeWidget     *m_welcome          = nullptr;

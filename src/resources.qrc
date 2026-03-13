@@ -4,7 +4,7 @@
     </qresource>
     <qresource prefix="/chat">
         <file alias="chat.html">resources/chat/chat.html</file>
-        <file alias="chat.css">resources/chat/chat.css</file>
+        <file alias="chat.css">resources/chat/chat_new.css</file>
         <file alias="chat.js">resources/chat/chat.js</file>
         <file alias="markdown.js">resources/chat/markdown.js</file>
     </qresource>
