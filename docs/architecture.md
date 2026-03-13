@@ -126,6 +126,9 @@ bool MyPlugin::initialize(IHostServices *host) override
 | `ITerminalService` | `iterminalservice.h` | Run commands, read output |
 | `IDiagnosticsService` | `idiagnosticsservice.h` | LSP diagnostics |
 | `ITaskService` | `itaskservice.h` | Build/test task runner |
+| `IBuildSystem` | `ibuildsystem.h` | Build/configure/clean, targets, build directory |
+| `ITestRunner` | `itestrunner.h` | Test discovery, execution, results |
+| `ContributionRegistry` | `contributionregistry.h` | Wires manifest contributions to IDE subsystems |
 
 ### Permissions
 

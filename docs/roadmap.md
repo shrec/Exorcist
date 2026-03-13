@@ -380,13 +380,13 @@ See [docs/luajit.md](luajit.md)
 - [x] A1. GitHub integration → `plugins/github/` (IPlugin + IViewContributor, GitHubDock view via manifest)
 - [x] A2. Remote/SSH → `plugins/remote/` (3 MainWindow members removed, binary -5 MB)
 
-### Phase B — Infrastructure Prerequisites
-- [ ] B1. `IBuildSystem` SDK interface + ServiceRegistry registration
-- [ ] B2. `ITestRunner` SDK interface + ServiceRegistry registration
-- [ ] B3. Split `BuildDebugBootstrap` → `BuildBootstrap` + `DebugBootstrap`
-- [ ] B4. Agent callback model → ServiceRegistry dynamic lookup (45+ callbacks)
-- [ ] B5. Plugin activation model (lazy loading, project detection, contextual)
-- [ ] B6. Wire remaining contribution interfaces (ILanguageContributor, ITaskContributor, etc.)
+### Phase B — Infrastructure Prerequisites ✅ (commit `5caca2a`)
+- [x] B1. `IBuildSystem` SDK interface + BuildSystemService adapter, registered as "buildSystem"
+- [x] B2. `ITestRunner` SDK interface + TestRunnerService adapter, TestItem moved to SDK
+- [x] B3. Split `BuildDebugBootstrap` → `BuildBootstrap` + `DebugBootstrap` (compatibility wrapper)
+- [x] B4. Agent build/test callbacks refactored to ServiceRegistry IBuildSystem lookups
+- [x] B5. Plugin activation model (lazy loading, workspace detection, event-based activation)
+- [x] B6. ContributionRegistry wires languages, tasks, settings, themes + query APIs
 
 ### Phase C — Subsystem Extractions
 - [ ] C1. Build System → `plugins/build/` (6 files, project detection activation)

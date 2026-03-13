@@ -293,16 +293,16 @@ MAINWINDOW    ✅      ✅      ✅      ✅      ✅     ✅      ✅
 | A1 | **GitHub** → `plugins/github/` | Minimal | ✅ Extracted |
 | A2 | **Remote/SSH** → `plugins/remote/` | Low | ✅ Extracted |
 
-### Phase B: Infrastructure Prerequisites
+### Phase B: Infrastructure Prerequisites ✅ (commit `5caca2a`)
 
-| # | სამუშაო | Effort |
-|---|---------|--------|
-| B1 | `IBuildSystem` SDK interface შექმნა | Medium |
-| B2 | `ITestRunner` SDK interface შექმნა | Low |
-| B3 | `BuildDebugBootstrap` → `BuildBootstrap` + `DebugBootstrap` გაყოფა | Medium |
-| B4 | Agent callback model → ServiceRegistry dynamic lookup | High |
-| B5 | Plugin activation model implementation (lazy/project/contextual) | High |
-| B6 | Remaining contribution interfaces wiring | Medium |
+| # | სამუშაო | Effort | Status |
+|---|---------|--------|--------|
+| B1 | `IBuildSystem` SDK interface + BuildSystemService adapter | Medium | ✅ Done |
+| B2 | `ITestRunner` SDK interface + TestRunnerService adapter | Low | ✅ Done |
+| B3 | `BuildDebugBootstrap` → `BuildBootstrap` + `DebugBootstrap` | Medium | ✅ Done |
+| B4 | Agent callbacks → IBuildSystem ServiceRegistry lookup | High | ✅ Done |
+| B5 | Plugin activation model (lazy, workspace, event-based) | High | ✅ Done |
+| B6 | ContributionRegistry wires languages/tasks/settings/themes | Medium | ✅ Done |
 
 ### Phase C: Subsystem Extractions (AFTER B)
 

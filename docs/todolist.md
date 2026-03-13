@@ -153,36 +153,36 @@
 
 ### Phase B: Infrastructure Prerequisites
 
-- [ ] **B1. IBuildSystem SDK interface**
+- [x] **B1. IBuildSystem SDK interface** ✅
   `src/sdk/ibuildsystem.h` — configure(), build(), clean(), targets(), buildDirectory().
-  CMakeIntegration implements IBuildSystem. ServiceRegistry-ში registration.
+  BuildSystemService adapter wraps CMakeIntegration. Registered as "buildSystem" in ServiceRegistry.
 
-- [ ] **B2. ITestRunner SDK interface**
-  `src/sdk/itestrunner.h` — discover(), run(), results().
-  TestDiscoveryService implements ITestRunner. ServiceRegistry-ში registration.
+- [x] **B2. ITestRunner SDK interface** ✅
+  `src/sdk/itestrunner.h` — discoverTests(), runAllTests(), runTest(), tests(), hasTests().
+  TestRunnerService adapter wraps TestDiscoveryService. TestItem struct moved to SDK. Registered as "testRunner".
 
-- [ ] **B3. BuildDebugBootstrap გაყოფა**
-  `BuildDebugBootstrap` → ცალკე `BuildBootstrap` + `DebugBootstrap`.
-  `restartClangd()` სიგნალი → ServiceRegistry event მექანიზმით (ან signal relay service).
-  DebugLauncher → optional IBuildSystem service lookup.
+- [x] **B3. BuildDebugBootstrap გაყოფა** ✅
+  `BuildBootstrap` (toolchain, cmake, toolbar, output) + `DebugBootstrap` (debug launcher, GDB adapter, debug panel).
+  BuildDebugBootstrap now compatibility wrapper delegating to both sub-bootstraps.
+  MainWindow unchanged — uses same BuildDebugBootstrap interface.
 
-- [ ] **B4. Agent callback model refactor**
-  45+ static callbacks → ServiceRegistry dynamic lookup.
-  Agent tools check service existence at runtime — graceful absence if plugin not loaded.
-  Incremental migration: ჯერ optional nullptr check ყოველ callback-ზე, შემდეგ service lookup.
+- [x] **B4. Agent callback model refactor** ✅
+  3 critical agent callbacks (buildProjectFn, runTestsFn, buildTargetsGetter) refactored
+  from direct m_cmakeIntegration to ServiceRegistry IBuildSystem lookups.
+  Graceful nullptr handling when service unavailable.
 
-- [ ] **B5. Plugin activation model implementation**
-  PluginManager-ში lazy loading: `activationEvents` processing.
-  Project detection: `workspaceContains` pattern matching on folder open.
-  Contextual activation: deferred loading on first feature use.
-  Zero-cost enforcement: verify disabled = 0 CPU/RAM.
+- [x] **B5. Plugin activation model implementation** ✅
+  PluginManager lazy loading: shouldDeferPlugin() splits immediate vs deferred.
+  activateByEvent(event) for command/view triggers. activateByWorkspace(root) for
+  workspaceContains pattern matching on folder open. DeferredPlugin tracking.
 
-- [ ] **B6. Contribution interface wiring**
-  ILanguageContributor → HighlighterFactory integration (critical for language pack extraction).
-  ITaskContributor → OutputPanel/BuildToolbar integration.
-  ICompletionContributor → CompletionPopup integration.
-  IFormatterContributor → LspEditorBridge integration.
-  ISettingsContributor → SettingsDialog auto-generation.
+- [x] **B6. Contribution interface wiring** ✅
+  ContributionRegistry now registers languages, tasks, settings, themes from manifests.
+  Query APIs: languageForExtension(), languageById(), registeredTasks(), taskContributor(),
+  registeredSettings(), settingsForPlugin(), notifySettingChanged(), registeredThemes().
+  Language/task/settings contributors resolved via dynamic_cast on plugin instance.
+  Settings defaults persisted to QSettings on registration. Cleanup on unregisterPlugin().
+  16 test cases in test_contributionregistry.cpp.
 
 ### Phase C: Subsystem Extractions
 
