@@ -427,3 +427,13 @@ See [docs/luajit.md](luajit.md)
 - [x] Plugin apiVersion validation — activatePlugin() checks PluginInfo.apiVersion major against EXORCIST_SDK_VERSION_MAJOR, skips incompatible plugins with error
 - [x] Dashboard fallback null guard — handleEvent() checks m_stepsList/m_logsList before use in QWidget fallback path
 - [ ] Fix terminal tool execution hang
+
+### Agent Platform — Competitive Gap Fixes
+- [x] **Multi-file edit checkpoint** — `snapshotFilesForTool()` captures file state before tool execution, `filesChanged` signal with undo support (Keep/Undo bar)
+- [x] **Parallel tool execution** — `parallelSafe` flag on ToolSpec, QtConcurrent dispatch for 2+ ReadOnly tools (read_file, list_dir, grep_search, file_search)
+- [x] **Token usage display** — `tokenUsageUpdated` signal wired to ChatInputWidget context token counter
+- [x] **Available tools filtering** — `availableToolNames()` in ToolRegistry for mode-aware introspect, tool list respects current agent mode permissions
+- [x] **Inline completion abort-on-type** — generation counter pattern: `m_requestGeneration` increments on text change, stale responses discarded when `m_sentGeneration != m_requestGeneration`
+- [x] **Per-mode model persistence** — QSettings `AI/PerModeModel/<modeIndex>` saves/restores model selection per agent mode (Ask/Edit/Agent) across sessions
+- [x] **Code review annotation wiring** — `/review` slash command now parses response for `Line N:` patterns and emits `reviewAnnotationsReady` to push inline annotations to the active editor
+- [x] **ReviewManager .h/.cpp split** — moved from header-only stub to proper declaration/implementation separation
