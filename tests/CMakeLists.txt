@@ -413,6 +413,36 @@ endif()
 target_include_directories(test_crashhandler PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME CrashHandler COMMAND test_crashhandler)
 
+# ── IPC Protocol tests ────────────────────────────────────────────────────────
+add_executable(test_ipcprotocol
+    test_ipcprotocol.cpp
+    ${CMAKE_SOURCE_DIR}/src/process/ipcprotocol.cpp
+    ${CMAKE_SOURCE_DIR}/src/process/ipcprotocol.h
+)
+target_link_libraries(test_ipcprotocol PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_ipcprotocol PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME IpcProtocol COMMAND test_ipcprotocol)
+
+# ── FeatureFlags tests ────────────────────────────────────────────────────────
+add_executable(test_featureflags
+    test_featureflags.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/featureflags.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/featureflags.h
+)
+target_link_libraries(test_featureflags PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_featureflags PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME FeatureFlags COMMAND test_featureflags)
+
+# ── PluginManifest tests ──────────────────────────────────────────────────────
+add_executable(test_pluginmanifest
+    test_pluginmanifest.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugin/pluginmanifest.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugin/pluginmanifest.h
+)
+target_link_libraries(test_pluginmanifest PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_pluginmanifest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME PluginManifest COMMAND test_pluginmanifest)
+
 # Deploy Qt DLLs so tests can run (Windows)
 if(WIN32 AND EXORCIST_DEPLOY_QT)
     find_program(WINDEPLOYQT windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")
