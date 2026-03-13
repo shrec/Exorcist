@@ -1,0 +1,61 @@
+{
+    "id": "org.exorcist.build",
+    "name": "Build System",
+    "version": "1.0.0",
+    "description": "CMake build system, toolchain detection, output panel, run/launch configuration",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "activationEvents": [
+        "workspaceContains:CMakeLists.txt",
+        "workspaceContains:Makefile",
+        "workspaceContains:Cargo.toml",
+        "workspaceContains:build.gradle",
+        "workspaceContains:meson.build"
+    ],
+    "contributes": {
+        "views": [
+            {
+                "id": "OutputDock",
+                "title": "Output",
+                "location": "bottom",
+                "defaultVisible": false,
+                "priority": 10
+            },
+            {
+                "id": "RunDock",
+                "title": "Run",
+                "location": "bottom",
+                "defaultVisible": false,
+                "priority": 11
+            }
+        ],
+        "commands": [
+            {
+                "id": "build.configure",
+                "title": "Configure",
+                "category": "Build"
+            },
+            {
+                "id": "build.build",
+                "title": "Build",
+                "category": "Build"
+            },
+            {
+                "id": "build.clean",
+                "title": "Clean",
+                "category": "Build"
+            },
+            {
+                "id": "build.run",
+                "title": "Run Without Debugging",
+                "category": "Build"
+            },
+            {
+                "id": "build.debug",
+                "title": "Start Debugging",
+                "category": "Build"
+            }
+        ]
+    }
+}

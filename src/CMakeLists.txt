@@ -124,10 +124,6 @@ add_executable(exorcist WIN32
     agent/agentplatformbootstrap.h
     bootstrap/lspbootstrap.cpp
     bootstrap/lspbootstrap.h
-    bootstrap/builddebugbootstrap.cpp
-    bootstrap/builddebugbootstrap.h
-    bootstrap/buildbootstrap.cpp
-    bootstrap/buildbootstrap.h
     bootstrap/debugbootstrap.cpp
     bootstrap/debugbootstrap.h
     bootstrap/bridgebootstrap.cpp
@@ -327,16 +323,6 @@ add_executable(exorcist WIN32
     build/outputpanel.h
     build/runlaunchpanel.cpp
     build/runlaunchpanel.h
-    build/toolchainmanager.cpp
-    build/toolchainmanager.h
-    build/cmakeintegration.cpp
-    build/cmakeintegration.h
-    build/buildsystemservice.cpp
-    build/buildsystemservice.h
-    build/buildtoolbar.cpp
-    build/buildtoolbar.h
-    build/debuglaunchcontroller.cpp
-    build/debuglaunchcontroller.h
     problems/problemspanel.h
     problems/problemspanel.cpp
     editor/filewatchservice.cpp
@@ -430,6 +416,7 @@ add_executable(exorcist WIN32
     sdk/idiagnosticsservice.h
     sdk/itaskservice.h
     sdk/ibuildsystem.h
+    sdk/ilaunchservice.h
     sdk/itestrunner.h
     sdk/ihostservices.h
     sdk/hostservices.cpp
@@ -507,6 +494,14 @@ if(WIN32)
     target_link_libraries(exorcist PRIVATE dbghelp)
 endif()
 target_include_directories(exorcist PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Export symbols so plugins can link against the executable's import library.
+# This is required for Qt MOC-generated symbols (Q_OBJECT meta-objects, signals)
+# in SDK interfaces that plugins instantiate or connect to.
+set_target_properties(exorcist PROPERTIES ENABLE_EXPORTS TRUE)
+if(MINGW OR CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND WIN32)
+    target_link_options(exorcist PRIVATE "-Wl,--export-all-symbols")
+endif()
 
 if(EXORCIST_USE_TREESITTER)
     target_compile_definitions(exorcist PRIVATE EXORCIST_HAS_TREESITTER)

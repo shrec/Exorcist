@@ -186,11 +186,14 @@
 
 ### Phase C: Subsystem Extractions
 
-- [ ] **C1. Build system plugin-ად გამოტანა**
-  `src/build/` → `plugins/build/` — CMakeIntegration, ToolchainManager, BuildToolbar, DebugLaunchController, OutputPanel, RunLaunchPanel.
-  Project detection activation: CMakeLists.txt, Cargo.toml, Makefile.
-  IBuildSystem ServiceRegistry registration. Agent tools dynamic lookup.
-  MainWindow-დან 6 member removal.
+- [x] **C1. Build system plugin-ად გამოტანა** ✅
+  `src/build/` → `plugins/build/` — CMakeIntegration, ToolchainManager, BuildToolbar, DebugLaunchController, BuildSystemService.
+  OutputPanel და RunLaunchPanel რჩებიან `src/build/`-ში როგორც shared UI types.
+  ILaunchService SDK interface added. DebugBootstrap simplified (debug-only).
+  IHostServices extended with registerService/queryService.
+  MainWindow build-free: 7 member variables removed, services via ServiceRegistry.
+  Exe exports symbols (--export-all-symbols) for plugin linking.
+  Project detection activation: CMakeLists.txt, Cargo.toml, Makefile, build.gradle, meson.build.
 
 - [ ] **C2. Testing system plugin-ად გამოტანა**
   `src/testing/` → `plugins/testing/` — TestDiscoveryService, TestExplorerPanel.

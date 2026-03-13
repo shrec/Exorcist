@@ -56,6 +56,7 @@ class ProposedEditPanel;
 class BreadcrumbBar;
 class OutputPanel;
 class RunLaunchPanel;
+class DebugBootstrap;
 class FileWatchService;
 class KeymapManager;
 class SecureKeyStorage;
@@ -65,14 +66,9 @@ class WorkspaceChunkIndex;
 
 class DebugPanel;
 class GdbMiAdapter;
-class ToolchainManager;
-class CMakeIntegration;
-class BuildToolbar;
-class DebugLaunchController;
 class HostServices;
 class ContributionRegistry;
 class LspBootstrap;
-class BuildDebugBootstrap;
 class StatusBarManager;
 class AIServicesBootstrap;
 
@@ -175,8 +171,6 @@ private:
     BreadcrumbBar            *m_breadcrumb        = nullptr;
     WorkspaceIndexer         *m_workspaceIndexer = nullptr;
     SymbolIndex              *m_symbolIndex      = nullptr;
-    OutputPanel              *m_outputPanel = nullptr;
-    RunLaunchPanel           *m_runPanel    = nullptr;
     FileWatchService         *m_fileWatcher = nullptr;
     AIServicesBootstrap      *m_aiServices = nullptr;
     KeymapManager            *m_keymapManager = nullptr;
@@ -184,11 +178,7 @@ private:
     DebugPanel               *m_debugPanel = nullptr;
     GdbMiAdapter             *m_debugAdapter = nullptr;
 
-    BuildDebugBootstrap      *m_buildDebugBootstrap = nullptr;
-    ToolchainManager         *m_toolchainMgr = nullptr;
-    CMakeIntegration         *m_cmakeIntegration = nullptr;
-    BuildToolbar             *m_buildToolbar = nullptr;
-    DebugLaunchController    *m_debugLauncher = nullptr;
+    DebugBootstrap           *m_debugBootstrap = nullptr;
 
     RunTestsTool::TestResult  m_lastTestResult;  // cached from last run_tests invocation
 

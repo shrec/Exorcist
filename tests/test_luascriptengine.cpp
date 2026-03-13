@@ -59,6 +59,9 @@ public:
     ITerminalService     *terminal()      override { return nullptr; }
     IDiagnosticsService  *diagnostics()   override { return nullptr; }
     ITaskService         *tasks()         override { return nullptr; }
+
+    void registerService(const QString &, QObject *) override {}
+    QObject *queryService(const QString &) override { return nullptr; }
 };
 
 // ── Helper to create a minimal Lua plugin on disk ────────────────────────────

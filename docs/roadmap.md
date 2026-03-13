@@ -389,7 +389,7 @@ See [docs/luajit.md](luajit.md)
 - [x] B6. ContributionRegistry wires languages, tasks, settings, themes + query APIs
 
 ### Phase C — Subsystem Extractions
-- [ ] C1. Build System → `plugins/build/` (6 files, project detection activation)
+- [x] C1. Build System → `plugins/build/` ✅ (BuildPlugin with CMakeIntegration, ToolchainManager, BuildToolbar, DebugLaunchController, BuildSystemService; OutputPanel/RunLaunchPanel stay in src/build/ as shared UI; ILaunchService SDK interface; DebugBootstrap simplified; MainWindow build-free; exe exports symbols for plugin linking)
 - [ ] C2. Testing System → `plugins/testing/` (contextual activation)
 - [ ] C3. Debug System → `plugins/debug/` (contextual activation, IDebugAdapter exists)
 - [ ] C4. Clangd Manager → `plugins/cpp-language/` (LspClient stays Core)

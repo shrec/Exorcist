@@ -69,6 +69,10 @@ public:
     // Task service — available to all (task execution checks handled elsewhere)
     ITaskService *tasks() override { return m_delegate->tasks(); }
 
+    // Service registry delegation — always available
+    void registerService(const QString &name, QObject *svc) override { m_delegate->registerService(name, svc); }
+    QObject *queryService(const QString &name) override { return m_delegate->queryService(name); }
+
 private:
     IHostServices *m_delegate;
     PluginPermissions m_permissions;

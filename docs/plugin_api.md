@@ -55,6 +55,49 @@ public:
 - Add extension points (commands, menus, panels, language tools).
 - Publish a plugin template repo.
 
+## SDK Host Services
+
+Plugins using the new SDK interface receive `IHostServices` in `initialize()`:
+
+```cpp
+bool initialize(IHostServices *host) override;
+```
+
+`IHostServices` provides typed access to IDE subsystems:
+
+| Service | Method | Purpose |
+|---------|--------|---------|
+| Commands | `commands()` | Register/execute IDE commands |
+| Workspace | `workspace()` | Workspace root, file operations |
+| Editor | `editor()` | Active editor, selections |
+| Views | `views()` | Create/toggle dock panels |
+| Notifications | `notifications()` | Show info/warning/error toasts |
+| Git | `git()` | Git status, diff, blame |
+| Terminal | `terminal()` | Run commands in terminal |
+| Diagnostics | `diagnostics()` | LSP diagnostics access |
+| Tasks | `tasks()` | Task runner integration |
+
+### Service Registry Access
+
+Plugins can register and query named services via `IHostServices`:
+
+```cpp
+host->registerService("myService", myQObject);
+QObject *svc = host->queryService("myService");
+auto *typed = host->service<IBuildSystem>("buildSystem");
+```
+
+### Core Plugin Services
+
+| Service Key | Type | Registered By |
+|-------------|------|---------------|
+| `buildSystem` | `IBuildSystem` | Build plugin |
+| `launchService` | `ILaunchService` | Build plugin |
+| `buildToolbar` | `QToolBar` | Build plugin |
+| `outputPanel` | `OutputPanel` | Build plugin |
+| `runPanel` | `RunLaunchPanel` | Build plugin |
+| `debugAdapter` | `GdbMiAdapter` | Core (DebugBootstrap) |
+
 ## AI plugins
 
 Exorcist already supports agent/provider plugins through `IAgentPlugin`.

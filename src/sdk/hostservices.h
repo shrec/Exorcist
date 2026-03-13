@@ -21,6 +21,7 @@
 
 class MainWindow;
 class EditorView;
+class ServiceRegistry;
 
 namespace exdock { class ExDockWidget; }
 
@@ -233,6 +234,9 @@ public:
     /// Deferred initialization — called after MainWindow subsystems are created.
     void initSubsystemServices(IFileSystem *fs, GitService *git, TerminalPanel *terminal);
 
+    /// Set the ServiceRegistry instance for dynamic service registration.
+    void setServiceRegistry(ServiceRegistry *reg) { m_registry = reg; }
+
     ICommandService *commands() override;
     IWorkspaceService *workspace() override;
     IEditorService *editor() override;
@@ -243,6 +247,9 @@ public:
     IDiagnosticsService *diagnostics() override;
     ITaskService *tasks() override;
 
+    void registerService(const QString &name, QObject *service) override;
+    QObject *queryService(const QString &name) override;
+
     /// Access the command service for command palette integration.
     CommandServiceImpl *commandService() { return m_commands.get(); }
 
@@ -251,6 +258,7 @@ public:
 
 private:
     MainWindow *m_window;
+    ServiceRegistry *m_registry = nullptr;
     std::unique_ptr<CommandServiceImpl>       m_commands;
     std::unique_ptr<WorkspaceServiceImpl>     m_workspace;
     std::unique_ptr<EditorServiceImpl>        m_editor;

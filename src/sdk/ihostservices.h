@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QString>
+
 // ── Host Services ────────────────────────────────────────────────────────────
 //
 // The single root interface that every plugin receives on initialization.
@@ -18,6 +20,7 @@
 // A plugin must NEVER cast IHostServices to a concrete type or access
 // MainWindow / internal classes. The SDK boundary is the only stable contract.
 
+class QObject;
 class ICommandService;
 class IWorkspaceService;
 class IEditorService;
@@ -63,4 +66,16 @@ public:
 
     /// Build / test task runner.
     virtual ITaskService *tasks() = 0;
+
+    // ── Dynamic service registry ──────────────────────────────────────────
+
+    /// Register a named service. Plugins use this to expose their own services.
+    virtual void registerService(const QString &name, QObject *service) = 0;
+
+    /// Query a named service by key. Returns nullptr if not found.
+    virtual QObject *queryService(const QString &name) = 0;
+
+    /// Typed convenience for queryService.
+    template<typename T>
+    T *service(const QString &name) { return qobject_cast<T *>(queryService(name)); }
 };

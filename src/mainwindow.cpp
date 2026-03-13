@@ -116,9 +116,9 @@
 #include "lsp/lspeditorbridge.h"
 #include "lsp/referencespanel.h"
 #include "bootstrap/lspbootstrap.h"
-#include "bootstrap/builddebugbootstrap.h"
-#include "build/buildsystemservice.h"
+#include "bootstrap/debugbootstrap.h"
 #include "sdk/ibuildsystem.h"
+#include "sdk/ilaunchservice.h"
 #include "testing/testrunnerservice.h"
 #include "bootstrap/bridgebootstrap.h"
 #include "process/bridgeclient.h"
@@ -131,17 +131,13 @@
 #include "git/gitservice.h"
 #include "git/gitpanel.h"
 #include "build/outputpanel.h"
-#include "build/runlaunchpanel.h"
 #include "testing/testdiscoveryservice.h"
 #include "testing/testexplorerpanel.h"
 #include "problems/problemspanel.h"
 #include "settings/workspacesettings.h"
 #include "git/diffexplorerpanel.h"
 #include "git/mergeeditor.h"
-#include "build/toolchainmanager.h"
-#include "build/cmakeintegration.h"
-#include "build/buildtoolbar.h"
-#include "build/debuglaunchcontroller.h"
+#include "build/runlaunchpanel.h"
 #include "editor/filewatchservice.h"
 #include "agent/authmanager.h"
 #include "agent/securekeystorage.h"
@@ -228,22 +224,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_lspClient, &LspClient::initialized,
             this, &MainWindow::onLspInitialized);
 
-    // Build/Debug subsystem bootstrap.
-    m_buildDebugBootstrap = new BuildDebugBootstrap(this);
-    m_buildDebugBootstrap->initialize();
-    m_toolchainMgr    = m_buildDebugBootstrap->toolchainManager();
-    connect(m_toolchainMgr, &ToolchainManager::detectionFinished, this, [this]() {
-        const auto toolchains = m_toolchainMgr->toolchains();
-        if (!toolchains.isEmpty()) {
-            statusBar()->showMessage(
-                tr("Detected %1 toolchain(s): %2")
-                    .arg(toolchains.size())
-                    .arg(toolchains.first().displayName), 4000);
-        }
-    });
-    m_cmakeIntegration = m_buildDebugBootstrap->cmakeIntegration();
-    m_debugLauncher   = m_buildDebugBootstrap->debugLauncher();
-    m_buildToolbar    = m_buildDebugBootstrap->buildToolbar();
+    // Debug subsystem bootstrap (build subsystem is now a plugin).
+    m_debugBootstrap = new DebugBootstrap(this);
+    m_debugBootstrap->initialize();
+    m_debugAdapter = m_debugBootstrap->debugAdapter();
+    m_debugPanel   = m_debugBootstrap->debugPanel();
 
     setupToolBar();
     setupUi();
@@ -286,11 +271,9 @@ MainWindow::MainWindow(QWidget *parent)
     if (m_aiServices && m_aiServices->keyStorage())
         m_services->registerService(QStringLiteral("secureKeyStorage"), m_aiServices->keyStorage());
 
-    // ── Build & Test services ───────────────────────────────────────────
-    if (m_cmakeIntegration) {
-        auto *buildSvc = new BuildSystemService(m_cmakeIntegration, this);
-        m_services->registerService(QStringLiteral("buildSystem"), buildSvc);
-    }
+    // ── Build System — registered by build plugin (plugins/build/) ──────
+    // Debug adapter — register so the build plugin can wire it
+    m_services->registerService(QStringLiteral("debugAdapter"), m_debugAdapter);
 
     // ── Workspace settings (global → workspace hierarchy) ───────────────
     {
@@ -1957,29 +1940,9 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     auto *buildAct = new QAction(tr("&Build"), this);
     buildAct->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B));
     connect(buildAct, &QAction::triggered, this, [this]() {
-        // Prefer CMake integration if available
-        if (m_cmakeIntegration && m_cmakeIntegration->hasCMakeProject()) {
-            if (m_outputPanel) m_outputPanel->clear();
-            m_cmakeIntegration->build();
-            m_dockManager->showDock(dock(QStringLiteral("OutputDock")), exdock::SideBarArea::Bottom);
-            return;
-        }
-        // Fallback: task profiles
-        if (m_outputPanel) {
-            m_outputPanel->setWorkingDirectory(m_currentFolder);
-            const auto tasks = m_outputPanel->taskProfiles();
-            int defaultIdx = -1;
-            for (int i = 0; i < tasks.size(); ++i) {
-                if (tasks.at(i).isDefault) { defaultIdx = i; break; }
-            }
-            if (defaultIdx >= 0) {
-                auto *combo = m_outputPanel->findChild<QComboBox *>();
-                if (combo) combo->setCurrentIndex(defaultIdx);
-            }
-            auto *combo = m_outputPanel->findChild<QComboBox *>();
-            if (combo) {
-                m_outputPanel->runCommand(combo->currentText());
-            }
+        auto *buildSys = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
+        if (buildSys && buildSys->hasProject()) {
+            buildSys->build();
             m_dockManager->showDock(dock(QStringLiteral("OutputDock")), exdock::SideBarArea::Bottom);
         }
     });
@@ -1994,24 +1957,19 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
             m_debugAdapter->continueExecution();
             return;
         }
-        // Prefer CMake-integrated debug launch
-        if (m_cmakeIntegration && m_cmakeIntegration->hasCMakeProject()
-            && m_buildToolbar) {
-            const QString target = m_buildToolbar->selectedTarget();
-            if (!target.isEmpty()) {
-                DebugLaunchConfig cfg;
-                cfg.executable = target;
+        // Use ILaunchService from build plugin
+        auto *launchSvc = m_services->service<ILaunchService>(QStringLiteral("launchService"));
+        auto *buildSys = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
+        if (launchSvc && buildSys && buildSys->hasProject()) {
+            const QStringList targets = buildSys->targets();
+            if (!targets.isEmpty()) {
+                LaunchConfig cfg;
+                cfg.executable = targets.first();
                 cfg.workingDir = m_currentFolder;
-                m_debugLauncher->startDebugging(cfg);
+                launchSvc->startDebugging(cfg);
                 m_dockManager->showDock(dock(QStringLiteral("DebugDock")), exdock::SideBarArea::Bottom);
                 return;
             }
-        }
-        // Fallback: run panel
-        if (m_runPanel) {
-            m_runPanel->setWorkingDirectory(m_currentFolder);
-            m_runPanel->launch();
-            m_dockManager->showDock(dock(QStringLiteral("RunDock")), exdock::SideBarArea::Bottom);
         }
     });
     addAction(runAct);
@@ -2020,21 +1978,18 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     auto *runNodebugAct = new QAction(tr("Run &Without Debugging"), this);
     runNodebugAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
     connect(runNodebugAct, &QAction::triggered, this, [this]() {
-        if (m_buildToolbar) {
-            const QString target = m_buildToolbar->selectedTarget();
-            if (!target.isEmpty()) {
-                DebugLaunchConfig cfg;
-                cfg.executable = target;
+        auto *launchSvc = m_services->service<ILaunchService>(QStringLiteral("launchService"));
+        auto *buildSys = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
+        if (launchSvc && buildSys && buildSys->hasProject()) {
+            const QStringList targets = buildSys->targets();
+            if (!targets.isEmpty()) {
+                LaunchConfig cfg;
+                cfg.executable = targets.first();
                 cfg.workingDir = m_currentFolder;
-                m_debugLauncher->startWithoutDebugging(cfg);
+                launchSvc->startWithoutDebugging(cfg);
                 m_dockManager->showDock(dock(QStringLiteral("RunDock")), exdock::SideBarArea::Bottom);
                 return;
             }
-        }
-        if (m_runPanel) {
-            m_runPanel->setWorkingDirectory(m_currentFolder);
-            m_runPanel->launch();
-            m_dockManager->showDock(dock(QStringLiteral("RunDock")), exdock::SideBarArea::Bottom);
         }
     });
     addAction(runNodebugAct);
@@ -2043,10 +1998,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     auto *stopRunAct = new QAction(tr("Stop Run"), this);
     stopRunAct->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F5));
     connect(stopRunAct, &QAction::triggered, this, [this]() {
-        if (m_debugLauncher)
-            m_debugLauncher->stopDebugging();
-        if (m_runPanel)
-            m_runPanel->stopProcess();
+        auto *launchSvc = m_services->service<ILaunchService>(QStringLiteral("launchService"));
+        if (launchSvc) launchSvc->stopSession();
     });
     addAction(stopRunAct);
 
@@ -2200,11 +2153,7 @@ void MainWindow::setupToolBar()
     bar->addSeparator();
     bar->addAction(tr("Folder"), this, [this]() { openFolder(); });
 
-    // ── Build/Run/Debug toolbar ───────────────────────────────────────────
-    auto *buildBar = addToolBar(tr("Build"));
-    buildBar->setMovable(false);
-    // Use the toolbar from BuildDebugBootstrap — do NOT create a second one
-    buildBar->addWidget(m_buildToolbar);
+    // Build toolbar is contributed by the build plugin — added in loadPlugins().
 }
 
 void MainWindow::createDockWidgets()
@@ -2417,23 +2366,23 @@ void MainWindow::createDockWidgets()
     m_dockManager->addDockWidget(dkMemoryDock, SideBarArea::Right, /*startPinned=*/false);
 
     // ── Debug Panel ───────────────────────────────────────────────────────
-    m_debugAdapter = m_buildDebugBootstrap->debugAdapter();
-    m_debugPanel = m_buildDebugBootstrap->debugPanel();
     m_debugPanel->setParent(this);
     auto *dkDebugDock = new ExDockWidget(tr("Debug"), this);
     dkDebugDock->setDockId(QStringLiteral("DebugDock"));
     dkDebugDock->setContentWidget(m_debugPanel);
     m_dockManager->addDockWidget(dkDebugDock, SideBarArea::Bottom, /*startPinned=*/false);
 
+    // ── Debug wiring (DebugBootstrap — no build dependencies) ─────────────
+    m_debugBootstrap->wireConnections();
 
     // Navigate to source on stack frame double-click
-    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::navigateToSource,
+    connect(m_debugBootstrap, &DebugBootstrap::navigateToSource,
             this, [this](const QString &filePath, int line) {
         navigateToLocation(filePath, line - 1, 0);
     });
 
     // Highlight current stopped line in editor
-    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::debugStopped,
+    connect(m_debugBootstrap, &DebugBootstrap::debugStopped,
             this, [this](const QList<DebugFrame> &frames) {
         // Clear previous debug line on all editors
         for (int i = 0; i < m_tabs->count(); ++i) {
@@ -2455,7 +2404,7 @@ void MainWindow::createDockWidgets()
     });
 
     // Clear debug line on session end
-    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::debugTerminated,
+    connect(m_debugBootstrap, &DebugBootstrap::debugTerminated,
             this, [this]() {
         for (int i = 0; i < m_tabs->count(); ++i) {
             auto *ed = qobject_cast<EditorView *>(m_tabs->widget(i));
@@ -2465,34 +2414,6 @@ void MainWindow::createDockWidgets()
 
     // Wire breakpoint from editor to debug panel
     // (connected per-tab when tab is opened — see below in openFile)
-
-    // ── Build/Run/Debug wiring ────────────────────────────────────────────
-    m_buildDebugBootstrap->wireConnections();
-
-    // Bootstrap signals → MainWindow UI
-    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::showOutputDock, this, [this]() {
-        m_dockManager->showDock(dock(QStringLiteral("OutputDock")), exdock::SideBarArea::Bottom);
-    });
-    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::showRunDock, this, [this]() {
-        m_dockManager->showDock(dock(QStringLiteral("RunDock")), exdock::SideBarArea::Bottom);
-    });
-    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::showDebugDock, this, [this]() {
-        m_dockManager->showDock(dock(QStringLiteral("DebugDock")), exdock::SideBarArea::Bottom);
-    });
-    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::statusMessage, this,
-            [this](const QString &msg, int timeout) {
-        statusBar()->showMessage(msg, timeout);
-    });
-    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::restartClangd, this,
-            [this](const QString &compileCommandsDir) {
-        m_clangd->stop();
-        QStringList args;
-        args << QStringLiteral("--compile-commands-dir=") + compileCommandsDir;
-        m_clangd->start(m_currentFolder, args);
-        statusBar()->showMessage(tr("Clangd restarted with compile_commands.json"), 3000);
-    });
-    connect(m_buildDebugBootstrap, &BuildDebugBootstrap::buildDiagnosticsReady, this,
-            &MainWindow::pushBuildDiagnostics);
 
     // ── Theme Manager ─────────────────────────────────────────────────────
     m_themeManager = new ThemeManager(this);
@@ -2559,24 +2480,9 @@ void MainWindow::createDockWidgets()
     dkPluginDock->setContentWidget(m_pluginGallery);
     m_dockManager->addDockWidget(dkPluginDock, SideBarArea::Left, /*startPinned=*/false);
 
-    // ── Output / Build panel ──────────────────────────────────────────────
-    m_outputPanel = m_buildDebugBootstrap->outputPanel();
-    auto *dkOutputDock = new ExDockWidget(tr("Output"), this);
-    dkOutputDock->setDockId(QStringLiteral("OutputDock"));
-    dkOutputDock->setContentWidget(m_outputPanel);
-    m_dockManager->addDockWidget(dkOutputDock, SideBarArea::Bottom, /*startPinned=*/false);
-
-    connect(m_outputPanel, &OutputPanel::problemClicked,
-            this, &MainWindow::navigateToLocation);
-    connect(m_outputPanel, &OutputPanel::buildFinished,
-            this, &MainWindow::pushBuildDiagnostics);
-
-    // ── Run / Launch panel ────────────────────────────────────────────────
-    m_runPanel = new RunLaunchPanel(this);
-    auto *dkRunDock = new ExDockWidget(tr("Run"), this);
-    dkRunDock->setDockId(QStringLiteral("RunDock"));
-    dkRunDock->setContentWidget(m_runPanel);
-    m_dockManager->addDockWidget(dkRunDock, SideBarArea::Bottom, /*startPinned=*/false);
+    // ── Output / Build / Run panels — contributed by build plugin ──────────
+    // Created by plugins/build/ via IViewContributor (OutputDock, RunDock).
+    // Wiring happens in loadPlugins() after plugin initialization.
 
     // ── Test Explorer panel ───────────────────────────────────────────────
     {
@@ -2584,12 +2490,15 @@ void MainWindow::createDockWidgets()
         auto *testPanel = new TestExplorerPanel(this);
         testPanel->setDiscoveryService(testSvc);
 
-        // Wire build directory from CMake integration
-        if (m_cmakeIntegration) {
-            const QString buildDir = m_cmakeIntegration->buildDirectory();
-            if (!buildDir.isEmpty()) {
-                testSvc->setBuildDirectory(buildDir);
-                testSvc->discoverTests();
+        // Wire build directory from IBuildSystem service (if available)
+        if (m_services) {
+            auto *buildSys = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
+            if (buildSys) {
+                const QString buildDir = buildSys->buildDirectory();
+                if (!buildDir.isEmpty()) {
+                    testSvc->setBuildDirectory(buildDir);
+                    testSvc->discoverTests();
+                }
             }
         }
 
@@ -2610,7 +2519,8 @@ void MainWindow::createDockWidgets()
         auto *problemsPanel = new ProblemsPanel(this);
         if (m_hostServices)
             problemsPanel->setDiagnosticsService(m_hostServices->diagnostics());
-        problemsPanel->setOutputPanel(m_outputPanel);
+        // OutputPanel wiring deferred to loadPlugins() (contributed by build plugin)
+        m_services->registerService(QStringLiteral("problemsPanel"), problemsPanel);
 
         auto *dkProblemsDock = new ExDockWidget(tr("Problems"), this);
         dkProblemsDock->setDockId(QStringLiteral("ProblemsDock"));
@@ -3067,22 +2977,21 @@ void MainWindow::openFolder(const QString &path)
             .arg(QFileInfo(m_projectManager->solution().filePath).fileName()), 4000);
     }
 
-    if (m_outputPanel) {
-        m_outputPanel->setWorkingDirectory(root);
-        // Load workspace tasks.json if it exists
+    // Notify build plugin of workspace change (via OutputPanel/RunPanel services)
+    if (auto *outPanel = qobject_cast<OutputPanel *>(m_services->service(QStringLiteral("outputPanel")))) {
+        outPanel->setWorkingDirectory(root);
         const QString tasksPath = root + QStringLiteral("/.exorcist/tasks.json");
         if (QFileInfo::exists(tasksPath))
-            m_outputPanel->loadTasksFromJson(tasksPath);
+            outPanel->loadTasksFromJson(tasksPath);
     }
 
-    if (m_runPanel) {
-        m_runPanel->setWorkingDirectory(root);
+    if (auto *rnPanel = qobject_cast<RunLaunchPanel *>(m_services->service(QStringLiteral("runPanel")))) {
+        rnPanel->setWorkingDirectory(root);
         const QString launchPath = root + QStringLiteral("/.exorcist/launch.json");
         if (QFileInfo::exists(launchPath))
-            m_runPanel->loadLaunchJson(launchPath);
+            rnPanel->loadLaunchJson(launchPath);
     }
     m_currentFolder = root;
-    m_buildDebugBootstrap->setWorkingDir(root);
     m_terminal->setWorkingDirectory(root);
 
     // Apply workspace-level settings (.exorcist/settings.json)
@@ -3093,24 +3002,16 @@ void MainWindow::openFolder(const QString &path)
     if (m_pluginManager)
         m_pluginManager->activateByWorkspace(root);
 
-    // ── Toolchain & CMake detection ───────────────────────────────────────
-    // Run toolchain detection asynchronously (probes compilers in PATH).
+    // ── Toolchain & CMake detection (via build plugin service) ──────────
     // Clangd start is deferred until after CMake detection so we can pass
     // --compile-commands-dir if compile_commands.json exists in a build dir.
     QTimer::singleShot(0, this, [this, root]() {
-        // Manifesto #2: detectAll() now runs in a worker thread.
-        // Toolchain results arrive via detectionFinished signal.
-        m_toolchainMgr->detectAll();
+        auto *buildSys = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
 
-        // Set up CMake integration if this is a CMake project
         QStringList clangdArgs;
-        m_cmakeIntegration->setProjectRoot(root);
-        if (m_cmakeIntegration->hasCMakeProject()) {
-            m_cmakeIntegration->autoDetectConfigs();
-            m_buildToolbar->refresh();
-
-            // Find compile_commands.json — try active config first, then scan
-            QString ccjson = m_cmakeIntegration->compileCommandsPath();
+        if (buildSys && buildSys->hasProject()) {
+            // Find compile_commands.json — try build service first, then scan
+            QString ccjson = buildSys->compileCommandsPath();
             if (ccjson.isEmpty()) {
                 // Scan common build dirs for compile_commands.json
                 const QStringList candidates = {
@@ -3249,7 +3150,6 @@ void MainWindow::newSolution()
         m_searchPanel->setRootPath(root);
         setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
         m_currentFolder = root;
-        m_buildDebugBootstrap->setWorkingDir(root);
         m_terminal->setWorkingDirectory(root);
         m_clangd->start(root);
     }
@@ -3271,7 +3171,6 @@ void MainWindow::openSolutionFile()
         statusBar()->showMessage(tr("Solution: %1").arg(QFileInfo(slnPath).fileName()), 4000);
 
         m_currentFolder = root;
-        m_buildDebugBootstrap->setWorkingDir(root);
         m_terminal->setWorkingDirectory(root);
         m_clangd->start(root);
     }
@@ -3790,9 +3689,10 @@ void MainWindow::applyWorkspaceEdit(const QJsonObject &workspaceEdit)
 
 void MainWindow::pushBuildDiagnostics()
 {
-    if (!m_outputPanel) return;
+    auto *outPanel = qobject_cast<OutputPanel *>(m_services->service(QStringLiteral("outputPanel")));
+    if (!outPanel) return;
 
-    const auto problems = m_outputPanel->problems();
+    const auto problems = outPanel->problems();
 
     // Group problems by file path
     QHash<QString, QJsonArray> diagsByFile;
@@ -4027,6 +3927,7 @@ void MainWindow::loadPlugins()
     // Create SDK host services for the new plugin interface
     m_hostServices = new HostServices(this, this);
     m_hostServices->initSubsystemServices(m_fileSystem.get(), m_gitService, m_terminal);
+    m_hostServices->setServiceRegistry(m_services.get());
 
     // Wire LSP diagnostics into the SDK DiagnosticsService
     connect(m_lspClient, &LspClient::diagnosticsPublished,
@@ -4082,6 +3983,16 @@ void MainWindow::loadPlugins()
             m_contributions->registerManifest(
                 lp.manifest.id.isEmpty() ? lp.instance->info().id : lp.manifest.id,
                 lp.manifest, lp.instance);
+        }
+    }
+
+    // ── Post-plugin wiring: build toolbar, ProblemsPanel → OutputPanel ──
+    if (auto *toolbar = qobject_cast<QToolBar *>(m_services->service(QStringLiteral("buildToolbar")))) {
+        addToolBar(toolbar);
+    }
+    if (auto *outPanel = qobject_cast<OutputPanel *>(m_services->service(QStringLiteral("outputPanel")))) {
+        if (auto *pp = qobject_cast<ProblemsPanel *>(m_services->service(QStringLiteral("problemsPanel")))) {
+            pp->setOutputPanel(outPanel);
         }
     }
 

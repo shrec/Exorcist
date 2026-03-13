@@ -39,7 +39,7 @@ concrete core classes or MainWindow.
 | **Editor** | `editor/` | Text editing, syntax highlighting (tree-sitter + regex fallback), piece table, minimap, vim emulation | `EditorView`, `HighlighterFactory`, `TreeSitterHighlighter`, `SyntaxHighlighter`, `PieceTableBuffer`, `VimHandler` |
 | **Language Intelligence** | `lsp/` | LSP client, Clangd lifecycle, completion, hover, diagnostics, TCP socket transport for remote LSP | `LspClient`, `ClangdManager`, `LspEditorBridge`, `SocketLspTransport` |
 | **Terminal** | `terminal/` | ConPTY/PTY emulator, VT100/xterm, scrollback | `TerminalView`, `TerminalPanel` |
-| **Build System** | `build/` | Task runner, build profiles, problem matchers, toolchain detection, CMake integration, build toolbar, debug launch | `OutputPanel`, `RunPanel`, `TaskProfile`, `ToolchainManager`, `CMakeIntegration`, `BuildToolbar`, `DebugLaunchController` |
+| **Build System** | `plugins/build/` | **Core Plugin** — CMake integration, toolchain detection, build toolbar, debug launch controller, output panel, run panel. Extracted from `src/build/` in Phase C. OutputPanel and RunLaunchPanel remain in `src/build/` as shared UI types. | `BuildPlugin`, `CMakeIntegration`, `ToolchainManager`, `BuildToolbar`, `DebugLaunchController`, `BuildSystemService` |
 | **Testing** | `testing/` | Test discovery (CTest JSON), test runner, test explorer UI | `TestDiscoveryService`, `TestExplorerPanel` |
 | **Problems** | `problems/` | Unified diagnostics panel aggregating LSP + build errors | `ProblemsPanel` |
 | **Source Control** | `git/` | Git status, blame, diff, staging, branches, multi-file diff explorer, 3-way merge editor | `GitService`, `GitPanel`, `DiffExplorerPanel`, `MergeEditor` |
@@ -52,9 +52,9 @@ concrete core classes or MainWindow.
 | **Project Brain** | `agent/projectbrain*` | Persistent workspace knowledge (rules, facts, sessions) | `ProjectBrainService`, `BrainContextBuilder`, `MemorySuggestionEngine` |
 | **Core abstractions** | `core/` | OS interfaces (filesystem, file watching, environment, process, terminal, network) | `IFileSystem`, `IFileWatcher`, `IEnvironment`, `IProcess`, `ITerminal`, `INetwork` |
 | **Plugin system** | `pluginmanager.*`, `serviceregistry.*`, `plugin/` | Plugin loader, typed service resolution, extension gallery, marketplace (registry, download, install) | `PluginManager`, `ServiceRegistry`, `PluginGalleryPanel`, `PluginMarketplaceService` |
-| **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code | `LspBootstrap`, `BuildDebugBootstrap`, `BridgeBootstrap`, `StatusBarManager`, `AIServicesBootstrap` |
+| **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code | `LspBootstrap`, `DebugBootstrap`, `BridgeBootstrap`, `StatusBarManager`, `AIServicesBootstrap` |
 | **Settings** | `settings/` | Hierarchical settings: global QSettings → workspace `.exorcist/settings.json` override layer | `WorkspaceSettings` |
-| **SDK** | `sdk/` | Stable plugin API — typed host services, permissions | `IHostServices`, `HostServices`, `PluginPermission` |
+| **SDK** | `sdk/` | Stable plugin API — typed host services, permissions, service registration, build/launch interfaces | `IHostServices`, `HostServices`, `PluginPermission`, `IBuildSystem`, `ILaunchService` |
 | **UI framework** | `ui/`, `commandpalette.*`, `thememanager.*` | Command palette, theme engine with token colors, keymap, notifications, custom docking, theme gallery | `CommandPalette`, `ThemeManager`, `KeymapManager`, `NotificationToast`, `DockManager`, `ExDockWidget`, `ThemeGalleryPanel` |
 | **Logger** | `logger.*` | Thread-safe timestamped logging | `Logger` |
 | **Crash Handler** | `crashhandler.*` | Catches unhandled exceptions/signals; writes minidumps (Windows), CPU register dumps, faulting module identification, access violation details, stack traces via StackWalk64, loaded modules list, and recent log lines ring buffer to `crashes/` directory. Integrated with Logger for automatic log capture. | `CrashHandler` |

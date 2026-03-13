@@ -4,6 +4,7 @@
 #include "../core/ifilesystem.h"
 #include "../editor/editorview.h"
 #include "../git/gitservice.h"
+#include "../serviceregistry.h"
 #include "../terminal/terminalpanel.h"
 #include "../ui/dock/DockManager.h"
 #include "../ui/dock/ExDockWidget.h"
@@ -500,3 +501,14 @@ IGitService *HostServices::git()                { return m_git.get(); }
 ITerminalService *HostServices::terminal()      { return m_terminal.get(); }
 IDiagnosticsService *HostServices::diagnostics() { return m_diagnostics.get(); }
 ITaskService *HostServices::tasks()             { return m_tasks.get(); }
+
+void HostServices::registerService(const QString &name, QObject *service)
+{
+    if (m_registry)
+        m_registry->registerService(name, service);
+}
+
+QObject *HostServices::queryService(const QString &name)
+{
+    return m_registry ? m_registry->service(name) : nullptr;
+}
