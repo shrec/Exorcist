@@ -463,6 +463,36 @@ target_link_libraries(test_diagnosticsnotifier PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_diagnosticsnotifier PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME DiagnosticsNotifier COMMAND test_diagnosticsnotifier)
 
+# ── BuildTestServices tests ───────────────────────────────────────────────────
+add_executable(test_buildtestservices
+    test_buildtestservices.cpp
+    ${CMAKE_SOURCE_DIR}/src/build/buildsystemservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/build/buildsystemservice.h
+    ${CMAKE_SOURCE_DIR}/src/build/cmakeintegration.cpp
+    ${CMAKE_SOURCE_DIR}/src/build/cmakeintegration.h
+    ${CMAKE_SOURCE_DIR}/src/build/toolchainmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/build/toolchainmanager.h
+    ${CMAKE_SOURCE_DIR}/src/testing/testrunnerservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/testing/testrunnerservice.h
+    ${CMAKE_SOURCE_DIR}/src/testing/testdiscoveryservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/testing/testdiscoveryservice.h
+    ${CMAKE_SOURCE_DIR}/src/sdk/ibuildsystem.h
+    ${CMAKE_SOURCE_DIR}/src/sdk/itestrunner.h
+)
+target_link_libraries(test_buildtestservices PRIVATE Qt6::Test Qt6::Widgets Qt6::Concurrent)
+target_include_directories(test_buildtestservices PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME BuildTestServices COMMAND test_buildtestservices)
+
+# ── ContributionRegistry tests ────────────────────────────────────────────────
+add_executable(test_contributionregistry
+    test_contributionregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugin/pluginmanifest.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugin/pluginmanifest.h
+)
+target_link_libraries(test_contributionregistry PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_contributionregistry PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ContributionRegistry COMMAND test_contributionregistry)
+
 # Deploy Qt DLLs so tests can run (Windows)
 if(WIN32 AND EXORCIST_DEPLOY_QT)
     find_program(WINDEPLOYQT windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")

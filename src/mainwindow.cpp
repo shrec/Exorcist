@@ -117,6 +117,9 @@
 #include "lsp/referencespanel.h"
 #include "bootstrap/lspbootstrap.h"
 #include "bootstrap/builddebugbootstrap.h"
+#include "build/buildsystemservice.h"
+#include "sdk/ibuildsystem.h"
+#include "testing/testrunnerservice.h"
 #include "bootstrap/bridgebootstrap.h"
 #include "process/bridgeclient.h"
 #include "bootstrap/statusbarmanager.h"
@@ -282,6 +285,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_services->registerService("agentOrchestrator", m_agentOrchestrator);
     if (m_aiServices && m_aiServices->keyStorage())
         m_services->registerService(QStringLiteral("secureKeyStorage"), m_aiServices->keyStorage());
+
+    // ── Build & Test services ───────────────────────────────────────────
+    if (m_cmakeIntegration) {
+        auto *buildSvc = new BuildSystemService(m_cmakeIntegration, this);
+        m_services->registerService(QStringLiteral("buildSystem"), buildSvc);
+    }
 
     // ── Workspace settings (global → workspace hierarchy) ───────────────
     {
@@ -626,28 +635,29 @@ MainWindow::MainWindow(QWidget *parent)
         return result;
     };
 
-    // ── Build & test ──────────────────────────────────────────────────────
+    // ── Build & test (via ServiceRegistry) ──────────────────────────────
     agentCallbacks.buildProjectFn =
         [this](const QString &target) -> BuildProjectTool::BuildResult {
-        if (!m_cmakeIntegration)
+        auto *buildSvc = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
+        if (!buildSvc)
             return {false, QStringLiteral("No build system configured."), -1};
         QString output;
         bool success = false;
         int exitCode = -1;
         QEventLoop loop;
-        auto connOut = connect(m_cmakeIntegration, &CMakeIntegration::buildOutput,
+        auto connOut = connect(buildSvc, &IBuildSystem::buildOutput,
             &loop, [&](const QString &line, bool isError) {
                 Q_UNUSED(isError)
                 output += line + QLatin1Char('\n');
             });
-        auto connDone = connect(m_cmakeIntegration, &CMakeIntegration::buildFinished,
+        auto connDone = connect(buildSvc, &IBuildSystem::buildFinished,
             &loop, [&](bool ok, int code) {
                 success  = ok;
                 exitCode = code;
                 loop.quit();
             });
         QTimer::singleShot(120000, &loop, &QEventLoop::quit);
-        m_cmakeIntegration->build(target);
+        buildSvc->build(target);
         loop.exec();
         disconnect(connOut);
         disconnect(connDone);
@@ -657,9 +667,10 @@ MainWindow::MainWindow(QWidget *parent)
     agentCallbacks.runTestsFn =
         [this](const QString &scope, const QString &filter) -> RunTestsTool::TestResult {
         Q_UNUSED(scope)
-        if (!m_cmakeIntegration)
+        auto *buildSvc = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
+        if (!buildSvc)
             return {false, 0, 0, 0, QStringLiteral("No build system.")};
-        const QString buildDir = m_cmakeIntegration->buildDirectory();
+        const QString buildDir = buildSvc->buildDirectory();
         if (buildDir.isEmpty())
             return {false, 0, 0, 0, QStringLiteral("No build directory.")};
         QStringList args = {QStringLiteral("--test-dir"), buildDir,
@@ -685,8 +696,9 @@ MainWindow::MainWindow(QWidget *parent)
     };
 
     agentCallbacks.buildTargetsGetter = [this]() -> QStringList {
-        if (!m_cmakeIntegration) return {};
-        return m_cmakeIntegration->discoverTargets();
+        auto *buildSvc = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
+        if (!buildSvc) return {};
+        return buildSvc->targets();
     };
 
     // ── Code formatting ───────────────────────────────────────────────────
@@ -2581,6 +2593,12 @@ void MainWindow::createDockWidgets()
             }
         }
 
+        // Register ITestRunner in ServiceRegistry
+        if (m_services) {
+            auto *testRunner = new TestRunnerService(testSvc, this);
+            m_services->registerService(QStringLiteral("testRunner"), testRunner);
+        }
+
         auto *dkTestDock = new ExDockWidget(tr("Test Explorer"), this);
         dkTestDock->setDockId(QStringLiteral("TestExplorerDock"));
         dkTestDock->setContentWidget(testPanel);
@@ -3070,6 +3088,10 @@ void MainWindow::openFolder(const QString &path)
     // Apply workspace-level settings (.exorcist/settings.json)
     if (auto *wss = m_services->service<WorkspaceSettings>(QStringLiteral("workspaceSettings")))
         wss->setWorkspaceRoot(root);
+
+    // Activate plugins with workspaceContains activation events
+    if (m_pluginManager)
+        m_pluginManager->activateByWorkspace(root);
 
     // ── Toolchain & CMake detection ───────────────────────────────────────
     // Run toolchain detection asynchronously (probes compilers in PATH).

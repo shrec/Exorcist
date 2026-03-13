@@ -4,6 +4,9 @@
 #include "../mainwindow.h"
 #include "../plugininterface.h"
 #include "../plugin/icommandhandler.h"
+#include "../plugin/ilanguagecontributor.h"
+#include "../plugin/isettingscontributor.h"
+#include "../plugin/itaskcontributor.h"
 #include "../plugin/iviewcontributor.h"
 #include "../ui/dock/DockManager.h"
 #include "../ui/dock/ExDockWidget.h"
@@ -12,6 +15,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
+#include <QSettings>
 #include <QStatusBar>
 
 // ── ContributionRegistry ─────────────────────────────────────────────────────
@@ -43,6 +47,18 @@ void ContributionRegistry::registerManifest(const QString &pluginId,
 
     if (!manifest.statusBarItems.isEmpty())
         registerStatusBarItems(pluginId, manifest.statusBarItems);
+
+    if (!manifest.languages.isEmpty())
+        registerLanguages(pluginId, manifest.languages, plugin);
+
+    if (!manifest.tasks.isEmpty())
+        registerTasks(pluginId, manifest.tasks, plugin);
+
+    if (!manifest.settings.isEmpty())
+        registerSettings(pluginId, manifest.settings, plugin);
+
+    if (!manifest.themes.isEmpty())
+        registerThemes(pluginId, manifest.themes);
 }
 
 void ContributionRegistry::unregisterPlugin(const QString &pluginId)
@@ -88,6 +104,51 @@ void ContributionRegistry::unregisterPlugin(const QString &pluginId)
 
     // Remove status bar widgets
     // (status bar widgets are tracked by pluginId prefix on objectName)
+
+    // Remove language contributions
+    {
+        bool changed = false;
+        m_registeredLanguages.erase(
+            std::remove_if(m_registeredLanguages.begin(), m_registeredLanguages.end(),
+                           [&](const RegisteredLanguage &l) {
+                               if (l.pluginId == pluginId) { changed = true; return true; }
+                               return false;
+                           }),
+            m_registeredLanguages.end());
+        if (changed) emit languagesChanged();
+    }
+
+    // Remove task contributions
+    m_registeredTasks.erase(
+        std::remove_if(m_registeredTasks.begin(), m_registeredTasks.end(),
+                       [&](const RegisteredTask &t) { return t.pluginId == pluginId; }),
+        m_registeredTasks.end());
+
+    // Remove setting contributions
+    {
+        bool changed = false;
+        m_registeredSettings.erase(
+            std::remove_if(m_registeredSettings.begin(), m_registeredSettings.end(),
+                           [&](const RegisteredSetting &s) {
+                               if (s.pluginId == pluginId) { changed = true; return true; }
+                               return false;
+                           }),
+            m_registeredSettings.end());
+        if (changed) emit settingsChanged();
+    }
+
+    // Remove theme contributions
+    {
+        bool changed = false;
+        m_registeredThemes.erase(
+            std::remove_if(m_registeredThemes.begin(), m_registeredThemes.end(),
+                           [&](const RegisteredTheme &t) {
+                               if (t.pluginId == pluginId) { changed = true; return true; }
+                               return false;
+                           }),
+            m_registeredThemes.end());
+        if (changed) emit themesChanged();
+    }
 
     emit commandsChanged();
     emit viewsChanged();
@@ -343,4 +404,179 @@ bool ContributionRegistry::executeCommandByIndex(int index) const
 QStringList ContributionRegistry::registeredViewIds() const
 {
     return m_registeredViews.keys();
+}
+
+// ── Languages ────────────────────────────────────────────────────────────────
+
+void ContributionRegistry::registerLanguages(const QString &pluginId,
+                                             const QList<LanguageContribution> &languages,
+                                             IPlugin *plugin)
+{
+    auto *contributor = dynamic_cast<ILanguageContributor *>(plugin);
+
+    for (const LanguageContribution &lang : languages) {
+        RegisteredLanguage rl;
+        rl.pluginId = pluginId;
+        rl.contribution = lang;
+        rl.contributor = contributor;
+        m_registeredLanguages.append(rl);
+    }
+
+    emit languagesChanged();
+}
+
+const LanguageContribution *ContributionRegistry::languageForExtension(const QString &ext) const
+{
+    // Normalize: accept both ".rs" and "rs"
+    QString normalized = ext.startsWith('.') ? ext : ('.' + ext);
+
+    for (const RegisteredLanguage &rl : m_registeredLanguages) {
+        for (const QString &langExt : rl.contribution.extensions) {
+            if (langExt.compare(normalized, Qt::CaseInsensitive) == 0)
+                return &rl.contribution;
+        }
+    }
+    return nullptr;
+}
+
+const LanguageContribution *ContributionRegistry::languageById(const QString &id) const
+{
+    for (const RegisteredLanguage &rl : m_registeredLanguages) {
+        if (rl.contribution.id == id)
+            return &rl.contribution;
+    }
+    return nullptr;
+}
+
+QList<LanguageContribution> ContributionRegistry::registeredLanguages() const
+{
+    QList<LanguageContribution> result;
+    result.reserve(m_registeredLanguages.size());
+    for (const RegisteredLanguage &rl : m_registeredLanguages)
+        result.append(rl.contribution);
+    return result;
+}
+
+ILanguageContributor *ContributionRegistry::languageContributor(const QString &languageId) const
+{
+    for (const RegisteredLanguage &rl : m_registeredLanguages) {
+        if (rl.contribution.id == languageId)
+            return rl.contributor;
+    }
+    return nullptr;
+}
+
+// ── Tasks ────────────────────────────────────────────────────────────────────
+
+void ContributionRegistry::registerTasks(const QString &pluginId,
+                                         const QList<TaskContribution> &tasks,
+                                         IPlugin *plugin)
+{
+    auto *contributor = dynamic_cast<ITaskContributor *>(plugin);
+
+    for (const TaskContribution &task : tasks) {
+        RegisteredTask rt;
+        rt.pluginId = pluginId;
+        rt.contribution = task;
+        rt.contributor = contributor;
+        m_registeredTasks.append(rt);
+    }
+}
+
+QList<TaskContribution> ContributionRegistry::registeredTasks() const
+{
+    QList<TaskContribution> result;
+    result.reserve(m_registeredTasks.size());
+    for (const RegisteredTask &rt : m_registeredTasks)
+        result.append(rt.contribution);
+    return result;
+}
+
+ITaskContributor *ContributionRegistry::taskContributor(const QString &taskType) const
+{
+    for (const RegisteredTask &rt : m_registeredTasks) {
+        if (rt.contributor && rt.contributor->taskType() == taskType)
+            return rt.contributor;
+    }
+    return nullptr;
+}
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+
+void ContributionRegistry::registerSettings(const QString &pluginId,
+                                            const QList<SettingContribution> &settings,
+                                            IPlugin *plugin)
+{
+    auto *contributor = dynamic_cast<ISettingsContributor *>(plugin);
+
+    QSettings appSettings;
+    for (const SettingContribution &setting : settings) {
+        RegisteredSetting rs;
+        rs.pluginId = pluginId;
+        rs.contribution = setting;
+        rs.contributor = contributor;
+        m_registeredSettings.append(rs);
+
+        // Persist default value if not already set
+        const QString fullKey = QStringLiteral("plugins/%1/%2").arg(pluginId, setting.key);
+        if (!appSettings.contains(fullKey))
+            appSettings.setValue(fullKey, setting.defaultValue);
+    }
+
+    emit settingsChanged();
+}
+
+QList<SettingContribution> ContributionRegistry::registeredSettings() const
+{
+    QList<SettingContribution> result;
+    result.reserve(m_registeredSettings.size());
+    for (const RegisteredSetting &rs : m_registeredSettings)
+        result.append(rs.contribution);
+    return result;
+}
+
+QList<SettingContribution> ContributionRegistry::settingsForPlugin(const QString &pluginId) const
+{
+    QList<SettingContribution> result;
+    for (const RegisteredSetting &rs : m_registeredSettings) {
+        if (rs.pluginId == pluginId)
+            result.append(rs.contribution);
+    }
+    return result;
+}
+
+void ContributionRegistry::notifySettingChanged(const QString &pluginId,
+                                                const QString &key,
+                                                const QVariant &value)
+{
+    for (const RegisteredSetting &rs : m_registeredSettings) {
+        if (rs.pluginId == pluginId && rs.contributor) {
+            rs.contributor->settingChanged(key, value);
+            return;
+        }
+    }
+}
+
+// ── Themes ───────────────────────────────────────────────────────────────────
+
+void ContributionRegistry::registerThemes(const QString &pluginId,
+                                          const QList<ThemeContribution> &themes)
+{
+    for (const ThemeContribution &theme : themes) {
+        RegisteredTheme rt;
+        rt.pluginId = pluginId;
+        rt.contribution = theme;
+        m_registeredThemes.append(rt);
+    }
+
+    emit themesChanged();
+}
+
+QList<ThemeContribution> ContributionRegistry::registeredThemes() const
+{
+    QList<ThemeContribution> result;
+    result.reserve(m_registeredThemes.size());
+    for (const RegisteredTheme &rt : m_registeredThemes)
+        result.append(rt.contribution);
+    return result;
 }

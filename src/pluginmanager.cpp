@@ -82,23 +82,24 @@ int PluginManager::loadPluginsFrom(const QString &path)
 
 void PluginManager::initializeAll(IHostServices *host)
 {
-    // Initialize Qt/C++ plugins.
+    m_host = host;
+
+    // Initialize Qt/C++ plugins — defer those with lazy activation events.
+    QVector<LoadedPlugin> immediate;
     for (const LoadedPlugin &lp : m_loaded) {
-        try {
-            const PluginInfo pi = lp.instance->info();
-            auto guard = std::make_unique<PermissionGuardedHostServices>(host, pi.requestedPermissions);
-            lp.instance->initialize(guard.get());
-            m_permGuards.push_back(std::move(guard));
-        } catch (const std::exception &e) {
-            m_errors << QString("Plugin init failed: %1").arg(e.what());
-        } catch (...) {
-            m_errors << QString("Plugin init failed with unknown exception");
+        if (shouldDeferPlugin(lp.manifest)) {
+            m_deferred.push_back({lp, lp.manifest.activationEvents});
+        } else {
+            immediate.push_back(lp);
         }
     }
 
-    // Initialize C ABI plugins.
+    for (const LoadedPlugin &lp : immediate) {
+        activatePlugin(lp);
+    }
+
+    // Initialize C ABI plugins (always immediate).
     for (LoadedCAbiPlugin &cp : m_cabiLoaded) {
-        // Create the bridge (translates C ABI ↔ Qt/C++ services).
         cp.bridge = std::make_unique<cabi::CAbiPluginBridge>(host, this);
 
         auto initFn = reinterpret_cast<ExInitializeFn>(
@@ -108,6 +109,92 @@ void PluginManager::initializeAll(IHostServices *host)
             m_errors << QString("C ABI plugin init returned failure: %1").arg(cp.id);
         }
     }
+}
+
+bool PluginManager::shouldDeferPlugin(const PluginManifest &manifest) const
+{
+    if (manifest.activationEvents.isEmpty())
+        return false;  // No events = always active
+    if (manifest.activatesOnStartup())
+        return false;  // "*" = always active
+    for (const QString &ev : manifest.activationEvents) {
+        if (ev == QLatin1String("onStartupFinished"))
+            return false;  // Start immediately
+    }
+    return true;  // Has lazy activation events
+}
+
+void PluginManager::activatePlugin(const LoadedPlugin &lp)
+{
+    try {
+        const PluginInfo pi = lp.instance->info();
+        auto guard = std::make_unique<PermissionGuardedHostServices>(m_host, pi.requestedPermissions);
+        lp.instance->initialize(guard.get());
+        m_permGuards.push_back(std::move(guard));
+    } catch (const std::exception &e) {
+        m_errors << QString("Plugin init failed: %1").arg(e.what());
+    } catch (...) {
+        m_errors << QString("Plugin init failed with unknown exception");
+    }
+}
+
+int PluginManager::activateByEvent(const QString &event)
+{
+    int activated = 0;
+    QVector<DeferredPlugin> remaining;
+
+    for (const DeferredPlugin &dp : m_deferred) {
+        bool matches = false;
+        for (const QString &ev : dp.activationEvents) {
+            if (ev == event) {
+                matches = true;
+                break;
+            }
+        }
+        if (matches) {
+            activatePlugin(dp.loaded);
+            ++activated;
+        } else {
+            remaining.push_back(dp);
+        }
+    }
+
+    m_deferred = remaining;
+    return activated;
+}
+
+int PluginManager::activateByWorkspace(const QString &workspaceRoot)
+{
+    if (workspaceRoot.isEmpty())
+        return 0;
+
+    int activated = 0;
+    QVector<DeferredPlugin> remaining;
+    const QDir wsDir(workspaceRoot);
+
+    for (const DeferredPlugin &dp : m_deferred) {
+        bool matches = false;
+        for (const QString &ev : dp.activationEvents) {
+            if (ev.startsWith(QLatin1String("workspaceContains:"))) {
+                const QString pattern = ev.mid(18);  // after "workspaceContains:"
+                const QStringList found = wsDir.entryList(
+                    QStringList{pattern}, QDir::Files | QDir::Dirs);
+                if (!found.isEmpty()) {
+                    matches = true;
+                    break;
+                }
+            }
+        }
+        if (matches) {
+            activatePlugin(dp.loaded);
+            ++activated;
+        } else {
+            remaining.push_back(dp);
+        }
+    }
+
+    m_deferred = remaining;
+    return activated;
 }
 
 void PluginManager::initializeAll(QObject *services)
@@ -134,6 +221,7 @@ void PluginManager::shutdownAll()
         lp.loader->unload();
     }
     m_loaded.clear();
+    m_deferred.clear();
 
     // Shutdown C ABI plugins.
     for (LoadedCAbiPlugin &cp : m_cabiLoaded) {

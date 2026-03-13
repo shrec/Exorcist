@@ -1,24 +1,11 @@
 #pragma once
 
+#include "../sdk/itestrunner.h"
+
 #include <QObject>
 #include <QString>
 #include <QList>
 #include <QProcess>
-
-// ── Test item ─────────────────────────────────────────────────────────────────
-
-struct TestItem
-{
-    QString name;           // Display name (e.g. "ServiceRegistry")
-    int     index = -1;     // CTest index (1-based)
-    QString command;        // Test executable path
-    QStringList args;       // Command-line arguments
-
-    enum Status { Unknown, Running, Passed, Failed, Skipped };
-    Status  status = Unknown;
-    QString output;         // Captured stdout/stderr
-    double  duration = 0.0; // seconds
-};
 
 // ── TestDiscoveryService ──────────────────────────────────────────────────────
 

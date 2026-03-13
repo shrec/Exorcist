@@ -40,10 +40,22 @@ public:
     int loadPluginsFrom(const QString &path);
 
     /// SDK v1: Initialize plugins with typed host services.
+    /// Plugins with activation events other than "*" or "onStartupFinished"
+    /// are deferred and can be activated later via activateByEvent().
     void initializeAll(IHostServices *host);
 
     /// Legacy: Initialize plugins with raw service registry.
     void initializeAll(QObject *services);
+
+    /// Activate deferred plugins that match the given event.
+    /// Supported events: "onCommand:<id>", "onView:<id>",
+    ///   "onLanguage:<langId>", "workspaceContains:<pattern>".
+    /// Returns the number of newly activated plugins.
+    int activateByEvent(const QString &event);
+
+    /// Activate all deferred plugins whose workspaceContains pattern
+    /// matches files in the given workspace root directory.
+    int activateByWorkspace(const QString &workspaceRoot);
 
     void shutdownAll();
 
@@ -80,4 +92,15 @@ private:
     QStringList m_errors;
     std::vector<std::unique_ptr<PermissionGuardedHostServices>> m_permGuards;
     std::unique_ptr<luabridge::LuaScriptEngine> m_luaEngine;
+
+    // Deferred plugins waiting for activation events
+    struct DeferredPlugin {
+        LoadedPlugin loaded;
+        QStringList activationEvents;
+    };
+    QVector<DeferredPlugin> m_deferred;
+    IHostServices *m_host = nullptr;
+
+    bool shouldDeferPlugin(const PluginManifest &manifest) const;
+    void activatePlugin(const LoadedPlugin &lp);
 };

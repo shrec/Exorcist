@@ -126,6 +126,10 @@ add_executable(exorcist WIN32
     bootstrap/lspbootstrap.h
     bootstrap/builddebugbootstrap.cpp
     bootstrap/builddebugbootstrap.h
+    bootstrap/buildbootstrap.cpp
+    bootstrap/buildbootstrap.h
+    bootstrap/debugbootstrap.cpp
+    bootstrap/debugbootstrap.h
     bootstrap/bridgebootstrap.cpp
     bootstrap/bridgebootstrap.h
     bootstrap/aiservicesbootstrap.h
@@ -327,6 +331,8 @@ add_executable(exorcist WIN32
     build/toolchainmanager.h
     build/cmakeintegration.cpp
     build/cmakeintegration.h
+    build/buildsystemservice.cpp
+    build/buildsystemservice.h
     build/buildtoolbar.cpp
     build/buildtoolbar.h
     build/debuglaunchcontroller.cpp
@@ -423,6 +429,8 @@ add_executable(exorcist WIN32
     sdk/iterminalservice.h
     sdk/idiagnosticsservice.h
     sdk/itaskservice.h
+    sdk/ibuildsystem.h
+    sdk/itestrunner.h
     sdk/ihostservices.h
     sdk/hostservices.cpp
     sdk/hostservices.h
@@ -461,6 +469,8 @@ add_executable(exorcist WIN32
     settings/workspacesettings.cpp
     testing/testdiscoveryservice.h
     testing/testdiscoveryservice.cpp
+    testing/testrunnerservice.h
+    testing/testrunnerservice.cpp
     testing/testexplorerpanel.h
     testing/testexplorerpanel.cpp
 )

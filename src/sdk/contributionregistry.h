@@ -13,6 +13,9 @@ class IPlugin;
 class IHostServices;
 class MainWindow;
 class CommandServiceImpl;
+class ITaskContributor;
+class ILanguageContributor;
+class ISettingsContributor;
 
 namespace exdock { class DockManager; class ExDockWidget; }
 
@@ -61,9 +64,52 @@ public:
     /// All registered view IDs from plugins.
     QStringList registeredViewIds() const;
 
+    // ── Language query API ────────────────────────────────────────────────
+
+    /// Find a LanguageContribution by file extension (e.g., ".rs" or "rs").
+    const LanguageContribution *languageForExtension(const QString &ext) const;
+
+    /// Find a LanguageContribution by ID (e.g., "rust").
+    const LanguageContribution *languageById(const QString &id) const;
+
+    /// All registered language contributions.
+    QList<LanguageContribution> registeredLanguages() const;
+
+    /// Get the ILanguageContributor for a language ID, if any.
+    ILanguageContributor *languageContributor(const QString &languageId) const;
+
+    // ── Task query API ────────────────────────────────────────────────────
+
+    /// All registered task contributions.
+    QList<TaskContribution> registeredTasks() const;
+
+    /// Find ITaskContributor that handles a given task type.
+    ITaskContributor *taskContributor(const QString &taskType) const;
+
+    // ── Settings query API ────────────────────────────────────────────────
+
+    /// All registered setting contributions from plugins.
+    QList<SettingContribution> registeredSettings() const;
+
+    /// Setting contributions from a specific plugin.
+    QList<SettingContribution> settingsForPlugin(const QString &pluginId) const;
+
+    /// Notify the ISettingsContributor for a plugin that a setting changed.
+    void notifySettingChanged(const QString &pluginId,
+                              const QString &key,
+                              const QVariant &value);
+
+    // ── Theme query API ───────────────────────────────────────────────────
+
+    /// All registered theme contributions.
+    QList<ThemeContribution> registeredThemes() const;
+
 signals:
     void commandsChanged();
     void viewsChanged();
+    void languagesChanged();
+    void settingsChanged();
+    void themesChanged();
 
 private:
     void registerCommands(const QString &pluginId,
@@ -78,6 +124,17 @@ private:
                              const QList<KeybindingContribution> &keybindings);
     void registerStatusBarItems(const QString &pluginId,
                                 const QList<StatusBarContribution> &items);
+    void registerLanguages(const QString &pluginId,
+                           const QList<LanguageContribution> &languages,
+                           IPlugin *plugin);
+    void registerTasks(const QString &pluginId,
+                       const QList<TaskContribution> &tasks,
+                       IPlugin *plugin);
+    void registerSettings(const QString &pluginId,
+                          const QList<SettingContribution> &settings,
+                          IPlugin *plugin);
+    void registerThemes(const QString &pluginId,
+                        const QList<ThemeContribution> &themes);
 
     QMenu *menuForLocation(MenuContribution::Location loc) const;
 
@@ -102,6 +159,29 @@ private:
         QAction *action = nullptr;
     };
 
+    struct RegisteredLanguage {
+        QString pluginId;
+        LanguageContribution contribution;
+        ILanguageContributor *contributor = nullptr;  // non-owning
+    };
+
+    struct RegisteredTask {
+        QString pluginId;
+        TaskContribution contribution;
+        ITaskContributor *contributor = nullptr;  // non-owning
+    };
+
+    struct RegisteredSetting {
+        QString pluginId;
+        SettingContribution contribution;
+        ISettingsContributor *contributor = nullptr;  // non-owning
+    };
+
+    struct RegisteredTheme {
+        QString pluginId;
+        ThemeContribution contribution;
+    };
+
     MainWindow *m_window;
     CommandServiceImpl *m_commands;
 
@@ -116,6 +196,18 @@ private:
 
     // Status bar widgets (for cleanup)
     QHash<QString, QWidget *> m_statusBarWidgets;
+
+    // Language contributions
+    QList<RegisteredLanguage> m_registeredLanguages;
+
+    // Task contributions
+    QList<RegisteredTask> m_registeredTasks;
+
+    // Setting contributions
+    QList<RegisteredSetting> m_registeredSettings;
+
+    // Theme contributions
+    QList<RegisteredTheme> m_registeredThemes;
 
     // Plugin → contribution IDs for cleanup
     QHash<QString, QStringList> m_pluginCommands;
