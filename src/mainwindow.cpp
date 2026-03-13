@@ -318,6 +318,12 @@ MainWindow::MainWindow(QWidget *parent)
     {
         auto *bridgeBoot = new BridgeBootstrap(this);
         bridgeBoot->initialize(m_services.get());
+        connect(bridgeBoot, &BridgeBootstrap::bridgeCrashed, this, [this]() {
+            NotificationToast::show(
+                this,
+                tr("ExoBridge daemon crashed — restarting automatically"),
+                NotificationToast::Warning, 5000);
+        });
     }
 
     // Wire GitService → ExoBridge for shared git watching

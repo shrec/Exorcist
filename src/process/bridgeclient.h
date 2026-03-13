@@ -57,6 +57,7 @@ signals:
     void connectionFailed(const QString &error);
     void serviceEvent(const QString &service, const QString &event);
     void serverShuttingDown();
+    void bridgeCrashed();
 
 private:
     static QString serverLockPath();
@@ -77,6 +78,7 @@ private:
     QByteArray    m_buffer;
     QTimer        m_reconnectTimer;
     bool          m_autoReconnect = true;
+    bool          m_gracefulShutdown = false;
     int           m_nextId        = 1;
     QString       m_instanceId;
 

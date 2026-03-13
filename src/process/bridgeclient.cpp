@@ -168,6 +168,7 @@ void BridgeClient::onConnected()
 {
     m_state = State::Connected;
     m_buffer.clear();
+    m_gracefulShutdown = false;
 
     QJsonObject params;
     params[QLatin1String("instanceId")] = m_instanceId;
@@ -181,9 +182,17 @@ void BridgeClient::onConnected()
 
 void BridgeClient::onDisconnected()
 {
+    const bool wasCrash = (m_state == State::Connected && !m_gracefulShutdown);
     m_state = State::Disconnected;
     m_pendingCalls.clear();
-    qInfo("[BridgeClient] Disconnected from ExoBridge");
+    m_gracefulShutdown = false;
+
+    if (wasCrash) {
+        qWarning("[BridgeClient] ExoBridge crashed — will restart");
+        emit bridgeCrashed();
+    } else {
+        qInfo("[BridgeClient] Disconnected from ExoBridge");
+    }
     emit disconnected();
 
     if (m_autoReconnect)
@@ -237,6 +246,7 @@ void BridgeClient::handleMessage(const Ipc::Message &msg)
             emit serviceEvent(svc, event);
         } else if (msg.method
                    == QLatin1String(Ipc::Method::ServerShutdown)) {
+            m_gracefulShutdown = true;
             emit serverShuttingDown();
         }
     }

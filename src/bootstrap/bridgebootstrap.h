@@ -32,6 +32,7 @@ public:
 signals:
     void bridgeConnected();
     void bridgeDisconnected();
+    void bridgeCrashed();
 
 private:
     ProcessManager *m_processManager = nullptr;

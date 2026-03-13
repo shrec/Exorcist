@@ -19,6 +19,8 @@ void BridgeBootstrap::initialize(QObject *serviceRegistry)
             this, &BridgeBootstrap::bridgeConnected);
     connect(m_bridgeClient, &BridgeClient::disconnected,
             this, &BridgeBootstrap::bridgeDisconnected);
+    connect(m_bridgeClient, &BridgeClient::bridgeCrashed,
+            this, &BridgeBootstrap::bridgeCrashed);
 
     // Register in ServiceRegistry if available
     if (auto *reg = qobject_cast<ServiceRegistry *>(serviceRegistry)) {
