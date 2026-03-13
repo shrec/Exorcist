@@ -1,0 +1,30 @@
+{
+    "id": "org.exorcist.remote",
+    "name": "Remote / SSH",
+    "version": "1.0.0",
+    "description": "SSH connections, remote file browsing, and sync",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "activationEvents": [
+        "onView:RemoteDock"
+    ],
+    "contributes": {
+        "views": [
+            {
+                "id": "RemoteDock",
+                "title": "Remote",
+                "location": "sidebar-left",
+                "defaultVisible": false,
+                "priority": 45
+            }
+        ],
+        "commands": [
+            {
+                "id": "remote.connect",
+                "title": "Connect to Remote Host",
+                "category": "Remote"
+            }
+        ]
+    }
+}

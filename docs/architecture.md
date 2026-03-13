@@ -3,6 +3,9 @@
 The goal is strict modularity, portability, and minimal footprint. The code is
 organized into layers with clear dependency direction.
 
+See [core-philosophy.md](core-philosophy.md) for the foundational design philosophy
+(Core IDE vs Core Plugins separation, activation model, performance principles).
+
 ## Layers
 
 ```
@@ -44,7 +47,6 @@ concrete core classes or MainWindow.
 | **Project** | `project/` | Solution/project tree, workspace management | `ProjectManager`, `SolutionModel` |
 | **MCP** | `mcp/` | Model Context Protocol client for tool servers | `McpManager`, `McpConnection` |
 | **Debug** | `debug/` | Debug adapter framework, GDB/MI, breakpoints | `IDebugAdapter`, `GdbMiAdapter`, `DebugPanel` |
-| **Remote / SSH** | `remote/` | SSH connections, remote FS, multi-arch probing, sync, remote LSP bridging | `SshSession`, `SshConnectionManager`, `RemoteFilePanel`, `RemoteHostProber`, `RemoteSyncService`, `RemoteLspManager` |
 | **Agent framework** | `agent/` | Agent runtime, tools, chat UI (Qt widgets or Ultralight HTML renderer), session management, diagnostics push, tree-sitter AST access | `AgentController`, `AgentOrchestrator`, `ChatPanelWidget`, `UltralightWidget`, `ChatJSBridge`, `DiagnosticsNotifier`, `TreeSitterAgentHelper` |
 | **ExoBridge** | `process/`, `server/` | IPC protocol, shared daemon, cross-instance process management | `ExoBridgeCore`, `BridgeClient`, `ProcessManager`, `Ipc::Message` |
 | **Project Brain** | `agent/projectbrain*` | Persistent workspace knowledge (rules, facts, sessions) | `ProjectBrainService`, `BrainContextBuilder`, `MemorySuggestionEngine` |
@@ -223,6 +225,8 @@ passed during initialization. See `src/sdk/cabi/exorcist_plugin_api.h`.
 
 | Plugin | Directory | Purpose |
 |--------|-----------|---------|
+| GitHub | `plugins/github/` | GitHub CLI integration — PRs, Issues, Actions, Releases |
+| Remote / SSH | `plugins/remote/` | SSH connections, remote file browsing, sync |
 | Copilot | `plugins/copilot/` | GitHub Copilot AI provider |
 | Claude | `plugins/claude/` | Anthropic Claude AI provider |
 | Codex | `plugins/codex/` | OpenAI Codex AI provider |
@@ -246,7 +250,7 @@ framework. The system lives in the `exdock` namespace.
 
 ```
 Root (horizontal DockSplitter)
-├── Left DockArea(s)     — tabbed panels (Project, Search, Git, Outline, Remote)
+├── Left DockArea(s)     — tabbed panels (Project, Search, Git, Outline)
 ├── Center (vertical DockSplitter)
 │   ├── Top DockArea(s)
 │   ├── Editor widget    — breadcrumb bar + tab widget

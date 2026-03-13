@@ -54,11 +54,6 @@
 #include "agent/diagnosticsnotifier.h"
 #include "debug/debugpanel.h"
 #include "debug/gdbmiadapter.h"
-#include "remote/sshconnectionmanager.h"
-#include "remote/remotefilepanel.h"
-#include "remote/remotesyncservice.h"
-#include "remote/remotehostinfo.h"
-#include "remote/sshsession.h"
 #include "agent/chat/chatpanelwidget.h"
 #include "agent/agentcontroller.h"
 #include "agent/agentmodes.h"
@@ -132,7 +127,6 @@
 #include "project/solutiontreemodel.h"
 #include "git/gitservice.h"
 #include "git/gitpanel.h"
-#include "github/ghbootstrap.h"
 #include "build/outputpanel.h"
 #include "build/runlaunchpanel.h"
 #include "testing/testdiscoveryservice.h"
@@ -174,7 +168,6 @@
 #include "search/gitignorefilter.h"
 #include "search/regexsearchengine.h"
 #include "agent/tools/notebooktools.h"
-#include "agent/tools/githubmcptools.h"
 
 #include <QCloseEvent>
 #include <QContextMenuEvent>
@@ -1673,8 +1666,6 @@ void MainWindow::setupMenus()
         m_currentFolder.clear();
         m_clangd->stop();
         m_gitService->setWorkingDirectory({});
-        if (auto *ghBoot = findChild<GhBootstrap *>(QStringLiteral("GhBootstrap")))
-            ghBoot->setWorkingDirectory({});
         m_searchPanel->setRootPath({});
         m_terminal->setWorkingDirectory({});
         setWindowTitle(tr("Exorcist"));
@@ -1685,8 +1676,6 @@ void MainWindow::setupMenus()
         m_currentFolder.clear();
         m_clangd->stop();
         m_gitService->setWorkingDirectory({});
-        if (auto *ghBoot = findChild<GhBootstrap *>(QStringLiteral("GhBootstrap")))
-            ghBoot->setWorkingDirectory({});
         m_searchPanel->setRootPath({});
         m_terminal->setWorkingDirectory({});
         if (m_fileWatcher) m_fileWatcher->unwatchAll();
@@ -1841,7 +1830,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     QAction *toggleThemeAction     = viewMenu->addAction(tr("&Themes"));
     QAction *toggleOutputAction    = viewMenu->addAction(tr("&Output / Build"));
     QAction *toggleDebugAction     = viewMenu->addAction(tr("&Debug panel"));
-    QAction *toggleRemoteAction    = viewMenu->addAction(tr("&Remote / SSH"));
     viewMenu->addSeparator();
     QAction *toggleBlameAction     = viewMenu->addAction(tr("Toggle Git &Blame"));
     toggleBlameAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_B));
@@ -1952,8 +1940,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleOutputAction->setChecked(false);
     toggleDebugAction->setCheckable(true);
     toggleDebugAction->setChecked(false);
-    toggleRemoteAction->setCheckable(true);
-    toggleRemoteAction->setChecked(false);
 
     // ── Build shortcut (Ctrl+Shift+B) ─────────────────────────────────────
     auto *buildAct = new QAction(tr("&Build"), this);
@@ -2160,7 +2146,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     connect(toggleThemeAction,  &QAction::toggled, this, dockToggle(dock(QStringLiteral("ThemeDock"))));
     connect(toggleOutputAction, &QAction::toggled, this, dockToggle(dock(QStringLiteral("OutputDock"))));
     connect(toggleDebugAction,  &QAction::toggled, this, dockToggle(dock(QStringLiteral("DebugDock"))));
-    connect(toggleRemoteAction, &QAction::toggled, this, dockToggle(dock(QStringLiteral("RemoteDock"))));
 
     // Sync View-menu checkbox with dock state changes.
     // Use QSignalBlocker to prevent setChecked from firing toggled,
@@ -2187,7 +2172,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     syncAction(toggleThemeAction,      dock(QStringLiteral("ThemeDock")));
     syncAction(toggleOutputAction,     dock(QStringLiteral("OutputDock")));
     syncAction(toggleDebugAction,      dock(QStringLiteral("DebugDock")));
-    syncAction(toggleRemoteAction,     dock(QStringLiteral("RemoteDock")));
 }
 
 void MainWindow::setupToolBar()
@@ -2336,13 +2320,6 @@ void MainWindow::createDockWidgets()
         m_chatPanel->focusInput();
         m_dockManager->showDock(dock(QStringLiteral("AIDock")), exdock::SideBarArea::Right);
     });
-
-    // ── GitHub CLI ────────────────────────────────────────────────────────
-    {
-        auto *ghBoot = new GhBootstrap(this);
-        ghBoot->setObjectName(QStringLiteral("GhBootstrap"));
-        ghBoot->initialize(m_dockManager, this);
-    }
 
     // ── Terminal ──────────────────────────────────────────────────────────
     m_terminal     = new TerminalPanel(this);
@@ -2504,54 +2481,6 @@ void MainWindow::createDockWidgets()
     });
     connect(m_buildDebugBootstrap, &BuildDebugBootstrap::buildDiagnosticsReady, this,
             &MainWindow::pushBuildDiagnostics);
-
-    // ── Remote / SSH panel ────────────────────────────────────────────────
-    m_sshManager = new SshConnectionManager(this);
-    m_syncService = new RemoteSyncService(this);
-    m_remotePanel = new RemoteFilePanel(this);
-    m_remotePanel->setConnectionManager(m_sshManager);
-    auto *dkRemoteDock = new ExDockWidget(tr("Remote"), this);
-    dkRemoteDock->setDockId(QStringLiteral("RemoteDock"));
-    dkRemoteDock->setContentWidget(m_remotePanel);
-    m_dockManager->addDockWidget(dkRemoteDock, SideBarArea::Left, /*startPinned=*/false);
-
-    // Open remote file: download to temp, then open in editor
-    connect(m_remotePanel, &RemoteFilePanel::openRemoteFile,
-            this, [this](const QString &remotePath, const QString &profileId) {
-        auto *session = m_sshManager->activeSession(profileId);
-        if (!session) return;
-
-        const QString tmpDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-        const QString localPath = tmpDir + QLatin1String("/exorcist_remote_")
-            + QFileInfo(remotePath).fileName();
-
-        connect(session, &SshSession::fileContentReady,
-                this, [this, localPath](const QString &/*reqId*/, const QByteArray &data) {
-            QFile f(localPath);
-            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-                f.write(data);
-                f.close();
-                openFile(localPath);
-            }
-        }, Qt::SingleShotConnection);
-
-        session->readFile(remotePath);
-    });
-
-    // Open remote terminal tab
-    connect(m_remotePanel, &RemoteFilePanel::openRemoteTerminal,
-            this, [this](const QString &profileId) {
-        const auto profiles = m_sshManager->profiles();
-        for (const auto &p : profiles) {
-            if (p.id == profileId) {
-                m_terminal->addSshTerminal(
-                    QStringLiteral("SSH: %1").arg(p.name.isEmpty() ? p.host : p.name),
-                    p.host, p.port, p.user, p.privateKeyPath);
-                m_dockManager->showDock(dock(QStringLiteral("TerminalDock")), exdock::SideBarArea::Bottom);
-                return;
-            }
-        }
-    });
 
     // ── Theme Manager ─────────────────────────────────────────────────────
     m_themeManager = new ThemeManager(this);
@@ -3111,8 +3040,6 @@ void MainWindow::openFolder(const QString &path)
 
     const bool hasSolution = m_projectManager->openFolder(folder);
     m_gitService->setWorkingDirectory(folder);
-    if (auto *ghBoot = findChild<GhBootstrap *>(QStringLiteral("GhBootstrap")))
-        ghBoot->setWorkingDirectory(folder);
     const QString root = m_projectManager->activeSolutionDir();
     m_searchPanel->setRootPath(root);
     setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
@@ -3297,8 +3224,6 @@ void MainWindow::newSolution()
     if (m_projectManager->createSolution(name, slnPath)) {
         const QString root = m_projectManager->activeSolutionDir();
         m_gitService->setWorkingDirectory(root);
-        if (auto *ghBoot = findChild<GhBootstrap *>(QStringLiteral("GhBootstrap")))
-            ghBoot->setWorkingDirectory(root);
         m_searchPanel->setRootPath(root);
         setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
         m_currentFolder = root;
@@ -3319,8 +3244,6 @@ void MainWindow::openSolutionFile()
     if (m_projectManager->openSolution(slnPath)) {
         const QString root = m_projectManager->activeSolutionDir();
         m_gitService->setWorkingDirectory(root);
-        if (auto *ghBoot = findChild<GhBootstrap *>(QStringLiteral("GhBootstrap")))
-            ghBoot->setWorkingDirectory(root);
         m_searchPanel->setRootPath(root);
         setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
         statusBar()->showMessage(tr("Solution: %1").arg(QFileInfo(slnPath).fileName()), 4000);

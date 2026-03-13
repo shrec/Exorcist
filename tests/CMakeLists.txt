@@ -298,12 +298,12 @@ add_executable(test_remotelsp
     ${CMAKE_SOURCE_DIR}/src/lsp/lsptransport.cpp
     ${CMAKE_SOURCE_DIR}/src/lsp/lsptransport.h
     ${CMAKE_SOURCE_DIR}/src/lsp/lspmessage.h
-    ${CMAKE_SOURCE_DIR}/src/remote/sshsession.cpp
-    ${CMAKE_SOURCE_DIR}/src/remote/sshsession.h
-    ${CMAKE_SOURCE_DIR}/src/remote/sshprofile.h
+    ${CMAKE_SOURCE_DIR}/plugins/remote/sshsession.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/remote/sshsession.h
+    ${CMAKE_SOURCE_DIR}/plugins/remote/sshprofile.h
 )
 target_link_libraries(test_remotelsp PRIVATE Qt6::Test Qt6::Widgets Qt6::Network)
-target_include_directories(test_remotelsp PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(test_remotelsp PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/plugins)
 add_test(NAME RemoteLsp COMMAND test_remotelsp)
 
 # ── PluginMarketplace ─────────────────────────────────────────────────────────

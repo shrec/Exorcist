@@ -6,6 +6,8 @@ Exorcist is a fast, lightweight, cross-platform Qt 6–based open-source IDE tar
 
 The editor must always stay **lightweight**. Users who don't need a module must never pay its memory or startup cost. The modular plugin system gives users maximum freedom to compose exactly the environment they need — enable what they use, disable everything else. No wasted resources, no unnecessary complexity.
 
+See [docs/core-philosophy.md](docs/core-philosophy.md) for the full Core IDE vs Core Plugins philosophy, activation model, and performance principles.
+
 ## Architecture
 
 - **Interface-first design**: All core systems (`IFileSystem`, `IProcess`, `ITerminal`, `INetwork`) are abstract interfaces in `src/core/`. Never depend on concrete implementations outside the core layer.
@@ -92,6 +94,26 @@ Optional extensions that users can install, enable, or disable independently:
 |----------|--------|--------|
 | **AI Providers** | Copilot, Claude, Codex, Ollama, BYOK | ✅ Already plugins |
 | **Future extensions** | Additional language servers, debuggers, formatters, linters, themes, etc. | Designed as plugins from the start |
+
+### Core Plugins (Bundled but Optional)
+
+Core Plugins are official plugins bundled with the IDE that provide extended functionality. They follow the rule: **Bundled ≠ Active**. Just because a plugin is installed does not mean it runs.
+
+| Category | Examples | Activation |
+|----------|----------|-----------|
+| **Language packs** | C/C++, Rust, Python, JS/TS, Go | Project detection (`CMakeLists.txt`, `Cargo.toml`, etc.) |
+| **Tooling packs** | CMake, debugger integrations, test runners | Project detection + contextual (on first use) |
+| **Integrations** | GitHub tools, database tools, container tools | Manual or contextual |
+| **Advanced Tools** | AI agent tools, notebook support, analysis tools | Manual or contextual |
+
+**Plugin Activation Model:**
+1. **Manual** — developer explicitly enables/disables in settings
+2. **Project detection** — auto-activate based on project files
+3. **Contextual** — lazy-load only when functionality is invoked
+
+**Zero-cost guarantee:** disabled plugins consume 0 CPU, 0 background threads, 0 RAM.
+
+See [docs/core-philosophy.md](docs/core-philosophy.md) for the full philosophy.
 
 ### Rules
 

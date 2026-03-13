@@ -51,21 +51,6 @@ add_executable(exorcist WIN32
     debug/watchtreemodel.h
     debug/quickwatchdialog.cpp
     debug/quickwatchdialog.h
-    remote/sshprofile.h
-    remote/sshsession.cpp
-    remote/sshsession.h
-    remote/sshconnectionmanager.cpp
-    remote/sshconnectionmanager.h
-    remote/remotefilesystemmodel.cpp
-    remote/remotefilesystemmodel.h
-    remote/remotefilepanel.cpp
-    remote/remotefilepanel.h
-    remote/remotesyncservice.cpp
-    remote/remotesyncservice.h
-    remote/remotehostinfo.cpp
-    remote/remotehostinfo.h
-    remote/remotelspmanager.h
-    remote/remotelspmanager.cpp
     search/searchquery.h
     search/searchmatch.h
     search/searchindex.cpp
@@ -112,12 +97,7 @@ add_executable(exorcist WIN32
     git/diffexplorerpanel.cpp
     git/mergeeditor.h
     git/mergeeditor.cpp
-    github/ghservice.cpp
-    github/ghservice.h
-    github/ghpanel.cpp
-    github/ghpanel.h
-    github/ghbootstrap.cpp
-    github/ghbootstrap.h
+
     editor/symboloutlinepanel.cpp
     editor/symboloutlinepanel.h
     editor/multicursorengine.h

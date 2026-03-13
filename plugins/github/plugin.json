@@ -1,0 +1,30 @@
+{
+    "id": "org.exorcist.github",
+    "name": "GitHub",
+    "version": "1.0.0",
+    "description": "GitHub CLI integration — PRs, Issues, Actions, Releases",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "contributes": {
+        "views": [
+            {
+                "id": "GitHubDock",
+                "title": "GitHub",
+                "location": "sidebar-left",
+                "defaultVisible": false,
+                "priority": 40
+            }
+        ],
+        "commands": [
+            {
+                "id": "github.refresh",
+                "title": "Refresh GitHub",
+                "category": "GitHub"
+            }
+        ]
+    }
+}

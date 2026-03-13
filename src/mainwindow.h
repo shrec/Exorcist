@@ -65,9 +65,6 @@ class WorkspaceChunkIndex;
 
 class DebugPanel;
 class GdbMiAdapter;
-class SshConnectionManager;
-class RemoteFilePanel;
-class RemoteSyncService;
 class ToolchainManager;
 class CMakeIntegration;
 class BuildToolbar;
@@ -187,9 +184,6 @@ private:
     DebugPanel               *m_debugPanel = nullptr;
     GdbMiAdapter             *m_debugAdapter = nullptr;
 
-    SshConnectionManager     *m_sshManager = nullptr;
-    RemoteFilePanel          *m_remotePanel = nullptr;
-    RemoteSyncService        *m_syncService = nullptr;
     BuildDebugBootstrap      *m_buildDebugBootstrap = nullptr;
     ToolchainManager         *m_toolchainMgr = nullptr;
     CMakeIntegration         *m_cmakeIntegration = nullptr;

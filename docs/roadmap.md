@@ -368,3 +368,44 @@ See [docs/luajit.md](luajit.md)
 - [x] **MainWindow wiring** — tree-sitter callbacks via `shared_ptr<TreeSitterAgentHelper>` captured in lambdas (FREEZE-compliant, no new members), `LspClient::diagnosticsPublished` connected to `DiagnosticsNotifier::onDiagnosticsPublished` after platform init
 - [x] **test_treesitterquerytool** — 12 tests: spec, parse_file (valid/unsupported/empty), query (matches/no matches/missing pattern), symbols (list/empty), node_at (found/not found/missing line), unknown operation. 40/40 total suite pass.
 - [x] **test_diagnosticsnotifier** — 8 tests: initial state, enable/disable, disabled ignores, publish→flush→notification, no diff no notification, changed counts, resolved errors, disable clears pending, multiple files, invalid URI. 40/40 total suite pass.
+
+---
+
+## Phase 12 — Core Philosophy Alignment
+
+**Goal:** Align the codebase with the Core IDE / Core Plugins separation defined in
+[docs/core-philosophy.md](core-philosophy.md). Full audit: [docs/core-philosophy-alignment-audit.md](core-philosophy-alignment-audit.md).
+
+### Phase A — Zero-Dependency Extractions ✅
+- [x] A1. GitHub integration → `plugins/github/` (IPlugin + IViewContributor, GitHubDock view via manifest)
+- [x] A2. Remote/SSH → `plugins/remote/` (3 MainWindow members removed, binary -5 MB)
+
+### Phase B — Infrastructure Prerequisites
+- [ ] B1. `IBuildSystem` SDK interface + ServiceRegistry registration
+- [ ] B2. `ITestRunner` SDK interface + ServiceRegistry registration
+- [ ] B3. Split `BuildDebugBootstrap` → `BuildBootstrap` + `DebugBootstrap`
+- [ ] B4. Agent callback model → ServiceRegistry dynamic lookup (45+ callbacks)
+- [ ] B5. Plugin activation model (lazy loading, project detection, contextual)
+- [ ] B6. Wire remaining contribution interfaces (ILanguageContributor, ITaskContributor, etc.)
+
+### Phase C — Subsystem Extractions
+- [ ] C1. Build System → `plugins/build/` (6 files, project detection activation)
+- [ ] C2. Testing System → `plugins/testing/` (contextual activation)
+- [ ] C3. Debug System → `plugins/debug/` (contextual activation, IDebugAdapter exists)
+- [ ] C4. Clangd Manager → `plugins/cpp-language/` (LspClient stays Core)
+- [ ] C5. Language highlighting data → language pack plugins via ILanguageContributor
+
+### Phase D — God Object Decomposition
+- [ ] D1. Extract `EditorManager` from MainWindow (tab/document lifecycle)
+- [ ] D2. Extract `DockBootstrap` from MainWindow (createDockWidgets 700+ lines)
+- [ ] D3. Target: MainWindow members 117 → <40
+
+### Phase E — Plugin Ecosystem Polish
+- [ ] E1. C++ plugin manifests (plugin.json for AI providers)
+- [ ] E2. Plugin Gallery enable/disable runtime toggle
+- [ ] E3. Agent tool plugin wiring (IAgentToolPlugin::createTools())
+
+### Chat & Streaming UX Polish
+- [ ] Fix text selection/copy in Ultralight chat panel
+- [ ] Stream consolidation — compact unified stream for tool calls (VS Code parity)
+- [ ] Fix terminal tool execution hang
