@@ -124,6 +124,16 @@ target_link_libraries(test_multicursor PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_multicursor PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME MultiCursor COMMAND test_multicursor)
 
+# ── CodeFolding tests ─────────────────────────────────────────────────────────
+add_executable(test_codefolding
+    test_codefolding.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor/codefoldingengine.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor/codefoldingengine.h
+)
+target_link_libraries(test_codefolding PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_codefolding PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME CodeFolding COMMAND test_codefolding)
+
 # ── GitService tests ──────────────────────────────────────────────────────────
 add_executable(test_gitservice
     test_gitservice.cpp

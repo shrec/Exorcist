@@ -12,6 +12,8 @@ add_executable(exorcist WIN32
     editor/breadcrumbbar.h
     editor/minimapwidget.cpp
     editor/minimapwidget.h
+    editor/codefoldingengine.cpp
+    editor/codefoldingengine.h
     agent/inlinecompletionengine.cpp
     agent/inlinecompletionengine.h
     agent/nexteditengine.cpp

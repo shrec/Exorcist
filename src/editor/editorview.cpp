@@ -1,4 +1,5 @@
 #include "editorview.h"
+#include "codefoldingengine.h"
 #include "minimapwidget.h"
 #include "multicursorengine.h"
 #include "piecetablebuffer.h"
@@ -243,6 +244,19 @@ EditorView::EditorView(QWidget *parent)
 
     m_multiCursor->setDocument(document());
 
+    m_foldingEngine = std::make_unique<CodeFoldingEngine>(this);
+    m_foldingEngine->setDocument(document());
+
+    // Rebuild fold regions on document structure changes
+    connect(this, &QPlainTextEdit::blockCountChanged,
+            this, &EditorView::updateFoldRegions);
+    connect(m_foldingEngine.get(), &CodeFoldingEngine::foldStateChanged,
+            this, [this]() {
+                document()->markContentsDirty(0, document()->characterCount());
+                viewport()->update();
+                m_lineNumberArea->update();
+            });
+
     m_vimHandler = std::make_unique<VimHandler>(this, this);
 
     updateLineNumberAreaWidth(0);
@@ -266,6 +280,22 @@ void EditorView::setIndentGuidesVisible(bool visible)
 {
     m_showIndentGuides = visible;
     viewport()->update();
+}
+
+// ── Code folding ──────────────────────────────────────────────────────────────
+
+CodeFoldingEngine *EditorView::foldingEngine() const
+{
+    return m_foldingEngine.get();
+}
+
+void EditorView::updateFoldRegions()
+{
+    if (m_foldingEngine) {
+        m_foldingEngine->setLanguageId(m_languageId);
+        m_foldingEngine->update();
+        m_lineNumberArea->update();
+    }
 }
 
 void EditorView::setLargeFilePreview(const QString &text, bool isPartial)
@@ -322,8 +352,8 @@ int EditorView::lineNumberAreaWidth() const
     digits = qMax(digits, 3);
 
     const int charW = fontMetrics().horizontalAdvance(QLatin1Char('9'));
-    // 10px left margin (diagnostic dots / diff bars) + 8px right padding
-    int space = 10 + charW * digits + 8;
+    // 10px left margin (diagnostic dots / diff bars) + 8px right padding + 14px fold gutter
+    int space = 10 + charW * digits + 8 + 14;
 
     // Extra width for blame annotations
     if (m_showBlame && !m_blameData.isEmpty())
@@ -871,6 +901,27 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
                 painter.setPen(QColor(90, 90, 90));
                 painter.drawText(8, top, m_lineNumberArea->width() - 14,
                                  lineH, Qt::AlignLeft, blameTxt);
+            }
+
+            // Code folding indicators (▾ expanded / ▸ collapsed)
+            if (m_foldingEngine && m_foldingEngine->isFoldable(blockNumber)) {
+                const int foldX = m_lineNumberArea->width() - 13;
+                const int foldY = top + (lineH - 8) / 2;
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(QColor(180, 180, 180));
+                QPolygon tri;
+                if (m_foldingEngine->isFolded(blockNumber)) {
+                    // ▸ right-pointing triangle (collapsed)
+                    tri << QPoint(foldX, foldY)
+                        << QPoint(foldX + 7, foldY + 4)
+                        << QPoint(foldX, foldY + 8);
+                } else {
+                    // ▾ down-pointing triangle (expanded)
+                    tri << QPoint(foldX, foldY)
+                        << QPoint(foldX + 8, foldY)
+                        << QPoint(foldX + 4, foldY + 7);
+                }
+                painter.drawPolygon(tri);
             }
         }
 
@@ -1699,6 +1750,9 @@ void EditorView::lineNumberAreaMousePress(QMouseEvent *event)
 {
     if (event->button() != Qt::LeftButton) return;
 
+    const int clickX = static_cast<int>(event->position().x());
+    const int foldZoneStart = m_lineNumberArea->width() - 14;
+
     // Determine which line the user clicked on
     QTextBlock block = firstVisibleBlock();
     int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
@@ -1706,6 +1760,11 @@ void EditorView::lineNumberAreaMousePress(QMouseEvent *event)
 
     while (block.isValid()) {
         if (event->position().y() >= top && event->position().y() < bottom) {
+            // Fold gutter click
+            if (clickX >= foldZoneStart && m_foldingEngine &&
+                m_foldingEngine->toggleFold(block.blockNumber())) {
+                return;
+            }
             toggleBreakpoint(block.blockNumber() + 1); // 1-based
             return;
         }

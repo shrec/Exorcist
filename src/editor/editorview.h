@@ -9,6 +9,7 @@
 
 #include <memory>
 
+class CodeFoldingEngine;
 class LineNumberArea;
 class FindBar;
 class MultiCursorEngine;
@@ -101,6 +102,10 @@ public:
 
     void setMinimapVisible(bool visible);
     bool isMinimapVisible() const { return m_minimapVisible; }
+
+    // ── Code folding ──────────────────────────────────────────────────────
+    CodeFoldingEngine *foldingEngine() const;
+    void updateFoldRegions();
 
     // ── Indent guides ─────────────────────────────────────────────────────
     void setIndentGuidesVisible(bool visible);
@@ -227,6 +232,9 @@ private:
     // Shadow buffer kept in sync with QTextDocument via contentsChanged
     std::unique_ptr<PieceTableBuffer> m_buffer;
     bool                     m_bufferSyncing = false;  // guard re-entrant syncs
+
+    // Code folding
+    std::unique_ptr<CodeFoldingEngine> m_foldingEngine;
 
     // Multi-cursor engine
     std::unique_ptr<MultiCursorEngine> m_multiCursor;

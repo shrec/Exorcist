@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 
+#include "editor/codefoldingengine.h"
 #include "startupprofiler.h"
 
 #include <QAction>
@@ -1849,6 +1850,14 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
                 ev->setIndentGuidesVisible(on);
         }
     });
+
+    QAction *unfoldAllAction = viewMenu->addAction(tr("Unfold &All"));
+    unfoldAllAction->setShortcut(QKeySequence(tr("Ctrl+Shift+]")));
+    connect(unfoldAllAction, &QAction::triggered, this, [this]() {
+        if (auto *ev = currentEditor())
+            ev->foldingEngine()->unfoldAll();
+    });
+
     connect(toggleBlameAction, &QAction::toggled, this, [this](bool checked) {
         EditorView *editor = currentEditor();
         if (!editor) return;
