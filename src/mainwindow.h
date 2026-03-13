@@ -31,8 +31,6 @@ class PromptVariableResolver;
 class ToolRegistry;
 class ContextBuilder;
 class AgentPlatformBootstrap;
-class ClangdManager;
-class LspClient;
 class ReferencesPanel;
 class SymbolOutlinePanel;
 class TerminalPanel;
@@ -65,7 +63,6 @@ class WorkspaceChunkIndex;
 
 class HostServices;
 class ContributionRegistry;
-class LspBootstrap;
 class StatusBarManager;
 class AIServicesBootstrap;
 
@@ -145,9 +142,6 @@ private:
     ReferencesPanel  *m_referencesPanel;
     SymbolOutlinePanel *m_symbolPanel;
     TerminalPanel   *m_terminal;
-    LspBootstrap     *m_lspBootstrap = nullptr;
-    ClangdManager    *m_clangd;
-    LspClient        *m_lspClient;
     QString           m_currentFolder;
     QStringList       m_includePaths;       // from compile_commands.json
     QMetaObject::Connection m_cursorConn;   // tracks current editor cursor signal

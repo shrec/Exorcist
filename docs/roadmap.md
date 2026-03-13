@@ -392,7 +392,7 @@ See [docs/luajit.md](luajit.md)
 - [x] C1. Build System → `plugins/build/` ✅ (BuildPlugin with CMakeIntegration, ToolchainManager, BuildToolbar, DebugLaunchController, BuildSystemService; OutputPanel/RunLaunchPanel stay in src/build/ as shared UI; ILaunchService SDK interface; DebugBootstrap simplified; MainWindow build-free; exe exports symbols for plugin linking)
 - [x] C2. Testing System → `plugins/testing/` ✅ (TestingPlugin with TestDiscoveryService, TestExplorerPanel, TestRunnerService; contextual activation on CTestTestfile.cmake/CMakeLists.txt; auto-rediscovery on build/configure finish; "testRunner" service registered)
 - [x] C3. Debug System → `plugins/debug/` ✅ (DebugPlugin with GdbMiAdapter, DebugPanel, WatchTreeModel, QuickWatchDialog; IDebugAdapter + IDebugService SDK interfaces; DebugServiceBridge replaces DebugBootstrap; post-plugin wiring for editor debug-line highlighting and navigation; 3 MainWindow members removed; setDebuggerPath promoted to IDebugAdapter)
-- [ ] C4. Clangd Manager → `plugins/cpp-language/` (LspClient stays Core)
+- [x] C4. Clangd Manager → `plugins/cpp-language/` ✅ (CppLanguagePlugin with ClangdManager; LspClient stays Core in src/lsp/; ILspService SDK interface replaces LspBootstrap signal-forwarding; LspServiceBridge wires definition/references/rename results; 3 MainWindow members removed: m_lspBootstrap, m_clangd, m_lspClient; agent callbacks use ServiceRegistry LspClient lookups; post-plugin wiring for F12/references/rename/diagnostics; LSP diagnostics wiring deferred to post-plugin)
 - [ ] C5. Language highlighting data → language pack plugins via ILanguageContributor
 
 ### Phase D — God Object Decomposition

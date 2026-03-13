@@ -61,8 +61,6 @@ add_executable(exorcist WIN32
     lsp/lsptransport.h
     lsp/processlsptransport.cpp
     lsp/processlsptransport.h
-    lsp/clangdmanager.cpp
-    lsp/clangdmanager.h
     lsp/lspclient.cpp
     lsp/lspclient.h
     lsp/completionpopup.cpp
@@ -113,8 +111,6 @@ add_executable(exorcist WIN32
     agent/agentorchestrator.h
     agent/agentplatformbootstrap.cpp
     agent/agentplatformbootstrap.h
-    bootstrap/lspbootstrap.cpp
-    bootstrap/lspbootstrap.h
     bootstrap/bridgebootstrap.cpp
     bootstrap/bridgebootstrap.h
     bootstrap/aiservicesbootstrap.h
@@ -409,6 +405,7 @@ add_executable(exorcist WIN32
     sdk/itestrunner.h
     sdk/idebugadapter.h
     sdk/idebugservice.h
+    sdk/ilspservice.h
     sdk/ihostservices.h
     sdk/hostservices.cpp
     sdk/hostservices.h

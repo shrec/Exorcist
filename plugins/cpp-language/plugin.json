@@ -1,0 +1,14 @@
+{
+    "id": "org.exorcist.cpp-language",
+    "name": "C/C++ Language Support",
+    "version": "1.0.0",
+    "description": "Clangd-based language intelligence for C and C++ (completion, hover, diagnostics, go-to-definition, find references, rename).",
+    "activationEvents": [
+        "workspaceContains:CMakeLists.txt",
+        "workspaceContains:Makefile",
+        "workspaceContains:compile_commands.json",
+        "workspaceContains:*.cpp",
+        "workspaceContains:*.c",
+        "workspaceContains:*.h"
+    ]
+}

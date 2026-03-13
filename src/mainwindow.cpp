@@ -111,11 +111,10 @@
 #include "search/searchservice.h"
 #include "search/workspaceindexer.h"
 #include "search/symbolindex.h"
-#include "lsp/clangdmanager.h"
 #include "lsp/lspclient.h"
 #include "lsp/lspeditorbridge.h"
 #include "lsp/referencespanel.h"
-#include "bootstrap/lspbootstrap.h"
+#include "sdk/ilspservice.h"
 #include "sdk/ibuildsystem.h"
 #include "sdk/ilaunchservice.h"
 #include "bootstrap/bridgebootstrap.h"
@@ -197,8 +196,6 @@ MainWindow::MainWindow(QWidget *parent)
       m_referencesPanel(nullptr),
       m_symbolPanel(nullptr),
       m_terminal(nullptr),
-      m_clangd(nullptr),
-      m_lspClient(nullptr),
       m_inlineEngine(nullptr)
 {
     setWindowTitle(tr("Exorcist"));
@@ -209,16 +206,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_projectManager    = new ProjectManager(this);
     m_gitService        = new GitService(this);
 
-    // LSP — create before setupUi so openFile() can create bridges immediately.
-    m_lspBootstrap = new LspBootstrap(this);
-    m_lspBootstrap->initialize();
-    m_clangd    = m_lspBootstrap->clangd();
-    m_lspClient = m_lspBootstrap->lspClient();
-    connect(m_lspBootstrap, &LspBootstrap::lspReady, this, [this]() {
-        m_lspClient->initialize(m_currentFolder);
-    });
-    connect(m_lspClient, &LspClient::initialized,
-            this, &MainWindow::onLspInitialized);
+    // LSP — contributed by cpp-language plugin (plugins/cpp-language/).
+    // LspClient registered as "lspClient", ILspService as "lspService".
 
     // Debug subsystem — contributed by debug plugin (plugins/debug/).
     // IDebugAdapter registered as "debugAdapter", IDebugService as "debugService".
@@ -545,11 +534,12 @@ MainWindow::MainWindow(QWidget *parent)
 
     agentCallbacks.findReferencesFn =
         [this](const QString &filePath, int line, int column) -> QString {
-        if (!m_lspClient || !m_lspClient->isInitialized()) return {};
+        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+        if (!lspClient || !lspClient->isInitialized()) return {};
         const QString uri = LspClient::pathToUri(filePath);
         QString result;
         QEventLoop loop;
-        auto conn = connect(m_lspClient, &LspClient::referencesResult,
+        auto conn = connect(lspClient, &LspClient::referencesResult,
             &loop, [&](const QString &resUri, const QJsonArray &locations) {
                 Q_UNUSED(resUri)
                 for (const auto &loc : locations) {
@@ -567,7 +557,7 @@ MainWindow::MainWindow(QWidget *parent)
                 loop.quit();
             });
         QTimer::singleShot(10000, &loop, &QEventLoop::quit);
-        m_lspClient->requestReferences(uri, line - 1, column - 1);
+        lspClient->requestReferences(uri, line - 1, column - 1);
         loop.exec();
         disconnect(conn);
         return result;
@@ -575,11 +565,12 @@ MainWindow::MainWindow(QWidget *parent)
 
     agentCallbacks.findDefinitionFn =
         [this](const QString &filePath, int line, int column) -> QString {
-        if (!m_lspClient || !m_lspClient->isInitialized()) return {};
+        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+        if (!lspClient || !lspClient->isInitialized()) return {};
         const QString uri = LspClient::pathToUri(filePath);
         QString result;
         QEventLoop loop;
-        auto conn = connect(m_lspClient, &LspClient::definitionResult,
+        auto conn = connect(lspClient, &LspClient::definitionResult,
             &loop, [&](const QString &resUri, const QJsonArray &locations) {
                 Q_UNUSED(resUri)
                 for (const auto &loc : locations) {
@@ -596,7 +587,7 @@ MainWindow::MainWindow(QWidget *parent)
                 loop.quit();
             });
         QTimer::singleShot(10000, &loop, &QEventLoop::quit);
-        m_lspClient->requestDefinition(uri, line - 1, column - 1);
+        lspClient->requestDefinition(uri, line - 1, column - 1);
         loop.exec();
         disconnect(conn);
         return result;
@@ -689,12 +680,13 @@ MainWindow::MainWindow(QWidget *parent)
         [this](const QString &filePath, const QString &content,
                const QString &language, int rangeStart, int rangeEnd)
             -> FormatCodeTool::FormatResult {
-        if (!m_lspClient || !m_lspClient->isInitialized())
+        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+        if (!lspClient || !lspClient->isInitialized())
             return {false, {}, {}, QStringLiteral("LSP not available."), {}};
         const QString uri = LspClient::pathToUri(filePath);
         FormatCodeTool::FormatResult result;
         QEventLoop loop;
-        auto conn = connect(m_lspClient, &LspClient::formattingResult,
+        auto conn = connect(lspClient, &LspClient::formattingResult,
             &loop, [&](const QString &resUri, const QJsonArray &textEdits) {
                 Q_UNUSED(resUri)
                 if (textEdits.isEmpty()) {
@@ -713,9 +705,9 @@ MainWindow::MainWindow(QWidget *parent)
         QTimer::singleShot(10000, &loop, &QEventLoop::quit);
         Q_UNUSED(language)
         if (rangeStart > 0 && rangeEnd > 0)
-            m_lspClient->requestRangeFormatting(uri, rangeStart - 1, 0, rangeEnd - 1, 0);
+            lspClient->requestRangeFormatting(uri, rangeStart - 1, 0, rangeEnd - 1, 0);
         else
-            m_lspClient->requestFormatting(uri);
+            lspClient->requestFormatting(uri);
         loop.exec();
         disconnect(conn);
         return result;
@@ -727,7 +719,8 @@ MainWindow::MainWindow(QWidget *parent)
                int line, int column, const QString &newName,
                int rangeStartLine, int rangeEndLine) -> RefactorTool::RefactorResult {
         Q_UNUSED(rangeStartLine) Q_UNUSED(rangeEndLine)
-        if (!m_lspClient || !m_lspClient->isInitialized())
+        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+        if (!lspClient || !lspClient->isInitialized())
             return {false, 0, 0, {}, {}, QStringLiteral("LSP not available.")};
         if (operation != QLatin1String("rename"))
             return {false, 0, 0, {}, {},
@@ -735,7 +728,7 @@ MainWindow::MainWindow(QWidget *parent)
         const QString uri = LspClient::pathToUri(filePath);
         RefactorTool::RefactorResult result;
         QEventLoop loop;
-        auto conn = connect(m_lspClient, &LspClient::renameResult,
+        auto conn = connect(lspClient, &LspClient::renameResult,
             &loop, [&](const QString &, const QJsonObject &workspaceEdit) {
                 applyWorkspaceEdit(workspaceEdit);
                 const auto changes = workspaceEdit[QLatin1String("changes")].toObject();
@@ -750,7 +743,7 @@ MainWindow::MainWindow(QWidget *parent)
                 loop.quit();
             });
         QTimer::singleShot(15000, &loop, &QEventLoop::quit);
-        m_lspClient->requestRename(uri, line - 1, column - 1, newName);
+        lspClient->requestRename(uri, line - 1, column - 1, newName);
         loop.exec();
         disconnect(conn);
         return result;
@@ -887,7 +880,8 @@ MainWindow::MainWindow(QWidget *parent)
         ChangeImpactTool::ImpactResult result;
         result.ok = false;
         // Use LSP references to estimate impact
-        if (!m_lspClient || !m_lspClient->isInitialized()) {
+        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+        if (!lspClient || !lspClient->isInitialized()) {
             result.error = QStringLiteral("LSP not available.");
             return result;
         }
@@ -895,7 +889,7 @@ MainWindow::MainWindow(QWidget *parent)
         QStringList refFiles;
         QEventLoop loop;
         const QString uri = LspClient::pathToUri(filePath);
-        auto conn = connect(m_lspClient, &LspClient::referencesResult,
+        auto conn = connect(lspClient, &LspClient::referencesResult,
             &loop, [&](const QString &, const QJsonArray &locations) {
                 for (const auto &loc : locations) {
                     QString path = QUrl(loc.toObject()[QLatin1String("uri")].toString()).toLocalFile();
@@ -905,7 +899,7 @@ MainWindow::MainWindow(QWidget *parent)
                 loop.quit();
             });
         QTimer::singleShot(10000, &loop, &QEventLoop::quit);
-        m_lspClient->requestReferences(uri, line - 1, column - 1);
+        lspClient->requestReferences(uri, line - 1, column - 1);
         loop.exec();
         disconnect(conn);
         result.ok = true;
@@ -947,12 +941,13 @@ MainWindow::MainWindow(QWidget *parent)
     agentCallbacks.symbolRenamer =
         [this](const QString &filePath, int line, int column,
                const QString &newName) -> QString {
-        if (!m_lspClient || !m_lspClient->isInitialized())
+        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+        if (!lspClient || !lspClient->isInitialized())
             return QStringLiteral("Error: LSP not available.");
         const QString uri = LspClient::pathToUri(filePath);
         QString result;
         QEventLoop loop;
-        auto conn = connect(m_lspClient, &LspClient::renameResult,
+        auto conn = connect(lspClient, &LspClient::renameResult,
             &loop, [&](const QString &, const QJsonObject &workspaceEdit) {
                 applyWorkspaceEdit(workspaceEdit);
                 const auto changes = workspaceEdit[QLatin1String("changes")].toObject();
@@ -963,13 +958,13 @@ MainWindow::MainWindow(QWidget *parent)
                     .arg(edits).arg(changes.keys().size());
                 loop.quit();
             });
-        auto errConn = connect(m_lspClient, &LspClient::serverError,
+        auto errConn = connect(lspClient, &LspClient::serverError,
             &loop, [&](const QString &msg) {
                 result = QStringLiteral("Error: %1").arg(msg);
                 loop.quit();
             });
         QTimer::singleShot(15000, &loop, &QEventLoop::quit);
-        m_lspClient->requestRename(uri, line - 1, column - 1, newName);
+        lspClient->requestRename(uri, line - 1, column - 1, newName);
         loop.exec();
         disconnect(conn);
         disconnect(errConn);
@@ -978,11 +973,12 @@ MainWindow::MainWindow(QWidget *parent)
 
     agentCallbacks.usageFinder =
         [this](const QString &filePath, int line, int column) -> QString {
-        if (!m_lspClient || !m_lspClient->isInitialized()) return {};
+        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+        if (!lspClient || !lspClient->isInitialized()) return {};
         const QString uri = LspClient::pathToUri(filePath);
         QString result;
         QEventLoop loop;
-        auto conn = connect(m_lspClient, &LspClient::referencesResult,
+        auto conn = connect(lspClient, &LspClient::referencesResult,
             &loop, [&](const QString &, const QJsonArray &locations) {
                 for (const auto &loc : locations) {
                     const QJsonObject obj = loc.toObject();
@@ -997,7 +993,7 @@ MainWindow::MainWindow(QWidget *parent)
                 loop.quit();
             });
         QTimer::singleShot(10000, &loop, &QEventLoop::quit);
-        m_lspClient->requestReferences(uri, line - 1, column - 1);
+        lspClient->requestReferences(uri, line - 1, column - 1);
         loop.exec();
         disconnect(conn);
         return result;
@@ -1209,11 +1205,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_agentController = m_agentPlatform->agentController();
     m_sessionStore = m_agentPlatform->sessionStore();
 
-    // ── Wire LSP diagnostics push to agent ──────────────────────────────
-    if (auto *notifier = m_agentPlatform->diagnosticsNotifier()) {
-        connect(m_lspClient, &LspClient::diagnosticsPublished,
-                notifier, &DiagnosticsNotifier::onDiagnosticsPublished);
-    }
+    // ── Wire LSP diagnostics push to agent (deferred to post-plugin wiring) ──
 
     // Deferred from createDockWidgets — m_agentPlatform was null there.
     if (m_memoryBrowser)
@@ -1659,7 +1651,8 @@ void MainWindow::setupMenus()
     connect(closeSolutionAction, &QAction::triggered, this, [this]() {
         m_projectManager->closeSolution();
         m_currentFolder.clear();
-        m_clangd->stop();
+        if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
+            lspSvc->stopServer();
         m_gitService->setWorkingDirectory({});
         m_searchPanel->setRootPath({});
         m_terminal->setWorkingDirectory({});
@@ -1669,7 +1662,8 @@ void MainWindow::setupMenus()
     connect(closeFolderAction, &QAction::triggered, this, [this]() {
         m_projectManager->closeSolution();
         m_currentFolder.clear();
-        m_clangd->stop();
+        if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
+            lspSvc->stopServer();
         m_gitService->setWorkingDirectory({});
         m_searchPanel->setRootPath({});
         m_terminal->setWorkingDirectory({});
@@ -2558,28 +2552,7 @@ void MainWindow::createDockWidgets()
             m_aiServices->authManager()->statusIcon() + QStringLiteral(" ") + m_aiServices->authManager()->statusText());
     });
 
-    // ── Go-to-Definition (F12) ────────────────────────────────────────────
-    connect(m_lspBootstrap, &LspBootstrap::navigateToLocation,
-            this, &MainWindow::navigateToLocation);
-
-    // ── Find References ───────────────────────────────────────────────────
-    connect(m_lspBootstrap, &LspBootstrap::referencesReady,
-            this, [this](const QJsonArray &locations) {
-        if (m_referencesPanel)
-            m_referencesPanel->showReferences(tr("Symbol"), locations);
-        if (dock(QStringLiteral("ReferencesDock")))
-            m_dockManager->showDock(dock(QStringLiteral("ReferencesDock")), exdock::SideBarArea::Bottom);
-    });
-
-    // ── Rename Symbol ─────────────────────────────────────────────────────
-    connect(m_lspBootstrap, &LspBootstrap::workspaceEditRequested,
-            this, &MainWindow::applyWorkspaceEdit);
-
-    // LSP status messages (e.g. "No definition found")
-    connect(m_lspBootstrap, &LspBootstrap::statusMessage,
-            this, [this](const QString &msg, int timeout) {
-        statusBar()->showMessage(msg, timeout);
-    });
+    // ── LSP signal wiring — deferred to post-plugin wiring in loadPlugins() ──
 
     // When MCP discovers new tools, register them in the ToolRegistry
     connect(m_mcpPanel, &McpPanel::toolsChanged, this, [this]() {
@@ -2997,8 +2970,9 @@ void MainWindow::openFolder(const QString &path)
             }
         }
 
-        // Start clangd (with compile_commands.json dir if available)
-        m_clangd->start(root, clangdArgs);
+        // Start language server (with compile_commands.json dir if available)
+        if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
+            lspSvc->startServer(root, clangdArgs);
     });
 
     // Load custom workspace theme (.exorcist/theme.json)
@@ -3083,7 +3057,8 @@ void MainWindow::newSolution()
         setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
         m_currentFolder = root;
         m_terminal->setWorkingDirectory(root);
-        m_clangd->start(root);
+        if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
+            lspSvc->startServer(root);
     }
 }
 
@@ -3104,7 +3079,8 @@ void MainWindow::openSolutionFile()
 
         m_currentFolder = root;
         m_terminal->setWorkingDirectory(root);
-        m_clangd->start(root);
+        if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
+            lspSvc->startServer(root);
     }
 }
 
@@ -3428,8 +3404,11 @@ EditorView *MainWindow::currentEditor() const
 
 void MainWindow::createLspBridge(EditorView *editor, const QString &path)
 {
+    auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+    if (!lspClient) return;
+
     // Bridge is parented to the editor — auto-deleted when the tab is closed.
-    auto *bridge = new LspEditorBridge(editor, m_lspClient, path, editor);
+    auto *bridge = new LspEditorBridge(editor, lspClient, path, editor);
 
     connect(bridge, &LspEditorBridge::navigateToLocation,
             this,   &MainWindow::navigateToLocation);
@@ -3861,10 +3840,7 @@ void MainWindow::loadPlugins()
     m_hostServices->initSubsystemServices(m_fileSystem.get(), m_gitService, m_terminal);
     m_hostServices->setServiceRegistry(m_services.get());
 
-    // Wire LSP diagnostics into the SDK DiagnosticsService
-    connect(m_lspClient, &LspClient::diagnosticsPublished,
-            m_hostServices->diagnosticsService(),
-            &DiagnosticsServiceImpl::onDiagnosticsPublished);
+    // LSP diagnostics → SDK DiagnosticsService: deferred to post-plugin wiring
 
     // Register core IDE commands so plugins can invoke them
     auto *cmdSvc = m_hostServices->commandService();
@@ -3964,6 +3940,60 @@ void MainWindow::loadPlugins()
                 if (ed) ed->setCurrentDebugLine(0);
             }
         });
+    }
+
+    // ── Post-plugin wiring: LSP service signals → editor integration ──
+    if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService"))) {
+        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+
+        // Server ready → initialize LSP client with workspace root
+        connect(lspSvc, &ILspService::serverReady, this, [this, lspClient]() {
+            if (lspClient) lspClient->initialize(m_currentFolder);
+        });
+
+        // LSP initialized → create bridges for already-open tabs
+        if (lspClient) {
+            connect(lspClient, &LspClient::initialized,
+                    this, &MainWindow::onLspInitialized);
+        }
+
+        // Go-to-Definition (F12)
+        connect(lspSvc, &ILspService::navigateToLocation,
+                this, &MainWindow::navigateToLocation);
+
+        // Find References → References panel
+        connect(lspSvc, &ILspService::referencesReady,
+                this, [this](const QJsonArray &locations) {
+            if (m_referencesPanel)
+                m_referencesPanel->showReferences(tr("Symbol"), locations);
+            if (dock(QStringLiteral("ReferencesDock")))
+                m_dockManager->showDock(dock(QStringLiteral("ReferencesDock")), exdock::SideBarArea::Bottom);
+        });
+
+        // Rename Symbol → apply workspace edit
+        connect(lspSvc, &ILspService::workspaceEditRequested,
+                this, &MainWindow::applyWorkspaceEdit);
+
+        // LSP status messages (e.g. "No definition found")
+        connect(lspSvc, &ILspService::statusMessage,
+                this, [this](const QString &msg, int timeout) {
+            statusBar()->showMessage(msg, timeout);
+        });
+
+        // Wire LSP diagnostics push to agent
+        if (lspClient && m_agentPlatform) {
+            if (auto *notifier = m_agentPlatform->diagnosticsNotifier()) {
+                connect(lspClient, &LspClient::diagnosticsPublished,
+                        notifier, &DiagnosticsNotifier::onDiagnosticsPublished);
+            }
+        }
+
+        // Wire LSP diagnostics into the SDK DiagnosticsService
+        if (lspClient && m_hostServices) {
+            connect(lspClient, &LspClient::diagnosticsPublished,
+                    m_hostServices->diagnosticsService(),
+                    &DiagnosticsServiceImpl::onDiagnosticsPublished);
+        }
     }
 
     if (m_agentPlatform)
