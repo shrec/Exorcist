@@ -49,6 +49,8 @@ public:
             "  ex.workspace.readFile(path) — read file contents\n"
             "  ex.workspace.root() — get workspace root\n"
             "  ex.workspace.exists(path) — check file exists\n"
+            "  ex.workspace.listDir(path?) — list files/dirs (default: root)\n"
+            "  ex.workspace.openFiles() — currently open file paths\n"
             "  ex.editor.activeFile() — current editor file\n"
             "  ex.editor.selectedText() — current selection\n"
             "  ex.editor.cursorLine() — cursor line number\n"

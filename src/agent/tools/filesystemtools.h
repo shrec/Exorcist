@@ -36,6 +36,7 @@ public:
             "Read the contents of a file. Returns the file content as text. "
             "Use this to understand code before making changes.");
         s.permission  = AgentToolPermission::ReadOnly;
+        s.parallelSafe = true;
         s.timeoutMs   = 10000;
         s.inputSchema = QJsonObject{
             {QStringLiteral("type"), QStringLiteral("object")},
@@ -124,6 +125,7 @@ public:
             "List the contents of a directory. Returns a newline-separated list "
             "of names. If the name ends in /, it's a folder, otherwise a file.");
         s.permission  = AgentToolPermission::ReadOnly;
+        s.parallelSafe = true;
         s.timeoutMs   = 10000;
         s.inputSchema = QJsonObject{
             {QStringLiteral("type"), QStringLiteral("object")},

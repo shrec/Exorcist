@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Dashboard</title>
+    <style>%STYLE%</style>
+</head>
+<body>
+<div class="dashboard">
+
+    <!-- ── Header ─────────────────────────────────────────────────── -->
+    <div class="dashboard-header" id="dashboardHeader">
+        <div class="header-left">
+            <span class="header-icon">&#9670;</span>
+            <span class="header-title" id="missionTitle">Agent Dashboard</span>
+        </div>
+        <div class="header-right">
+            <span class="mission-status badge" id="missionStatus">idle</span>
+        </div>
+    </div>
+
+    <!-- ── Metrics bar ────────────────────────────────────────────── -->
+    <div class="metrics-bar" id="metricsBar"></div>
+
+    <!-- ── Main content (steps + logs split) ──────────────────────── -->
+    <div class="dashboard-body">
+
+        <!-- Steps panel -->
+        <div class="steps-panel" id="stepsPanel">
+            <div class="section-title">Steps</div>
+            <div class="steps-list" id="stepsList"></div>
+        </div>
+
+        <!-- Logs panel -->
+        <div class="logs-panel" id="logsPanel">
+            <div class="section-title">
+                Activity Log
+                <span class="log-count" id="logCount">0</span>
+            </div>
+            <div class="logs-list" id="logsList"></div>
+        </div>
+
+    </div>
+
+    <!-- ── Artifacts bar ──────────────────────────────────────────── -->
+    <div class="artifacts-bar" id="artifactsBar">
+        <div class="section-title">Artifacts</div>
+        <div class="artifacts-list" id="artifactsList"></div>
+    </div>
+
+    <!-- ── Empty state ────────────────────────────────────────────── -->
+    <div class="empty-state" id="emptyState">
+        <div class="empty-icon">&#9673;</div>
+        <div class="empty-text">No active mission</div>
+        <div class="empty-hint">Agent activity will appear here when a task is running.</div>
+    </div>
+
+</div>
+
+<script>%SCRIPT%</script>
+</body>
+</html>

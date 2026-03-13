@@ -4,6 +4,7 @@
 #include "mcpclient.h"
 
 #include <QEventLoop>
+#include <QTimer>
 
 /// Adapter that wraps an MCP remote tool as an ITool so it can be used
 /// by the AgentController / ToolRegistry just like built-in tools.
@@ -29,10 +30,13 @@ public:
         // Synchronous call using event loop (tools run on background threads)
         QEventLoop loop;
         McpToolResult mcpResult;
+        bool timedOut = false;
         const QString reqId = QStringLiteral("mcp-call-%1").arg(quintptr(this));
 
         auto conn = QObject::connect(m_client, &McpClient::toolCallFinished,
                                      [&](const QString &id, const McpToolResult &res) {
+            if (timedOut)
+                return;
             if (id == reqId) {
                 mcpResult = res;
                 loop.quit();
@@ -40,7 +44,17 @@ public:
         });
 
         m_client->callTool(m_info.name, args, reqId);
+        QTimer timer;
+        timer.setSingleShot(true);
+        QObject::connect(&timer, &QTimer::timeout, [&]() {
+            timedOut = true;
+            mcpResult.ok = false;
+            mcpResult.error = QStringLiteral("MCP tool call timed out.");
+            loop.quit();
+        });
+        timer.start(spec().timeoutMs);
         loop.exec();
+        timer.stop();
         QObject::disconnect(conn);
 
         ToolExecResult result;

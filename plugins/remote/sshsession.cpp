@@ -8,6 +8,17 @@
 #include <QTemporaryFile>
 #include <QTimer>
 
+// ── Shell quoting for remote commands ────────────────────────────────────────
+// Wraps a string in single quotes for POSIX shells, escaping embedded
+// single quotes. Safe for paths with spaces, semicolons, and metacharacters.
+
+static QString shellQuote(const QString &s)
+{
+    QString quoted = s;
+    quoted.replace(QLatin1Char('\''), QLatin1String("'\\''"));
+    return QLatin1Char('\'') + quoted + QLatin1Char('\'');
+}
+
 SshSession::SshSession(const SshProfile &profile, QObject *parent)
     : QObject(parent)
     , m_profile(profile)
@@ -34,8 +45,10 @@ QStringList SshSession::sshBaseArgs() const
         args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes");
     }
 
-    args << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new")
-         << QStringLiteral("-o") << QStringLiteral("ConnectTimeout=10");
+    args << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=yes")
+         << QStringLiteral("-o") << QStringLiteral("ConnectTimeout=10")
+         << QStringLiteral("-o")
+         << QStringLiteral("UserKnownHostsFile=%1").arg(managedKnownHostsPath());
 
     if (m_profile.port != 22) {
         args << QStringLiteral("-p") << QString::number(m_profile.port);
@@ -93,8 +106,10 @@ QProcess *SshSession::startSftpBatch(const QString &batchCommands)
         args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes");
     }
 
-    args << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new")
-         << QStringLiteral("-o") << QStringLiteral("ConnectTimeout=10");
+    args << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=yes")
+         << QStringLiteral("-o") << QStringLiteral("ConnectTimeout=10")
+         << QStringLiteral("-o")
+         << QStringLiteral("UserKnownHostsFile=%1").arg(managedKnownHostsPath());
 
     if (m_profile.port != 22) {
         args << QStringLiteral("-P") << QString::number(m_profile.port); // SFTP uses -P (uppercase)
@@ -142,7 +157,9 @@ QStringList SshSession::scpBaseArgs() const
         args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes");
     }
 
-    args << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new");
+    args << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=yes")
+         << QStringLiteral("-o")
+         << QStringLiteral("UserKnownHostsFile=%1").arg(managedKnownHostsPath());
 
     if (m_profile.port != 22) {
         args << QStringLiteral("-P") << QString::number(m_profile.port); // SCP uses -P (uppercase)
@@ -158,35 +175,37 @@ QStringList SshSession::scpBaseArgs() const
 void SshSession::setupPasswordEnv(QProcess *proc)
 {
     // Use SSH_ASKPASS to feed the password to SSH without using stdin.
-    // SSH_ASKPASS is a program that SSH calls to obtain the password — we
-    // create a tiny temp script that echoes our env var.  This leaves stdin
-    // free for data (writeFile, etc.) and works reliably cross-platform.
+    // Each invocation gets a unique temp file (auto-removed on session
+    // destruction) to prevent reuse/race conditions between sessions.
 
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert(QStringLiteral("EXORCIST_SSH_PASS"), m_profile.password);
     env.insert(QStringLiteral("SSH_ASKPASS_REQUIRE"), QStringLiteral("force"));
 
-    const QString tmpDir = QDir::tempPath();
-
 #ifdef Q_OS_WIN
-    const QString helperPath = tmpDir + QStringLiteral("/exo_askpass.cmd");
-    QFile helper(helperPath);
-    if (helper.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        helper.write("@echo off\r\necho %EXORCIST_SSH_PASS%\r\n");
-        helper.close();
+    auto tmpFile = std::make_unique<QTemporaryFile>(
+        QDir::tempPath() + QStringLiteral("/exo_askpass_XXXXXX.cmd"));
+    if (tmpFile->open()) {
+        tmpFile->write("@echo off\r\necho %EXORCIST_SSH_PASS%\r\n");
+        tmpFile->flush();
+        tmpFile->setAutoRemove(true);
+        env.insert(QStringLiteral("SSH_ASKPASS"), tmpFile->fileName());
     }
 #else
-    const QString helperPath = tmpDir + QStringLiteral("/exo_askpass.sh");
-    QFile helper(helperPath);
-    if (helper.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        helper.write("#!/bin/sh\necho \"$EXORCIST_SSH_PASS\"\n");
-        helper.close();
-        helper.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+    auto tmpFile = std::make_unique<QTemporaryFile>(
+        QDir::tempPath() + QStringLiteral("/exo_askpass_XXXXXX.sh"));
+    if (tmpFile->open()) {
+        tmpFile->write("#!/bin/sh\necho \"$EXORCIST_SSH_PASS\"\n");
+        tmpFile->flush();
+        tmpFile->setAutoRemove(true);
+        tmpFile->setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        env.insert(QStringLiteral("SSH_ASKPASS"), tmpFile->fileName());
     }
     env.insert(QStringLiteral("DISPLAY"), QStringLiteral(""));
 #endif
 
-    env.insert(QStringLiteral("SSH_ASKPASS"), helperPath);
+    // Keep temp file alive until session is destroyed
+    m_askpassFiles.push_back(std::move(tmpFile));
     proc->setProcessEnvironment(env);
 }
 
@@ -211,6 +230,20 @@ bool SshSession::connectToHost()
         if (exitCode == 0 && out.contains(QLatin1String("__EXORCIST_OK__"))) {
             m_connected = true;
             emit connectionEstablished();
+        } else if (err.contains(QLatin1String("Host key verification failed"))) {
+            // Host not in our managed known_hosts — ask the user.
+            // Try to extract the fingerprint from stderr for display.
+            m_hostKeyPending = true;
+            QString fingerprint;
+            const auto lines = err.split(QLatin1Char('\n'));
+            for (const auto &line : lines) {
+                if (line.contains(QLatin1String("SHA256:"))
+                    || line.contains(QLatin1String("MD5:"))) {
+                    fingerprint = line.trimmed();
+                    break;
+                }
+            }
+            emit hostKeyVerificationRequired(m_profile.host, fingerprint);
         } else {
             m_connected = false;
             m_lastError = err.isEmpty() ? tr("Connection failed (exit code %1)").arg(exitCode) : err.trimmed();
@@ -243,7 +276,7 @@ int SshSession::runCommand(const QString &command, const QString &workDir)
 
     QString remoteCmd = command;
     if (!workDir.isEmpty())
-        remoteCmd = QStringLiteral("cd %1 && %2").arg(workDir, command);
+        remoteCmd = QStringLiteral("cd %1 && %2").arg(shellQuote(workDir), command);
 
     auto *proc = startSshProcess({remoteCmd});
     if (!proc)
@@ -276,7 +309,7 @@ void SshSession::listDirectory(const QString &remotePath)
     }
 
     // Use ssh + ls instead of sftp for simpler parsing
-    const QString cmd = QStringLiteral("ls -1aF %1").arg(remotePath);
+    const QString cmd = QStringLiteral("ls -1aF %1").arg(shellQuote(remotePath));
     auto *proc = startSshProcess({cmd});
     if (!proc) {
         emit directoryListed(remotePath, {}, tr("Failed to start ssh"));
@@ -312,7 +345,7 @@ void SshSession::readFile(const QString &remotePath)
         return;
     }
 
-    const QString cmd = QStringLiteral("cat %1").arg(remotePath);
+    const QString cmd = QStringLiteral("cat %1").arg(shellQuote(remotePath));
     auto *proc = startSshProcess({cmd});
     if (!proc) {
         emit fileContentReady(remotePath, {}, tr("Failed to start ssh"));
@@ -344,7 +377,7 @@ void SshSession::writeFile(const QString &remotePath, const QByteArray &content)
 
     QStringList args = sshBaseArgs();
     args << QStringLiteral("%1@%2").arg(m_profile.user, m_profile.host);
-    args << QStringLiteral("cat > %1").arg(remotePath);
+    args << QStringLiteral("cat > %1").arg(shellQuote(remotePath));
 
     proc->setProgram(QStringLiteral("ssh"));
     proc->setArguments(args);
@@ -458,7 +491,7 @@ void SshSession::exists(const QString &remotePath)
         return;
     }
 
-    const QString cmd = QStringLiteral("test -e %1 && echo EXISTS || echo NOTFOUND").arg(remotePath);
+    const QString cmd = QStringLiteral("test -e %1 && echo EXISTS || echo NOTFOUND").arg(shellQuote(remotePath));
     auto *proc = startSshProcess({cmd});
     if (!proc) {
         emit existsResult(remotePath, false);
@@ -535,4 +568,84 @@ void SshSession::stopPortForward(int requestId)
         proc->waitForFinished(1000);
     }
     cleanupProcess(proc);
+}
+
+// ── Managed known_hosts & host key verification ──────────────────────────────
+
+QString SshSession::managedKnownHostsPath() const
+{
+    // Use a per-app known_hosts file so the IDE manages keys independently
+    // of the user's ~/.ssh/known_hosts.
+    const QString configDir = QCoreApplication::applicationDirPath()
+                              + QStringLiteral("/.exorcist");
+    QDir().mkpath(configDir);
+    return configDir + QStringLiteral("/known_hosts");
+}
+
+void SshSession::acceptHostKey()
+{
+    if (!m_hostKeyPending)
+        return;
+    m_hostKeyAccepted = true;
+    m_hostKeyPending = false;
+
+    // Re-connect with StrictHostKeyChecking=accept-new for this ONE attempt
+    // so ssh adds the key to our managed known_hosts file.
+    auto *proc = new QProcess(this);
+    m_activeProcesses.append(proc);
+
+    QStringList args;
+    if (m_profile.authMethod == QLatin1String("password")) {
+        args << QStringLiteral("-o") << QStringLiteral("BatchMode=no")
+             << QStringLiteral("-o") << QStringLiteral("PubkeyAuthentication=no")
+             << QStringLiteral("-o") << QStringLiteral("PreferredAuthentications=password,keyboard-interactive");
+    } else {
+        args << QStringLiteral("-o") << QStringLiteral("BatchMode=yes");
+    }
+    args << QStringLiteral("-o") << QStringLiteral("StrictHostKeyChecking=accept-new")
+         << QStringLiteral("-o") << QStringLiteral("ConnectTimeout=10")
+         << QStringLiteral("-o")
+         << QStringLiteral("UserKnownHostsFile=%1").arg(managedKnownHostsPath());
+
+    if (m_profile.port != 22)
+        args << QStringLiteral("-p") << QString::number(m_profile.port);
+    if (m_profile.authMethod == QLatin1String("key") && !m_profile.privateKeyPath.isEmpty())
+        args << QStringLiteral("-i") << m_profile.privateKeyPath;
+
+    args << QStringLiteral("%1@%2").arg(m_profile.user, m_profile.host)
+         << QStringLiteral("echo __EXORCIST_OK__");
+
+    proc->setProgram(QStringLiteral("ssh"));
+    proc->setArguments(args);
+
+    if (m_profile.authMethod == QLatin1String("password")
+        && !m_profile.password.isEmpty()) {
+        setupPasswordEnv(proc);
+    }
+
+    proc->start();
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc](int exitCode, QProcess::ExitStatus) {
+        cleanupProcess(proc);
+        const QString out = QString::fromUtf8(proc->readAllStandardOutput());
+        if (exitCode == 0 && out.contains(QLatin1String("__EXORCIST_OK__"))) {
+            m_connected = true;
+            emit hostKeyAccepted(m_profile.host);
+            emit connectionEstablished();
+        } else {
+            const QString err = QString::fromUtf8(proc->readAllStandardError()).trimmed();
+            m_lastError = err.isEmpty()
+                ? tr("Connection failed after accepting host key") : err;
+            emit connectionLost(m_lastError);
+        }
+    });
+}
+
+void SshSession::rejectHostKey()
+{
+    m_hostKeyPending = false;
+    m_hostKeyAccepted = false;
+    m_lastError = tr("Host key rejected by user");
+    emit connectionLost(m_lastError);
 }

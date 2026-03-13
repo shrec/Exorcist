@@ -51,6 +51,7 @@ public:
         QLabel          *outputLabel = nullptr;
         QWidget         *confirmRow  = nullptr;
         QToolButton     *allowBtn    = nullptr;
+        QToolButton     *alwaysAllowBtn = nullptr;
         QToolButton     *denyBtn     = nullptr;
         QString          callId;
         QString          toolName;

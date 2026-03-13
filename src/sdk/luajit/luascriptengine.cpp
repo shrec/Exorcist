@@ -749,8 +749,16 @@ LuaScriptEngine::AdhocResult LuaScriptEngine::executeAdhoc(const QString &script
     auto budget = std::make_unique<MemoryBudget>();
     budget->limit = 64 * 1024 * 1024;
 
-    // Create a fresh sandboxed state — no host API, bare sandbox.
-    lua_State *L = createSandboxedState(0, budget.get());
+    // Create a fresh sandboxed state with read-only host API permissions
+    // so agent scripts can use ex.workspace.readFile(), ex.editor.*, etc.
+    constexpr uint32_t adhocPerms =
+        static_cast<uint32_t>(LuaPermission::EditorRead) |
+        static_cast<uint32_t>(LuaPermission::Notifications) |
+        static_cast<uint32_t>(LuaPermission::WorkspaceRead) |
+        static_cast<uint32_t>(LuaPermission::GitRead) |
+        static_cast<uint32_t>(LuaPermission::DiagnosticsRead) |
+        static_cast<uint32_t>(LuaPermission::Logging);
+    lua_State *L = createSandboxedState(adhocPerms, budget.get());
     if (!L) {
         result.error = QStringLiteral("Failed to create Lua state.");
         return result;

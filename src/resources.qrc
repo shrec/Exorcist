@@ -8,4 +8,9 @@
         <file alias="chat.js">resources/chat/chat.js</file>
         <file alias="markdown.js">resources/chat/markdown.js</file>
     </qresource>
+    <qresource prefix="/dashboard">
+        <file alias="dashboard.html">resources/dashboard/dashboard.html</file>
+        <file alias="dashboard.css">resources/dashboard/dashboard.css</file>
+        <file alias="dashboard.js">resources/dashboard/dashboard.js</file>
+    </qresource>
 </RCC>

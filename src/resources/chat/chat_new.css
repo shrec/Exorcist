@@ -707,210 +707,125 @@ html, body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
- * Tool Invocation — VS Code parity
+ * Tool Invocation Cards — VS Code parity
  * ═══════════════════════════════════════════════════════════════════════════════ */
 .chat-tool-invocation-part {
-    margin: 0 0 6px 0;
+    margin: 4px 0 6px 0;
 }
 
-.chat-terminal-section-title {
-    margin: 6px 0 4px 0;
-    font-size: var(--font-size-s);
-    color: var(--fg-secondary);
-}
-
-.chat-terminal-content-part {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.chat-terminal-content-part .chat-terminal-content-title {
-    border: 1px solid var(--request-border);
+/* ── Card container ───────────────────────────────────────────────────────── */
+.tool-card {
+    border: 1px solid var(--widget-border);
     border-radius: var(--radius-md);
-    padding: 0px 9px 0px 9px;
-    max-width: 100%;
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+    background: var(--widget-bg);
+    overflow: hidden;
+    transition: border-color 0.2s;
 }
 
-.chat-terminal-content-part .terminal-title-row {
+/* ── Card header ──────────────────────────────────────────────────────────── */
+.tool-card-header {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding-top: 6px;
-}
-
-.chat-terminal-content-part .terminal-title-row .step-icon {
-    margin-top: 1px;
-}
-
-.chat-terminal-content-part .terminal-title-text .rendered-markdown {
-    display: inline-flex;
-    column-gap: 4px;
-}
-
-.chat-terminal-content-part .terminal-title-text .rendered-markdown p {
-    margin: 0 !important;
-    display: inline-flex;
-    align-items: center;
-    column-gap: 4px;
-}
-
-.chat-terminal-content-part .chat-terminal-command-block {
-    display: flex;
-    gap: 0px;
-    align-items: flex-start;
-    flex: 1 1 auto;
-    min-width: 0;
-    padding-bottom: 6px;
-}
-
-.chat-terminal-content-part .chat-terminal-command-block > .rendered-markdown {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    column-gap: 4px;
-    align-items: center;
-}
-
-.chat-terminal-content-part .chat-terminal-command-block > .rendered-markdown p {
-    display: inline-flex;
-    align-items: center;
-    column-gap: 4px;
-    margin: 0 !important;
-}
-
-.chat-terminal-content-part .chat-terminal-command-block > .rendered-markdown code {
-    font-size: var(--vscode-chat-font-size-body-xs);
-}
-
-.chat-terminal-content-part .chat-terminal-command-block .terminal-command-decoration {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-    margin-top: 2px;
-    color: var(--fg-dimmed);
-}
-
-.chat-terminal-content-part .chat-terminal-content-message .rendered-markdown {
-    white-space: normal;
-    line-height: normal;
-}
-
-.chat-terminal-content-part .chat-terminal-content-message .rendered-markdown > p {
-    color: var(--fg-secondary);
+    padding: 7px 10px;
     font-size: var(--font-size-s);
-    margin: 0 !important;
-}
-
-.chat-terminal-output-container.collapsed { display: none; }
-.chat-terminal-output-container {
-    border: 1px solid var(--request-border);
-    border-bottom-left-radius: var(--radius-md);
-    border-bottom-right-radius: var(--radius-md);
-    max-height: 300px;
-    box-sizing: border-box;
-    overflow: hidden;
-    position: relative;
-    max-width: 100%;
-    padding: 0;
-    background: var(--code-bg);
-}
-
-.chat-terminal-content-part .chat-terminal-content-title.chat-terminal-content-title-no-bottom-radius {
-    border-bottom-left-radius: 0px;
-    border-bottom-right-radius: 0px;
-    border-bottom: 0;
-}
-
-.chat-terminal-output-container.expanded { display: block; }
-
-.chat-terminal-output-body {
-    max-height: 300px;
-    overflow: auto;
-    padding: 8px 10px;
-}
-
-.chat-terminal-output {
-    font-family: var(--mono-family);
-    font-size: var(--font-size-s);
-    line-height: 1.5;
-    margin: 0;
     color: var(--fg-primary);
-    white-space: pre-wrap;
+    cursor: pointer;
+    user-select: none;
 }
 
-.progress-step {
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
-    padding: 3px 0;
-    font-size: var(--font-size-s);
-    color: var(--fg-secondary);
-    line-height: 1.5;
+.tool-card-header:hover {
+    background: var(--hover-bg);
 }
 
-.progress-step .step-icon {
+.tool-card-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 16px;
     height: 16px;
     flex-shrink: 0;
-    margin-top: 2px;
-    font-size: 14px;
-}
-
-/* Spinner */
-.step-icon.spinning {
-    animation: spin 1s linear infinite;
     color: var(--fg-secondary);
 }
 
-@keyframes spin {
-    to { transform: rotate(360deg); }
+.tool-card-icon svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
 }
 
-/* Checkmark */
-.step-icon.check { color: var(--success-fg); }
-/* Error X */
-.step-icon.error { color: var(--error-fg); }
-/* Queued circle */
-.step-icon.queued { color: var(--fg-dimmed); }
-/* Confirmation warning */
-.step-icon.confirm { color: var(--warning-fg); }
+.tool-card-title {
+    flex-shrink: 0;
+    font-weight: 500;
+    white-space: nowrap;
+}
 
-.progress-step .step-label {
+.tool-card-summary-inline {
     flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-}
-
-.progress-step .tool-arg {
-    color: var(--fg-dimmed);
-    font-size: var(--font-size-xs);
-    padding-left: 4px;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 45%;
+    color: var(--fg-dimmed);
+    font-family: var(--mono-family);
+    font-size: var(--font-size-xs);
 }
 
-/* Tool shimmer on streaming label */
-.progress-step.is-streaming .step-label {
+/* ── Card body ────────────────────────────────────────────────────────────── */
+.tool-card-body {
+    padding: 0 10px 8px 10px;
+}
+
+.tool-card-body:empty {
+    display: none;
+}
+
+.tool-card-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 24px;
+    font-size: var(--font-size-xs);
+}
+
+.tool-card-status-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--progress-blue);
+    flex-shrink: 0;
+}
+
+.tool-card-status-dot.spinning {
+    animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+.tool-card-status-dot.queued {
+    background: var(--fg-dimmed);
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+}
+
+.tool-card-status-text {
+    color: var(--fg-dimmed);
+}
+
+/* ── Streaming state ──────────────────────────────────────────────────────── */
+.tool-card.is-streaming {
+    border-color: var(--progress-blue);
+}
+
+.tool-card.is-streaming .tool-card-title {
     background: linear-gradient(90deg,
-        var(--fg-secondary) 0%,
-        var(--fg-secondary) 30%,
+        var(--fg-primary) 0%,
+        var(--fg-primary) 30%,
         var(--thinking-shimmer) 50%,
-        var(--fg-secondary) 70%,
-        var(--fg-secondary) 100%);
+        var(--fg-primary) 70%,
+        var(--fg-primary) 100%);
     background-size: 400% 100%;
     background-clip: text;
     -webkit-background-clip: text;
@@ -918,40 +833,17 @@ html, body {
     animation: chat-thinking-shimmer 2s linear infinite;
 }
 
-/* Tool detail (expandable input/output) */
-.tool-detail-container {
-    margin-left: 22px;
-    margin-top: 4px;
+/* ── Complete states ──────────────────────────────────────────────────────── */
+.tool-card.is-complete .tool-card-icon { color: var(--success-fg); }
+.tool-card.is-error .tool-card-icon { color: var(--error-fg); }
+.tool-card.is-error { border-color: rgba(241, 76, 76, 0.3); }
+
+/* ── Card detail (expandable) ─────────────────────────────────────────────── */
+.tool-card-detail {
+    border-top: 1px solid var(--widget-border);
 }
 
-.tool-detail-toggle {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    cursor: pointer;
-    font-size: var(--font-size-xs);
-    color: var(--fg-dimmed);
-    border: none;
-    background: transparent;
-    padding: 2px 4px;
-    border-radius: var(--radius-sm);
-    font-family: var(--font-family);
-}
-
-.tool-detail-toggle:hover {
-    color: var(--fg-secondary);
-    background: var(--hover-bg);
-}
-
-.tool-detail-body {
-    border: 1px solid var(--widget-border);
-    border-radius: var(--radius-md);
-    background: var(--widget-bg);
-    margin: 4px 0;
-    overflow: hidden;
-}
-
-.tool-detail-body.hidden {
+.tool-card-detail.hidden {
     display: none;
 }
 
@@ -988,6 +880,62 @@ html, body {
     font-family: var(--mono-family);
     font-size: var(--font-size-xs);
     line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+/* ── Terminal tool specifics ──────────────────────────────────────────────── */
+.tool-card-command {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 0 4px 24px;
+}
+
+.tool-card-command .terminal-prompt {
+    color: var(--fg-dimmed);
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.tool-card-command code {
+    font-family: var(--mono-family);
+    font-size: var(--font-size-xs);
+    color: var(--fg-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-card .chat-terminal-output-container {
+    border-top: 1px solid var(--widget-border);
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    max-height: 300px;
+    box-sizing: border-box;
+    overflow: hidden;
+    position: relative;
+    max-width: 100%;
+    padding: 0;
+    background: var(--code-bg);
+}
+
+.tool-card .chat-terminal-output-container.collapsed { display: none; }
+.tool-card .chat-terminal-output-container.expanded { display: block; }
+
+.chat-terminal-output-body {
+    max-height: 300px;
+    overflow: auto;
+    padding: 8px 10px;
+}
+
+.chat-terminal-output {
+    font-family: var(--mono-family);
+    font-size: var(--font-size-s);
+    line-height: 1.5;
+    margin: 0;
+    color: var(--fg-primary);
     white-space: pre-wrap;
 }
 

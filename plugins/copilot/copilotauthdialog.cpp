@@ -91,6 +91,7 @@ void CopilotAuthDialog::startDeviceFlow()
     setStatus(tr("Contacting GitHub..."));
 
     QNetworkRequest req{QUrl{QLatin1String(kDeviceCodeUrl)}};
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     req.setHeader(QNetworkRequest::ContentTypeHeader,
                   QStringLiteral("application/x-www-form-urlencoded"));
     req.setRawHeader("Accept", "application/json");
@@ -140,6 +141,7 @@ void CopilotAuthDialog::pollForToken()
     }
 
     QNetworkRequest req{QUrl{QLatin1String(kTokenUrl)}};
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     req.setHeader(QNetworkRequest::ContentTypeHeader,
                   QStringLiteral("application/x-www-form-urlencoded"));
     req.setRawHeader("Accept", "application/json");

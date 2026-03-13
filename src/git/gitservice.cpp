@@ -461,6 +461,174 @@ void GitService::showAtHeadAsync(const QString &absFilePath)
     });
 }
 
+void GitService::showAtRevisionAsync(const QString &absFilePath, const QString &rev)
+{
+    if (!m_isRepo || m_gitRoot.isEmpty()) {
+        emit showAtRevisionReady(absFilePath, rev, {});
+        return;
+    }
+    const QString gitRoot = m_gitRoot;
+    const QString relPath = QDir(gitRoot).relativeFilePath(absFilePath);
+    QtConcurrent::run([gitRoot, relPath, absFilePath, rev, this]() {
+        QProcess proc;
+        proc.setWorkingDirectory(gitRoot);
+        proc.start(QStringLiteral("git"),
+                   {QStringLiteral("show"), rev + QStringLiteral(":") + relPath});
+        proc.waitForFinished(10000);
+        QString content;
+        if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0)
+            content = QString::fromUtf8(proc.readAllStandardOutput());
+        QMetaObject::invokeMethod(this, [this, absFilePath, rev, content]() {
+            emit showAtRevisionReady(absFilePath, rev, content);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void GitService::diffRevisionsAsync(const QString &rev1, const QString &rev2)
+{
+    if (!m_isRepo || m_gitRoot.isEmpty()) {
+        emit diffRevisionsReady(rev1, rev2, {});
+        return;
+    }
+    const QString gitRoot = m_gitRoot;
+    QtConcurrent::run([gitRoot, rev1, rev2, this]() {
+        QProcess proc;
+        proc.setWorkingDirectory(gitRoot);
+        proc.start(QStringLiteral("git"),
+                   {QStringLiteral("diff"), rev1, rev2});
+        proc.waitForFinished(30000);
+        QString result;
+        if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0)
+            result = QString::fromUtf8(proc.readAllStandardOutput());
+        QMetaObject::invokeMethod(this, [this, rev1, rev2, result]() {
+            emit diffRevisionsReady(rev1, rev2, result);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void GitService::changedFilesBetweenAsync(const QString &rev1, const QString &rev2)
+{
+    if (!m_isRepo || m_gitRoot.isEmpty()) {
+        emit changedFilesBetweenReady(rev1, rev2, {});
+        return;
+    }
+    const QString gitRoot = m_gitRoot;
+    QtConcurrent::run([gitRoot, rev1, rev2, this]() {
+        QProcess proc;
+        proc.setWorkingDirectory(gitRoot);
+        proc.start(QStringLiteral("git"),
+                   {QStringLiteral("diff"), QStringLiteral("--name-status"), rev1, rev2});
+        proc.waitForFinished(10000);
+        QList<ChangedFile> files;
+        if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0) {
+            const QString out = QString::fromUtf8(proc.readAllStandardOutput());
+            const auto lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            for (const QString &line : lines) {
+                if (line.size() < 3) continue;
+                ChangedFile cf;
+                cf.status = line.at(0);
+                cf.path = line.mid(2).trimmed();
+                if (cf.status == QLatin1Char('R') || cf.status == QLatin1Char('C')) {
+                    const int tab = cf.path.indexOf(QLatin1Char('\t'));
+                    if (tab >= 0)
+                        cf.path = cf.path.mid(tab + 1);
+                }
+                files.append(cf);
+            }
+        }
+        QMetaObject::invokeMethod(this, [this, rev1, rev2, files]() {
+            emit changedFilesBetweenReady(rev1, rev2, files);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void GitService::localBranchesAsync()
+{
+    if (!m_isRepo || m_gitRoot.isEmpty()) {
+        emit localBranchesReady({});
+        return;
+    }
+    const QString gitRoot = m_gitRoot;
+    QtConcurrent::run([gitRoot, this]() {
+        QProcess proc;
+        proc.setWorkingDirectory(gitRoot);
+        proc.start(QStringLiteral("git"),
+                   {QStringLiteral("branch"), QStringLiteral("--list")});
+        proc.waitForFinished(5000);
+        QStringList branches;
+        if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0) {
+            const QStringList lines = QString::fromUtf8(proc.readAllStandardOutput())
+                                          .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            for (const QString &line : lines) {
+                QString name = line.mid(2).trimmed();
+                if (!name.isEmpty())
+                    branches.append(name);
+            }
+        }
+        QMetaObject::invokeMethod(this, [this, branches]() {
+            emit localBranchesReady(branches);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void GitService::logAsync(int maxCount)
+{
+    if (!m_isRepo || m_gitRoot.isEmpty()) {
+        emit logReady({});
+        return;
+    }
+    const QString gitRoot = m_gitRoot;
+    QtConcurrent::run([gitRoot, maxCount, this]() {
+        QProcess proc;
+        proc.setWorkingDirectory(gitRoot);
+        proc.start(QStringLiteral("git"),
+                   {QStringLiteral("log"), QStringLiteral("--format=%h|%an|%as|%s"),
+                    QStringLiteral("-n"), QString::number(maxCount)});
+        proc.waitForFinished(10000);
+        QList<LogEntry> entries;
+        if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0) {
+            const QString out = QString::fromUtf8(proc.readAllStandardOutput());
+            const auto lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            for (const QString &line : lines) {
+                const auto parts = line.split(QLatin1Char('|'));
+                if (parts.size() < 4) continue;
+                LogEntry e;
+                e.hash = parts[0];
+                e.author = parts[1];
+                e.date = parts[2];
+                e.subject = parts.mid(3).join(QLatin1Char('|'));
+                entries.append(e);
+            }
+        }
+        QMetaObject::invokeMethod(this, [this, entries]() {
+            emit logReady(entries);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void GitService::runGitAsync(const QStringList &args,
+                             std::function<void(bool ok, const QString &output)> callback)
+{
+    if (m_gitRoot.isEmpty()) {
+        if (callback) callback(false, {});
+        return;
+    }
+    const QString gitRoot = m_gitRoot;
+    QtConcurrent::run([gitRoot, args, callback, this]() {
+        QProcess proc;
+        proc.setWorkingDirectory(gitRoot);
+        proc.start(QStringLiteral("git"), args);
+        proc.waitForFinished(5000);
+        const bool ok = (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0);
+        const QString out = QString::fromUtf8(proc.readAllStandardOutput());
+        if (callback) {
+            QMetaObject::invokeMethod(this, [callback, ok, out]() {
+                callback(ok, out);
+            }, Qt::QueuedConnection);
+        }
+    });
+}
+
 // ── Async refresh (called by file watcher timer) ─────────────────────────────
 
 void GitService::refreshAsync()

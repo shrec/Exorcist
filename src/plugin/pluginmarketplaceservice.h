@@ -20,6 +20,7 @@ struct MarketplaceEntry
     QString homepage;
     QString downloadUrl;
     QString minIdeVersion;
+    QString sha256;        // hex-encoded SHA-256 of the download archive
     QStringList tags;
 
     QJsonObject toJson() const;

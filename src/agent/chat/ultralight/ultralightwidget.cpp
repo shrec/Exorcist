@@ -10,21 +10,25 @@
 #include <QFocusEvent>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QShowEvent>
+#include <QMenu>
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QTimer>
 #include <QUrl>
 
 #include <JavaScriptCore/JavaScript.h>
 
-#include <QHash>
-
 namespace exorcist {
 
-// ── Context → Widget map (JSObjectGetPrivate on global object is unreliable) ─
-static QHash<JSContextGroupRef, UltralightWidget *> s_ctxWidgetMap;
+// ── JSClass for bridge function objects ──────────────────────────────────────
+// Each UltralightWidget creates a callable JSObject with itself as private data.
+// No static map needed — the widget pointer lives inside the function object.
+static JSClassRef s_bridgeClass = nullptr;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -134,10 +138,6 @@ UltralightWidget::~UltralightWidget()
     if (m_tickTimer)
         m_tickTimer->stop();
     if (m_view) {
-        // Remove from context map before destroying the view
-        JSContextRef ctx = ulViewLockJSContext(m_view);
-        s_ctxWidgetMap.remove(JSContextGetGroup(ctx));
-        ulViewUnlockJSContext(m_view);
         ulDestroyView(m_view);
     }
     m_view = nullptr;
@@ -226,6 +226,32 @@ void UltralightWidget::evaluateScript(const QString &js)
                  qPrintable(errMsg), qPrintable(snippet));
     }
     ulDestroyString(ulJs);
+}
+
+void UltralightWidget::insertTextAtCursor(const QString &text)
+{
+    // Escape for safe JS string insertion (JSON-encode then strip quotes).
+    const QByteArray json = QJsonDocument(
+        QJsonArray{text}).toJson(QJsonDocument::Compact);
+    // json looks like '["the text"]', extract inner string including quotes.
+    const QString escaped = QString::fromUtf8(json.mid(1, json.size() - 2));
+
+    evaluateScript(QStringLiteral(
+        "(function() {"
+        "  var el = document.activeElement;"
+        "  if (!el || (el.tagName !== 'TEXTAREA' && el.tagName !== 'INPUT')) {"
+        "    el = document.getElementById('chatInput');"
+        "  }"
+        "  if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {"
+        "    el.focus();"
+        "    var start = el.selectionStart || 0, end = el.selectionEnd || 0;"
+        "    var before = el.value.substring(0, start);"
+        "    var after  = el.value.substring(end);"
+        "    el.value = before + %1 + after;"
+        "    el.selectionStart = el.selectionEnd = start + %1.length;"
+        "    el.dispatchEvent(new Event('input', { bubbles: true }));"
+        "  }"
+        "})();").arg(escaped));
 }
 
 void UltralightWidget::registerJSCallback(const QString &type,
@@ -432,9 +458,14 @@ void UltralightWidget::mouseReleaseEvent(QMouseEvent *event)
 void UltralightWidget::mouseMoveEvent(QMouseEvent *event)
 {
     if (!m_view) return;
+    // Pass the held button so Ultralight can do text selection during drag
+    ULMouseButton btn = kMouseButton_None;
+    if (event->buttons() & Qt::LeftButton)   btn = kMouseButton_Left;
+    else if (event->buttons() & Qt::RightButton)  btn = kMouseButton_Right;
+    else if (event->buttons() & Qt::MiddleButton) btn = kMouseButton_Middle;
     ULMouseEvent evt = ulCreateMouseEvent(kMouseEventType_MouseMoved,
                                           event->pos().x(), event->pos().y(),
-                                          kMouseButton_None);
+                                          btn);
     ulViewFireMouseEvent(m_view, evt);
     ulDestroyMouseEvent(evt);
     event->accept();
@@ -497,6 +528,60 @@ void UltralightWidget::keyPressEvent(QKeyEvent *event)
 {
     if (!m_view) return;
 
+    // Intercept Ctrl+C — Ultralight has no native clipboard access,
+    // so we grab the selection via JS and copy it to the system clipboard.
+    if (event->matches(QKeySequence::Copy)) {
+        evaluateScript(QStringLiteral(
+            "(function() {"
+            "  var sel = window.getSelection();"
+            "  var text = sel ? sel.toString() : '';"
+            "  if (text && window.exorcist) {"
+            "    window.exorcist.sendToHost('copyText', { text: text });"
+            "  }"
+            "})();"
+        ));
+        event->accept();
+        return;
+    }
+
+    // Intercept Ctrl+V — read system clipboard and insert into focused element.
+    if (event->matches(QKeySequence::Paste)) {
+        const QString clipText = QGuiApplication::clipboard()->text();
+        if (!clipText.isEmpty())
+            insertTextAtCursor(clipText);
+        event->accept();
+        return;
+    }
+
+    // Intercept Ctrl+X — cut selection to system clipboard.
+    if (event->matches(QKeySequence::Cut)) {
+        evaluateScript(QStringLiteral(
+            "(function() {"
+            "  var el = document.activeElement;"
+            "  if (!el || (el.tagName !== 'TEXTAREA' && el.tagName !== 'INPUT')) {"
+            "    el = document.getElementById('chatInput');"
+            "  }"
+            "  if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {"
+            "    var start = el.selectionStart || 0, end = el.selectionEnd || 0;"
+            "    if (start !== end) {"
+            "      var selected = el.value.substring(start, end);"
+            "      if (window.exorcist) window.exorcist.sendToHost('copyText', { text: selected });"
+            "      el.value = el.value.substring(0, start) + el.value.substring(end);"
+            "      el.selectionStart = el.selectionEnd = start;"
+            "      el.dispatchEvent(new Event('input', { bubbles: true }));"
+            "    }"
+            "  } else {"
+            "    var sel = window.getSelection();"
+            "    var text = sel ? sel.toString() : '';"
+            "    if (text && window.exorcist) window.exorcist.sendToHost('copyText', { text: text });"
+            "    if (sel) sel.deleteFromDocument();"
+            "  }"
+            "})();"
+        ));
+        event->accept();
+        return;
+    }
+
     // Fire RawKeyDown first
     fireKeyEvent(m_view, event, kKeyEventType_RawKeyDown);
 
@@ -524,6 +609,63 @@ void UltralightWidget::focusOutEvent(QFocusEvent *event)
 {
     QWidget::focusOutEvent(event);
     if (m_view) ulViewUnfocus(m_view);
+}
+
+void UltralightWidget::contextMenuEvent(QContextMenuEvent *event)
+{
+    QMenu menu(this);
+
+    auto *copyAction = menu.addAction(tr("Copy"), QKeySequence::Copy);
+    auto *pasteAction = menu.addAction(tr("Paste"), QKeySequence::Paste);
+    auto *cutAction = menu.addAction(tr("Cut"), QKeySequence::Cut);
+    menu.addSeparator();
+    auto *selectAllAction = menu.addAction(tr("Select All"), QKeySequence::SelectAll);
+
+    auto *chosen = menu.exec(event->globalPos());
+    if (chosen == pasteAction) {
+        const QString clipText = QGuiApplication::clipboard()->text();
+        if (!clipText.isEmpty())
+            insertTextAtCursor(clipText);
+    } else if (chosen == cutAction) {
+        evaluateScript(QStringLiteral(
+            "(function() {"
+            "  var el = document.activeElement;"
+            "  if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {"
+            "    var start = el.selectionStart, end = el.selectionEnd;"
+            "    if (start !== end) {"
+            "      var selected = el.value.substring(start, end);"
+            "      if (window.exorcist) window.exorcist.sendToHost('copyText', { text: selected });"
+            "      el.value = el.value.substring(0, start) + el.value.substring(end);"
+            "      el.selectionStart = el.selectionEnd = start;"
+            "      el.dispatchEvent(new Event('input', { bubbles: true }));"
+            "    }"
+            "  }"
+            "})();"
+        ));
+    } else if (chosen == copyAction) {
+        evaluateScript(QStringLiteral(
+            "(function() {"
+            "  var sel = window.getSelection();"
+            "  var text = sel ? sel.toString() : '';"
+            "  if (text && window.exorcist) {"
+            "    window.exorcist.sendToHost('copyText', { text: text });"
+            "  }"
+            "})();"
+        ));
+    } else if (chosen == selectAllAction) {
+        evaluateScript(QStringLiteral(
+            "(function() {"
+            "  var range = document.createRange();"
+            "  var transcript = document.getElementById('transcript');"
+            "  if (transcript) {"
+            "    range.selectNodeContents(transcript);"
+            "    var sel = window.getSelection();"
+            "    sel.removeAllRanges();"
+            "    sel.addRange(range);"
+            "  }"
+            "})();"
+        ));
+    }
 }
 
 // ── Ultralight Callbacks ─────────────────────────────────────────────────────
@@ -600,25 +742,33 @@ void UltralightWidget::onDOMReady(unsigned long long /*frameId*/,
     flushPendingOrRetry();
 }
 
+void UltralightWidget::setReadyProbe(const QString &globalName)
+{
+    m_readyProbe = globalName;
+}
+
 void UltralightWidget::flushPendingOrRetry()
 {
-    // Probe whether inline <script> tags have finished executing
-    // by checking if the ChatApp global exists.
-    ULString probe = toULString(QStringLiteral("ChatApp"));
-    ULString exception = nullptr;
-    ulViewEvaluateScript(m_view, probe, &exception);
-    const bool ready = (exception == nullptr) || (ulStringGetLength(exception) == 0);
-    ulDestroyString(probe);
+    bool ready = true;
+    if (!m_readyProbe.isEmpty()) {
+        // Probe whether inline <script> tags have finished executing
+        // by checking if the configured JS global exists.
+        ULString probe = toULString(m_readyProbe);
+        ULString exception = nullptr;
+        ulViewEvaluateScript(m_view, probe, &exception);
+        ready = (exception == nullptr) || (ulStringGetLength(exception) == 0);
+        ulDestroyString(probe);
+    }
 
     if (ready) {
         m_domReady = true;
         for (int i = 0; i < m_pendingScripts.size(); ++i) {
             const auto &js = m_pendingScripts[i];
             ULString ulJs = toULString(js);
-            exception = nullptr;
-            ulViewEvaluateScript(m_view, ulJs, &exception);
-            if (exception && ulStringGetLength(exception) > 0) {
-                const QString errMsg = fromULString(exception);
+            ULString jsException = nullptr;
+            ulViewEvaluateScript(m_view, ulJs, &jsException);
+            if (jsException && ulStringGetLength(jsException) > 0) {
+                const QString errMsg = fromULString(jsException);
                 const QString snippet = js.left(120);
                 qWarning("UltralightWidget queued JS error [%d]: %s\n  script: %s",
                          i, qPrintable(errMsg), qPrintable(snippet));
@@ -632,8 +782,8 @@ void UltralightWidget::flushPendingOrRetry()
         ++m_domReadyRetries;
         QTimer::singleShot(16, this, &UltralightWidget::flushPendingOrRetry);
     } else {
-        qWarning("UltralightWidget: ChatApp not available after %d retries, flushing anyway",
-                 m_domReadyRetries);
+        qWarning("UltralightWidget: %s not available after %d retries, flushing anyway",
+                 qPrintable(m_readyProbe), m_domReadyRetries);
         m_domReady = true;
         m_pendingScripts.clear();
         emit domReady();
@@ -642,16 +792,21 @@ void UltralightWidget::flushPendingOrRetry()
 
 // ── JS Bridge Injection ──────────────────────────────────────────────────────
 
-// C function registered as window.__exorcist_bridge(type, payloadJson)
-static JSValueRef bridgeCallback(JSContextRef ctx,
-                                 JSObjectRef /*function*/,
-                                 JSObjectRef /*thisObj*/,
-                                 size_t argumentCount,
-                                 const JSValueRef arguments[],
-                                 JSValueRef * /*exception*/)
+// callAsFunction callback for the bridge class.
+// The widget pointer is stored as private data on the JSObject itself,
+// so we never need a static context→widget map.
+static JSValueRef bridgeCallAsFunction(JSContextRef ctx,
+                                        JSObjectRef function,
+                                        JSObjectRef /*thisObj*/,
+                                        size_t argumentCount,
+                                        const JSValueRef arguments[],
+                                        JSValueRef * /*exception*/)
 {
-    if (argumentCount < 2)
+    auto *widget = static_cast<UltralightWidget *>(JSObjectGetPrivate(function));
+    if (!widget || argumentCount < 2) {
+        qWarning("UltralightWidget bridge: widget=%p argCount=%zu", static_cast<void*>(widget), argumentCount);
         return JSValueMakeUndefined(ctx);
+    }
 
     // Extract type string
     JSStringRef jsType = JSValueToStringCopy(ctx, arguments[0], nullptr);
@@ -663,14 +818,19 @@ static JSValueRef bridgeCallback(JSContextRef ctx,
     const QString payload = fromJSString(ctx, jsPayload);
     JSStringRelease(jsPayload);
 
-    // Find the widget from the context group → widget map
-    JSContextGroupRef group = JSContextGetGroup(ctx);
-    auto *widget = s_ctxWidgetMap.value(group, nullptr);
-
-    if (widget)
-        widget->dispatchBridgeMessage(type, payload);
+    qWarning("UltralightWidget bridge: type=%s payload=%s", qPrintable(type), qPrintable(payload.left(200)));
+    widget->dispatchBridgeMessage(type, payload);
 
     return JSValueMakeUndefined(ctx);
+}
+
+static void ensureBridgeClass()
+{
+    if (s_bridgeClass)
+        return;
+    JSClassDefinition def = kJSClassDefinitionEmpty;
+    def.callAsFunction = bridgeCallAsFunction;
+    s_bridgeClass = JSClassCreate(&def);
 }
 
 void UltralightWidget::dispatchBridgeMessage(const QString &type,
@@ -680,8 +840,12 @@ void UltralightWidget::dispatchBridgeMessage(const QString &type,
     const auto obj = doc.isObject() ? doc.object() : QJsonObject();
 
     auto it = m_jsCallbacks.constFind(type);
-    if (it != m_jsCallbacks.constEnd())
+    if (it != m_jsCallbacks.constEnd()) {
+        qWarning("UltralightWidget dispatch: found callback for '%s'", qPrintable(type));
         (*it)(QJsonValue(obj));
+    } else {
+        qWarning("UltralightWidget dispatch: NO callback for '%s' (registered: %lld)", qPrintable(type), static_cast<long long>(m_jsCallbacks.size()));
+    }
 
     emit jsMessage(type, obj);
 }
@@ -692,13 +856,13 @@ void UltralightWidget::injectBridge()
         return;
 
     JSContextRef ctx = ulViewLockJSContext(m_view);
+    ensureBridgeClass();
 
-    // Register this widget in the context group → widget map
-    s_ctxWidgetMap[JSContextGetGroup(ctx)] = this;
-
-    // Create window.__exorcist_bridge function
+    // Create a callable object with this widget as private data.
+    // When JS calls window.__exorcist_bridge(type, payload),
+    // bridgeCallAsFunction retrieves 'this' via JSObjectGetPrivate.
+    JSObjectRef fn = JSObjectMake(ctx, s_bridgeClass, this);
     JSStringRef fnName = JSStringCreateWithUTF8CString("__exorcist_bridge");
-    JSObjectRef fn = JSObjectMakeFunctionWithCallback(ctx, fnName, bridgeCallback);
     JSObjectSetProperty(ctx, JSContextGetGlobalObject(ctx), fnName, fn,
                         kJSPropertyAttributeReadOnly, nullptr);
     JSStringRelease(fnName);

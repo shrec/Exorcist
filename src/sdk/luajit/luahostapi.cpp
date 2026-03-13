@@ -136,6 +136,10 @@ void LuaHostAPI::registerWorkspace(lua_State *L)
     lua_setfield(L, -2, "readFile");
     lua_pushcfunction(L, l_workspace_exists);
     lua_setfield(L, -2, "exists");
+    lua_pushcfunction(L, l_workspace_listDir);
+    lua_setfield(L, -2, "listDir");
+    lua_pushcfunction(L, l_workspace_openFiles);
+    lua_setfield(L, -2, "openFiles");
     lua_setfield(L, -2, "workspace");
 }
 
@@ -353,6 +357,39 @@ int LuaHostAPI::l_workspace_exists(lua_State *L)
     const bool ok = host && host->workspace()
                     && host->workspace()->exists(checkQString(L, 1));
     lua_pushboolean(L, ok ? 1 : 0);
+    return 1;
+}
+
+int LuaHostAPI::l_workspace_listDir(lua_State *L)
+{
+    auto *host = getHost(L);
+    if (!host || !host->workspace()) {
+        lua_newtable(L);
+        return 1;
+    }
+    const QString path = lua_gettop(L) >= 1 ? checkQString(L, 1) : QString();
+    const QStringList entries = host->workspace()->listDirectory(path);
+    lua_createtable(L, entries.size(), 0);
+    for (int i = 0; i < entries.size(); ++i) {
+        pushQString(L, entries[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
+int LuaHostAPI::l_workspace_openFiles(lua_State *L)
+{
+    auto *host = getHost(L);
+    if (!host || !host->workspace()) {
+        lua_newtable(L);
+        return 1;
+    }
+    const QStringList files = host->workspace()->openFiles();
+    lua_createtable(L, files.size(), 0);
+    for (int i = 0; i < files.size(); ++i) {
+        pushQString(L, files[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
     return 1;
 }
 

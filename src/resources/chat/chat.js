@@ -89,6 +89,17 @@ var ChatApp = (function() {
         }
     });
 
+    // ── Clipboard copy bridge ────────────────────────────────────────────────
+    // Ultralight doesn't have native clipboard access so we intercept
+    // copy events and send the selected text to C++ via the bridge.
+    document.addEventListener('copy', function(e) {
+        var sel = window.getSelection();
+        var text = sel ? sel.toString() : '';
+        if (text && window.exorcist) {
+            window.exorcist.sendToHost('copyText', { text: text });
+        }
+    });
+
     function scheduleScroll() {
         if (!scrollRAF) {
             scrollRAF = requestAnimationFrame(function() {
@@ -239,22 +250,95 @@ var ChatApp = (function() {
         return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
-    // Maps ToolState enum → icon HTML
-    function stepIconHtml(toolState, isStreamingTool) {
-        switch (toolState) {
-            case 0: // Queued
-                return '<span class="step-icon queued">&#x25CB;</span>';
-            case 1: // Streaming
-                return '<span class="step-icon spinning">&#x25E6;</span>';
-            case 2: // ConfirmationNeeded
-                return '<span class="step-icon confirm">&#x26A0;</span>';
-            case 3: // CompleteSuccess
-                return '<span class="step-icon check">&#x2713;</span>';
-            case 4: // CompleteError
-                return '<span class="step-icon error">&#x2717;</span>';
-            default:
-                return '<span class="step-icon queued">&#x25CB;</span>';
+    // Maps tool name → category SVG icon for card headers
+    function toolCategoryIcon(toolName) {
+        var name = (toolName || '').toLowerCase();
+        // File operations — pencil icon
+        if (name === 'read_file' || name === 'create_file' || name === 'edit_file' ||
+            name === 'replace_string_in_file' || name === 'delete_file' ||
+            name === 'multi_replace_string_in_file' || name === 'edit_notebook_file') {
+            return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M13.23 1h-1.46L3.52 9.25l-.16.22L1 13.59 2.41 15l4.12-2.36.22-.16L15 4.23V2.77L13.23 1zM2.41 13.59l1.51-3 1.45 1.45-2.96 1.55zm3.83-2.06L4.47 9.76l8-8 1.77 1.77-8 8z"/></svg>';
         }
+        // Terminal — terminal icon
+        if (name === 'run_in_terminal' || name === 'run_command') {
+            return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M0 3v10h16V3H0zm15 9H1V4h14v8zM8 8h4v1H8V8zM2 8l3-2v1L3 8.5 5 10v1L2 9V8z"/></svg>';
+        }
+        // Search — magnifier icon
+        if (name === 'grep_search' || name === 'semantic_search' ||
+            name === 'file_search' || name === 'codebase_search') {
+            return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M15.25 15.02l-4.57-4.57a5.49 5.49 0 1 0-.71.7l4.57 4.58.71-.71zM6.5 11a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg>';
+        }
+        // Directory — list icon
+        if (name === 'list_dir') {
+            return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M2 3h12v1H2V3zm0 3h12v1H2V6zm0 3h10v1H2V9zm0 3h8v1H2v-1z"/></svg>';
+        }
+        // Subagent — people icon
+        if (name === 'run_subagent' || name === 'subagent') {
+            return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M8 1a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm5 3a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM3 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm5 4c2.21 0 4 1.12 4 2.5V12H4v-1.5C4 9.12 5.79 8 8 8zm5 1c1.1 0 2 .67 2 1.5V12h-2v-1.5c0-.54-.17-1.05-.5-1.5zm-10 0c-.33.45-.5.96-.5 1.5V12H1v-1.5C1 9.67 1.9 9 3 9z"/></svg>';
+        }
+        // Default — gear icon
+        return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">' +
+            '<path d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.3.7L2 7.4v1.2l2.4.5.3.7-1.3 2 .8.9 2-1.3.7.3.5 2.4h1.2l.5-2.4.7-.3 2 1.3.9-.8-1.3-2 .3-.7 2.4-.5V7.4l-2.4-.5-.3-.7 1.3-2-.8-.9-2 1.3-.7-.3zM8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0-1a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>';
+    }
+
+    function toolCardStateClass(state) {
+        switch (state) {
+            case 1: return ' is-streaming';
+            case 3: return ' is-complete';
+            case 4: return ' is-error';
+            default: return '';
+        }
+    }
+
+    function buildCardStatusHtml(state) {
+        if (state === 0) {
+            return '<div class="tool-card-status">' +
+                '<span class="tool-card-status-dot queued"></span>' +
+                '<span class="tool-card-status-text">Queued</span></div>';
+        }
+        if (state === 1) {
+            return '<div class="tool-card-status">' +
+                '<span class="tool-card-status-dot spinning"></span>' +
+                '<span class="tool-card-status-text">Processing</span></div>';
+        }
+        return '';
+    }
+
+    function buildCardDetailHtml(toolName, input, output) {
+        if (!input && !output) return '';
+        var html = '<div class="tool-card-detail hidden">';
+        if (input) {
+            var formatted = formatToolInput(toolName, input);
+            html += '<div class="tool-detail-section">' +
+                '<div class="detail-label">Input</div>' +
+                '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(formatted) + '</pre></div>';
+        }
+        if (output) {
+            html += '<div class="tool-detail-section">' +
+                '<div class="detail-label">Output</div>' +
+                '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(output) + '</pre></div>';
+        }
+        return html + '</div>';
+    }
+
+    function buildConfirmHtml(callId, toolName) {
+        return '<div class="chat-confirmation-widget">' +
+            '<div class="confirmation-title">Allow \u201C' +
+                MarkdownRenderer.escapeHtml(toolName || 'tool') +
+            '\u201D?</div>' +
+            '<div class="confirmation-actions">' +
+                '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
+                    callId + '\', 2)">Allow Always</button>' +
+                '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
+                    callId + '\', 1)">Allow</button>' +
+                '<button class="ws-action-btn" onclick="ChatApp._confirmTool(\'' +
+                    callId + '\', 0)">Deny</button>' +
+            '</div></div>';
     }
 
     // ── Content Part Renderers ───────────────────────────────────────────────
@@ -401,54 +485,42 @@ var ChatApp = (function() {
 
     function renderTerminalToolPart(part) {
         var toolState = toolStateOf(part);
-        var icon = stepIconHtml(toolState, toolState === 1);
         var callId = MarkdownRenderer.escapeHtml(toolCallIdOf(part));
         var args = parseToolInputJson(toolInputOf(part)) || {};
         var cmd = args.command || '';
         var label = toolStateLabel(part);
-        var cmdHtml = cmd ? (' <code>' + MarkdownRenderer.escapeHtml(cmd) + '</code>') : '';
-        var titleHtml = '<div class="rendered-markdown"><p>' +
-            MarkdownRenderer.escapeHtml(label) + cmdHtml +
-        '</p></div>';
+        var stateClass = toolCardStateClass(toolState);
+        var iconHtml = toolCategoryIcon('run_in_terminal');
 
-        var commandBlock = '';
+        var commandHtml = '';
         if (cmd) {
-            commandBlock = '<div class="chat-terminal-command-block">' +
-                '<div class="rendered-markdown"><p>' +
-                    '<span class="terminal-command-decoration default">&#9656;</span>' +
-                    '<code>' + MarkdownRenderer.escapeHtml(cmd) + '</code>' +
-                '</p></div>' +
-            '</div>';
+            commandHtml = '<div class="tool-card-command">' +
+                '<span class="terminal-prompt">&#x276F;</span>' +
+                '<code>' + MarkdownRenderer.escapeHtml(cmd) + '</code></div>';
         }
+
+        var statusHtml = buildCardStatusHtml(toolState);
 
         var output = toolOutputOf(part);
         var hasOutput = !!output;
         var outputHtml = '<div class="chat-terminal-output-container' +
-            (hasOutput ? ' expanded' : ' collapsed') +
-            (hasOutput ? '' : ' chat-terminal-output-container-no-output') +
-            '">' +
+            (hasOutput ? ' expanded' : ' collapsed') + '">' +
             '<div class="chat-terminal-output-body">' +
                 '<pre class="chat-terminal-output">' + MarkdownRenderer.escapeHtml(output) + '</pre>' +
-            '</div>' +
-        '</div>';
+            '</div></div>';
 
-        var msg = (toolState === 3) ? 'Executed' : (toolState === 4 ? 'Failed' : 'Executing');
-        var msgHtml = '<div class="chat-terminal-content-message">' +
-            '<div class="rendered-markdown"><p>' + MarkdownRenderer.escapeHtml(msg) + '</p></div>' +
-        '</div>';
-
-        return '<div class="chat-tool-invocation-part chat-terminal-content-part" data-call-id="' + callId + '">' +
-            '<div class="chat-terminal-section-title">Working</div>' +
-            '<div class="chat-terminal-content-title' +
-                (hasOutput ? ' chat-terminal-content-title-no-bottom-radius' : '') + '">' +
-                '<div class="terminal-title-row">' + icon +
-                    '<div class="terminal-title-text">' + titleHtml + '</div>' +
+        return '<div class="chat-tool-invocation-part" data-call-id="' + callId + '">' +
+            '<div class="tool-card tool-card-terminal' + stateClass + '">' +
+                '<div class="tool-card-header">' +
+                    '<span class="tool-card-icon">' + iconHtml + '</span>' +
+                    '<span class="tool-card-title">' + MarkdownRenderer.escapeHtml(label) + '</span>' +
                 '</div>' +
-                commandBlock +
-            '</div>' +
-            msgHtml +
-            outputHtml +
-        '</div>';
+                '<div class="tool-card-body">' +
+                    commandHtml +
+                    statusHtml +
+                '</div>' +
+                outputHtml +
+            '</div></div>';
     }
 
     function renderToolInvocationPart(part) {
@@ -456,70 +528,48 @@ var ChatApp = (function() {
             return renderTerminalToolPart(part);
         }
         var toolState = toolStateOf(part);
-        var isStreamingState = (toolState === 1);
-        var icon = stepIconHtml(toolState, isStreamingState);
-        var title = toolPastTenseMsgOf(part) || toolInvocationMsgOf(part) ||
-                    toolTitleOf(part) || toolNameOf(part) || 'Tool';
-        var args = parseToolInputJson(toolInputOf(part));
-        var summary = summarizeToolArgs(toolNameOf(part), args);
-        var streamingClass = isStreamingState ? ' is-streaming' : '';
         var callId = MarkdownRenderer.escapeHtml(toolCallIdOf(part));
+        var toolName = toolNameOf(part);
+        var stateClass = toolCardStateClass(toolState);
+        var iconHtml = toolCategoryIcon(toolName);
 
-        // Tool detail (input/output)
-        var detailHtml = '';
-        var toolInput = toolInputOf(part);
-        var toolOutput = toolOutputOf(part);
-        if (toolInput || toolOutput) {
-            var formattedInput = toolInput ? formatToolInput(toolNameOf(part), toolInput) : '';
-            detailHtml = '<div class="tool-detail-container">' +
-                '<button class="tool-detail-toggle" onclick="ChatApp._toggleToolDetail(this)">' +
-                    '<span>&#x25B6;</span> Details' +
-                '</button>' +
-                '<div class="tool-detail-body hidden">';
-            if (toolInput) {
-                detailHtml += '<div class="tool-detail-section">' +
-                    '<div class="detail-label">Input</div>' +
-                    '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(formattedInput) + '</pre>' +
-                '</div>';
-            }
-            if (toolOutput) {
-                detailHtml += '<div class="tool-detail-section">' +
-                    '<div class="detail-label">Output</div>' +
-                    '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(toolOutput) + '</pre>' +
-                '</div>';
-            }
-            detailHtml += '</div></div>';
+        // Title: past tense when complete, invocation msg otherwise
+        var title = '';
+        if (toolState === 3 || toolState === 4) {
+            title = toolPastTenseMsgOf(part) || toolTitleOf(part) || toolName || 'Tool';
+        } else {
+            title = toolInvocationMsgOf(part) || toolTitleOf(part) || toolName || 'Tool';
         }
 
-        // Confirmation actions
-        var confirmHtml = '';
-        if (toolState === 2) {
-            confirmHtml = '<div class="chat-confirmation-widget">' +
-                '<div class="confirmation-title">Allow \u201C' +
-                    MarkdownRenderer.escapeHtml(toolNameOf(part) || 'tool') +
-                '\u201D?</div>' +
-                '<div class="confirmation-actions">' +
-                    '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
-                        callId + '\', 2)">Allow Always</button>' +
-                    '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
-                        callId + '\', 1)">Allow</button>' +
-                    '<button class="ws-action-btn" onclick="ChatApp._confirmTool(\'' +
-                        callId + '\', 0)">Deny</button>' +
-                '</div>' +
-            '</div>';
-        }
+        // Summary (file path, search query, etc.)
+        var args = parseToolInputJson(toolInputOf(part));
+        var summary = summarizeToolArgs(toolName, args);
+        var summaryInline = summary ?
+            ('<span class="tool-card-summary-inline">' +
+                MarkdownRenderer.escapeHtml(summary) + '</span>') : '';
 
-        var summaryHtml = summary ? ('<span class="tool-arg">' +
-            MarkdownRenderer.escapeHtml(summary) + '</span>') : '';
+        // Status indicator (queued/processing)
+        var statusHtml = buildCardStatusHtml(toolState);
+
+        // Expandable detail
+        var detailHtml = buildCardDetailHtml(toolName, toolInputOf(part), toolOutputOf(part));
+
+        // Confirmation widget
+        var confirmHtml = (toolState === 2) ? buildConfirmHtml(callId, toolName) : '';
+
         return '<div class="chat-tool-invocation-part" data-call-id="' + callId + '">' +
-            '<div class="progress-step' + streamingClass + '">' +
-                icon +
-                '<span class="step-label">' + MarkdownRenderer.escapeHtml(title) + '</span>' +
-                summaryHtml +
-            '</div>' +
-            detailHtml +
-            confirmHtml +
-        '</div>';
+            '<div class="tool-card' + stateClass + '">' +
+                '<div class="tool-card-header" onclick="ChatApp._toggleCardDetail(this)">' +
+                    '<span class="tool-card-icon">' + iconHtml + '</span>' +
+                    '<span class="tool-card-title">' + MarkdownRenderer.escapeHtml(title) + '</span>' +
+                    summaryInline +
+                '</div>' +
+                '<div class="tool-card-body">' +
+                    statusHtml +
+                '</div>' +
+                detailHtml +
+                confirmHtml +
+            '</div></div>';
     }
 
     function renderWorkspaceEditPart(part) {
@@ -604,6 +654,8 @@ var ChatApp = (function() {
             '<div class="confirmation-msg">' +
                 MarkdownRenderer.escapeHtml(part.confirmMessage || part.confirmationMessage || part.message || '') + '</div>' +
             '<div class="confirmation-actions">' +
+                '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
+                    callId + '\', 2)">Always Allow</button>' +
                 '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
                     callId + '\', 1)">Allow</button>' +
                 '<button class="ws-action-btn" onclick="ChatApp._confirmTool(\'' +
@@ -943,88 +995,82 @@ var ChatApp = (function() {
         var toolPart = partsEl.querySelector('[data-call-id="' + callId + '"]');
         if (!toolPart) return;
 
+        // Terminal tools: full re-render for simplicity
         if (isTerminalTool(stateJson)) {
             toolPart.outerHTML = renderTerminalToolPart(stateJson);
+            scheduleScroll();
             return;
         }
 
-        // Update icon
-        var stepEl = toolPart.querySelector('.progress-step');
-        if (stepEl) {
-            var iconEl = stepEl.querySelector('.step-icon');
-            var st = toolStateOf(stateJson);
-            if (iconEl && st !== undefined) {
-                iconEl.outerHTML = stepIconHtml(st);
-            }
+        var st = toolStateOf(stateJson);
+        var cardEl = toolPart.querySelector('.tool-card');
+        if (cardEl) {
+            // Update card state class
+            cardEl.classList.remove('is-streaming', 'is-complete', 'is-error');
+            if (st === 1) cardEl.classList.add('is-streaming');
+            else if (st === 3) cardEl.classList.add('is-complete');
+            else if (st === 4) cardEl.classList.add('is-error');
+        }
 
-            // Update streaming class
-            if (st === 1) {
-                stepEl.classList.add('is-streaming');
+        // Update title (present → past tense)
+        var titleEl = toolPart.querySelector('.tool-card-title');
+        if (titleEl) {
+            var newTitle = '';
+            if (st === 3 || st === 4) {
+                newTitle = toolPastTenseMsgOf(stateJson) || toolTitleOf(stateJson) || toolNameOf(stateJson) || 'Tool';
             } else {
-                stepEl.classList.remove('is-streaming');
+                newTitle = toolInvocationMsgOf(stateJson) || toolTitleOf(stateJson) || toolNameOf(stateJson) || 'Tool';
+            }
+            titleEl.textContent = newTitle;
+        }
+
+        // Update summary inline
+        var args = parseToolInputJson(toolInputOf(stateJson));
+        var summary = summarizeToolArgs(toolNameOf(stateJson), args);
+        var headerEl = toolPart.querySelector('.tool-card-header');
+        if (headerEl) {
+            var existingSummary = headerEl.querySelector('.tool-card-summary-inline');
+            if (summary && !existingSummary) {
+                headerEl.insertAdjacentHTML('beforeend',
+                    '<span class="tool-card-summary-inline">' +
+                    MarkdownRenderer.escapeHtml(summary) + '</span>');
+            } else if (summary && existingSummary) {
+                existingSummary.textContent = summary;
             }
         }
 
-        // Update label
-        if (toolPastTenseMsgOf(stateJson)) {
-            var labelEl = toolPart.querySelector('.step-label');
-            if (labelEl) labelEl.textContent = toolPastTenseMsgOf(stateJson);
+        // Update body status
+        var bodyEl = toolPart.querySelector('.tool-card-body');
+        if (bodyEl) {
+            bodyEl.innerHTML = buildCardStatusHtml(st);
         }
 
-        // Update or create tool detail
+        // Update or create detail section
         var stInput = toolInputOf(stateJson);
         var stOutput = toolOutputOf(stateJson);
         if (stOutput || stInput) {
-            var detailContainer = toolPart.querySelector('.tool-detail-container');
-            if (!detailContainer) {
-                var formattedInput = stInput ? formatToolInput(toolNameOf(stateJson), stInput) : '';
-                var detailHtml = '<div class="tool-detail-container">' +
-                    '<button class="tool-detail-toggle" onclick="ChatApp._toggleToolDetail(this)">' +
-                        '<span>&#x25B6;</span> Details' +
-                    '</button>' +
-                    '<div class="tool-detail-body hidden">';
-                if (stInput) {
-                    detailHtml += '<div class="tool-detail-section">' +
-                        '<div class="detail-label">Input</div>' +
-                        '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(formattedInput) + '</pre>' +
-                    '</div>';
-                }
-                if (stOutput) {
-                    detailHtml += '<div class="tool-detail-section">' +
-                        '<div class="detail-label">Output</div>' +
-                        '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(stOutput) + '</pre>' +
-                    '</div>';
-                }
-                detailHtml += '</div></div>';
-                toolPart.insertAdjacentHTML('beforeend', detailHtml);
-            } else {
-                var bodyEl = detailContainer.querySelector('.tool-detail-body');
-                if (bodyEl) {
-                    var newDetailHtml = '';
-                    if (stInput) {
-                        var formattedInput2 = formatToolInput(toolNameOf(stateJson), stInput);
-                        newDetailHtml += '<div class="tool-detail-section">' +
-                            '<div class="detail-label">Input</div>' +
-                            '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(formattedInput2) + '</pre>' +
-                        '</div>';
-                    }
-                    if (stOutput) {
-                        newDetailHtml += '<div class="tool-detail-section">' +
-                            '<div class="detail-label">Output</div>' +
-                            '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(stOutput) + '</pre>' +
-                        '</div>';
-                    }
-                    bodyEl.innerHTML = newDetailHtml;
+            var existingDetail = toolPart.querySelector('.tool-card-detail');
+            var newDetailHtml = buildCardDetailHtml(toolNameOf(stateJson), stInput, stOutput);
+            if (existingDetail) {
+                existingDetail.outerHTML = newDetailHtml;
+            } else if (cardEl) {
+                // Insert before confirmation widget or at end of card
+                var confirmWidget = cardEl.querySelector('.chat-confirmation-widget');
+                if (confirmWidget) {
+                    confirmWidget.insertAdjacentHTML('beforebegin', newDetailHtml);
+                } else {
+                    cardEl.insertAdjacentHTML('beforeend', newDetailHtml);
                 }
             }
         }
 
-        // Remove confirmation widget if tool is now complete
-        var st = toolStateOf(stateJson);
+        // Remove confirmation widget if complete
         if (st === 3 || st === 4) {
             var confirmWidget = toolPart.querySelector('.chat-confirmation-widget');
             if (confirmWidget) confirmWidget.remove();
         }
+
+        scheduleScroll();
     };
 
     api.finishTurn = function(turnIndex, state) {
@@ -1396,6 +1442,16 @@ var ChatApp = (function() {
         }
     };
 
+    api._toggleCardDetail = function(headerEl) {
+        if (!headerEl) return;
+        var card = headerEl.closest('.tool-card');
+        if (!card) return;
+        var detail = card.querySelector('.tool-card-detail');
+        if (detail) {
+            detail.classList.toggle('hidden');
+        }
+    };
+
     api._copyCode = function(blockId) {
         var block = document.getElementById(blockId);
         if (!block) return;
@@ -1660,6 +1716,29 @@ var ChatApp = (function() {
         if (mentionPopupEl && mentionPopupEl.style.display !== 'none') {
             if (!mentionPopupEl.contains(e.target) && e.target !== inputEl) {
                 mentionPopupEl.style.display = 'none';
+            }
+        }
+
+        // ── External link interception ───────────────────────────────────
+        // Intercept <a href="..."> clicks and route through bridge so the
+        // host can open them in the system browser instead of navigating
+        // the embedded Ultralight view.
+        var anchor = e.target.closest ? e.target.closest('a[href]') : null;
+        if (!anchor) {
+            var el = e.target;
+            while (el && el !== document) {
+                if (el.tagName === 'A' && el.getAttribute('href')) { anchor = el; break; }
+                el = el.parentElement;
+            }
+        }
+        if (anchor) {
+            var href = anchor.getAttribute('href');
+            if (href && href !== '#' && !href.startsWith('javascript:')) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (window.exorcist) {
+                    window.exorcist.sendToHost('openExternalUrl', { url: href });
+                }
             }
         }
     });

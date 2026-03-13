@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFileDialog>
+#include <QStandardPaths>
 #include <QKeySequence>
 #include <QLabel>
 #include <QStandardPaths>
@@ -55,6 +56,8 @@
 #include "sdk/idebugadapter.h"
 #include "sdk/idebugservice.h"
 #include "agent/chat/chatpanelwidget.h"
+#include "agent/ui/agentdashboardpanel.h"
+#include "agent/ui/agentuibus.h"
 #include "agent/agentcontroller.h"
 #include "agent/agentmodes.h"
 #include "agent/agentplatformbootstrap.h"
@@ -202,6 +205,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_editorMgr->setProjectManager(new ProjectManager(this));
     m_gitService        = new GitService(this);
 
+    // ServiceRegistry must exist before setupUi (createDockWidgets uses it).
+    m_services = std::make_unique<ServiceRegistry>();
+
     // LSP — contributed by cpp-language plugin (plugins/cpp-language/).
     // LspClient registered as "lspClient", ILspService as "lspService".
 
@@ -243,7 +249,6 @@ MainWindow::MainWindow(QWidget *parent)
     }
     m_keymapManager->load();  // Apply saved overrides
 
-    m_services = std::make_unique<ServiceRegistry>();
     m_services->registerService("mainwindow", this);
     m_services->registerService("agentOrchestrator", m_agentOrchestrator);
     if (m_aiServices && m_aiServices->keyStorage())
@@ -486,7 +491,7 @@ MainWindow::MainWindow(QWidget *parent)
             return names.join(QLatin1Char('\n'));
         }
         if (query == QLatin1String("tools") && m_agentPlatform && m_agentPlatform->toolRegistry())
-            return m_agentPlatform->toolRegistry()->toolNames().join(QLatin1Char('\n'));
+            return m_agentPlatform->toolRegistry()->availableToolNames().join(QLatin1Char('\n'));
         if (query == QLatin1String("config"))
             return QStringLiteral("Workspace: %1\nFolder: %2")
                 .arg(QCoreApplication::applicationDirPath(), m_editorMgr->currentFolder());
@@ -795,6 +800,92 @@ MainWindow::MainWindow(QWidget *parent)
             for (const auto &f : files)
                 m_gitService->unstageFile(f.toString());
             return {true, QStringLiteral("Unstaged %1 file(s).").arg(files.size()), {}};
+        }
+        if (operation == QLatin1String("log")) {
+            int count = args[QLatin1String("count")].toInt(10);
+            if (count < 1) count = 1;
+            if (count > 50) count = 50;
+            // Use non-blocking QEventLoop approach instead of GitService::log()
+            // which calls waitForFinished() and blocks the UI thread
+            QProcess proc;
+            proc.setWorkingDirectory(m_gitService->workingDirectory());
+            QStringList gitArgs = {QStringLiteral("log"),
+                                   QStringLiteral("--format=%h|%an|%as|%s"),
+                                   QStringLiteral("-n"), QString::number(count)};
+            const QString fp = args[QLatin1String("filePath")].toString();
+            if (!fp.isEmpty()) {
+                gitArgs << QStringLiteral("--") << fp;
+            }
+            const QString author = args[QLatin1String("author")].toString();
+            if (!author.isEmpty())
+                gitArgs << QStringLiteral("--author=%1").arg(author);
+            const QString since = args[QLatin1String("since")].toString();
+            if (!since.isEmpty())
+                gitArgs << QStringLiteral("--since=%1").arg(since);
+            const QString grepPat = args[QLatin1String("grep")].toString();
+            if (!grepPat.isEmpty())
+                gitArgs << QStringLiteral("--grep=%1").arg(grepPat);
+            proc.start(QStringLiteral("git"), gitArgs);
+            QEventLoop loop;
+            QObject::connect(&proc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+                             &loop, &QEventLoop::quit);
+            QTimer::singleShot(15000, &loop, &QEventLoop::quit);
+            if (proc.state() != QProcess::NotRunning)
+                loop.exec();
+            if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0)
+                return {false, {}, QStringLiteral("git log failed")};
+            const QString out = QString::fromUtf8(proc.readAllStandardOutput());
+            if (out.trimmed().isEmpty())
+                return {true, QStringLiteral("No commits found."), {}};
+            return {true, out.trimmed(), {}};
+        }
+        // stash, tag, cherry_pick — run git directly (non-blocking via QEventLoop)
+        auto runGitDirect = [&](const QStringList &gitArgs) -> GitOpsTool::GitResult {
+            QProcess proc;
+            proc.setWorkingDirectory(m_gitService->workingDirectory());
+            proc.start(QStringLiteral("git"), gitArgs);
+            // Use QEventLoop so the UI stays responsive while git runs
+            QEventLoop loop;
+            QObject::connect(&proc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+                             &loop, &QEventLoop::quit);
+            QTimer::singleShot(15000, &loop, &QEventLoop::quit);
+            if (proc.state() != QProcess::NotRunning)
+                loop.exec();
+            const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+            const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+            if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0)
+                return {false, {}, err.isEmpty() ? QStringLiteral("git failed") : err};
+            return {true, out.isEmpty() ? QStringLiteral("OK") : out, {}};
+        };
+        if (operation == QLatin1String("stash")) {
+            const QString action = args[QLatin1String("action")].toString(QStringLiteral("push"));
+            if (action == QLatin1String("push"))
+                return runGitDirect({QStringLiteral("stash"), QStringLiteral("push")});
+            if (action == QLatin1String("pop"))
+                return runGitDirect({QStringLiteral("stash"), QStringLiteral("pop")});
+            if (action == QLatin1String("list"))
+                return runGitDirect({QStringLiteral("stash"), QStringLiteral("list")});
+            if (action == QLatin1String("drop"))
+                return runGitDirect({QStringLiteral("stash"), QStringLiteral("drop")});
+            return {false, {}, QStringLiteral("Unknown stash action: %1").arg(action)};
+        }
+        if (operation == QLatin1String("tag")) {
+            if (args[QLatin1String("list")].toBool())
+                return runGitDirect({QStringLiteral("tag"), QStringLiteral("--list")});
+            const QString name = args[QLatin1String("name")].toString();
+            if (name.isEmpty())
+                return {false, {}, QStringLiteral("Tag name required.")};
+            const QString msg = args[QLatin1String("message")].toString();
+            if (!msg.isEmpty())
+                return runGitDirect({QStringLiteral("tag"), QStringLiteral("-a"),
+                                     name, QStringLiteral("-m"), msg});
+            return runGitDirect({QStringLiteral("tag"), name});
+        }
+        if (operation == QLatin1String("cherry_pick")) {
+            const QString hash = args[QLatin1String("commitHash")].toString();
+            if (hash.isEmpty())
+                return {false, {}, QStringLiteral("commitHash required.")};
+            return runGitDirect({QStringLiteral("cherry-pick"), hash});
         }
         return {false, {}, QStringLiteral("Unknown operation: %1").arg(operation)};
     };
@@ -1194,6 +1285,261 @@ MainWindow::MainWindow(QWidget *parent)
         return tsHelper->nodeAtPosition(fp, l, c);
     };
 
+    // ── Symbol documentation (LSP hover) ────────────────────────────────
+    agentCallbacks.symbolDocGetter =
+        [this](const QString &filePath, int line, int column) -> SymbolDocTool::DocResult {
+        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+        if (!lspClient || !lspClient->isInitialized())
+            return {false, {}, {}, {}, QStringLiteral("LSP not available.")};
+        const QString uri = LspClient::pathToUri(filePath);
+        SymbolDocTool::DocResult result;
+        result.ok = false;
+        QEventLoop loop;
+        auto conn = connect(lspClient, &LspClient::hoverResult,
+            &loop, [&](const QString &, int, int, const QString &markdown) {
+                if (markdown.isEmpty()) {
+                    result.error = QStringLiteral("No documentation found at this location.");
+                } else {
+                    result.ok = true;
+                    result.documentation = markdown;
+                    // Try to extract signature (first code block or first line)
+                    const int codeStart = markdown.indexOf(QLatin1String("```"));
+                    if (codeStart >= 0) {
+                        const int lineEnd = markdown.indexOf(QLatin1Char('\n'), codeStart + 3);
+                        const int codeEnd = markdown.indexOf(QLatin1String("```"), lineEnd);
+                        if (lineEnd >= 0 && codeEnd > lineEnd)
+                            result.signature = markdown.mid(lineEnd + 1, codeEnd - lineEnd - 1).trimmed();
+                    }
+                }
+                loop.quit();
+            });
+        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+        lspClient->requestHover(uri, line - 1, column - 1);
+        loop.exec();
+        disconnect(conn);
+        if (!result.ok && result.error.isEmpty())
+            result.error = QStringLiteral("Hover request timed out.");
+        return result;
+    };
+
+    // ── Code completion (LSP) ───────────────────────────────────────────
+    agentCallbacks.completionGetter =
+        [this](const QString &filePath, int line, int column,
+               const QString &prefix) -> CodeCompletionTool::CompletionResult {
+        Q_UNUSED(prefix)
+        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+        if (!lspClient || !lspClient->isInitialized())
+            return {false, {}, false, QStringLiteral("LSP not available.")};
+        const QString uri = LspClient::pathToUri(filePath);
+        CodeCompletionTool::CompletionResult result;
+        result.ok = false;
+        QEventLoop loop;
+        auto conn = connect(lspClient, &LspClient::completionResult,
+            &loop, [&](const QString &, int, int,
+                       const QJsonArray &items, bool isIncomplete) {
+                result.ok = true;
+                result.isIncomplete = isIncomplete;
+                static const char *kindNames[] = {
+                    "", "text", "method", "function", "constructor", "field",
+                    "variable", "class", "interface", "module", "property",
+                    "unit", "value", "enum", "keyword", "snippet", "color",
+                    "file", "reference", "folder", "enum_member", "constant",
+                    "struct", "event", "operator", "type_parameter"
+                };
+                for (const auto &item : items) {
+                    const QJsonObject obj = item.toObject();
+                    CodeCompletionTool::CompletionItem ci;
+                    ci.label = obj[QLatin1String("label")].toString();
+                    const int kind = obj[QLatin1String("kind")].toInt();
+                    ci.kind = (kind >= 0 && kind <= 25)
+                        ? QString::fromLatin1(kindNames[kind])
+                        : QString::number(kind);
+                    ci.detail = obj[QLatin1String("detail")].toString();
+                    ci.documentation = obj[QLatin1String("documentation")].toString();
+                    if (ci.documentation.isEmpty()) {
+                        const QJsonObject docObj = obj[QLatin1String("documentation")].toObject();
+                        ci.documentation = docObj[QLatin1String("value")].toString();
+                    }
+                    ci.insertText = obj[QLatin1String("insertText")].toString();
+                    if (ci.insertText.isEmpty())
+                        ci.insertText = ci.label;
+                    result.items.append(ci);
+                }
+                loop.quit();
+            });
+        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+        lspClient->requestCompletion(uri, line - 1, column - 1);
+        loop.exec();
+        disconnect(conn);
+        if (!result.ok && result.error.isEmpty())
+            result.error = QStringLiteral("Completion request timed out.");
+        return result;
+    };
+
+    // ── Diagram generation (Mermaid CLI) ────────────────────────────────
+    agentCallbacks.diagramRenderer =
+        [this](const QString &markup, const QString &format,
+               const QString &outputPath) -> GenerateDiagramTool::DiagramResult {
+        Q_UNUSED(this)
+        GenerateDiagramTool::DiagramResult result;
+        result.ok = false;
+
+        // Determine output file path
+        QString outFile = outputPath;
+        const QString diagramCache = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+        QDir().mkpath(diagramCache);
+        if (outFile.isEmpty()) {
+            outFile = diagramCache + QStringLiteral("/exorcist_diagram.svg");
+        }
+
+        // Write markup to a temp input file
+        const QString inputFile = diagramCache + QStringLiteral("/exorcist_diagram_input.mmd");
+        {
+            QFile f(inputFile);
+            if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                result.error = QStringLiteral("Failed to write temp input file.");
+                return result;
+            }
+            f.write(markup.toUtf8());
+        }
+
+        if (format == QLatin1String("mermaid") || format.isEmpty()) {
+            // Use mmdc (Mermaid CLI)
+            QProcess proc;
+            QStringList args = {
+                QStringLiteral("-i"), inputFile,
+                QStringLiteral("-o"), outFile
+            };
+            // Force SVG output unless outputPath ends with .png
+            if (outFile.endsWith(QLatin1String(".png"), Qt::CaseInsensitive))
+                args << QStringLiteral("-e") << QStringLiteral("png");
+
+            proc.start(QStringLiteral("mmdc"), args);
+            if (!proc.waitForFinished(30000)) {
+                result.error = QStringLiteral("mmdc (Mermaid CLI) timed out or not found. "
+                    "Install with: npm install -g @mermaid-js/mermaid-cli");
+                return result;
+            }
+            if (proc.exitCode() != 0) {
+                result.error = QStringLiteral("mmdc failed: %1")
+                    .arg(QString::fromUtf8(proc.readAllStandardError()));
+                return result;
+            }
+        } else if (format == QLatin1String("plantuml")) {
+            // Use plantuml.jar or plantuml command
+            QProcess proc;
+            QStringList args = {
+                QStringLiteral("-tsvg"),
+                QStringLiteral("-o"), QFileInfo(outFile).absolutePath(),
+                inputFile
+            };
+            proc.start(QStringLiteral("plantuml"), args);
+            if (!proc.waitForFinished(30000)) {
+                result.error = QStringLiteral("PlantUML timed out or not found.");
+                return result;
+            }
+            if (proc.exitCode() != 0) {
+                result.error = QStringLiteral("PlantUML failed: %1")
+                    .arg(QString::fromUtf8(proc.readAllStandardError()));
+                return result;
+            }
+            // PlantUML outputs next to input file with .svg extension
+            const QString plantOut = diagramCache + QStringLiteral("/exorcist_diagram_input.svg");
+            if (plantOut != outFile)
+                QFile::rename(plantOut, outFile);
+        } else {
+            result.error = QStringLiteral("Unknown format: %1. Use 'mermaid' or 'plantuml'.").arg(format);
+            return result;
+        }
+
+        // Read SVG content if output is SVG
+        if (outFile.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive)) {
+            QFile f(outFile);
+            if (f.open(QIODevice::ReadOnly))
+                result.svgContent = QString::fromUtf8(f.readAll());
+        }
+        result.pngPath = outFile;
+        result.ok = true;
+        return result;
+    };
+
+    // ── Performance profiling ───────────────────────────────────────────
+    agentCallbacks.profiler =
+        [this](const QString &target, int duration,
+               const QString &type) -> PerformanceProfileTool::ProfileResult {
+        Q_UNUSED(this)
+        PerformanceProfileTool::ProfileResult result;
+        result.ok = false;
+
+        if (target.isEmpty()) {
+            result.error = QStringLiteral("No profiling target specified.");
+            return result;
+        }
+
+#ifdef Q_OS_WIN
+        // Windows: use xperf / WPR or fallback to sampling via tasklist
+        Q_UNUSED(duration) Q_UNUSED(type)
+        QProcess proc;
+        // Use "perf" (WSL) or dotnet-trace, or fallback to basic process stats
+        proc.start(QStringLiteral("powershell"), {
+            QStringLiteral("-Command"),
+            QStringLiteral("Get-Process -Name '%1' -ErrorAction SilentlyContinue | "
+                "Select-Object Name, Id, CPU, WorkingSet64, "
+                "VirtualMemorySize64, HandleCount, Threads | "
+                "Format-List | Out-String").arg(target)
+        });
+        proc.waitForFinished(15000);
+        const QString output = QString::fromUtf8(proc.readAllStandardOutput());
+        if (output.trimmed().isEmpty()) {
+            result.error = QStringLiteral("Process '%1' not found or no data available.").arg(target);
+            return result;
+        }
+        result.ok = true;
+        result.report = output;
+        result.totalMs = 0;
+        result.totalSamples = 0;
+#else
+        if (type == QLatin1String("cpu") || type.isEmpty()) {
+            QProcess proc;
+            proc.start(QStringLiteral("perf"), {
+                QStringLiteral("record"), QStringLiteral("-g"),
+                QStringLiteral("-p"), target,
+                QStringLiteral("--"), QStringLiteral("sleep"),
+                QString::number(duration)
+            });
+            if (!proc.waitForFinished((duration + 5) * 1000)) {
+                result.error = QStringLiteral("perf timed out.");
+                return result;
+            }
+            // Get report
+            QProcess report;
+            report.start(QStringLiteral("perf"), {
+                QStringLiteral("report"), QStringLiteral("--stdio"),
+                QStringLiteral("--no-children")
+            });
+            report.waitForFinished(15000);
+            result.ok = true;
+            result.report = QString::fromUtf8(report.readAllStandardOutput());
+            result.totalMs = duration * 1000.0;
+        } else if (type == QLatin1String("memory")) {
+            QProcess proc;
+            proc.start(QStringLiteral("valgrind"), {
+                QStringLiteral("--tool=massif"),
+                QStringLiteral("--pages-as-heap=yes"),
+                target
+            });
+            proc.waitForFinished(qMax(duration, 10) * 1000);
+            result.ok = true;
+            result.report = QString::fromUtf8(proc.readAllStandardOutput())
+                          + QString::fromUtf8(proc.readAllStandardError());
+        } else {
+            result.error = QStringLiteral("Unsupported profile type: %1").arg(type);
+            return result;
+        }
+#endif
+        return result;
+    };
+
     m_agentPlatform->initialize(agentCallbacks);
     m_agentPlatform->registerCoreTools(m_editorMgr->currentFolder());
 
@@ -1377,6 +1723,17 @@ MainWindow::MainWindow(QWidget *parent)
                     last.sessionId, last.completeTurns,
                     last.mode, last.title,
                     last.modelId, last.providerId);
+        }
+    }
+
+    // Wire agent dashboard panel to UI bus
+    if (m_agentPlatform && m_agentPlatform->uiBus() && m_services) {
+        auto *dashPanel = qobject_cast<AgentDashboardPanel *>(
+            m_services->service(QStringLiteral("agentDashboardPanel")));
+        if (dashPanel) {
+            m_agentPlatform->uiBus()->addRenderer(dashPanel);
+            connect(dashPanel, &AgentDashboardPanel::openFileRequested,
+                    this, [this](const QString &path) { openFile(path); });
         }
     }
 
@@ -1588,7 +1945,6 @@ void MainWindow::setupUi()
             m_pluginManager->fireLuaEvent(QStringLiteral("editor.close"), {closedPath});
     });
     connect(m_editorMgr->tabs(), &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
-
     createDockWidgets();
     openNewTab();
 }
@@ -2290,6 +2646,19 @@ void MainWindow::createDockWidgets()
         if (state != exdock::DockState::Closed && m_aiServices && m_aiServices->networkMonitor())
             m_aiServices->networkMonitor()->start();
     });
+
+
+    // ── Agent Dashboard (operational view) ────────────────────────────────
+    {
+        auto *dashPanel = new AgentDashboardPanel(nullptr);
+        auto *dkDashDock = new ExDockWidget(tr("Agent Dashboard"), this);
+        dkDashDock->setDockId(QStringLiteral("AgentDashboardDock"));
+        dkDashDock->setContentWidget(dashPanel);
+        m_dockManager->addDockWidget(dkDashDock, SideBarArea::Right, /*startPinned=*/false);
+        // Register panel in ServiceRegistry so bootstrap can find it later
+        if (m_services)
+            m_services->registerService(QStringLiteral("agentDashboardPanel"), dashPanel);
+    }
 
 
     // ── Symbol outline ────────────────────────────────────────────────────

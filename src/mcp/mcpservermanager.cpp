@@ -1,8 +1,17 @@
 #include "mcpservermanager.h"
 
+#include <QCryptographicHash>
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QSettings>
+
+MCPServerManager::MCPServerManager(QObject *parent)
+    : QObject(parent)
+{
+    loadTrustedWorkspaces();
+}
 
 QList<MCPServerConfig> MCPServerManager::loadConfig(const QString &workspaceRoot) const
 {
@@ -37,6 +46,17 @@ QList<MCPServerConfig> MCPServerManager::loadConfig(const QString &workspaceRoot
 }
 
 bool MCPServerManager::startServer(const MCPServerConfig &config)
+{
+    // ── Trust gate: workspace must be explicitly trusted ──────────────────
+    if (!m_workspaceRoot.isEmpty() && !isWorkspaceTrusted()) {
+        emit trustRequired(m_workspaceRoot, {config});
+        return false;
+    }
+
+    return startServerInternal(config);
+}
+
+bool MCPServerManager::startServerInternal(const MCPServerConfig &config)
 {
     if (config.transport != MCPServerConfig::Stdio) return false;
 
@@ -181,4 +201,61 @@ void MCPServerManager::handleMessage(const QString &name, const QJsonObject &msg
         sendToServer(name, QStringLiteral("notifications/initialized"));
         requestToolList(name);
     }
+}
+
+// ── Workspace trust ──────────────────────────────────────────────────────────
+
+void MCPServerManager::setWorkspaceRoot(const QString &root)
+{
+    // canonicalPath resolves symlinks (security) but requires path to exist.
+    // Fall back to cleanPath for nonexistent paths.
+    const QString canon = QDir(root).canonicalPath();
+    m_workspaceRoot = canon.isEmpty() ? QDir::cleanPath(root) : canon;
+}
+
+bool MCPServerManager::isWorkspaceTrusted() const
+{
+    if (m_workspaceRoot.isEmpty())
+        return true;  // No workspace = user-level config, always trusted
+    const QString hash = QString::fromLatin1(
+        QCryptographicHash::hash(m_workspaceRoot.toUtf8(),
+                                 QCryptographicHash::Sha256).toHex());
+    return m_trustedWorkspaces.contains(hash);
+}
+
+void MCPServerManager::trustWorkspace()
+{
+    if (m_workspaceRoot.isEmpty())
+        return;
+    const QString hash = QString::fromLatin1(
+        QCryptographicHash::hash(m_workspaceRoot.toUtf8(),
+                                 QCryptographicHash::Sha256).toHex());
+    m_trustedWorkspaces.insert(hash);
+    saveTrustedWorkspaces();
+}
+
+void MCPServerManager::untrustWorkspace()
+{
+    if (m_workspaceRoot.isEmpty())
+        return;
+    const QString hash = QString::fromLatin1(
+        QCryptographicHash::hash(m_workspaceRoot.toUtf8(),
+                                 QCryptographicHash::Sha256).toHex());
+    m_trustedWorkspaces.remove(hash);
+    saveTrustedWorkspaces();
+}
+
+void MCPServerManager::loadTrustedWorkspaces()
+{
+    QSettings s;
+    const QStringList hashes =
+        s.value(QStringLiteral("mcp/trustedWorkspaces")).toStringList();
+    m_trustedWorkspaces = QSet<QString>(hashes.begin(), hashes.end());
+}
+
+void MCPServerManager::saveTrustedWorkspaces() const
+{
+    QSettings s;
+    s.setValue(QStringLiteral("mcp/trustedWorkspaces"),
+              QStringList(m_trustedWorkspaces.begin(), m_trustedWorkspaces.end()));
 }

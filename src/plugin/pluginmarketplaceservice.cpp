@@ -4,12 +4,14 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QStandardPaths>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QCryptographicHash>
 #include <QProcess>
 #include <QTemporaryFile>
 
@@ -26,6 +28,8 @@ QJsonObject MarketplaceEntry::toJson() const
     o[QLatin1String("homepage")]      = homepage;
     o[QLatin1String("downloadUrl")]   = downloadUrl;
     o[QLatin1String("minIdeVersion")] = minIdeVersion;
+    if (!sha256.isEmpty())
+        o[QLatin1String("sha256")] = sha256;
     if (!tags.isEmpty()) {
         QJsonArray arr;
         for (const auto &t : tags)
@@ -46,6 +50,7 @@ MarketplaceEntry MarketplaceEntry::fromJson(const QJsonObject &obj)
     e.homepage      = obj.value(QLatin1String("homepage")).toString();
     e.downloadUrl   = obj.value(QLatin1String("downloadUrl")).toString();
     e.minIdeVersion = obj.value(QLatin1String("minIdeVersion")).toString();
+    e.sha256        = obj.value(QLatin1String("sha256")).toString();
     const auto arr  = obj.value(QLatin1String("tags")).toArray();
     for (const auto &v : arr)
         e.tags.append(v.toString());
@@ -92,6 +97,7 @@ void PluginMarketplaceService::loadRegistryFromUrl(const QString &url)
     request.setUrl(QUrl(url));
     request.setHeader(QNetworkRequest::UserAgentHeader,
                       QStringLiteral("ExorcistIDE/1.0"));
+    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
     auto *reply = m_network->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -137,6 +143,7 @@ void PluginMarketplaceService::downloadAndInstall(const MarketplaceEntry &entry)
     request.setUrl(QUrl(entry.downloadUrl));
     request.setHeader(QNetworkRequest::UserAgentHeader,
                       QStringLiteral("ExorcistIDE/1.0"));
+    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
     auto *reply = m_network->get(request);
 
@@ -153,6 +160,31 @@ void PluginMarketplaceService::downloadAndInstall(const MarketplaceEntry &entry)
     });
 }
 
+static bool isValidPluginId(const QString &id)
+{
+    if (id.isEmpty())
+        return false;
+    // Plugin IDs must be simple alphanumeric + hyphen/underscore/dot.
+    // Block path separators and traversal sequences.
+    for (const QChar &ch : id) {
+        if (ch == QLatin1Char('/') || ch == QLatin1Char('\\'))
+            return false;
+    }
+    if (id.contains(QLatin1String("..")))
+        return false;
+    return true;
+}
+
+static bool isPathInside(const QString &child, const QString &parent)
+{
+    const QString canonChild  = QDir(child).canonicalPath();
+    const QString canonParent = QDir(parent).canonicalPath();
+    if (canonChild.isEmpty() || canonParent.isEmpty())
+        return false;
+    return canonChild.startsWith(canonParent + QLatin1Char('/'))
+        || canonChild == canonParent;
+}
+
 void PluginMarketplaceService::handleDownloadFinished(
     QNetworkReply *reply, const MarketplaceEntry &entry)
 {
@@ -162,13 +194,21 @@ void PluginMarketplaceService::handleDownloadFinished(
         return;
     }
 
+    // ── Path traversal check on entry.id ──────────────────────────────
+    if (!isValidPluginId(entry.id)) {
+        emit error(tr("Invalid plugin ID (path traversal blocked): %1").arg(entry.id));
+        return;
+    }
+
     // Write to a temporary file
     const QString suffix = entry.downloadUrl.endsWith(QLatin1String(".tar.gz"))
                                ? QStringLiteral(".tar.gz")
                                : QStringLiteral(".zip");
 
     QTemporaryFile tmpFile;
-    tmpFile.setFileTemplate(QDir::tempPath() + QLatin1String("/exorcist_plugin_XXXXXX") + suffix);
+    const QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    QDir().mkpath(cacheDir);
+    tmpFile.setFileTemplate(cacheDir + QLatin1String("/exorcist_plugin_XXXXXX") + suffix);
     tmpFile.setAutoRemove(false);
 
     if (!tmpFile.open()) {
@@ -176,7 +216,19 @@ void PluginMarketplaceService::handleDownloadFinished(
         return;
     }
 
-    tmpFile.write(reply->readAll());
+    const QByteArray data = reply->readAll();
+
+    // ── SHA-256 integrity verification ─────────────────────────────
+    if (!entry.sha256.isEmpty()) {
+        const QByteArray actual = QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex();
+        if (actual != entry.sha256.toLatin1()) {
+            emit error(tr("Integrity check failed for %1: expected SHA-256 %2, got %3")
+                           .arg(entry.name, entry.sha256, QString::fromLatin1(actual)));
+            return;
+        }
+    }
+
+    tmpFile.write(data);
     const QString tmpPath = tmpFile.fileName();
     tmpFile.close();
 
@@ -190,6 +242,14 @@ void PluginMarketplaceService::handleDownloadFinished(
         return;
     }
 
+    // ── Post-extraction: verify all files are inside destDir ─────────
+    if (!isPathInside(destDir, m_pluginsDir)) {
+        QDir(destDir).removeRecursively();
+        QFile::remove(tmpPath);
+        emit error(tr("Install rejected: extracted path escapes plugins directory"));
+        return;
+    }
+
     QFile::remove(tmpPath);
     emit pluginInstalled(entry.id);
 }
@@ -198,10 +258,22 @@ void PluginMarketplaceService::handleDownloadFinished(
 
 bool PluginMarketplaceService::uninstallPlugin(const QString &pluginId, QString *err)
 {
+    // ── Validate pluginId against path traversal ─────────────────────
+    if (!isValidPluginId(pluginId)) {
+        if (err) *err = tr("Invalid plugin ID: %1").arg(pluginId);
+        return false;
+    }
+
     const QString pluginDir = m_pluginsDir + QLatin1Char('/') + pluginId;
     QDir dir(pluginDir);
     if (!dir.exists()) {
         if (err) *err = tr("Plugin directory not found: %1").arg(pluginDir);
+        return false;
+    }
+
+    // Verify the resolved path is actually inside the plugins directory
+    if (!isPathInside(pluginDir, m_pluginsDir)) {
+        if (err) *err = tr("Refusing to remove path outside plugins directory");
         return false;
     }
 
@@ -249,19 +321,23 @@ bool PluginMarketplaceService::extractZip(
     proc.setWorkingDirectory(destDir);
 
 #ifdef Q_OS_WIN
-    // PowerShell Expand-Archive
+    // PowerShell Expand-Archive — use -LiteralPath to prevent wildcard
+    // expansion and ensure special characters in paths are handled safely.
     proc.setProgram(QStringLiteral("powershell"));
     proc.setArguments({
         QStringLiteral("-NoProfile"),
         QStringLiteral("-Command"),
-        QStringLiteral("Expand-Archive -Path '%1' -DestinationPath '%2' -Force")
+        QStringLiteral("Expand-Archive -LiteralPath '%1' -DestinationPath '%2' -Force")
             .arg(zipPath, destDir)
     });
 #else
     if (zipPath.endsWith(QLatin1String(".tar.gz"))) {
         proc.setProgram(QStringLiteral("tar"));
-        proc.setArguments({QStringLiteral("xzf"), zipPath,
-                           QStringLiteral("-C"), destDir});
+        proc.setArguments({
+            QStringLiteral("xzf"), zipPath,
+            QStringLiteral("-C"), destDir,
+            QStringLiteral("--no-absolute-filenames"),  // block absolute paths
+        });
     } else {
         proc.setProgram(QStringLiteral("unzip"));
         proc.setArguments({QStringLiteral("-o"), zipPath,

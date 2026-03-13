@@ -47,6 +47,8 @@ class TerminalSessionManager;
 class ToolApprovalService;
 class ToolRegistry;
 
+class AgentUIBus;
+
 class AgentPlatformBootstrap : public QObject
 {
     Q_OBJECT
@@ -175,6 +177,7 @@ public:
     ProjectBrainService   *brainService() const { return m_brainService; }
     MemorySuggestionEngine *memorySuggestionEngine() const { return m_memorySuggestionEngine; }
     DiagnosticsNotifier    *diagnosticsNotifier() const;
+    AgentUIBus             *uiBus() const { return m_uiBus; }
 
     // Plugin extension accessors (populated by registerPluginProviders)
     const QList<IChatSessionImporter *>      &sessionImporters() const { return m_sessionImporters; }
@@ -202,6 +205,7 @@ private:
     BrainContextBuilder   *m_brainBuilder = nullptr;
     MemorySuggestionEngine *m_memorySuggestionEngine = nullptr;
     std::unique_ptr<DiagnosticsNotifier> m_diagnosticsNotifier;
+    AgentUIBus *m_uiBus = nullptr;
 
     // Plugin extension registries
     QList<IChatSessionImporter *>      m_sessionImporters;

@@ -71,6 +71,7 @@ void AuthManager::checkOnline()
     QNetworkAccessManager mgr;
     QNetworkRequest req(QUrl(QStringLiteral("https://api.github.com")));
     req.setTransferTimeout(5000);
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     auto *reply = mgr.head(req);
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);

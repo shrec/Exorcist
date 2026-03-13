@@ -285,7 +285,7 @@ var MarkdownRenderer = (function() {
         s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%">');
 
         // Links: [text](url)
-        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" title="$2">$1</a>');
+        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" title="$2" class="external-link">$1 &#x2197;</a>');
 
         // Bold + italic: ***text***
         s = s.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');

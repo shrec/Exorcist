@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPointer>
 #include <QSettings>
 
 static const char kApiUrl[] = "https://api.anthropic.com/v1/messages";
@@ -131,6 +132,7 @@ void ClaudeProvider::shutdown()
 void ClaudeProvider::fetchModels()
 {
     QNetworkRequest req{QUrl{QStringLiteral("https://api.anthropic.com/v1/models")}};
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     req.setRawHeader("x-api-key", m_apiKey.toUtf8());
     req.setRawHeader("anthropic-version", "2023-06-01");
     req.setRawHeader("Accept", "application/json");
@@ -206,6 +208,7 @@ void ClaudeProvider::sendRequest(const AgentRequest &request)
     };
 
     QNetworkRequest netReq{QUrl{QLatin1String(kApiUrl)}};
+    netReq.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     netReq.setHeader(QNetworkRequest::ContentTypeHeader,
                      QStringLiteral("application/json"));
     netReq.setRawHeader("x-api-key", m_apiKey.toUtf8());
@@ -237,13 +240,19 @@ void ClaudeProvider::cancelRequest(const QString &requestId)
 
 void ClaudeProvider::connectReply(QNetworkReply *reply)
 {
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply] {
-        m_sseParser->feed(reply->readAll());
+    QPointer<QNetworkReply> safeReply(reply);
+
+    connect(reply, &QNetworkReply::readyRead, this, [this, safeReply] {
+        if (!safeReply || safeReply != m_activeReply)
+            return;
+        m_sseParser->feed(safeReply->readAll());
     });
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        if (m_activeReply != reply)
+    connect(reply, &QNetworkReply::finished, this, [this, safeReply] {
+        if (!safeReply)
+            return;
+        safeReply->deleteLater();
+        if (m_activeReply != safeReply)
             return;
         m_activeReply = nullptr;
 
@@ -251,9 +260,9 @@ void ClaudeProvider::connectReply(QNetworkReply *reply)
             return; // Already handled by message_stop event
 
         const int status =
-            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            safeReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
-        if (reply->error() == QNetworkReply::NoError) {
+        if (safeReply->error() == QNetworkReply::NoError) {
             AgentResponse resp;
             resp.requestId = m_activeRequestId;
             resp.text      = m_accumulated;
@@ -261,7 +270,7 @@ void ClaudeProvider::connectReply(QNetworkReply *reply)
         } else {
             AgentError err;
             err.requestId = m_activeRequestId;
-            err.message   = reply->errorString();
+            err.message   = safeReply->errorString();
             if (status == 401 || status == 403)
                 err.code = AgentError::Code::AuthError;
             else if (status == 429)

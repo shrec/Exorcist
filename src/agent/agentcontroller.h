@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <QStringList>
 #include <functional>
 #include <memory>
 
@@ -127,7 +128,12 @@ signals:
     void confirmationRequired(const QString &toolName,
                               const QJsonObject &args,
                               const QString &description);
+    /// Emitted after tool execution when files were modified.
+    /// The list contains all file paths that were snapshotted (mutated) in this batch.
+    void filesChanged(const QStringList &filePaths);
 
+    /// Token usage update from model response.
+    void tokenUsageUpdated(int promptTokens, int completionTokens, int totalTokens);
 private slots:
     void onResponseDelta(const QString &requestId, const QString &textChunk);
     void onResponseFinished(const QString &requestId, const AgentResponse &response);
@@ -140,6 +146,7 @@ private:
     void sendModelRequest();
     void finishTurn(const QString &finalText, const QList<PatchProposal> &patches = {});
     QList<PatchProposal> extractPatches(const QString &responseText);
+    void snapshotFilesForTool(const QString &toolName, const QJsonObject &args);
 
     AgentOrchestrator  *m_orchestrator;
     ToolRegistry       *m_toolRegistry;

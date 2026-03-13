@@ -155,6 +155,7 @@ signals:
 
     // Code block actions
     void copyCodeRequested(const QString &code);
+    void copyTextRequested(const QString &text);
     void applyCodeRequested(const QString &code, const QString &language, const QString &filePath);
     void runCodeRequested(const QString &code, const QString &language);
 
@@ -170,6 +171,7 @@ signals:
     void removeAttachmentRequested(int index);
     void thinkingToggled(bool enabled);
     void mentionQueryRequested(const QString &trigger, const QString &filter);
+    void openExternalUrlRequested(const QString &url);
 
 private:
     /// Evaluate JS, escaping the string parameter safely.

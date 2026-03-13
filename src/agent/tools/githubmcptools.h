@@ -39,6 +39,7 @@ inline HttpResponse httpGet(const QString &url, const QString &token,
     if (!token.isEmpty())
         req.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(token).toUtf8());
     req.setRawHeader("User-Agent", "Exorcist-IDE/1.0");
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
     QNetworkReply *reply = mgr.get(req);
     QEventLoop loop;

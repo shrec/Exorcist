@@ -39,6 +39,11 @@ struct ToolSpec
     // Examples: {"python"}, {"cpp", "c"}, {"web", "typescript"}.
     // Empty list = universal tool, always available.
     QStringList    contexts;
+
+    // When true, this tool's invoke() is safe to call from any thread
+    // (no main-thread QObject access). Enables parallel execution
+    // when multiple tools of this kind appear in the same turn.
+    bool           parallelSafe = false;
 };
 
 // ── Tool execution result ─────────────────────────────────────────────────────
@@ -103,6 +108,7 @@ public:
     ITool *tool(const QString &name) const;
     bool hasTool(const QString &name) const;
     QStringList toolNames() const;
+    QStringList availableToolNames() const;
 
     // ── Build ToolDefinition list for model requests ──────────────────────
 

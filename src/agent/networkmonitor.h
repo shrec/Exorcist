@@ -54,6 +54,7 @@ private:
 
         QNetworkRequest req(m_checkUrl);
         req.setTransferTimeout(8000);
+        req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
         auto *reply = m_nam->head(req);
         connect(reply, &QNetworkReply::finished, this, [this, reply]() {
             reply->deleteLater();

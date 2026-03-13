@@ -85,6 +85,11 @@ ChatJSBridge::ChatJSBridge(UltralightWidget *view, QObject *parent)
             emit copyCodeRequested(v.toObject().value(QStringLiteral("code")).toString());
         });
 
+    m_view->registerJSCallback(QStringLiteral("copyText"),
+        [this](const QJsonValue &v) {
+            emit copyTextRequested(v.toObject().value(QStringLiteral("text")).toString());
+        });
+
     m_view->registerJSCallback(QStringLiteral("applyCode"),
         [this](const QJsonValue &v) {
             const auto obj = v.toObject();
@@ -152,6 +157,13 @@ ChatJSBridge::ChatJSBridge(UltralightWidget *view, QObject *parent)
             emit mentionQueryRequested(
                 obj.value(QStringLiteral("trigger")).toString(),
                 obj.value(QStringLiteral("filter")).toString());
+        });
+
+    m_view->registerJSCallback(QStringLiteral("openExternalUrl"),
+        [this](const QJsonValue &v) {
+            const QString url = v.toObject().value(QStringLiteral("url")).toString();
+            if (!url.isEmpty())
+                emit openExternalUrlRequested(url);
         });
 }
 

@@ -32,6 +32,7 @@ public:
             "file paths and line numbers. Use includePattern to search within files "
             "matching a specific pattern or in a specific file.");
         s.permission  = AgentToolPermission::ReadOnly;
+        s.parallelSafe = true;
         s.timeoutMs   = 30000;
         s.inputSchema = QJsonObject{
             {QStringLiteral("type"), QStringLiteral("object")},

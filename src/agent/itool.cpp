@@ -38,6 +38,25 @@ QStringList ToolRegistry::toolNames() const
     return names;
 }
 
+QStringList ToolRegistry::availableToolNames() const
+{
+    QStringList names;
+    for (const auto &[name, t] : m_tools) {
+        if (m_disabled.contains(name))
+            continue;
+        const ToolSpec &sp = t->spec();
+        if (!sp.contexts.isEmpty() && !m_activeContexts.isEmpty()) {
+            bool match = false;
+            for (const QString &ctx : sp.contexts) {
+                if (m_activeContexts.contains(ctx)) { match = true; break; }
+            }
+            if (!match) continue;
+        }
+        names.append(name);
+    }
+    return names;
+}
+
 QList<ToolDefinition> ToolRegistry::allDefinitions() const
 {
     QList<ToolDefinition> defs;
@@ -73,6 +92,7 @@ ToolDefinition ToolRegistry::toolToDefinition(ITool *tool)
     ToolDefinition td;
     td.name        = s.name;
     td.description = s.description;
+    td.inputSchema = s.inputSchema;
     const QJsonObject props =
         s.inputSchema[QLatin1String("properties")].toObject();
     const QJsonArray req =

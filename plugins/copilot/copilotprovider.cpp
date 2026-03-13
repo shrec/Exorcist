@@ -84,13 +84,13 @@ CopilotProvider::CopilotProvider(QObject *parent)
         if (!m_activeRequestId.isEmpty()) {
             qCWarning(lcCopilot) << "Request timed out (no data for"
                                  << kIdleTimeoutMs / 1000 << "seconds)";
-            cancelRequest(m_activeRequestId);
+            const QString reqId = m_activeRequestId;
+            cancelRequest(reqId);
             AgentError err;
-            err.requestId = m_activeRequestId;
+            err.requestId = reqId;
             err.code      = AgentError::Code::NetworkError;
             err.message   = tr("Request timed out — no response from server.");
-            emit responseError(m_activeRequestId, err);
-            m_activeRequestId.clear();
+            emit responseError(reqId, err);
         }
     });
 }
@@ -280,10 +280,16 @@ void CopilotProvider::refreshCopilotToken()
     req.setRawHeader("Copilot-Integration-Id", "vscode-chat");
     req.setRawHeader("OpenAI-Intent", "conversation-panel");
     req.setRawHeader("X-GitHub-Api-Version", "2025-04-01");
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
+    req.setAttribute(QNetworkRequest::Http2DirectAttribute, false);
 
     QNetworkReply *reply = m_nam.get(req);
+    QPointer<QNetworkReply> safeReply(reply);
     connect(reply, &QNetworkReply::finished,
-            this, [this, reply] { handleTokenReply(reply); });
+            this, [this, safeReply] {
+        if (safeReply)
+            handleTokenReply(safeReply);
+    });
 }
 
 void CopilotProvider::handleTokenReply(QNetworkReply *reply)
@@ -390,14 +396,20 @@ void CopilotProvider::refreshOAuthToken()
     req.setHeader(QNetworkRequest::ContentTypeHeader,
                   QStringLiteral("application/x-www-form-urlencoded"));
     req.setRawHeader("Accept", "application/json");
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
+    req.setAttribute(QNetworkRequest::Http2DirectAttribute, false);
 
     const QByteArray body = QStringLiteral(
         "client_id=%1&grant_type=refresh_token&refresh_token=%2")
         .arg(QLatin1String("Iv1.b507a08c87ecfe98"), m_refreshToken).toUtf8();
 
     QNetworkReply *reply = m_nam.post(req, body);
+    QPointer<QNetworkReply> safeReply(reply);
     connect(reply, &QNetworkReply::finished,
-            this, [this, reply] { handleOAuthRefreshReply(reply); });
+            this, [this, safeReply] {
+        if (safeReply)
+            handleOAuthRefreshReply(safeReply);
+    });
 }
 
 void CopilotProvider::handleOAuthRefreshReply(QNetworkReply *reply)
@@ -463,8 +475,12 @@ void CopilotProvider::fetchModels()
     m_lastModelFetch = now;
 
     QNetworkReply *reply = m_nam.get(makeAuthRequest(QUrl{QLatin1String(kModelsUrl)}));
+    QPointer<QNetworkReply> safeReply(reply);
     connect(reply, &QNetworkReply::finished,
-            this, [this, reply] { handleModelsReply(reply); });
+            this, [this, safeReply] {
+        if (safeReply)
+            handleModelsReply(safeReply);
+    });
 }
 
 void CopilotProvider::handleModelsReply(QNetworkReply *reply)
@@ -601,6 +617,9 @@ QNetworkRequest CopilotProvider::makeAuthRequest(const QUrl &url) const
     req.setRawHeader("Copilot-Integration-Id", "vscode-chat");
     req.setRawHeader("OpenAI-Intent", "conversation-panel");
     req.setRawHeader("X-GitHub-Api-Version", "2025-04-01");
+    // Force HTTP/1.1 — avoids HTTP/2 GOAWAY issues with long-lived SSE streams
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
+    req.setAttribute(QNetworkRequest::Http2DirectAttribute, false);
     return req;
 }
 
@@ -705,8 +724,17 @@ void CopilotProvider::sendChatCompletions(const AgentRequest &request)
     m_pendingThinking.clear();
     m_sseParser->reset();
 
-    QNetworkReply *reply = m_nam.post(netReq,
-        QJsonDocument(body).toJson(QJsonDocument::Compact));
+    // Clean up any leftover reply from a previous request before creating a
+    // new one.  This prevents two QNetworkReply objects being alive at the
+    // same time on the same connection, which causes use-after-free crashes
+    // in Qt6Network's HTTP/2 multiplexer.
+    cleanupActiveReply();
+
+    const QByteArray bodyBytes = QJsonDocument(body).toJson(QJsonDocument::Compact);
+    qCInfo(lcCopilot) << "Chat Completions POST" << url
+                      << "body size:" << bodyBytes.size() << "bytes"
+                      << "tools:" << tools.size();
+    QNetworkReply *reply = m_nam.post(netReq, bodyBytes);
     m_activeReply = reply;
     connectReply(reply);
     m_idleTimer.start();
@@ -751,26 +779,32 @@ void CopilotProvider::sendResponsesApi(const AgentRequest &request)
     QJsonArray tools;
     if (mi.capabilities.toolCalls) {
         for (const auto &tool : request.tools) {
-            QJsonObject props;
-            QJsonArray required;
-            for (const auto &p : tool.parameters) {
-                props[p.name] = QJsonObject{
-                    {QStringLiteral("type"),        p.type},
-                    {QStringLiteral("description"), p.description}
+            QJsonObject params;
+            if (!tool.inputSchema.isEmpty()) {
+                params = tool.inputSchema;
+            } else {
+                QJsonObject props;
+                QJsonArray required;
+                for (const auto &p : tool.parameters) {
+                    props[p.name] = QJsonObject{
+                        {QStringLiteral("type"),        p.type},
+                        {QStringLiteral("description"), p.description}
+                    };
+                    if (p.required)
+                        required.append(p.name);
+                }
+                params = QJsonObject{
+                    {QStringLiteral("type"), QStringLiteral("object")},
+                    {QStringLiteral("properties"), props},
+                    {QStringLiteral("required"), required}
                 };
-                if (p.required)
-                    required.append(p.name);
             }
             tools.append(QJsonObject{
                 {QStringLiteral("type"), QStringLiteral("function")},
                 {QStringLiteral("name"), tool.name},
                 {QStringLiteral("description"), tool.description},
                 {QStringLiteral("strict"), false},
-                {QStringLiteral("parameters"), QJsonObject{
-                    {QStringLiteral("type"), QStringLiteral("object")},
-                    {QStringLiteral("properties"), props},
-                    {QStringLiteral("required"), required}
-                }}
+                {QStringLiteral("parameters"), params}
             });
         }
     }
@@ -796,8 +830,15 @@ void CopilotProvider::sendResponsesApi(const AgentRequest &request)
     m_pendingThinking.clear();
     m_sseParser->reset();
 
-    QNetworkReply *reply = m_nam.post(netReq,
-        QJsonDocument(body).toJson(QJsonDocument::Compact));
+    // Clean up any leftover reply before creating a new one (same reason as
+    // in sendChatCompletions — prevents use-after-free in Qt6Network).
+    cleanupActiveReply();
+
+    const QByteArray bodyBytes = QJsonDocument(body).toJson(QJsonDocument::Compact);
+    qCInfo(lcCopilot) << "Responses API POST" << url
+                      << "body size:" << bodyBytes.size() << "bytes"
+                      << "tools:" << tools.size();
+    QNetworkReply *reply = m_nam.post(netReq, bodyBytes);
     m_activeReply = reply;
     connectReply(reply);
     m_idleTimer.start();
@@ -888,15 +929,27 @@ QJsonArray CopilotProvider::buildTools(const AgentRequest &request) const
 {
     QJsonArray tools;
     for (const auto &td : request.tools) {
-        QJsonObject props;
-        QJsonArray required;
-        for (const auto &p : td.parameters) {
-            props[p.name] = QJsonObject{
-                {QStringLiteral("type"),        p.type},
-                {QStringLiteral("description"), p.description}
+        // Use the original inputSchema if available (preserves items, enum, nested properties)
+        QJsonObject params;
+        if (!td.inputSchema.isEmpty()) {
+            params = td.inputSchema;
+        } else {
+            // Fallback: reconstruct from flat ToolParameter list
+            QJsonObject props;
+            QJsonArray required;
+            for (const auto &p : td.parameters) {
+                props[p.name] = QJsonObject{
+                    {QStringLiteral("type"),        p.type},
+                    {QStringLiteral("description"), p.description}
+                };
+                if (p.required)
+                    required.append(p.name);
+            }
+            params = QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("object")},
+                {QStringLiteral("properties"), props},
+                {QStringLiteral("required"), required}
             };
-            if (p.required)
-                required.append(p.name);
         }
 
         tools.append(QJsonObject{
@@ -904,11 +957,7 @@ QJsonArray CopilotProvider::buildTools(const AgentRequest &request) const
             {QStringLiteral("function"), QJsonObject{
                 {QStringLiteral("name"),        td.name},
                 {QStringLiteral("description"), td.description},
-                {QStringLiteral("parameters"), QJsonObject{
-                    {QStringLiteral("type"), QStringLiteral("object")},
-                    {QStringLiteral("properties"), props},
-                    {QStringLiteral("required"), required}
-                }}
+                {QStringLiteral("parameters"), params}
             }}
         });
     }
@@ -936,10 +985,7 @@ void CopilotProvider::cancelRequest(const QString &requestId)
 {
     if (requestId.isEmpty() || requestId != m_activeRequestId)
         return;
-    if (m_activeReply) {
-        m_activeReply->abort();
-        m_activeReply = nullptr;
-    }
+    cleanupActiveReply();
     m_idleTimer.stop();
     m_activeRequestId.clear();
     m_pendingToolCalls.clear();
@@ -949,35 +995,70 @@ void CopilotProvider::cancelRequest(const QString &requestId)
 
 void CopilotProvider::connectReply(QNetworkReply *reply)
 {
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply] {
-        m_idleTimer.start(); // reset idle timer on each chunk
-        m_sseParser->feed(reply->readAll());
+    QPointer<QNetworkReply> safeReply(reply);
+
+    connect(reply, &QNetworkReply::readyRead, this, [this, safeReply] {
+        if (!safeReply || safeReply != m_activeReply)
+            return;
+        m_idleTimer.start();
+        const QByteArray chunk = safeReply->readAll();
+        m_sseParser->feed(chunk);
     });
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        m_idleTimer.stop();
-        if (m_activeReply != reply)
+    connect(reply, &QNetworkReply::errorOccurred, this,
+            [this, safeReply](QNetworkReply::NetworkError code) {
+        if (!safeReply || m_activeReply != safeReply)
             return;
-        m_activeReply = nullptr;
+        qCWarning(lcCopilot) << "Network error on active reply:"
+                             << code << safeReply->errorString();
+    });
 
-        // Parse rate limit headers
-        const QByteArray remaining = reply->rawHeader("x-ratelimit-remaining");
-        const QByteArray resetTs   = reply->rawHeader("x-ratelimit-reset");
-        const QByteArray retryAfter = reply->rawHeader("retry-after");
+    connect(reply, &QNetworkReply::finished, this, [this, safeReply] {
+        if (!safeReply)
+            return;
+        m_idleTimer.stop();
+        if (m_activeReply != safeReply) {
+            // This reply is orphaned (superseded by a new one during SSE
+            // finish_reason handling).  Just disconnect and schedule deletion
+            // — do NOT touch m_activeReply or m_activeRequestId.
+            safeReply->disconnect(this);
+            safeReply->deleteLater();
+            return;
+        }
+
+        // Read everything we need from the reply BEFORE any cleanup,
+        // because cleanupActiveReply() will abort + disconnect it.
+        const int status =
+            safeReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const auto error = safeReply->error();
+        const QString errorStr = safeReply->errorString();
+
+        // Parse rate limit headers while reply is still alive
+        const QByteArray remaining  = safeReply->rawHeader("x-ratelimit-remaining");
+        const QByteArray resetTs    = safeReply->rawHeader("x-ratelimit-reset");
+        const QByteArray retryAfter = safeReply->rawHeader("retry-after");
 
         if (!remaining.isEmpty())
             m_rateLimit.remaining = remaining.toInt();
         if (!resetTs.isEmpty())
             m_rateLimit.resetEpoch = resetTs.toInt();
 
+        qCWarning(lcCopilot) << "Reply finished: error=" << error
+                             << errorStr << "HTTP" << status;
+
+        // Clean up the reply immediately via cleanupActiveReply() which does
+        // disconnect → abort → deleteLater in the correct order.  This
+        // ensures the reply is fully detached BEFORE we emit any signals
+        // that might trigger re-entrant sendRequest() calls from the
+        // AgentController.  Without this, two replies can be alive
+        // simultaneously and Qt6Network's HTTP/2 multiplexer crashes on
+        // stale internal pointers (use-after-free at offset ~0x2f4).
+        cleanupActiveReply();
+
         if (m_activeRequestId.isEmpty())
-            return; // Already handled by SSE done
+            return; // Already handled by SSE [DONE] / tool_calls finish_reason
 
-        const int status =
-            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-
-        if (reply->error() == QNetworkReply::NoError) {
+        if (error == QNetworkReply::NoError) {
             m_rateLimit.throttled = false;
             handleSseDone(); // Stream ended without [DONE]
         } else {
@@ -993,12 +1074,26 @@ void CopilotProvider::connectReply(QNetworkReply *reply)
                 }
                 emit rateLimitHit(secsUntilReset);
             }
-            retryOrFail(status, reply->errorString());
+            retryOrFail(status, errorStr);
         }
     });
 }
 
 // ── SSE event handling ────────────────────────────────────────────────────────
+
+void CopilotProvider::cleanupActiveReply()
+{
+    // Properly tear down the active reply so Qt6Network releases all internal
+    // references to the HTTP stream.  Without this, the HTTP/2 multiplexer may
+    // still hold a raw pointer to the reply; when deleteLater destroys it the
+    // stale pointer causes a use-after-free crash in Qt6Network internals.
+    if (m_activeReply) {
+        m_activeReply->disconnect(this);
+        m_activeReply->abort();
+        m_activeReply->deleteLater();
+        m_activeReply = nullptr;
+    }
+}
 
 void CopilotProvider::handleSseEvent(const QString &eventType, const QString &data)
 {
@@ -1090,24 +1185,31 @@ void CopilotProvider::handleChatCompletionsEvent(const QString &data)
         resp.totalTokens      = m_totalTokens;
         for (auto it = m_pendingToolCalls.begin(); it != m_pendingToolCalls.end(); ++it)
             resp.toolCalls.append(it.value());
-        emit responseFinished(m_activeRequestId, resp);
+        // Clear state and disconnect/abort the old reply BEFORE emitting.
+        // The controller's slot will call sendModelRequest() synchronously,
+        // which creates a new QNetworkReply.  If the old reply is still alive
+        // and connected, Qt6Network's HTTP/2 multiplexer can crash when it
+        // later processes internal events for the destroyed old reply.
+        const QString reqId = m_activeRequestId;
         m_activeRequestId.clear();
-        m_activeReply = nullptr;
+        cleanupActiveReply();
         m_idleTimer.stop();
         m_pendingToolCalls.clear();
         m_pendingThinking.clear();
+        emit responseFinished(reqId, resp);
     } else if (finishReason == QLatin1String("content_filter")) {
         qCWarning(lcCopilot) << "Response blocked by content filter";
         AgentError err;
         err.requestId = m_activeRequestId;
         err.code      = AgentError::Code::ContentFilter;
         err.message   = tr("Response was blocked by the content safety filter.");
-        emit responseError(m_activeRequestId, err);
+        const QString reqId = m_activeRequestId;
         m_activeRequestId.clear();
-        m_activeReply = nullptr;
+        cleanupActiveReply();
         m_idleTimer.stop();
         m_pendingToolCalls.clear();
         m_pendingThinking.clear();
+        emit responseError(reqId, err);
     }
 }
 
@@ -1194,12 +1296,13 @@ void CopilotProvider::handleResponsesEvent(const QString &eventType, const QStri
                 err.requestId = m_activeRequestId;
                 err.code      = AgentError::Code::ContentFilter;
                 err.message   = tr("Response was blocked by the content safety filter.");
-                emit responseError(m_activeRequestId, err);
+                const QString reqId = m_activeRequestId;
                 m_activeRequestId.clear();
-                m_activeReply = nullptr;
+                cleanupActiveReply();
                 m_idleTimer.stop();
                 m_pendingToolCalls.clear();
                 m_pendingThinking.clear();
+                emit responseError(reqId, err);
                 return;
             }
         }
@@ -1220,12 +1323,14 @@ void CopilotProvider::handleResponsesEvent(const QString &eventType, const QStri
         resp.totalTokens      = m_totalTokens;
         for (auto it = m_pendingToolCalls.begin(); it != m_pendingToolCalls.end(); ++it)
             resp.toolCalls.append(it.value());
-        emit responseFinished(m_activeRequestId, resp);
+        // Clear state BEFORE emitting — see handleChatCompletionsEvent comment.
+        const QString reqId = m_activeRequestId;
         m_activeRequestId.clear();
-        m_activeReply = nullptr;
+        cleanupActiveReply();
         m_idleTimer.stop();
         m_pendingToolCalls.clear();
         m_pendingThinking.clear();
+        emit responseFinished(reqId, resp);
     }
 }
 
@@ -1246,11 +1351,18 @@ void CopilotProvider::handleSseDone()
     for (auto it = m_pendingToolCalls.begin(); it != m_pendingToolCalls.end(); ++it)
         resp.toolCalls.append(it.value());
 
-    emit responseFinished(m_activeRequestId, resp);
+    // Clear state BEFORE emitting — the slot connected to responseFinished()
+    // (AgentController) may synchronously call sendRequest() which creates a
+    // new QNetworkReply.  We must fully detach the old reply first to prevent
+    // two replies being alive simultaneously in Qt6Network's connection pool.
+    const QString reqId = m_activeRequestId;
     m_activeRequestId.clear();
-    m_activeReply = nullptr;
     m_pendingToolCalls.clear();
     m_pendingThinking.clear();
+    // cleanupActiveReply is safe to call even if already cleaned up by the
+    // finished handler — it checks m_activeReply for null.
+    cleanupActiveReply();
+    emit responseFinished(reqId, resp);
 }
 
 // ── Retry with exponential backoff ────────────────────────────────────────────
@@ -1307,8 +1419,9 @@ void CopilotProvider::retryOrFail(int httpStatus, const QString &errorMsg)
     if (m_retryCount > 0)
         err.message += tr(" (after %1 retries)").arg(m_retryCount);
 
-    emit responseError(m_activeRequestId, err);
+    const QString reqId = m_activeRequestId;
     m_activeRequestId.clear();
+    emit responseError(reqId, err);
 }
 
 // ── Inline completion ─────────────────────────────────────────────────────────
@@ -1360,12 +1473,14 @@ void CopilotProvider::requestCompletion(const QString &filePath,
     QNetworkReply *reply = m_nam.post(netReq,
         QJsonDocument(body).toJson(QJsonDocument::Compact));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError)
+    QPointer<QNetworkReply> safeReply(reply);
+    connect(reply, &QNetworkReply::finished, this, [this, safeReply] {
+        if (!safeReply) return;
+        safeReply->deleteLater();
+        if (safeReply->error() != QNetworkReply::NoError)
             return;
 
-        const QJsonObject obj = QJsonDocument::fromJson(reply->readAll()).object();
+        const QJsonObject obj = QJsonDocument::fromJson(safeReply->readAll()).object();
         const QJsonArray choices = obj[QLatin1String("choices")].toArray();
         if (choices.isEmpty())
             return;

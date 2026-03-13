@@ -92,6 +92,7 @@ struct ToolDefinition
     QString               name;        // e.g. "read_file"
     QString               description;
     QList<ToolParameter>  parameters;
+    QJsonObject           inputSchema; // Original JSON Schema (preserves items, enum, etc.)
 };
 
 struct ToolCall

@@ -99,6 +99,7 @@ private:
         req.setHeader(QNetworkRequest::UserAgentHeader,
                       QStringLiteral("Exorcist-IDE/1.0"));
         req.setTransferTimeout(15000);
+        req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
         auto *reply = mgr.get(req);
         QEventLoop loop;
@@ -178,6 +179,7 @@ private:
         req.setHeader(QNetworkRequest::UserAgentHeader,
                       QStringLiteral("Exorcist-IDE/1.0"));
         req.setTransferTimeout(15000);
+        req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
         auto *reply = mgr.get(req);
         QEventLoop loop;

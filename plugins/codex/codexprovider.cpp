@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPointer>
 #include <QSettings>
 
 static const char kDefaultUrl[] = "https://api.openai.com/v1/chat/completions";
@@ -135,6 +136,7 @@ void CodexProvider::fetchModels()
         : QStringLiteral("https://api.openai.com/v1/models");
 
     QNetworkRequest req{QUrl{url}};
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
     req.setRawHeader("Accept", "application/json");
 
@@ -212,6 +214,7 @@ void CodexProvider::sendRequest(const AgentRequest &request)
     };
 
     QNetworkRequest netReq{QUrl{m_baseUrl}};
+    netReq.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     netReq.setHeader(QNetworkRequest::ContentTypeHeader,
                      QStringLiteral("application/json"));
     netReq.setRawHeader("Authorization",
@@ -241,13 +244,19 @@ void CodexProvider::cancelRequest(const QString &requestId)
 
 void CodexProvider::connectReply(QNetworkReply *reply)
 {
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply] {
-        m_sseParser->feed(reply->readAll());
+    QPointer<QNetworkReply> safeReply(reply);
+
+    connect(reply, &QNetworkReply::readyRead, this, [this, safeReply] {
+        if (!safeReply || safeReply != m_activeReply)
+            return;
+        m_sseParser->feed(safeReply->readAll());
     });
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        if (m_activeReply != reply)
+    connect(reply, &QNetworkReply::finished, this, [this, safeReply] {
+        if (!safeReply)
+            return;
+        safeReply->deleteLater();
+        if (m_activeReply != safeReply)
             return;
         m_activeReply = nullptr;
 
@@ -255,16 +264,16 @@ void CodexProvider::connectReply(QNetworkReply *reply)
             return; // Already handled by SSE done
 
         const int status =
-            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            safeReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
-        if (reply->error() == QNetworkReply::NoError) {
+        if (safeReply->error() == QNetworkReply::NoError) {
             AgentResponse resp;
             resp.requestId = m_activeRequestId;
             emit responseFinished(m_activeRequestId, resp);
         } else {
             AgentError err;
             err.requestId = m_activeRequestId;
-            err.message   = reply->errorString();
+            err.message   = safeReply->errorString();
             if (status == 401 || status == 403)
                 err.code = AgentError::Code::AuthError;
             else if (status == 429)

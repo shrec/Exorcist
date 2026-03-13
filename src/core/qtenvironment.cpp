@@ -49,5 +49,11 @@ QString QtEnvironment::homeDirectory() const
 
 QString QtEnvironment::tempDirectory() const
 {
-    return QDir::tempPath();
+    const QString tmp = QDir::tempPath();
+    if (QDir(tmp).exists())
+        return tmp;
+    // Fallback if TMP/TEMP points to a non-existent drive
+    const QString fallback = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    QDir().mkpath(fallback);
+    return fallback;
 }

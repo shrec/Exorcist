@@ -4,6 +4,7 @@
 #include "copilottoken.h"
 
 #include <QNetworkAccessManager>
+#include <QPointer>
 #include <QString>
 #include <QTimer>
 
@@ -96,6 +97,7 @@ private:
     void handleChatCompletionsEvent(const QString &data);
     void handleResponsesEvent(const QString &eventType, const QString &data);
     void handleSseDone();
+    void cleanupActiveReply();
 
     // ── Retry logic ───────────────────────────────────────────────────────
     void retryOrFail(int httpStatus, const QString &errorMsg);
@@ -119,7 +121,7 @@ private:
     qint64            m_lastModelFetch = 0;
 
     // Active request
-    QNetworkReply *m_activeReply = nullptr;
+    QPointer<QNetworkReply> m_activeReply;
     QString        m_activeRequestId;
     QString        m_streamAccum;            // accumulated text from streaming deltas
     bool           m_useResponsesApi = false; // true when using /responses endpoint

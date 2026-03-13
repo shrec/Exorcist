@@ -3,6 +3,7 @@
 #include "aiinterface.h"
 
 #include <QNetworkAccessManager>
+#include <QPointer>
 #include <QString>
 
 class QNetworkReply;
@@ -45,7 +46,7 @@ private:
     QString m_model;
     bool    m_available = false;
 
-    QNetworkReply *m_activeReply     = nullptr;
+    QPointer<QNetworkReply> m_activeReply;
     QString        m_activeRequestId;
     QString        m_streamAccum;
 };

@@ -134,6 +134,20 @@ void PluginManager::activatePlugin(const LoadedPlugin &lp)
 {
     try {
         const PluginInfo pi = lp.instance->info();
+
+        // ── apiVersion compatibility check ───────────────────────────────
+        if (!pi.apiVersion.isEmpty()) {
+            const QStringList parts = pi.apiVersion.split(QLatin1Char('.'));
+            const int pluginMajor = parts.value(0).toInt();
+            if (pluginMajor != EXORCIST_SDK_VERSION_MAJOR) {
+                m_errors << QString("Plugin '%1' requires SDK %2, host is %3.%4 — skipped")
+                                .arg(pi.id, pi.apiVersion)
+                                .arg(EXORCIST_SDK_VERSION_MAJOR)
+                                .arg(EXORCIST_SDK_VERSION_MINOR);
+                return;
+            }
+        }
+
         auto guard = std::make_unique<PermissionGuardedHostServices>(m_host, pi.requestedPermissions);
         lp.instance->initialize(guard.get());
         m_permGuards.push_back(std::move(guard));

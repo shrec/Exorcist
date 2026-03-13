@@ -101,6 +101,9 @@ public:
         for (auto it = headers.begin(); it != headers.end(); ++it)
             req.setRawHeader(it.key().toUtf8(), it.value().toString().toUtf8());
 
+        // Disable HTTP/2 — Qt 6.10 GOAWAY crash bug
+        req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
+
         // Execute request synchronously with event loop
         QNetworkAccessManager nam;
         QNetworkReply *reply = nullptr;

@@ -493,6 +493,48 @@ target_link_libraries(test_contributionregistry PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_contributionregistry PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ContributionRegistry COMMAND test_contributionregistry)
 
+# ── AgentUIBus tests ──────────────────────────────────────────────────────────
+add_executable(test_agentuibus
+    test_agentuibus.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/ui/agentuibus.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/ui/agentuibus.h
+    ${CMAKE_SOURCE_DIR}/src/agent/ui/agentuievent.h
+    ${CMAKE_SOURCE_DIR}/src/agent/ui/iagentuirenderer.h
+)
+target_link_libraries(test_agentuibus PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_agentuibus PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME AgentUIBus COMMAND test_agentuibus)
+
+# ── HTTP/2 Hardening tests ────────────────────────────────────────────────────
+add_executable(test_http2hardening
+    test_http2hardening.cpp
+)
+target_link_libraries(test_http2hardening PRIVATE Qt6::Test Qt6::Widgets Qt6::Network)
+target_include_directories(test_http2hardening PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME Http2Hardening COMMAND test_http2hardening)
+
+# ── MCP Workspace Trust tests ─────────────────────────────────────────────────
+add_executable(test_mcptrust
+    test_mcptrust.cpp
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpservermanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpservermanager.h
+)
+target_link_libraries(test_mcptrust PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_mcptrust PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME McpTrust COMMAND test_mcptrust)
+
+# ── Marketplace Safety tests ──────────────────────────────────────────────────
+add_executable(test_marketplacesafety
+    test_marketplacesafety.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugin/pluginmarketplaceservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugin/pluginmarketplaceservice.h
+    ${CMAKE_SOURCE_DIR}/src/plugin/pluginmanifest.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugin/pluginmanifest.h
+)
+target_link_libraries(test_marketplacesafety PRIVATE Qt6::Test Qt6::Widgets Qt6::Network)
+target_include_directories(test_marketplacesafety PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME MarketplaceSafety COMMAND test_marketplacesafety)
+
 # Deploy Qt DLLs so tests can run (Windows)
 if(WIN32 AND EXORCIST_DEPLOY_QT)
     find_program(WINDEPLOYQT windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")

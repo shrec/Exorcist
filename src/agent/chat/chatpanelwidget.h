@@ -14,6 +14,7 @@ class QComboBox;
 class QHBoxLayout;
 class QLabel;
 class QStackedWidget;
+class QTimer;
 class QToolButton;
 class QVBoxLayout;
 
@@ -207,4 +208,9 @@ private:
     // Tool confirmation bridge (synchronous callback → async UI)
     QString m_pendingConfirmCallId;
     std::function<void(AgentController::ToolApproval)> m_pendingConfirmResolve;
+
+    // Streaming delta throttle — batches rapid JS evaluations
+    QTimer  *m_deltaFlushTimer = nullptr;
+    QString  m_deltaBuffer;
+    QString  m_thinkingDeltaBuffer;
 };

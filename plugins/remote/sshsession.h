@@ -5,7 +5,9 @@
 #include <QString>
 #include <QStringList>
 #include <QMap>
+#include <QTemporaryFile>
 #include <functional>
+#include <memory>
 
 #include "sshprofile.h"
 
@@ -109,6 +111,21 @@ signals:
     /// Emitted if port forward fails.
     void portForwardError(int requestId, const QString &error);
 
+    /// Emitted when connecting to a host whose key is not in our
+    /// managed known_hosts file. The UI should display the fingerprint
+    /// and call acceptHostKey() or rejectHostKey().
+    void hostKeyVerificationRequired(const QString &host, const QString &fingerprint);
+
+    /// Emitted after a host key is accepted (connection will proceed).
+    void hostKeyAccepted(const QString &host);
+
+public slots:
+    /// Accept the host key presented in hostKeyVerificationRequired.
+    void acceptHostKey();
+
+    /// Reject the host key — connection will fail.
+    void rejectHostKey();
+
 private:
     QStringList sshBaseArgs() const;
     QStringList scpBaseArgs() const;
@@ -125,4 +142,14 @@ private:
     // Track running processes for cleanup
     QList<QProcess *> m_activeProcesses;
     QMap<int, QProcess *> m_portForwards;  // requestId → SSH -L process
+
+    // Managed known_hosts for explicit host key trust
+    QString managedKnownHostsPath() const;
+
+    // Askpass temp files (auto-deleted on destruction)
+    std::vector<std::unique_ptr<QTemporaryFile>> m_askpassFiles;
+
+    // Host key verification state
+    bool m_hostKeyPending = false;
+    bool m_hostKeyAccepted = false;
 };

@@ -40,6 +40,9 @@ public:
     /// Evaluate JavaScript in the view's context.
     void evaluateScript(const QString &js);
 
+    /// Insert text at the cursor position in the focused textarea/input.
+    void insertTextAtCursor(const QString &text);
+
     /// Register a C++ callback callable from JS via window.exorcist.sendToHost(type, payload).
     void registerJSCallback(const QString &type,
                             std::function<void(const QJsonValue &)> callback);
@@ -52,6 +55,10 @@ public:
 
     /// Called by the static DOMReady callback.
     void onDOMReady(unsigned long long frameId, bool isMainFrame);
+
+    /// Set the JS global name to probe for readiness (default: "ChatApp").
+    /// Set to empty string to skip the probe and mark ready immediately.
+    void setReadyProbe(const QString &globalName);
 
 signals:
     /// Emitted when the JS side sends a message to C++.
@@ -73,6 +80,7 @@ protected:
     void focusInEvent(QFocusEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
     void showEvent(QShowEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
     void initView();
@@ -105,6 +113,9 @@ private:
     // HTML to inject after about:blank DOM is ready (workaround for
     // ulViewLoadHTML / file:// crashes in Ultralight 1.4 beta)
     QString m_pendingHtml;
+
+    // JS global name to probe for readiness (empty = skip probe)
+    QString m_readyProbe = QStringLiteral("ChatApp");
 };
 
 } // namespace exorcist

@@ -7,6 +7,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QDragEnterEvent>
+#include <QStandardPaths>
 #include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -922,7 +923,9 @@ bool ChatInputWidget::eventFilter(QObject *obj, QEvent *ev)
             if (mime && mime->hasImage()) {
                 const QImage img = qvariant_cast<QImage>(mime->imageData());
                 if (!img.isNull()) {
-                    const QString tmpPath = QDir::tempPath()
+                    const QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+                    QDir().mkpath(cacheDir);
+                    const QString tmpPath = cacheDir
                         + QStringLiteral("/exorcist_paste_%1.png")
                               .arg(QDateTime::currentMSecsSinceEpoch());
                     if (img.save(tmpPath, "PNG"))

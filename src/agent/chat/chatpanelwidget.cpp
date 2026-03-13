@@ -2,6 +2,7 @@
 
 #include <QClipboard>
 #include <QComboBox>
+#include <QDesktopServices>
 #include <QDir>
 #include <QEventLoop>
 #include <QFileDialog>
@@ -31,10 +32,7 @@
 #include "../../ui/markdownrenderer.h"
 #include "../promptvariables.h"
 #include "../sessionstore.h"
-
-#ifndef EXORCIST_HAS_ULTRALIGHT
 #include "chatinputwidget.h"
-#endif
 #include "chatsessionhistorypopup.h"
 #include "chatsessionmodel.h"
 #include "chatthemetokens.h"
@@ -60,6 +58,40 @@ ChatPanelWidget::ChatPanelWidget(AgentOrchestrator *orchestrator,
     , m_orchestrator(orchestrator)
 {
     m_sessionModel = new ChatSessionModel(this);
+
+    // Streaming delta throttle — flush buffered deltas every 50ms
+    // instead of evaluating JS for every single token.
+    m_deltaFlushTimer = new QTimer(this);
+    m_deltaFlushTimer->setInterval(50);
+    m_deltaFlushTimer->setSingleShot(false);
+    connect(m_deltaFlushTimer, &QTimer::timeout, this, [this]() {
+        const int idx = m_sessionModel->turnCount() - 1;
+        if (idx < 0) {
+            m_deltaFlushTimer->stop();
+            return;
+        }
+        if (!m_deltaBuffer.isEmpty()) {
+            const QString buf = m_deltaBuffer;
+            m_deltaBuffer.clear();
+#ifdef EXORCIST_HAS_ULTRALIGHT
+            m_jsBridge->appendMarkdownDelta(idx, buf);
+#else
+            m_transcript->appendMarkdownDelta(idx, buf);
+#endif
+        }
+        if (!m_thinkingDeltaBuffer.isEmpty()) {
+            const QString buf = m_thinkingDeltaBuffer;
+            m_thinkingDeltaBuffer.clear();
+#ifdef EXORCIST_HAS_ULTRALIGHT
+            m_jsBridge->appendThinkingDelta(idx, buf);
+#else
+            m_transcript->appendThinkingDelta(idx, buf);
+#endif
+        }
+        if (m_deltaBuffer.isEmpty() && m_thinkingDeltaBuffer.isEmpty())
+            m_deltaFlushTimer->stop();
+    });
+
     buildUi();
     connectOrchestrator();
     showWelcomeOrTranscript();
@@ -99,18 +131,8 @@ void ChatPanelWidget::buildUi()
         htmlTemplate.replace(QLatin1String("%MARKDOWN_JS%"), markdownJs);
         htmlTemplate.replace(QLatin1String("%CHAT_JS%"), chatJs);
 
-        // Write HTML to temp file and load via file:// URL
-        // (ulViewLoadHTML crashes in ulUpdate — Ultralight 1.4 beta bug)
-        {
-            const QString tmpPath = QDir::tempPath() + QStringLiteral("/exorcist_chat.html");
-            QFile tmpFile(tmpPath);
-            if (tmpFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                tmpFile.write(htmlTemplate.toUtf8());
-                tmpFile.close();
-            }
-            const QString fileUrl = QStringLiteral("file:///") + tmpPath;
-            m_ultralightView->loadURL(fileUrl);
-        }
+        // loadHTML uses about:blank + JS injection (no temp files needed)
+        m_ultralightView->loadHTML(htmlTemplate);
     }
 
     // Apply theme once DOM is ready
@@ -235,6 +257,11 @@ void ChatPanelWidget::buildUi()
             this, [this] {
         if (auto *active = m_orchestrator->activeProvider())
             active->initialize();
+    });
+
+    connect(m_jsBridge, &exorcist::ChatJSBridge::openExternalUrlRequested,
+            this, [](const QString &url) {
+        QDesktopServices::openUrl(QUrl(url));
     });
 
     // Slash commands
@@ -375,10 +402,15 @@ void ChatPanelWidget::buildUi()
             if (session) {
                 const auto &snaps = session->fileSnapshots();
                 for (auto it = snaps.begin(); it != snaps.end(); ++it) {
-                    QSaveFile f(it.key());
-                    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                        f.write(it.value().toUtf8());
-                        f.commit();
+                    if (it.value().isNull()) {
+                        // File didn't exist before — remove it
+                        QFile::remove(it.key());
+                    } else {
+                        QSaveFile f(it.key());
+                        if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                            f.write(it.value().toUtf8());
+                            f.commit();
+                        }
                     }
                 }
             }
@@ -560,6 +592,33 @@ void ChatPanelWidget::connectController()
         m_pendingPatches.append(patch);
         showChangesBar(m_pendingPatches.size());
     });
+
+    // Show changes bar when tools modify files (checkpoint system)
+    connect(m_agentController, &AgentController::filesChanged,
+            this, [this](const QStringList &filePaths) {
+        if (!filePaths.isEmpty()) {
+            // Create synthetic PatchProposals so Keep/Undo knows about them
+            for (const auto &fp : filePaths) {
+                bool alreadyTracked = false;
+                for (const auto &pp : m_pendingPatches) {
+                    if (pp.filePath == fp) { alreadyTracked = true; break; }
+                }
+                if (!alreadyTracked) {
+                    PatchProposal pp;
+                    pp.filePath = fp;
+                    m_pendingPatches.append(pp);
+                }
+            }
+            showChangesBar(m_pendingPatches.size());
+        }
+    });
+
+    // Token usage reporting — update input widget context token display
+    connect(m_agentController, &AgentController::tokenUsageUpdated,
+            this, [this](int promptTokens, int, int totalTokens) {
+        if (m_inputWidget && totalTokens > 0)
+            m_inputWidget->setContextTokenCount(promptTokens);
+    });
 }
 
 void ChatPanelWidget::connectTranscript()
@@ -581,6 +640,10 @@ void ChatPanelWidget::connectTranscript()
     connect(m_jsBridge, &exorcist::ChatJSBridge::copyCodeRequested,
             this, [](const QString &code) {
         QGuiApplication::clipboard()->setText(code);
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::copyTextRequested,
+            this, [](const QString &text) {
+        QGuiApplication::clipboard()->setText(text);
     });
     connect(m_jsBridge, &exorcist::ChatJSBridge::applyCodeRequested,
             this, [this](const QString &code, const QString &, const QString &filePath) {
@@ -725,10 +788,14 @@ void ChatPanelWidget::connectTranscript()
         const auto &snaps = session->fileSnapshots();
         auto it = snaps.find(path);
         if (it != snaps.end()) {
-            QSaveFile f(it.key());
-            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                f.write(it.value().toUtf8());
-                f.commit();
+            if (it.value().isNull()) {
+                QFile::remove(it.key());
+            } else {
+                QSaveFile f(it.key());
+                if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                    f.write(it.value().toUtf8());
+                    f.commit();
+                }
             }
         }
         m_pendingPatches.erase(
@@ -1120,6 +1187,7 @@ void ChatPanelWidget::updateSessionTitle()
 
 void ChatPanelWidget::onSend(const QString &text, int mode)
 {
+    qWarning("ChatPanelWidget::onSend called: text='%s' mode=%d", qPrintable(text.left(100)), mode);
     if (text.trimmed().isEmpty())
         return;
 
@@ -1468,11 +1536,12 @@ void ChatPanelWidget::onResponseDelta(const QString &requestId,
         return;
 
     m_sessionModel->appendMarkdownDelta(chunk);
-#ifdef EXORCIST_HAS_ULTRALIGHT
-    m_jsBridge->appendMarkdownDelta(idx, chunk);
-#else
-    m_transcript->appendMarkdownDelta(idx, chunk);
-#endif
+
+    // Buffer the delta and start the flush timer.
+    // JS evaluation happens at most every 50ms instead of per-token.
+    m_deltaBuffer += chunk;
+    if (!m_deltaFlushTimer->isActive())
+        m_deltaFlushTimer->start();
 }
 
 void ChatPanelWidget::onThinkingDelta(const QString &requestId,
@@ -1486,11 +1555,10 @@ void ChatPanelWidget::onThinkingDelta(const QString &requestId,
         return;
 
     m_sessionModel->appendThinkingDelta(chunk);
-#ifdef EXORCIST_HAS_ULTRALIGHT
-    m_jsBridge->appendThinkingDelta(idx, chunk);
-#else
-    m_transcript->appendThinkingDelta(idx, chunk);
-#endif
+
+    m_thinkingDeltaBuffer += chunk;
+    if (!m_deltaFlushTimer->isActive())
+        m_deltaFlushTimer->start();
 }
 
 void ChatPanelWidget::onResponseFinished(const QString &requestId,
@@ -1498,6 +1566,30 @@ void ChatPanelWidget::onResponseFinished(const QString &requestId,
 {
     if (requestId != m_pendingRequestId)
         return;
+
+    // Flush any buffered streaming deltas before finalizing the turn
+    m_deltaFlushTimer->stop();
+    {
+        const int idx = m_sessionModel->turnCount() - 1;
+        if (idx >= 0) {
+            if (!m_deltaBuffer.isEmpty()) {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+                m_jsBridge->appendMarkdownDelta(idx, m_deltaBuffer);
+#else
+                m_transcript->appendMarkdownDelta(idx, m_deltaBuffer);
+#endif
+                m_deltaBuffer.clear();
+            }
+            if (!m_thinkingDeltaBuffer.isEmpty()) {
+#ifdef EXORCIST_HAS_ULTRALIGHT
+                m_jsBridge->appendThinkingDelta(idx, m_thinkingDeltaBuffer);
+#else
+                m_transcript->appendThinkingDelta(idx, m_thinkingDeltaBuffer);
+#endif
+                m_thinkingDeltaBuffer.clear();
+            }
+        }
+    }
 
     m_pendingRequestId.clear();
 #ifdef EXORCIST_HAS_ULTRALIGHT

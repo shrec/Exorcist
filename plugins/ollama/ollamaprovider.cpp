@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPointer>
 #include <QSettings>
 
 static const char kDefaultUrl[] = "http://localhost:11434";
@@ -89,6 +90,7 @@ void OllamaProvider::fetchModels()
 {
     // GET /api/tags → { "models": [ { "name": "llama3:latest", ... } ] }
     QNetworkRequest req{QUrl{m_baseUrl + QStringLiteral("/api/tags")}};
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     req.setRawHeader("Accept", "application/json");
 
     QNetworkReply *reply = m_nam.get(req);
@@ -181,6 +183,7 @@ void OllamaProvider::sendRequest(const AgentRequest &request)
     };
 
     QNetworkRequest req{QUrl{m_baseUrl + QStringLiteral("/api/chat")}};
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
 
     m_activeRequestId = request.requestId;
@@ -189,27 +192,33 @@ void OllamaProvider::sendRequest(const AgentRequest &request)
     QNetworkReply *reply = m_nam.post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
     m_activeReply = reply;
 
+    QPointer<QNetworkReply> safeReply(reply);
+
     // Ollama streams newline-delimited JSON (NDJSON)
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply] {
-        while (reply->canReadLine()) {
-            const QByteArray line = reply->readLine().trimmed();
+    connect(reply, &QNetworkReply::readyRead, this, [this, safeReply] {
+        if (!safeReply || safeReply != m_activeReply)
+            return;
+        while (safeReply->canReadLine()) {
+            const QByteArray line = safeReply->readLine().trimmed();
             if (!line.isEmpty())
                 processLine(line);
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        if (m_activeReply != reply)
+    connect(reply, &QNetworkReply::finished, this, [this, safeReply] {
+        if (!safeReply)
+            return;
+        safeReply->deleteLater();
+        if (m_activeReply != safeReply)
             return;
         m_activeReply = nullptr;
 
-        if (reply->error() != QNetworkReply::NoError
-            && reply->error() != QNetworkReply::OperationCanceledError) {
+        if (safeReply->error() != QNetworkReply::NoError
+            && safeReply->error() != QNetworkReply::OperationCanceledError) {
             AgentError err;
             err.requestId = m_activeRequestId;
             err.code      = AgentError::Code::NetworkError;
-            err.message   = reply->errorString();
+            err.message   = safeReply->errorString();
             emit responseError(m_activeRequestId, err);
             m_activeRequestId.clear();
             m_accumulated.clear();
@@ -217,7 +226,7 @@ void OllamaProvider::sendRequest(const AgentRequest &request)
         }
 
         // Process any remaining data
-        const QByteArray remaining = reply->readAll().trimmed();
+        const QByteArray remaining = safeReply->readAll().trimmed();
         if (!remaining.isEmpty()) {
             for (const QByteArray &line : remaining.split('\n')) {
                 const QByteArray trimmed = line.trimmed();

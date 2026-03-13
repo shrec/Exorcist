@@ -405,7 +405,25 @@ See [docs/luajit.md](luajit.md)
 - [x] E2. Plugin Gallery enable/disable runtime toggle ✅ (PluginManager gains setPluginDisabled/isPluginDisabled persisted in QSettings; disabled plugins skipped during initializeAll; PluginGalleryPanel shows Enable/Disable button with disabled state styling; pluginToggled signal for UI feedback)
 - [x] E3. Agent tool plugin wiring ✅ (already implemented in AgentPlatformBootstrap::registerPluginProviders — IAgentToolPlugin::createTools() with ToolRegistry registration)
 
+### Agent UI Protocol — completed
+- [x] **AgentUIEvent** (`src/agent/ui/agentuievent.h`) — 13 event types (MissionCreated/Updated/Completed, StepAdded/Updated, MetricUpdated, LogAdded, PanelCreated/Updated/Removed, ArtifactAdded, CustomEvent), status enums (AgentLogLevel, AgentStepStatus, AgentMissionStatus), 12 static convenience constructors
+- [x] **IAgentUIRenderer** (`src/agent/ui/iagentuirenderer.h`) — abstract interface for dashboard renderers (handleEvent, clearDashboard, isActive)
+- [x] **AgentUIBus** (`src/agent/ui/agentuibus.h/.cpp`) — QObject event bus: renderer registration, event posting with timestamps, mission lifecycle tracking, per-mission event history
+- [x] **AgentDashboardPanel** (`src/agent/ui/agentdashboardpanel.h/.cpp`) — live operational dashboard: Ultralight HTML renderer path (dark-themed dashboard with steps, metrics, logs, artifacts) with QWidget fallback
+- [x] **DashboardJSBridge** (`src/agent/ui/dashboardjsbridge.h/.cpp`) — C++↔JS bridge for pushing structured events to dashboard HTML
+- [x] **Dashboard tools** (`src/agent/tools/dashboardtools.h`) — 6 ITool implementations: create_dashboard_mission, update_dashboard_step, update_dashboard_metric, add_dashboard_log, add_dashboard_artifact, complete_dashboard_mission
+- [x] **Integration** — AgentUIBus owned by AgentPlatformBootstrap, registered as "agentUIBus" service; dashboard dock in MainWindow (FREEZE-compliant via ServiceRegistry, no new members); 85+ agent tools registered
+- [x] **test_agentuibus** — 13 tests: event creation, bus dispatch, multiple renderers, mission lifecycle, event history, clear, timestamps, all convenience constructors, signal emission. 43/43 total suite pass.
+
 ### Chat & Streaming UX Polish
-- [ ] Fix text selection/copy in Ultralight chat panel
-- [ ] Stream consolidation — compact unified stream for tool calls (VS Code parity)
+- [x] Fix text selection/copy in Ultralight chat panel (mouse drag button state, Ctrl+C interception, copy event bridge, context menu with Copy/Select All)
+- [x] HTTP/2 GOAWAY crash fix — disabled HTTP/2 across all QNetworkAccessManagers (8 src/ + 9 plugin locations) + QPointer safety in Copilot provider
+- [x] test_http2hardening — 12 tests: attribute verification for all request patterns, default check, persistence after header additions. 44/44 total suite pass.
+- [x] VS Code-style tool invocation cards — card-based rendering with category SVG icons (file/terminal/search/directory/subagent/gear), streaming shimmer + pulse-dot animation, collapsible input/output detail, border glow on active tools
+- [x] AgentUIBus bounded history — per-mission cap 500 events + max 20 missions with LRU eviction
+- [x] MCP workspace trust gate — servers from .mcp.json require explicit workspace trust (QSettings-persisted SHA256 hash, trustRequired signal for UI prompt). Tests in test_mcptrust (6 cases).
+- [x] Marketplace path safety — isValidPluginId blocks traversal in plugin IDs, isPathInside validates paths stay in plugins dir, tar --no-absolute-filenames, PowerShell -LiteralPath. Tests in test_marketplacesafety (6 cases).
+- [x] SSH command/path escaping — shellQuote() POSIX single-quote wrapper applied to all 5 remote path interpolation sites (cd, ls, cat, cat >, test -e)
+- [x] Plugin apiVersion validation — activatePlugin() checks PluginInfo.apiVersion major against EXORCIST_SDK_VERSION_MAJOR, skips incompatible plugins with error
+- [x] Dashboard fallback null guard — handleEvent() checks m_stepsList/m_logsList before use in QWidget fallback path
 - [ ] Fix terminal tool execution hang

@@ -26,6 +26,8 @@
  *   ex.workspace.root() → string|nil
  *   ex.workspace.readFile(path) → string|nil
  *   ex.workspace.exists(path) → bool
+ *   ex.workspace.listDir(path?) → table  (file/dir names)
+ *   ex.workspace.openFiles() → table  (open file paths)
  *
  *   ex.git.isRepo() → bool
  *   ex.git.branch() → string|nil
@@ -118,6 +120,8 @@ private:
     static int l_workspace_root(lua_State *L);
     static int l_workspace_readFile(lua_State *L);
     static int l_workspace_exists(lua_State *L);
+    static int l_workspace_listDir(lua_State *L);
+    static int l_workspace_openFiles(lua_State *L);
 
     // Git (read-only)
     static int l_git_isRepo(lua_State *L);

@@ -11,13 +11,17 @@
 #include <QDirIterator>
 #include <QCoreApplication>
 #include <QEventLoop>
-#include <QFutureWatcher>
+#include <QFile>
+#include <QFileInfo>
+#include <QFuture>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLoggingCategory>
 #include <QSysInfo>
-#include <QThreadPool>
+#include <QTextStream>
+#include <QTimer>
 #include <QUuid>
+#include <QtConcurrent>
 
 Q_LOGGING_CATEGORY(lcCtrl, "exorcist.agent.controller")
 
@@ -468,6 +472,11 @@ void AgentController::onResponseFinished(const QString &requestId,
 
     // Did the model request tool calls?
     if (!response.toolCalls.isEmpty() && m_session->agentMode()) {
+        // Emit token usage for intermediate steps too
+        if (response.totalTokens > 0)
+            emit tokenUsageUpdated(response.promptTokens, response.completionTokens,
+                                   response.totalTokens);
+
         // Record the model's response as a step
         AgentStep modelStep;
         modelStep.type          = AgentStep::Type::ModelCall;
@@ -491,6 +500,11 @@ void AgentController::onResponseFinished(const QString &requestId,
 
     // No tool calls — this is the final answer
     QList<PatchProposal> patches = extractPatches(responseText);
+
+    // Emit token usage for UI display
+    if (response.totalTokens > 0)
+        emit tokenUsageUpdated(response.promptTokens, response.completionTokens,
+                               response.totalTokens);
 
     if (m_store)
         m_store->recordAssistantMessage(m_session->id(), responseText);
@@ -589,12 +603,110 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls)
             ++approvedCount;
     }
 
-    // ── Phase 2: Execute tools (sequential) ─────────────────────────────
-    // Sequential execution avoids nested QEventLoop issues that cause crashes
-    // when combined with the tool confirmation callback's event loop.
-    for (auto &w : work) {
-        if (!w.denied)
-            w.result = executeSingleTool(w.tc);
+    // ── Phase 2: Execute tools sequentially with timeout ──────────────
+    // Tools run on the main thread because many callbacks access
+    // main-thread QObjects (BuildSystemService, CMakeIntegration, etc.).
+    // A watchdog QTimer enforces ToolSpec::timeoutMs — it fires during
+    // tools that use internal QEventLoop::exec() (build, HTTP, git).
+    // ExcludeSocketNotifiers prevents re-entrant SSE handlers.
+    //
+    // Tools with parallelSafe=true are batched and run concurrently on
+    // QThreadPool when there are 2+ of them (e.g. multiple read_file).
+    // This cuts multi-file context-gathering latency dramatically.
+    QStringList mutatedFiles;
+
+    // Partition approved tools into parallel-safe and sequential groups
+    QVector<int> parallelIndices, sequentialIndices;
+    for (int i = 0; i < work.size(); ++i) {
+        if (work[i].denied)
+            continue;
+        ITool *tool = m_toolRegistry ? m_toolRegistry->tool(work[i].tc.name) : nullptr;
+        if (tool && tool->spec().parallelSafe
+            && tool->spec().permission == AgentToolPermission::ReadOnly) {
+            parallelIndices.append(i);
+        } else {
+            sequentialIndices.append(i);
+        }
+    }
+
+    // ── Execute parallel-safe batch concurrently ──────────────────────────
+    if (parallelIndices.size() > 1) {
+        qCInfo(lcCtrl) << "Executing" << parallelIndices.size()
+                       << "read-only tools in parallel";
+
+        struct ParallelJob {
+            int index;
+            QFuture<ToolExecResult> future;
+        };
+        QVector<ParallelJob> jobs;
+        jobs.reserve(parallelIndices.size());
+
+        for (int idx : parallelIndices) {
+            auto tc = work[idx].tc; // copy for thread safety
+            auto future = QtConcurrent::run([this, tc]() {
+                return executeSingleTool(tc);
+            });
+            jobs.append({idx, std::move(future)});
+        }
+
+        // Wait for all parallel jobs, pumping events for UI responsiveness
+        for (auto &job : jobs) {
+            while (!job.future.isFinished()) {
+                QCoreApplication::processEvents(QEventLoop::ExcludeSocketNotifiers, 5);
+            }
+            work[job.index].result = job.future.result();
+        }
+    } else if (parallelIndices.size() == 1) {
+        // Single parallel-safe tool — run inline, no thread overhead
+        work[parallelIndices[0]].result = executeSingleTool(work[parallelIndices[0]].tc);
+    }
+
+    // ── Execute sequential batch (mutation tools, main-thread-only) ───────
+    for (int idx : sequentialIndices) {
+        auto &w = work[idx];
+
+        // Snapshot files that this tool will mutate (for Undo All)
+        ITool *tool = m_toolRegistry ? m_toolRegistry->tool(w.tc.name) : nullptr;
+        if (tool && static_cast<int>(tool->spec().permission) >=
+                    static_cast<int>(AgentToolPermission::SafeMutate)) {
+            const int beforeCount = m_session ? m_session->fileSnapshots().size() : 0;
+            snapshotFilesForTool(w.tc.name, w.args);
+            if (m_session && m_session->fileSnapshots().size() > beforeCount) {
+                const auto &snaps = m_session->fileSnapshots();
+                for (auto it = snaps.begin(); it != snaps.end(); ++it) {
+                    if (!mutatedFiles.contains(it.key()))
+                        mutatedFiles.append(it.key());
+                }
+            }
+        }
+
+        int timeoutMs = (tool ? tool->spec().timeoutMs : 30000);
+        if (timeoutMs <= 0)
+            timeoutMs = 30000;
+
+        bool timedOut = false;
+        QTimer watchdog;
+        watchdog.setSingleShot(true);
+        connect(&watchdog, &QTimer::timeout, this, [&timedOut, tool]() {
+            timedOut = true;
+            if (tool)
+                tool->cancel();
+        });
+        watchdog.start(timeoutMs);
+
+        QCoreApplication::processEvents(QEventLoop::ExcludeSocketNotifiers, 10);
+        w.result = executeSingleTool(w.tc);
+
+        watchdog.stop();
+
+        if (timedOut) {
+            qCWarning(lcCtrl) << "Tool" << w.tc.name
+                              << "timed out after" << timeoutMs << "ms";
+            w.result = {false, {}, {},
+                tr("Tool '%1' timed out after %2 seconds.")
+                    .arg(w.tc.name)
+                    .arg(timeoutMs / 1000)};
+        }
     }
 
     // ── Phase 3: Record results & emit signals (main thread) ──────────────
@@ -623,6 +735,10 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls)
             return;
         }
     }
+
+    // All tools executed — notify UI of file changes if any
+    if (!mutatedFiles.isEmpty())
+        emit filesChanged(mutatedFiles);
 
     // All tools executed — send results back to model for next step
     sendModelRequest();
@@ -668,6 +784,53 @@ void AgentController::finishTurn(const QString &finalText,
 
     qCInfo(lcCtrl) << "Turn finished. Steps:" << m_currentStepCount
                     << "Patches:" << patches.size();
+}
+
+// ── File snapshot before mutation ─────────────────────────────────────────────
+//
+// Extracts file path(s) from tool arguments and reads the file content
+// into AgentSession::m_fileSnapshots so Undo All can restore them.
+// Only the FIRST snapshot per file per session is recorded (true baseline).
+
+void AgentController::snapshotFilesForTool(const QString &toolName,
+                                            const QJsonObject &args)
+{
+    if (!m_session)
+        return;
+
+    auto snapshotOne = [this](const QString &path) {
+        if (path.isEmpty() || m_session->fileSnapshots().contains(path))
+            return;
+        QFile f(path);
+        if (f.exists()) {
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                m_session->recordFileChange(path, QTextStream(&f).readAll());
+            }
+        } else {
+            // File doesn't exist yet — record empty so undo can delete it
+            m_session->recordFileChange(path, QString());
+        }
+    };
+
+    // Tools that take a single "path" parameter
+    static const QStringList singlePathTools = {
+        QStringLiteral("apply_patch"),
+        QStringLiteral("create_file"),
+        QStringLiteral("replace_string_in_file"),
+        QStringLiteral("insert_edit_into_file"),
+    };
+    if (singlePathTools.contains(toolName)) {
+        snapshotOne(args[QLatin1String("path")].toString());
+        return;
+    }
+
+    // multi_replace_string_in_file — array of replacements
+    if (toolName == QLatin1String("multi_replace_string_in_file")) {
+        const QJsonArray replacements = args[QLatin1String("replacements")].toArray();
+        for (const auto &val : replacements)
+            snapshotOne(val.toObject()[QLatin1String("filePath")].toString());
+        return;
+    }
 }
 
 // ── Patch extraction from model response ──────────────────────────────────────

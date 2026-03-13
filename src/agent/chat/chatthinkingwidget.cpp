@@ -291,8 +291,19 @@ ChatThinkingWidget::ToolItem *ChatThinkingWidget::addToolItem(const ChatContentP
     item->allowBtn->setStyleSheet(primaryBtnStyle);
     connect(item->allowBtn, &QToolButton::clicked, this, [this, item]() {
         item->allowBtn->setEnabled(false);
+        item->alwaysAllowBtn->setEnabled(false);
         item->denyBtn->setEnabled(false);
         emit toolConfirmed(item->callId, 1);
+    });
+
+    item->alwaysAllowBtn = new QToolButton(item->confirmRow);
+    item->alwaysAllowBtn->setText(tr("Always Allow"));
+    item->alwaysAllowBtn->setStyleSheet(primaryBtnStyle);
+    connect(item->alwaysAllowBtn, &QToolButton::clicked, this, [this, item]() {
+        item->allowBtn->setEnabled(false);
+        item->alwaysAllowBtn->setEnabled(false);
+        item->denyBtn->setEnabled(false);
+        emit toolConfirmed(item->callId, 2);
     });
 
     item->denyBtn = new QToolButton(item->confirmRow);
@@ -305,11 +316,13 @@ ChatThinkingWidget::ToolItem *ChatThinkingWidget::addToolItem(const ChatContentP
                  ChatTheme::SecondaryBtnHover));
     connect(item->denyBtn, &QToolButton::clicked, this, [this, item]() {
         item->allowBtn->setEnabled(false);
+        item->alwaysAllowBtn->setEnabled(false);
         item->denyBtn->setEnabled(false);
         emit toolConfirmed(item->callId, 0);
     });
 
     confirmLayout->addWidget(item->allowBtn);
+    confirmLayout->addWidget(item->alwaysAllowBtn);
     confirmLayout->addWidget(item->denyBtn);
     confirmLayout->addStretch();
     rowMain->addWidget(item->confirmRow);

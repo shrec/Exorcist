@@ -374,6 +374,15 @@ add_executable(exorcist WIN32
     agent/tooltogglemanager.h
     agent/contextscopeconfig.h
     agent/contextscopeconfig.cpp
+    agent/ui/agentuievent.h
+    agent/ui/iagentuirenderer.h
+    agent/ui/agentuibus.h
+    agent/ui/agentuibus.cpp
+    agent/ui/agentdashboardpanel.h
+    agent/ui/agentdashboardpanel.cpp
+    agent/ui/dashboardjsbridge.h
+    agent/ui/dashboardjsbridge.cpp
+    agent/tools/dashboardtools.h
     search/embeddingindex.h
     search/embeddingindex.cpp
     search/gitignorefilter.h

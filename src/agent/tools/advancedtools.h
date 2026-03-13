@@ -34,6 +34,7 @@ public:
             "Examples: **/*.{cpp,h} to match all cpp/h files, "
             "src/** to match all files under src/.");
         s.permission  = AgentToolPermission::ReadOnly;
+        s.parallelSafe = true;
         s.timeoutMs   = 15000;
         s.inputSchema = QJsonObject{
             {QStringLiteral("type"), QStringLiteral("object")},

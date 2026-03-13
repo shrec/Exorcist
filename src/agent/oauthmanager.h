@@ -165,6 +165,7 @@ private:
         req.setHeader(QNetworkRequest::ContentTypeHeader,
                       QStringLiteral("application/x-www-form-urlencoded"));
         req.setRawHeader("Accept", "application/json");
+        req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
         QUrlQuery body;
         body.addQueryItem(QStringLiteral("client_id"), m_clientId);

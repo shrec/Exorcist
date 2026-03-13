@@ -18,6 +18,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QDockWidget>
+#include <QStandardPaths>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QEvent>
@@ -2414,7 +2415,9 @@ bool AgentChatPanel::eventFilter(QObject *obj, QEvent *ev)
                 const QImage img = qvariant_cast<QImage>(mime->imageData());
                 if (!img.isNull()) {
                     // Save to temp file and attach
-                    const QString tmpPath = QDir::tempPath()
+                    const QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+                    QDir().mkpath(cacheDir);
+                    const QString tmpPath = cacheDir
                         + QStringLiteral("/exorcist_paste_%1.png")
                               .arg(QDateTime::currentMSecsSinceEpoch());
                     if (img.save(tmpPath, "PNG"))

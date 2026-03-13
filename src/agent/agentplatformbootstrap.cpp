@@ -59,6 +59,8 @@
 #include "tools/sandboxtools.h"
 #include "tools/devtools.h"
 #include "tools/treesitterquerytool.h"
+#include "tools/dashboardtools.h"
+#include "ui/agentuibus.h"
 #include "diagnosticsnotifier.h"
 #include "terminalsessionmanager.h"
 #include "workspacecontextdetector.h"
@@ -108,6 +110,9 @@ void AgentPlatformBootstrap::initialize(const Callbacks &callbacks)
     m_memorySuggestionEngine = new MemorySuggestionEngine(m_brainService, this);
     m_agentController->setBrainContextBuilder(m_brainBuilder);
 
+    // Agent UI event bus (dashboard protocol)
+    m_uiBus = new AgentUIBus(this);
+
     m_contextBuilder->setFileSystem(m_fileSystem);
     m_contextBuilder->setOpenFilesGetter(m_callbacks.openFilesGetter);
     m_contextBuilder->setGitStatusGetter(m_callbacks.gitStatusGetter);
@@ -131,6 +136,7 @@ void AgentPlatformBootstrap::initialize(const Callbacks &callbacks)
         m_services->registerService(QStringLiteral("chatSessionService"), m_chatSessionService);
         m_services->registerService(QStringLiteral("toolApprovalService"), m_toolApprovalService);
         m_services->registerService(QStringLiteral("projectBrainService"), m_brainService);
+        m_services->registerService(QStringLiteral("agentUIBus"), m_uiBus);
     }
 }
 
@@ -444,6 +450,16 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
     m_toolRegistry->registerTool(std::make_unique<GitHubPRTool>());
     m_toolRegistry->registerTool(std::make_unique<GitHubCodeSearchTool>());
     m_toolRegistry->registerTool(std::make_unique<GitHubRepoInfoTool>());
+
+    // ── Agent dashboard tools (live operational UI) ──────────────────────
+    if (m_uiBus) {
+        m_toolRegistry->registerTool(std::make_unique<CreateDashboardMissionTool>(m_uiBus));
+        m_toolRegistry->registerTool(std::make_unique<UpdateDashboardStepTool>(m_uiBus));
+        m_toolRegistry->registerTool(std::make_unique<UpdateDashboardMetricTool>(m_uiBus));
+        m_toolRegistry->registerTool(std::make_unique<AddDashboardLogTool>(m_uiBus));
+        m_toolRegistry->registerTool(std::make_unique<AddDashboardArtifactTool>(m_uiBus));
+        m_toolRegistry->registerTool(std::make_unique<CompleteDashboardMissionTool>(m_uiBus));
+    }
 
     setWorkspaceRoot(workspaceRoot);
 }

@@ -138,6 +138,81 @@ inline QString descriptionFromArgs(const QString &toolName, const QJsonObject &a
         }
     }
 
+    // rename_file / copy_file / delete_file
+    if (toolName == QLatin1String("rename_file")
+        || toolName == QLatin1String("copy_file")
+        || toolName == QLatin1String("delete_file")) {
+        const QString fp = args.value(QLatin1String("filePath")).toString();
+        if (!fp.isEmpty()) {
+            const int sep = fp.lastIndexOf(QLatin1Char('/'));
+            const int bsep = fp.lastIndexOf(QLatin1Char('\\'));
+            const int idx = qMax(sep, bsep);
+            return idx >= 0 ? fp.mid(idx + 1) : fp;
+        }
+    }
+
+    // open_file
+    if (toolName == QLatin1String("open_file")) {
+        const QString fp = args.value(QLatin1String("filePath")).toString();
+        if (!fp.isEmpty()) {
+            const int sep = fp.lastIndexOf(QLatin1Char('/'));
+            const int bsep = fp.lastIndexOf(QLatin1Char('\\'));
+            const int idx = qMax(sep, bsep);
+            return idx >= 0 ? fp.mid(idx + 1) : fp;
+        }
+    }
+
+    // rename_symbol
+    if (toolName == QLatin1String("rename_symbol")) {
+        const QString name = args.value(QLatin1String("newName")).toString();
+        if (!name.isEmpty()) return name;
+    }
+
+    // build_project
+    if (toolName == QLatin1String("build_project")) {
+        const QString target = args.value(QLatin1String("target")).toString();
+        if (!target.isEmpty()) return target;
+    }
+
+    // run_lua_tool
+    if (toolName == QLatin1String("run_lua_tool")) {
+        const QString name = args.value(QLatin1String("name")).toString();
+        if (!name.isEmpty()) return name;
+    }
+
+    // http_request
+    if (toolName == QLatin1String("http_request")) {
+        const QString url = args.value(QLatin1String("url")).toString();
+        if (!url.isEmpty()) {
+            const QString trimmed = url.length() > 60
+                ? url.left(57) + QStringLiteral("\u2026") : url;
+            return trimmed;
+        }
+    }
+
+    // database_query
+    if (toolName == QLatin1String("database_query")) {
+        const QString query = args.value(QLatin1String("query")).toString();
+        if (!query.isEmpty()) {
+            const QString trimmed = query.length() > 60
+                ? query.left(57) + QStringLiteral("\u2026") : query;
+            return QStringLiteral("\u201C%1\u201D").arg(trimmed);
+        }
+    }
+
+    // run_subagent
+    if (toolName == QLatin1String("run_subagent")) {
+        const QString desc = args.value(QLatin1String("description")).toString();
+        if (!desc.isEmpty()) return desc;
+    }
+
+    // github_issues / github_pr
+    if (toolName == QLatin1String("github_issues")
+        || toolName == QLatin1String("github_pr")) {
+        const QString repo = args.value(QLatin1String("repo")).toString();
+        if (!repo.isEmpty()) return repo;
+    }
+
     return {};
 }
 

@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPointer>
 #include <QSettings>
 
 ByokProvider::ByokProvider(QObject *parent)
@@ -129,6 +130,7 @@ void ByokProvider::sendRequest(const AgentRequest &request)
     };
 
     QNetworkRequest netReq{QUrl{m_endpointUrl}};
+    netReq.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     netReq.setHeader(QNetworkRequest::ContentTypeHeader,
                      QStringLiteral("application/json"));
     netReq.setRawHeader("Authorization",
@@ -156,9 +158,13 @@ void ByokProvider::cancelRequest(const QString &requestId)
 
 void ByokProvider::connectReply(QNetworkReply *reply)
 {
+    QPointer<QNetworkReply> safeReply(reply);
+
     // Stream SSE data lines
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply] {
-        const QByteArray raw = reply->readAll();
+    connect(reply, &QNetworkReply::readyRead, this, [this, safeReply] {
+        if (!safeReply || safeReply != m_activeReply)
+            return;
+        const QByteArray raw = safeReply->readAll();
         const QStringList lines = QString::fromUtf8(raw).split(QLatin1Char('\n'));
 
         for (const QString &line : lines) {
@@ -189,9 +195,11 @@ void ByokProvider::connectReply(QNetworkReply *reply)
         }
     });
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        if (m_activeReply != reply)
+    connect(reply, &QNetworkReply::finished, this, [this, safeReply] {
+        if (!safeReply)
+            return;
+        safeReply->deleteLater();
+        if (m_activeReply != safeReply)
             return;
         m_activeReply = nullptr;
 
@@ -199,9 +207,9 @@ void ByokProvider::connectReply(QNetworkReply *reply)
             return;
 
         const int status =
-            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            safeReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
-        if (reply->error() == QNetworkReply::NoError) {
+        if (safeReply->error() == QNetworkReply::NoError) {
             AgentResponse resp;
             resp.requestId = m_activeRequestId;
             resp.text = m_streamAccum;
@@ -209,7 +217,7 @@ void ByokProvider::connectReply(QNetworkReply *reply)
         } else {
             AgentError err;
             err.requestId = m_activeRequestId;
-            err.message   = reply->errorString();
+            err.message   = safeReply->errorString();
             if (status == 401 || status == 403)
                 err.code = AgentError::Code::AuthError;
             else if (status == 429)

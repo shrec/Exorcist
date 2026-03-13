@@ -92,6 +92,16 @@ public:
     void diffAsync(const QString &filePath = {});
     /// Async showAtHead — result delivered via showAtHeadReady signal.
     void showAtHeadAsync(const QString &absFilePath);
+    /// Async showAtRevision — result delivered via showAtRevisionReady signal.
+    void showAtRevisionAsync(const QString &absFilePath, const QString &rev);
+    /// Async diffRevisions — result delivered via diffRevisionsReady signal.
+    void diffRevisionsAsync(const QString &rev1, const QString &rev2);
+    /// Async changedFilesBetween — result delivered via changedFilesBetweenReady signal.
+    void changedFilesBetweenAsync(const QString &rev1, const QString &rev2);
+    /// Async localBranches — result delivered via localBranchesReady signal.
+    void localBranchesAsync();
+    /// Async log — result delivered via logReady signal.
+    void logAsync(int maxCount = 50);
 
     /// Set a BridgeClient for centralized git file watching.
     /// When set, file watching is delegated to ExoBridge's GitWatchService
@@ -107,6 +117,12 @@ signals:
     void blameReady(const QString &filePath, const QList<BlameEntry> &entries);
     void diffReady(const QString &filePath, const QString &diff);
     void showAtHeadReady(const QString &filePath, const QString &content);
+    void showAtRevisionReady(const QString &filePath, const QString &rev, const QString &content);
+    void diffRevisionsReady(const QString &rev1, const QString &rev2, const QString &diff);
+    void changedFilesBetweenReady(const QString &rev1, const QString &rev2,
+                                  const QList<ChangedFile> &files);
+    void localBranchesReady(const QStringList &branches);
+    void logReady(const QList<LogEntry> &entries);
 
 private:
     void refresh();
