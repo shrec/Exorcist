@@ -1,6 +1,7 @@
 #include <QTest>
 #include <QTextDocument>
 #include <QTextCursor>
+#include <QTextBlock>
 
 #include "editor/multicursorengine.h"
 
@@ -68,6 +69,29 @@ private slots:
     // ── Merge cursors ─────────────────────────────────────────────────────
     void mergeTouchingCursors();
     void mergeOverlappingSelections();
+
+    // ── Cursor movement ───────────────────────────────────────────────────
+    void moveLeft_movesCursors();
+    void moveRight_movesCursors();
+    void moveUp_movesCursors();
+    void moveDown_movesCursors();
+    void moveLeft_withSelection();
+    void moveToStartOfLine();
+    void moveToEndOfLine();
+    void moveWordLeft();
+    void moveWordRight();
+    void moveRight_mergesCursors();
+
+    // ── Line operations ───────────────────────────────────────────────────
+    void duplicateLine_singleCursor();
+    void duplicateLine_multipleCursors();
+    void deleteLine_singleCursor();
+    void deleteLine_multipleCursors();
+    void deleteLine_lastLine();
+
+    // ── Word selection ────────────────────────────────────────────────────
+    void selectWord_singleCursor();
+    void selectWord_multipleCursors();
 
     // ── Edge cases ────────────────────────────────────────────────────────
     void operationsWithNullDocument();
@@ -548,6 +572,215 @@ void TestMultiCursor::mergeOverlappingSelections()
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Cursor movement
+// ═══════════════════════════════════════════════════════════════════════════
+
+void TestMultiCursor::moveLeft_movesCursors()
+{
+    QTextDocument doc(QStringLiteral("abcdef"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(2); // after 'b'
+    engine.addCursor(5); // after 'e'
+    engine.moveLeft();
+    auto curs = engine.cursors();
+    QCOMPARE(curs.size(), 2u);
+    QCOMPARE(curs[0].position(), 1);
+    QCOMPARE(curs[1].position(), 4);
+}
+
+void TestMultiCursor::moveRight_movesCursors()
+{
+    QTextDocument doc(QStringLiteral("abcdef"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(1);
+    engine.addCursor(3);
+    engine.moveRight();
+    auto curs = engine.cursors();
+    QCOMPARE(curs.size(), 2u);
+    QCOMPARE(curs[0].position(), 2);
+    QCOMPARE(curs[1].position(), 4);
+}
+
+void TestMultiCursor::moveUp_movesCursors()
+{
+    QTextDocument doc(QStringLiteral("line1\nline2\nline3"));
+    MultiCursorEngine engine(&doc);
+    // Place cursor at start of line2 and line3
+    engine.addCursor(6);  // start of "line2"
+    engine.addCursor(12); // start of "line3"
+    engine.moveUp();
+    auto curs = engine.cursors();
+    QCOMPARE(curs.size(), 2u);
+    // After moveUp, they should be on line1 and line2
+    QCOMPARE(curs[0].block().blockNumber(), 0);
+    QCOMPARE(curs[1].block().blockNumber(), 1);
+}
+
+void TestMultiCursor::moveDown_movesCursors()
+{
+    QTextDocument doc(QStringLiteral("line1\nline2\nline3"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(0);  // start of "line1"
+    engine.addCursor(6);  // start of "line2"
+    engine.moveDown();
+    auto curs = engine.cursors();
+    QCOMPARE(curs.size(), 2u);
+    QCOMPARE(curs[0].block().blockNumber(), 1);
+    QCOMPARE(curs[1].block().blockNumber(), 2);
+}
+
+void TestMultiCursor::moveLeft_withSelection()
+{
+    QTextDocument doc(QStringLiteral("abcdef"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(3);
+    engine.moveLeft(true); // keepSelection
+    auto curs = engine.cursors();
+    QCOMPARE(curs.size(), 1u);
+    QVERIFY(curs[0].hasSelection());
+    QCOMPARE(curs[0].selectedText(), QStringLiteral("c"));
+}
+
+void TestMultiCursor::moveToStartOfLine()
+{
+    QTextDocument doc(QStringLiteral("hello\nworld"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(8); // middle of "world"
+    engine.moveToStartOfLine();
+    auto curs = engine.cursors();
+    QCOMPARE(curs[0].positionInBlock(), 0);
+    QCOMPARE(curs[0].block().blockNumber(), 1);
+}
+
+void TestMultiCursor::moveToEndOfLine()
+{
+    QTextDocument doc(QStringLiteral("hello\nworld"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(6); // start of "world"
+    engine.moveToEndOfLine();
+    auto curs = engine.cursors();
+    QCOMPARE(curs[0].positionInBlock(), 5); // end of "world"
+}
+
+void TestMultiCursor::moveWordLeft()
+{
+    QTextDocument doc(QStringLiteral("hello world test"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(11); // at 't' of "test"
+    engine.moveWordLeft();
+    auto curs = engine.cursors();
+    // Should move to start of "world" (position 6)
+    QCOMPARE(curs[0].position(), 6);
+}
+
+void TestMultiCursor::moveWordRight()
+{
+    QTextDocument doc(QStringLiteral("hello world test"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(0); // start
+    engine.moveWordRight();
+    auto curs = engine.cursors();
+    // Should move past "hello" to position 5 or 6
+    QVERIFY(curs[0].position() >= 5);
+}
+
+void TestMultiCursor::moveRight_mergesCursors()
+{
+    QTextDocument doc(QStringLiteral("ab"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(0);
+    engine.addCursor(1);
+    // "ab" has characterCount 3 (a, b, paragraph separator)
+    // After moveRight: positions 1, 2. After another: 2, 2 → merge.
+    engine.moveRight();
+    engine.moveRight();
+    QCOMPARE(engine.cursorCount(), 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Line operations
+// ═══════════════════════════════════════════════════════════════════════════
+
+void TestMultiCursor::duplicateLine_singleCursor()
+{
+    QTextDocument doc(QStringLiteral("alpha\nbeta\ngamma"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(7); // somewhere in "beta"
+    engine.duplicateLine();
+    QCOMPARE(doc.toPlainText(), QStringLiteral("alpha\nbeta\nbeta\ngamma"));
+}
+
+void TestMultiCursor::duplicateLine_multipleCursors()
+{
+    QTextDocument doc(QStringLiteral("aaa\nbbb\nccc"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(0);  // in "aaa"
+    engine.addCursor(5);  // in "bbb"
+    engine.duplicateLine();
+    QCOMPARE(doc.toPlainText(), QStringLiteral("aaa\naaa\nbbb\nbbb\nccc"));
+}
+
+void TestMultiCursor::deleteLine_singleCursor()
+{
+    QTextDocument doc(QStringLiteral("alpha\nbeta\ngamma"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(7); // in "beta"
+    engine.deleteLine();
+    QCOMPARE(doc.toPlainText(), QStringLiteral("alpha\ngamma"));
+}
+
+void TestMultiCursor::deleteLine_multipleCursors()
+{
+    QTextDocument doc(QStringLiteral("aaa\nbbb\nccc\nddd"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(0);  // in "aaa"
+    engine.addCursor(8);  // in "ccc"
+    engine.deleteLine();
+    QCOMPARE(doc.toPlainText(), QStringLiteral("bbb\nddd"));
+}
+
+void TestMultiCursor::deleteLine_lastLine()
+{
+    QTextDocument doc(QStringLiteral("only line"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(3);
+    engine.deleteLine();
+    // Should clear the line content
+    QVERIFY(doc.toPlainText().isEmpty());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Word selection
+// ═══════════════════════════════════════════════════════════════════════════
+
+void TestMultiCursor::selectWord_singleCursor()
+{
+    QTextDocument doc(QStringLiteral("hello world"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(2); // inside "hello"
+    engine.selectWordUnderCursors();
+    auto curs = engine.cursors();
+    QCOMPARE(curs.size(), 1u);
+    QVERIFY(curs[0].hasSelection());
+    QCOMPARE(curs[0].selectedText(), QStringLiteral("hello"));
+}
+
+void TestMultiCursor::selectWord_multipleCursors()
+{
+    QTextDocument doc(QStringLiteral("foo bar baz"));
+    MultiCursorEngine engine(&doc);
+    engine.addCursor(1);  // inside "foo"
+    engine.addCursor(5);  // inside "bar"
+    engine.addCursor(9);  // inside "baz"
+    engine.selectWordUnderCursors();
+    auto curs = engine.cursors();
+    QCOMPARE(curs.size(), 3u);
+    QCOMPARE(curs[0].selectedText(), QStringLiteral("foo"));
+    QCOMPARE(curs[1].selectedText(), QStringLiteral("bar"));
+    QCOMPARE(curs[2].selectedText(), QStringLiteral("baz"));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Edge cases
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -561,6 +794,13 @@ void TestMultiCursor::operationsWithNullDocument()
     engine.backspace();
     engine.deleteChar();
     engine.removeSelectedText();
+    engine.moveLeft();
+    engine.moveRight();
+    engine.moveUp();
+    engine.moveDown();
+    engine.duplicateLine();
+    engine.deleteLine();
+    engine.selectWordUnderCursors();
     QVERIFY(!engine.addCursorAtNextOccurrence());
     QCOMPARE(engine.addCursorsAtAllOccurrences(), 0);
     engine.setRectangularSelection(0, 0, 5, 5);

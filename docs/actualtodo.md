@@ -39,7 +39,7 @@
 | test_toolregistry | Tool registration, lookup, execution | ✅ | 5+ cases |
 | test_contextbuilder | Context assembly, token limits | ✅ | 20 cases |
 | test_gitservice | Git status parsing, diff | ✅ | 16 cases |
-| test_multicursor | Multi-cursor engine | ✅ | 44 cases |
+| test_multicursor | Multi-cursor engine | ✅ | 60 cases |
 | test_projectmanager | Solution tree, file resolution | ✅ | 20 cases |
 | test_terminalscreen | VT100 escape parsing | ✅ | 60 cases |
 | test_treesitter_highlighter | UTF-8 offsets + tree-sitter integration | ✅ | 42 cases |
@@ -66,7 +66,7 @@
 
 ### 3. Multi-Cursor & Column Selection — ✅ DONE
 
-**შედეგი:** MultiCursorEngine ძრავი + EditorView ინტეგრაცია + 44 test case
+**შედეგი:** MultiCursorEngine ძრავი + EditorView ინტეგრაცია + 60 test case
 
 | ფუნქცია | სტატუსი |
 |---------|---------|
@@ -80,7 +80,7 @@
 | Secondary cursor/selection rendering (paintEvent) | ✅ |
 | Escape — secondary cursor-ების წაშლა | ✅ |
 | Overlapping cursor merge | ✅ |
-| test_multicursor.cpp — 44 test cases | ✅ 12/12 test targets pass |
+| test_multicursor.cpp — 60 test cases | ✅ 12/12 test targets pass |
 
 ### 4. Test Explorer Panel — ✅ DONE
 

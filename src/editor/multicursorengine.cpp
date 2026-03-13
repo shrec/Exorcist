@@ -273,6 +273,126 @@ void MultiCursorEngine::setRectangularSelection(int startLine, int startCol,
     // No merge needed — each cursor is on a separate line.
 }
 
+// ── Cursor movement ──────────────────────────────────────────────────────
+
+void MultiCursorEngine::moveAllCursors(QTextCursor::MoveOperation op,
+                                       bool keepSelection)
+{
+    if (m_cursors.empty() || !m_doc)
+        return;
+
+    auto mode = keepSelection ? QTextCursor::KeepAnchor
+                              : QTextCursor::MoveAnchor;
+    for (auto &cur : m_cursors)
+        cur.movePosition(op, mode);
+
+    mergeCursors();
+}
+
+void MultiCursorEngine::moveLeft(bool keepSelection)
+{
+    moveAllCursors(QTextCursor::Left, keepSelection);
+}
+
+void MultiCursorEngine::moveRight(bool keepSelection)
+{
+    moveAllCursors(QTextCursor::Right, keepSelection);
+}
+
+void MultiCursorEngine::moveUp(bool keepSelection)
+{
+    moveAllCursors(QTextCursor::Up, keepSelection);
+}
+
+void MultiCursorEngine::moveDown(bool keepSelection)
+{
+    moveAllCursors(QTextCursor::Down, keepSelection);
+}
+
+void MultiCursorEngine::moveToStartOfLine(bool keepSelection)
+{
+    moveAllCursors(QTextCursor::StartOfBlock, keepSelection);
+}
+
+void MultiCursorEngine::moveToEndOfLine(bool keepSelection)
+{
+    moveAllCursors(QTextCursor::EndOfBlock, keepSelection);
+}
+
+void MultiCursorEngine::moveWordLeft(bool keepSelection)
+{
+    moveAllCursors(QTextCursor::WordLeft, keepSelection);
+}
+
+void MultiCursorEngine::moveWordRight(bool keepSelection)
+{
+    moveAllCursors(QTextCursor::WordRight, keepSelection);
+}
+
+// ── Line operations ─────────────────────────────────────────────────────
+
+void MultiCursorEngine::duplicateLine()
+{
+    if (m_cursors.empty() || !m_doc)
+        return;
+
+    sortCursors();
+    // Bottom-to-top so earlier line numbers stay valid.
+    for (int i = static_cast<int>(m_cursors.size()) - 1; i >= 0; --i) {
+        auto &cur = m_cursors[static_cast<size_t>(i)];
+        QTextCursor tc(cur);
+        tc.movePosition(QTextCursor::StartOfBlock);
+        tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        QString lineText = tc.selectedText();
+        tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::MoveAnchor);
+        tc.insertText(QStringLiteral("\n") + lineText);
+    }
+    mergeCursors();
+}
+
+void MultiCursorEngine::deleteLine()
+{
+    if (m_cursors.empty() || !m_doc)
+        return;
+
+    sortCursors();
+    for (int i = static_cast<int>(m_cursors.size()) - 1; i >= 0; --i) {
+        auto &cur = m_cursors[static_cast<size_t>(i)];
+        QTextCursor tc(cur);
+        tc.movePosition(QTextCursor::StartOfBlock);
+        tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        // Include the newline after the block (or before if last line).
+        if (!tc.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor)) {
+            // Last line — include the preceding newline instead.
+            tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::MoveAnchor);
+            tc.movePosition(QTextCursor::StartOfBlock, QTextCursor::MoveAnchor);
+            if (tc.movePosition(QTextCursor::Left, QTextCursor::MoveAnchor)) {
+                tc.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor);
+                tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+            } else {
+                // Only line — select all content.
+                tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+            }
+        }
+        tc.removeSelectedText();
+        cur = tc;
+    }
+    mergeCursors();
+}
+
+// ── Word selection ──────────────────────────────────────────────────────
+
+void MultiCursorEngine::selectWordUnderCursors()
+{
+    if (m_cursors.empty() || !m_doc)
+        return;
+
+    for (auto &cur : m_cursors)
+        cur.select(QTextCursor::WordUnderCursor);
+
+    mergeCursors();
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────
 
 void MultiCursorEngine::sortCursors()

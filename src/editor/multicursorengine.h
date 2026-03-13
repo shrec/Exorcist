@@ -80,8 +80,49 @@ public:
     void setRectangularSelection(int startLine, int startCol,
                                  int endLine, int endCol);
 
+    // ── Cursor movement (applied to ALL cursors) ─────────────────────────
+
+    /// Move all cursors one character left. If keepSelection is true,
+    /// extends selection; otherwise clears it.
+    void moveLeft(bool keepSelection = false);
+
+    /// Move all cursors one character right.
+    void moveRight(bool keepSelection = false);
+
+    /// Move all cursors one line up.
+    void moveUp(bool keepSelection = false);
+
+    /// Move all cursors one line down.
+    void moveDown(bool keepSelection = false);
+
+    /// Move all cursors to the start of their current line.
+    void moveToStartOfLine(bool keepSelection = false);
+
+    /// Move all cursors to the end of their current line.
+    void moveToEndOfLine(bool keepSelection = false);
+
+    /// Move all cursors one word to the left.
+    void moveWordLeft(bool keepSelection = false);
+
+    /// Move all cursors one word to the right.
+    void moveWordRight(bool keepSelection = false);
+
+    // ── Line operations (applied to ALL cursors) ─────────────────────────
+
+    /// Duplicate the line at each cursor position.
+    void duplicateLine();
+
+    /// Delete the entire line at each cursor position.
+    void deleteLine();
+
+    // ── Word selection ───────────────────────────────────────────────────
+
+    /// Select the word under each cursor.
+    void selectWordUnderCursors();
+
     // ── Internal helpers ──────────────────────────────────────────────────
 private:
+    void moveAllCursors(QTextCursor::MoveOperation op, bool keepSelection);
     /// Merge overlapping or touching cursors. Called after every mutation.
     void mergeCursors();
 

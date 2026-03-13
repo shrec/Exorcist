@@ -499,7 +499,7 @@ Exorcist-ის უპირატესობა:
 - [x] Folder workspace
 - [x] Remote SSH
 - [x] LSP integration (30+ languages)
-- [x] Multi-cursor & column selection (44 tests)
+- [x] Multi-cursor & column selection (60 tests)
 - [x] AI Agent system (74+ tools)
 - [x] LuaJIT sandbox (64MB, 40 tests)
 - [x] Agent Tool Forge (save/list/run Lua tools)
