@@ -52,6 +52,8 @@
 #include "tools/clipboardtool.h"
 #include "tools/difftool.h"
 #include "tools/databasetool.h"
+#include "tools/agentmemorydb.h"
+#include "tools/projectdbtool.h"
 #include "tools/systemtools.h"
 #include "tools/notebooktools.h"
 #include "tools/githubmcptools.h"
@@ -342,6 +344,12 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
 
     // ── Database tool (SQLite) ────────────────────────────────────────────
     m_toolRegistry->registerTool(std::make_unique<DatabaseTool>());
+
+    // ── Agent memory database (private SQLite) ────────────────────────────
+    m_toolRegistry->registerTool(std::make_unique<AgentMemoryDbTool>());
+
+    // ── Project database (multi-driver) ───────────────────────────────────
+    m_toolRegistry->registerTool(std::make_unique<ProjectDatabaseTool>());
 
     // ── System / process management tool ──────────────────────────────────
     m_toolRegistry->registerTool(std::make_unique<ProcessManagementTool>());

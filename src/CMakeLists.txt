@@ -192,6 +192,10 @@ add_executable(exorcist WIN32
     agent/tools/clipboardtool.h
     agent/tools/difftool.h
     agent/tools/databasetool.h
+    agent/tools/agentmemorydb.h
+    agent/tools/agentmemorydb.cpp
+    agent/tools/projectdbtool.h
+    agent/tools/projectdbtool.cpp
     agent/tools/systemtools.h
     agent/tools/notebooktools.h
     agent/tools/githubmcptools.h
