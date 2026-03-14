@@ -157,41 +157,75 @@ add_executable(exorcist WIN32
     agent/modelpickerdialog.cpp
     agent/modelpickerdialog.h
     agent/tools/filesystemtools.h
+    agent/tools/filesystemtools.cpp
     agent/tools/searchworkspacetool.h
+    agent/tools/searchworkspacetool.cpp
     agent/tools/semanticsearchtool.h
+    agent/tools/semanticsearchtool.cpp
     agent/tools/runcommandtool.h
     agent/tools/runcommandtool.cpp
     agent/tools/applypatchtool.h
+    agent/tools/applypatchtool.cpp
+    agent/tools/idecommandtool.h
+    agent/tools/idecommandtool.cpp
     agent/tools/idetools.h
+    agent/tools/idetools.cpp
     agent/tools/moretools.h
+    agent/tools/moretools.cpp
     agent/tools/advancedtools.h
+    agent/tools/advancedtools.cpp
     agent/tools/memorytool.h
+    agent/tools/memorytool.cpp
     agent/tools/debugtools.h
+    agent/tools/debugtools.cpp
     agent/tools/screenshottool.h
+    agent/tools/screenshottool.cpp
     agent/tools/introspecttool.h
+    agent/tools/introspecttool.cpp
     agent/tools/httptool.h
+    agent/tools/httptool.cpp
     agent/tools/luatool.h
+    agent/tools/luatool.cpp
     agent/tools/codegraphtool.h
+    agent/tools/codegraphtool.cpp
     agent/tools/buildtools.h
+    agent/tools/buildtools.cpp
     agent/tools/navigationtools.h
+    agent/tools/navigationtools.cpp
     agent/tools/formatcodetool.h
+    agent/tools/formatcodetool.cpp
     agent/tools/refactortool.h
+    agent/tools/refactortool.cpp
     agent/tools/gitopstool.h
+    agent/tools/gitopstool.cpp
     agent/tools/askusertool.h
+    agent/tools/askusertool.cpp
     agent/tools/editorcontexttool.h
+    agent/tools/editorcontexttool.cpp
     agent/tools/changeimpacttool.h
+    agent/tools/changeimpacttool.cpp
     agent/tools/scratchpadtool.h
+    agent/tools/scratchpadtool.cpp
     agent/tools/terminalsessiontools.h
+    agent/tools/terminalsessiontools.cpp
     agent/tools/pythontools.h
+    agent/tools/pythontools.cpp
     agent/tools/packagemanagertools.h
+    agent/tools/packagemanagertools.cpp
     agent/tools/subagenttool.h
     agent/subagenttool.cpp
     agent/tools/lsptools.h
+    agent/tools/lsptools.cpp
     agent/tools/projectinfotool.h
+    agent/tools/projectinfotool.cpp
     agent/tools/filemanagementtools.h
+    agent/tools/filemanagementtools.cpp
     agent/tools/clipboardtool.h
+    agent/tools/clipboardtool.cpp
     agent/tools/difftool.h
+    agent/tools/difftool.cpp
     agent/tools/databasetool.h
+    agent/tools/databasetool.cpp
     agent/tools/agentmemorydb.h
     agent/tools/agentmemorydb.cpp
     agent/tools/projectdbtool.h
@@ -199,11 +233,21 @@ add_executable(exorcist WIN32
     agent/tools/projectbraindb.h
     agent/tools/projectbraindb.cpp
     agent/tools/systemtools.h
+    agent/tools/systemtools.cpp
     agent/tools/notebooktools.h
+    agent/tools/notebooktools.cpp
     agent/tools/githubmcptools.h
+    agent/tools/githubmcptools.cpp
     agent/tools/staticanalysistool.h
+    agent/tools/staticanalysistool.cpp
     agent/tools/treesitterquerytool.h
     agent/tools/treesitterquerytool.cpp
+    agent/tools/devtools.h
+    agent/tools/devtools.cpp
+    agent/tools/luaagenttoolstore.h
+    agent/tools/luaagenttoolstore.cpp
+    agent/tools/sandboxtools.h
+    agent/tools/sandboxtools.cpp
     agent/diagnosticsnotifier.h
     agent/diagnosticsnotifier.cpp
     agent/treesitteragenthelper.h
@@ -337,6 +381,7 @@ add_executable(exorcist WIN32
     agent/authmanager.cpp
     agent/authmanager.h
     agent/tools/websearchtool.h
+    agent/tools/websearchtool.cpp
     editor/renamesuggestionwidget.cpp
     editor/renamesuggestionwidget.h
     agent/securekeystorage.cpp
@@ -398,12 +443,11 @@ add_executable(exorcist WIN32
     agent/ui/dashboardjsbridge.h
     agent/ui/dashboardjsbridge.cpp
     agent/tools/dashboardtools.h
+    agent/tools/dashboardtools.cpp
     search/embeddingindex.h
     search/embeddingindex.cpp
     search/gitignorefilter.h
     search/regexsearchengine.h
-    agent/tools/notebooktools.h
-    agent/tools/githubmcptools.h
     agent/chat/chatcontentpart.h
     agent/chat/chatinputwidget.cpp
     agent/chat/chatinputwidget.h
