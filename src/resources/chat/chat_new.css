@@ -173,6 +173,38 @@ html, body {
     font-size: var(--font-size-xs);
 }
 
+.welcome-action {
+    display: flex;
+    justify-content: center;
+    margin: -8px 0 18px;
+}
+
+.welcome-action-btn {
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--button-bg);
+    color: var(--button-fg);
+    font-size: var(--font-size-s);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.welcome-action-btn.secondary {
+    background: transparent;
+    color: var(--fg-primary);
+}
+
+.welcome-action-btn:hover {
+    background: var(--button-hover);
+}
+
+.welcome-action-btn.secondary:hover {
+    background: var(--hover-bg);
+    border-color: var(--accent-blue);
+}
+
 .welcome-suggestions {
     display: flex;
     flex-wrap: wrap;
@@ -205,10 +237,7 @@ html, body {
 }
 
 /* Welcome state variants */
-.welcome.auth .welcome-icon,
-.welcome.noProvider .welcome-icon {
-    opacity: 0.4;
-}
+.welcome.auth .welcome-icon,`n.welcome.noProvider .welcome-icon {`n    opacity: 0.4;`n}`n`n.welcome.auth .welcome-title {`n    color: var(--warning-fg);`n}`n`n.welcome.noProvider .welcome-title {`n    color: var(--fg-primary);`n}
 
 /* ═══════════════════════════════════════════════════════════════════════════════
  * Transcript Container (scrollable list)
@@ -1911,3 +1940,4 @@ html, body {
  * Utility
  * ═══════════════════════════════════════════════════════════════════════════════ */
 .hidden { display: none !important; }
+

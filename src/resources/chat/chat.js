@@ -26,6 +26,9 @@ var ChatApp = (function() {
     var transcriptEl    = document.getElementById('transcript');
     var suggestionsEl   = document.getElementById('welcome-suggestions');
     var toolCountEl     = document.getElementById('welcome-tool-count');
+    var welcomeTitleEl  = document.querySelector('.welcome-title');
+    var welcomeSubtitleEl = document.getElementById('welcomeSubtitle');
+    var welcomeActionEl = document.getElementById('welcomeAction');
 
     // Header
     var sessionTitleEl  = document.getElementById('sessionTitle');
@@ -214,13 +217,14 @@ var ChatApp = (function() {
         for (var i = 0; i < models.length; i++) {
             var m = models[i];
             var sel = m.id === currentModelId ? ' selected' : '';
+            var label = m.displayName || m.name || m.id;
             var badges = '';
             if (m.premium) badges += '<span class="model-badge premium">PRO</span>';
             if (m.thinking) badges += '<span class="model-badge thinking">Think</span>';
             if (m.vision) badges += '<span class="model-badge vision">Vision</span>';
             if (m.tools) badges += '<span class="model-badge tools">Tools</span>';
             html += '<div class="model-item' + sel + '" data-id="' + esc(m.id) + '">' +
-                '<span class="model-name">' + esc(m.displayName || m.id) + '</span>' +
+                '<span class="model-name">' + esc(label) + '</span>' +
                 (badges ? '<span class="model-badges">' + badges + '</span>' : '') +
             '</div>';
         }
@@ -585,15 +589,17 @@ var ChatApp = (function() {
 
             // File icon based on action
             var icon = '&#x1F4C4;'; // document
-            if (f.action === 'created') icon = '&#x2795;'; // plus
-            else if (f.action === 'deleted') icon = '&#x1F5D1;'; // trash
+            if (f.action === 'created' || f.action === 1) icon = '&#x2795;'; // plus
+            else if (f.action === 'deleted' || f.action === 2) icon = '&#x1F5D1;'; // trash
 
             // Stats
             var statsHtml = '';
-            if (f.insertions > 0 || f.deletions > 0) {
+            var insertions = (f.insertions !== undefined) ? f.insertions : (f.ins || 0);
+            var deletions = (f.deletions !== undefined) ? f.deletions : (f.del || 0);
+            if (insertions > 0 || deletions > 0) {
                 statsHtml = '<span class="file-stats">';
-                if (f.insertions > 0) statsHtml += '<span class="stat-add">+' + f.insertions + '</span> ';
-                if (f.deletions > 0) statsHtml += '<span class="stat-del">-' + f.deletions + '</span>';
+                if (insertions > 0) statsHtml += '<span class="stat-add">+' + insertions + '</span> ';
+                if (deletions > 0) statsHtml += '<span class="stat-del">-' + deletions + '</span>';
                 statsHtml += '</span>';
             }
 
@@ -1153,6 +1159,44 @@ var ChatApp = (function() {
 
     // ── View State ───────────────────────────────────────────────────────────
 
+    function updateWelcomeState(state) {
+        if (welcomeTitleEl)
+            welcomeTitleEl.textContent = state === 'auth' ? 'Sign In Required'
+                : state === 'noProvider' ? 'No Provider Configured'
+                : 'Ask Copilot';
+        if (welcomeSubtitleEl)
+            welcomeSubtitleEl.innerHTML = state === 'auth'
+                ? 'Sign in with GitHub to use Copilot in Exorcist.'
+                : state === 'noProvider'
+                    ? 'Configure an AI provider to get started.'
+                    : 'Ask a question or type <span class="kbd">/</span> for commands';
+        if (welcomeActionEl) {
+            if (state === 'auth') {
+                welcomeActionEl.innerHTML = '<button class="welcome-action-btn" id="welcomeActionBtn">Sign In with GitHub</button>';
+                var authBtn = document.getElementById('welcomeActionBtn');
+                if (authBtn) {
+                    authBtn.onclick = function() {
+                        if (window.exorcist) window.exorcist.sendToHost('signInRequested', {});
+                    };
+                }
+            } else if (state === 'noProvider') {
+                welcomeActionEl.innerHTML = '<button class="welcome-action-btn secondary" id="welcomeActionBtn">Open AI Settings</button>';
+                var settingsActionBtn = document.getElementById('welcomeActionBtn');
+                if (settingsActionBtn) {
+                    settingsActionBtn.onclick = function() {
+                        if (window.exorcist) window.exorcist.sendToHost('settingsRequested', {});
+                    };
+                }
+            } else {
+                welcomeActionEl.innerHTML = '';
+            }
+        }
+        if (suggestionsEl)
+            suggestionsEl.style.display = (state === 'default') ? '' : 'none';
+        if (toolCountEl)
+            toolCountEl.style.display = (state === 'default') ? '' : 'none';
+    }
+
     api.showWelcome = function(state) {
         welcomeEl.style.display = 'flex';
         transcriptEl.style.display = 'none';
@@ -1349,7 +1393,7 @@ var ChatApp = (function() {
             for (var i = 0; i < models.length; i++) {
                 if (models[i].id === id) { found = models[i]; break; }
             }
-            modelLabelEl.textContent = found ? (found.displayName || found.id) : (id || 'Model');
+            modelLabelEl.textContent = found ? (found.displayName || found.name || found.id) : (id || 'Model');
         }
     };
 
@@ -1749,3 +1793,4 @@ var ChatApp = (function() {
 
     return api;
 })();
+

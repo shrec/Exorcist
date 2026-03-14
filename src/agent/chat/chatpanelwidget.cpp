@@ -49,6 +49,31 @@
 #include "chatwelcomewidget.h"
 #endif
 
+namespace {
+
+bool modelSupportsThinking(const IAgentProvider *provider,
+                           ModelRegistry *registry,
+                           const QString &modelId)
+{
+    if (!provider || modelId.isEmpty())
+        return false;
+
+    for (const auto &mi : provider->modelInfoList()) {
+        if (mi.id == modelId)
+            return mi.capabilities.thinking;
+    }
+
+    if (registry) {
+        const ModelInfo info = registry->model(modelId);
+        if (!info.id.isEmpty())
+            return info.capabilities.thinking;
+    }
+
+    return false;
+}
+
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  Construction
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -183,8 +208,12 @@ void ChatPanelWidget::buildUi()
     });
     connect(m_jsBridge, &exorcist::ChatJSBridge::modelSelected,
             this, [this](const QString &modelId) {
-        if (auto *active = m_orchestrator->activeProvider())
+        if (auto *active = m_orchestrator->activeProvider()) {
             active->setModel(modelId);
+            m_jsBridge->setCurrentModel(modelId);
+            m_jsBridge->setThinkingVisible(
+                modelSupportsThinking(active, m_modelRegistry, modelId));
+        }
     });
     connect(m_jsBridge, &exorcist::ChatJSBridge::thinkingToggled,
             this, [this](bool enabled) {
@@ -201,6 +230,17 @@ void ChatPanelWidget::buildUi()
         const int idx = m_pendingFileAttachments.size();
         m_pendingFileAttachments.append(path);
         m_jsBridge->addAttachmentChip(fi.fileName(), idx);
+    });
+    connect(m_jsBridge, &exorcist::ChatJSBridge::removeAttachmentRequested,
+            this, [this](int index) {
+        if (index < 0 || index >= m_pendingFileAttachments.size())
+            return;
+        m_pendingFileAttachments.removeAt(index);
+        m_jsBridge->clearAttachmentChips();
+        for (int i = 0; i < m_pendingFileAttachments.size(); ++i) {
+            const QFileInfo fi(m_pendingFileAttachments[i]);
+            m_jsBridge->addAttachmentChip(fi.fileName(), i);
+        }
     });
     connect(m_jsBridge, &exorcist::ChatJSBridge::mentionQueryRequested,
             this, [this](const QString &trigger, const QString &filter) {
@@ -230,10 +270,28 @@ void ChatPanelWidget::buildUi()
                     break;
             }
         } else if (trigger == QLatin1String("#")) {
-            if (!m_varResolver) {
+            if (!m_workspaceFileFn) {
                 m_jsBridge->setMentionItems(trigger, items);
                 return;
             }
+            const QStringList files = m_workspaceFileFn();
+            int shown = 0;
+            for (const QString &absPath : files) {
+                const QFileInfo fi(absPath);
+                const QString display = fi.fileName();
+                if (!lower.isEmpty()
+                    && !display.toLower().contains(lower)
+                    && !absPath.toLower().contains(lower))
+                    continue;
+                QJsonObject o;
+                o[QStringLiteral("label")] = display;
+                o[QStringLiteral("desc")] = absPath;
+                o[QStringLiteral("insertText")] = QStringLiteral("#%1").arg(absPath);
+                items.append(o);
+                if (++shown >= 20)
+                    break;
+            }
+
             const auto vars = m_varResolver->matchingVars(filter);
             for (const auto &v : vars) {
                 QJsonObject o;
@@ -700,10 +758,14 @@ void ChatPanelWidget::connectTranscript()
         const auto &snaps = session->fileSnapshots();
         auto it = snaps.find(path);
         if (it != snaps.end()) {
-            QSaveFile f(it.key());
-            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                f.write(it.value().toUtf8());
-                f.commit();
+            if (it.value().isNull()) {
+                QFile::remove(it.key());
+            } else {
+                QSaveFile f(it.key());
+                if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                    f.write(it.value().toUtf8());
+                    f.commit();
+                }
             }
         }
         m_pendingPatches.erase(
@@ -729,10 +791,14 @@ void ChatPanelWidget::connectTranscript()
             if (session) {
                 const auto &snaps = session->fileSnapshots();
                 for (auto it = snaps.begin(); it != snaps.end(); ++it) {
-                    QSaveFile f(it.key());
-                    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                        f.write(it.value().toUtf8());
-                        f.commit();
+                    if (it.value().isNull()) {
+                        QFile::remove(it.key());
+                    } else {
+                        QSaveFile f(it.key());
+                        if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                            f.write(it.value().toUtf8());
+                            f.commit();
+                        }
                     }
                 }
             }
@@ -1034,6 +1100,7 @@ void ChatPanelWidget::refreshModelList()
     if (!active) {
 #ifdef EXORCIST_HAS_ULTRALIGHT
         m_jsBridge->clearModels();
+        m_jsBridge->setThinkingVisible(false);
 #else
         m_inputWidget->clearModels();
 #endif
@@ -1057,6 +1124,7 @@ void ChatPanelWidget::refreshModelList()
             QJsonObject obj;
             obj[QStringLiteral("id")]       = mi.id;
             obj[QStringLiteral("name")]     = mi.name;
+            obj[QStringLiteral("displayName")] = mi.name;
             obj[QStringLiteral("premium")]  = premium;
             obj[QStringLiteral("mult")]     = mult;
             obj[QStringLiteral("thinking")] = mi.capabilities.thinking;
@@ -1070,10 +1138,12 @@ void ChatPanelWidget::refreshModelList()
             QJsonObject obj;
             obj[QStringLiteral("id")]   = m;
             obj[QStringLiteral("name")] = m;
+            obj[QStringLiteral("displayName")] = m;
             if (m_modelRegistry) {
                 const ModelInfo info = m_modelRegistry->model(m);
                 if (!info.id.isEmpty()) {
                     obj[QStringLiteral("name")]     = info.name;
+                    obj[QStringLiteral("displayName")] = info.name;
                     obj[QStringLiteral("premium")]  = info.billing.isPremium;
                     obj[QStringLiteral("mult")]     = info.billing.multiplier;
                     obj[QStringLiteral("thinking")] = info.capabilities.thinking;
@@ -1085,6 +1155,8 @@ void ChatPanelWidget::refreshModelList()
         }
     }
     m_jsBridge->setCurrentModel(active->currentModel());
+    m_jsBridge->setThinkingVisible(
+        modelSupportsThinking(active, m_modelRegistry, active->currentModel()));
 #else
     m_inputWidget->clearModels();
     const auto infoList = active->modelInfoList();
@@ -1514,6 +1586,7 @@ void ChatPanelWidget::onCancel()
     }
 
     m_pendingRequestId.clear();
+    m_pendingFileAttachments.clear();
 #ifdef EXORCIST_HAS_ULTRALIGHT
     m_jsBridge->setStreamingState(false);
 #else
@@ -1593,6 +1666,7 @@ void ChatPanelWidget::onResponseFinished(const QString &requestId,
     }
 
     m_pendingRequestId.clear();
+    m_pendingFileAttachments.clear();
 #ifdef EXORCIST_HAS_ULTRALIGHT
     m_jsBridge->setStreamingState(false);
 #else
@@ -1716,6 +1790,7 @@ void ChatPanelWidget::onResponseError(const QString &requestId,
         return;
 
     m_pendingRequestId.clear();
+    m_pendingFileAttachments.clear();
 #ifdef EXORCIST_HAS_ULTRALIGHT
     m_jsBridge->setStreamingState(false);
 #else
@@ -1844,6 +1919,7 @@ void ChatPanelWidget::onNewSession()
     m_conversationHistory.clear();
     m_pendingPatches.clear();
     m_pendingRequestId.clear();
+    m_pendingFileAttachments.clear();
 
     // Reset agent session so next message creates a fresh one
     for (auto &c : m_agentConns)
@@ -2193,3 +2269,15 @@ void ChatPanelWidget::onCodeAction(const QUrl &url)
         emit openFileRequested(url.toLocalFile());
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
