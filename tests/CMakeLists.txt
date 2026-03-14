@@ -555,6 +555,17 @@ target_link_libraries(test_marketplacesafety PRIVATE Qt6::Test Qt6::Widgets Qt6:
 target_include_directories(test_marketplacesafety PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME MarketplaceSafety COMMAND test_marketplacesafety)
 
+# ── ProjectBrainDb tests ──────────────────────────────────────────────────────
+add_executable(test_projectbraindb
+    test_projectbraindb.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/tools/projectbraindb.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/tools/projectbraindb.h
+    ${CMAKE_SOURCE_DIR}/src/agent/itool.cpp
+)
+target_link_libraries(test_projectbraindb PRIVATE Qt6::Test Qt6::Widgets Qt6::Sql)
+target_include_directories(test_projectbraindb PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ProjectBrainDb COMMAND test_projectbraindb)
+
 # Deploy Qt DLLs so tests can run (Windows)
 if(WIN32 AND EXORCIST_DEPLOY_QT)
     find_program(WINDEPLOYQT windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")

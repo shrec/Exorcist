@@ -122,6 +122,7 @@ Priority rule: **typing never blocks** — all background work must be async/can
 - MemorySuggestionEngine: auto-extracts facts from completed agent turns with toast UI
 - MemoryBrowserPanel: 4-tab UI (Files/Facts/Rules/Sessions) with full CRUD
 - Brain context injected into system prompt after custom instructions
+- ProjectBrainDbTool: SQLite-based workspace code index at `.exorcist/project.db` — indexes files, symbols, dependencies, modules, and knowledge facts with init/scan/query/learn/forget/status/execute operations
 
 See [docs/project-brain.md](project-brain.md)
 

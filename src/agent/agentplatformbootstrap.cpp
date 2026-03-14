@@ -54,6 +54,7 @@
 #include "tools/databasetool.h"
 #include "tools/agentmemorydb.h"
 #include "tools/projectdbtool.h"
+#include "tools/projectbraindb.h"
 #include "tools/systemtools.h"
 #include "tools/notebooktools.h"
 #include "tools/githubmcptools.h"
@@ -351,6 +352,9 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
     // ── Project database (multi-driver) ───────────────────────────────────
     m_toolRegistry->registerTool(std::make_unique<ProjectDatabaseTool>());
 
+    // ── Project brain database (workspace code index) ─────────────────────
+    m_toolRegistry->registerTool(std::make_unique<ProjectBrainDbTool>());
+
     // ── System / process management tool ──────────────────────────────────
     m_toolRegistry->registerTool(std::make_unique<ProcessManagementTool>());
 
@@ -627,6 +631,9 @@ void AgentPlatformBootstrap::setWorkspaceRoot(const QString &root)
 
     auto *diagramTool = dynamic_cast<GenerateDiagramTool *>(m_toolRegistry->tool(QStringLiteral("generate_diagram")));
     if (diagramTool) diagramTool->setWorkspaceRoot(root);
+
+    auto *brainDbTool = dynamic_cast<ProjectBrainDbTool *>(m_toolRegistry->tool(QStringLiteral("project_brain_db")));
+    if (brainDbTool) brainDbTool->setWorkspaceRoot(root);
 }
 
 DiagnosticsNotifier *AgentPlatformBootstrap::diagnosticsNotifier() const

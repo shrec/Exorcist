@@ -196,6 +196,8 @@ add_executable(exorcist WIN32
     agent/tools/agentmemorydb.cpp
     agent/tools/projectdbtool.h
     agent/tools/projectdbtool.cpp
+    agent/tools/projectbraindb.h
+    agent/tools/projectbraindb.cpp
     agent/tools/systemtools.h
     agent/tools/notebooktools.h
     agent/tools/githubmcptools.h

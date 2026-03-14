@@ -455,7 +455,10 @@ int PluginManager::activateByLanguageProfile(const QString &languageId)
             && lp.manifest.languageIds.contains(languageId)) {
             try {
                 lp.instance->resume();
-            } catch (...) {}
+            } catch (...) {
+                qWarning("Plugin '%s' threw during resume()",
+                         qUtf8Printable(lp.instance->info().id));
+            }
             lp.suspended = false;
             if (m_contributions)
                 m_contributions->registerManifest(lp.instance->info().id,
@@ -499,7 +502,10 @@ int PluginManager::suspendByLanguageProfile(const QString &languageId)
 
         try {
             lp.instance->suspend();
-        } catch (...) {}
+        } catch (...) {
+            qWarning("Plugin '%s' threw during suspend()",
+                     qUtf8Printable(lp.instance->info().id));
+        }
         lp.suspended = true;
         ++suspended;
     }
@@ -522,7 +528,10 @@ int PluginManager::resumeByLanguageProfile(const QString &languageId)
 
         try {
             lp.instance->resume();
-        } catch (...) {}
+        } catch (...) {
+            qWarning("Plugin '%s' threw during resume()",
+                     qUtf8Printable(lp.instance->info().id));
+        }
         lp.suspended = false;
 
         // Re-register contributions

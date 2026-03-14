@@ -3446,9 +3446,9 @@ void MainWindow::openFolder(const QString &path)
             }
 
             if (!detected.isEmpty())
-                qInfo("Workspace language scan: detected %d language(s): %s",
-                      detected.size(),
-                      qUtf8Printable(QStringList(detected.begin(), detected.end()).join(", ")));
+                qInfo("Workspace language scan: detected %lld language(s): %s",
+                      static_cast<long long>(detected.size()),
+                      qUtf8Printable(QStringList(detected.begin(), detected.end()).join(QStringLiteral(", "))));
         });
     }
 
