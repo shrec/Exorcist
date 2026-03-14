@@ -94,6 +94,7 @@ else()
         "${_UL_LIB_PREFIX}Ultralight${_UL_LIB_SUFFIX}"
         "${_UL_LIB_PREFIX}UltralightCore${_UL_LIB_SUFFIX}"
         "${_UL_LIB_PREFIX}AppCore${_UL_LIB_SUFFIX}"
+        "${_UL_LIB_PREFIX}WebCore${_UL_LIB_SUFFIX}"
     )
 endif()
 
