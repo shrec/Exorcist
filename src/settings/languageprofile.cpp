@@ -84,6 +84,7 @@ void LanguageProfileManager::load()
     for (const QString &lang : langs) {
         s.beginGroup(lang);
         LanguageProfileData d;
+        d.enabled = s.value(QStringLiteral("enabled"), true).toBool();
         if (s.contains(QStringLiteral("tabSize")))
             d.tabSize = s.value(QStringLiteral("tabSize")).toInt();
         if (s.contains(QStringLiteral("useTabs"))) {
@@ -117,6 +118,7 @@ void LanguageProfileManager::save() const
     for (auto it = m_profiles.constBegin(); it != m_profiles.constEnd(); ++it) {
         s.beginGroup(it.key());
         const auto &d = it.value();
+        s.setValue(QStringLiteral("enabled"), d.enabled);
         if (d.tabSize > 0)
             s.setValue(QStringLiteral("tabSize"), d.tabSize);
         if (d.useTabsSet)
@@ -132,4 +134,32 @@ void LanguageProfileManager::save() const
         s.endGroup();
     }
     s.endGroup();
+}
+
+QSet<QString> LanguageProfileManager::activeLanguageIds() const
+{
+    QSet<QString> result;
+    for (auto it = m_profiles.constBegin(); it != m_profiles.constEnd(); ++it) {
+        if (it->enabled)
+            result.insert(it.key());
+    }
+    return result;
+}
+
+void LanguageProfileManager::setEnabled(const QString &languageId, bool enabled)
+{
+    auto it = m_profiles.find(languageId);
+    if (it == m_profiles.end()) return;
+    if (it->enabled == enabled) return;
+    it->enabled = enabled;
+    save();
+    emit profileChanged(languageId);
+}
+
+bool LanguageProfileManager::isActive(const QString &languageId) const
+{
+    auto it = m_profiles.constFind(languageId);
+    if (it == m_profiles.constEnd())
+        return false;
+    return it->enabled;
 }

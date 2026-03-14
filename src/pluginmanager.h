@@ -91,6 +91,21 @@ public:
     bool isPluginDisabled(const QString &pluginId) const;
     QSet<QString> disabledPluginIds() const { return m_disabledIds; }
 
+    /// Set which language profiles are currently active.
+    /// Language-specific plugins will only activate if their languageIds
+    /// overlap with the active set.
+    void setActiveLanguageProfiles(const QSet<QString> &profileIds);
+    QSet<QString> activeLanguageProfiles() const { return m_activeProfiles; }
+
+    /// Activate deferred language plugins whose languageIds match
+    /// the given profile. Returns the number of newly activated plugins.
+    int activateByLanguageProfile(const QString &languageId);
+
+    /// Check if a plugin is allowed to run given current profile state.
+    /// General plugins are always allowed. Language plugins need an
+    /// active profile that matches their languageIds.
+    bool isPluginAllowedByProfile(const PluginManifest &manifest) const;
+
 private:
     bool tryLoadCAbi(const QString &filePath);
 
@@ -113,4 +128,5 @@ private:
     void loadDisabledSet();
 
     QSet<QString> m_disabledIds;
+    QSet<QString> m_activeProfiles;  // currently active language profile IDs
 };

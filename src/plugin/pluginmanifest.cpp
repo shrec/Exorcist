@@ -224,9 +224,38 @@ PluginManifest PluginManifest::fromJson(const QJsonObject &obj)
     m.layer = layers.value(obj[QLatin1String("layer")].toString(),
                            PluginLayer::CppSdk);
 
-    // Activation
+    // Classification
+    m.category = obj[QLatin1String("category")].toString();
+    for (const auto &v : obj[QLatin1String("languageIds")].toArray())
+        m.languageIds << v.toString();
+
+    // Activation (parse before inference so onLanguage: events are available)
     for (const auto &v : obj[QLatin1String("activationEvents")].toArray())
         m.activationEvents << v.toString();
+
+    // If languageIds not explicitly declared, infer from language contributions
+    // and activation events.
+    if (m.languageIds.isEmpty()) {
+        // Infer from contributions.languages[].id
+        const QJsonObject contrib = obj[QLatin1String("contributions")].toObject();
+        for (const auto &v : contrib[QLatin1String("languages")].toArray()) {
+            const QString lid = v.toObject()[QLatin1String("id")].toString();
+            if (!lid.isEmpty() && !m.languageIds.contains(lid))
+                m.languageIds << lid;
+        }
+        // Infer from onLanguage:<id> activation events
+        for (const QString &ev : m.activationEvents) {
+            if (ev.startsWith(QLatin1String("onLanguage:"))) {
+                const QString lid = ev.mid(11);
+                if (!lid.isEmpty() && !m.languageIds.contains(lid))
+                    m.languageIds << lid;
+            }
+        }
+    }
+
+    // Auto-set category to "language" if we inferred languageIds
+    if (m.category.isEmpty() && !m.languageIds.isEmpty())
+        m.category = QStringLiteral("language");
 
     // Dependencies
     for (const auto &v : obj[QLatin1String("dependencies")].toArray()) {
@@ -280,6 +309,13 @@ QJsonObject PluginManifest::toJson() const
     if (!license.isEmpty())    obj[QLatin1String("license")]    = license;
     if (!homepage.isEmpty())   obj[QLatin1String("homepage")]   = homepage;
     if (!repository.isEmpty()) obj[QLatin1String("repository")] = repository;
+
+    if (!category.isEmpty()) obj[QLatin1String("category")] = category;
+    if (!languageIds.isEmpty()) {
+        QJsonArray arr;
+        for (const auto &l : languageIds) arr << l;
+        obj[QLatin1String("languageIds")] = arr;
+    }
 
     static const char *layerNames[] = {"cpp", "cabi", "lua", "dsl"};
     obj[QLatin1String("layer")] = QString::fromLatin1(

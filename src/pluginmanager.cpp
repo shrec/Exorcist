@@ -88,11 +88,20 @@ void PluginManager::initializeAll(IHostServices *host)
 
     // Initialize Qt/C++ plugins — defer those with lazy activation events.
     // Skip disabled plugins entirely.
+    // Language-specific plugins are also deferred until their profile activates.
     QVector<LoadedPlugin> immediate;
     for (const LoadedPlugin &lp : m_loaded) {
         const QString id = lp.instance->info().id;
         if (m_disabledIds.contains(id))
             continue;
+
+        // Language-specific plugins are deferred until their profile activates,
+        // unless the profile is already active.
+        if (lp.manifest.isLanguagePlugin() && !isPluginAllowedByProfile(lp.manifest)) {
+            m_deferred.push_back({lp, lp.manifest.activationEvents});
+            continue;
+        }
+
         if (shouldDeferPlugin(lp.manifest)) {
             m_deferred.push_back({lp, lp.manifest.activationEvents});
         } else {
@@ -388,4 +397,50 @@ void PluginManager::setPluginDisabled(const QString &pluginId, bool disabled)
 bool PluginManager::isPluginDisabled(const QString &pluginId) const
 {
     return m_disabledIds.contains(pluginId);
+}
+
+// ── Language Profile Activation ──────────────────────────────────────────────
+
+void PluginManager::setActiveLanguageProfiles(const QSet<QString> &profileIds)
+{
+    m_activeProfiles = profileIds;
+}
+
+bool PluginManager::isPluginAllowedByProfile(const PluginManifest &manifest) const
+{
+    // General / non-language plugins are always allowed
+    if (manifest.isGeneralPlugin())
+        return true;
+
+    // Language plugins need at least one of their languageIds
+    // to be in the active profiles set
+    for (const QString &lid : manifest.languageIds) {
+        if (m_activeProfiles.contains(lid))
+            return true;
+    }
+    return false;
+}
+
+int PluginManager::activateByLanguageProfile(const QString &languageId)
+{
+    if (languageId.isEmpty())
+        return 0;
+
+    m_activeProfiles.insert(languageId);
+
+    int activated = 0;
+    QVector<DeferredPlugin> remaining;
+
+    for (const DeferredPlugin &dp : m_deferred) {
+        const PluginManifest &m = dp.loaded.manifest;
+        if (m.isLanguagePlugin() && m.languageIds.contains(languageId)) {
+            activatePlugin(dp.loaded);
+            ++activated;
+        } else {
+            remaining.push_back(dp);
+        }
+    }
+
+    m_deferred = remaining;
+    return activated;
 }

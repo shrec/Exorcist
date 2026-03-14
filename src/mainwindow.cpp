@@ -2158,6 +2158,16 @@ void MainWindow::setupMenus()
             // Re-index workspace if indexer settings changed
             if (m_workspaceIndexer && !m_workspaceIndexer->rootPath().isEmpty())
                 m_workspaceIndexer->indexWorkspace(m_workspaceIndexer->rootPath());
+
+            // Sync language profiles → plugin activation
+            if (auto *lpm2 = findChild<LanguageProfileManager *>(
+                    QStringLiteral("languageProfileManager"))) {
+                const QSet<QString> active = lpm2->activeLanguageIds();
+                m_pluginManager->setActiveLanguageProfiles(active);
+                // Activate any deferred plugins whose profiles just became active
+                for (const QString &lid : active)
+                    m_pluginManager->activateByLanguageProfile(lid);
+            }
         });
         dlg.exec();
     });
@@ -3188,6 +3198,10 @@ void MainWindow::openFile(const QString &path)
             editor->setTabStopDistance(
                 QFontMetricsF(f).horizontalAdvance(QLatin1Char(' ')) * langTab);
         }
+
+        // Activate language-specific plugins when a file of this language opens
+        if (m_pluginManager && lpm->isActive(langId))
+            m_pluginManager->activateByLanguageProfile(langId);
     }
 
     // Ctrl+I inline chat
@@ -4333,6 +4347,13 @@ void MainWindow::loadPlugins()
 
     // Create contribution registry for wiring plugin manifests into the IDE
     m_contributions = new ContributionRegistry(this, m_hostServices->commandService(), this);
+
+    // Set active language profiles before plugin initialization.
+    // Language-specific plugins only load when their profile is enabled.
+    if (auto *lpm = findChild<LanguageProfileManager *>(
+            QStringLiteral("languageProfileManager"))) {
+        m_pluginManager->setActiveLanguageProfiles(lpm->activeLanguageIds());
+    }
 
     // Initialize plugins: SDK v1 first, then legacy
     m_pluginManager->initializeAll(static_cast<IHostServices *>(m_hostServices));

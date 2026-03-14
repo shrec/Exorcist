@@ -19,6 +19,10 @@ private slots:
     void testFromJsonMissingFields();
     void testEmptyJson();
     void testDependency();
+    void testIsLanguagePluginExplicit();
+    void testIsLanguagePluginAutoInferred();
+    void testIsGeneralPlugin();
+    void testAutoInferFromActivationEvents();
 };
 
 void TestPluginManifest::testFromJsonBasicFields()
@@ -175,6 +179,73 @@ void TestPluginManifest::testDependency()
     QCOMPARE(manifest.dependencies[0].pluginId, QStringLiteral("dep.plugin"));
     QCOMPARE(manifest.dependencies[0].minVersion, QStringLiteral("1.0.0"));
     QVERIFY(manifest.dependencies[0].optional);
+}
+
+void TestPluginManifest::testIsLanguagePluginExplicit()
+{
+    PluginManifest m;
+    QVERIFY(m.isGeneralPlugin());
+    QVERIFY(!m.isLanguagePlugin());
+
+    m.category = QStringLiteral("language");
+    QVERIFY(m.isLanguagePlugin());
+    QVERIFY(!m.isGeneralPlugin());
+}
+
+void TestPluginManifest::testIsLanguagePluginAutoInferred()
+{
+    // Build JSON with a language contribution — auto-infer languageIds
+    QJsonObject langJson;
+    langJson[QStringLiteral("id")] = QStringLiteral("rust");
+    langJson[QStringLiteral("name")] = QStringLiteral("Rust");
+    langJson[QStringLiteral("extensions")] = QJsonArray{QStringLiteral(".rs")};
+
+    QJsonObject contrib;
+    contrib[QStringLiteral("languages")] = QJsonArray{langJson};
+
+    QJsonObject json;
+    json[QStringLiteral("id")] = QStringLiteral("lang.rust");
+    json[QStringLiteral("name")] = QStringLiteral("Rust Support");
+    json[QStringLiteral("version")] = QStringLiteral("1.0.0");
+    json[QStringLiteral("contributions")] = contrib;
+
+    auto manifest = PluginManifest::fromJson(json);
+    QVERIFY(manifest.isLanguagePlugin());
+    QVERIFY(manifest.languageIds.contains(QStringLiteral("rust")));
+    QCOMPARE(manifest.category, QStringLiteral("language"));
+}
+
+void TestPluginManifest::testIsGeneralPlugin()
+{
+    // AI-style plugin with "*" activation, no language contributions
+    QJsonObject json;
+    json[QStringLiteral("id")] = QStringLiteral("ai.copilot");
+    json[QStringLiteral("name")] = QStringLiteral("Copilot");
+    json[QStringLiteral("version")] = QStringLiteral("1.0.0");
+    json[QStringLiteral("category")] = QStringLiteral("ai");
+    json[QStringLiteral("activationEvents")] = QJsonArray{QStringLiteral("*")};
+
+    auto manifest = PluginManifest::fromJson(json);
+    QVERIFY(manifest.isGeneralPlugin());
+    QVERIFY(!manifest.isLanguagePlugin());
+    QVERIFY(manifest.languageIds.isEmpty());
+}
+
+void TestPluginManifest::testAutoInferFromActivationEvents()
+{
+    QJsonObject json;
+    json[QStringLiteral("id")] = QStringLiteral("lang.python");
+    json[QStringLiteral("name")] = QStringLiteral("Python");
+    json[QStringLiteral("version")] = QStringLiteral("1.0.0");
+    json[QStringLiteral("activationEvents")] = QJsonArray{
+        QStringLiteral("onLanguage:python"),
+        QStringLiteral("onLanguage:jupyter")
+    };
+
+    auto manifest = PluginManifest::fromJson(json);
+    QVERIFY(manifest.isLanguagePlugin());
+    QVERIFY(manifest.languageIds.contains(QStringLiteral("python")));
+    QVERIFY(manifest.languageIds.contains(QStringLiteral("jupyter")));
 }
 
 QTEST_MAIN(TestPluginManifest)

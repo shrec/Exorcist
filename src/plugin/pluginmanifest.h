@@ -203,6 +203,10 @@ struct PluginManifest
     QString     repository;      // URL
     PluginLayer layer = PluginLayer::CppSdk;
 
+    // ── Classification ────────────────────────────────────────────────────
+    QString     category;        // "general", "language", "ai", "core", ...
+    QStringList languageIds;     // ["cpp", "c"] — languages this plugin serves
+
     // ── Activation ────────────────────────────────────────────────────────
     QStringList activationEvents;  // when to load/activate
     QList<PluginDependency> dependencies;
@@ -225,6 +229,20 @@ struct PluginManifest
     {
         return activationEvents.contains(QStringLiteral("*"));
     }
+
+    /// A plugin is language-specific if it declares languageIds or its
+    /// activation events only contain onLanguage/workspaceContains patterns.
+    bool isLanguagePlugin() const
+    {
+        if (!languageIds.isEmpty())
+            return true;
+        if (category == QLatin1String("language"))
+            return true;
+        return false;
+    }
+
+    /// A plugin is general/neutral if it is NOT language-specific.
+    bool isGeneralPlugin() const { return !isLanguagePlugin(); }
 
     bool hasContributions() const
     {

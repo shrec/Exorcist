@@ -159,6 +159,76 @@ private slots:
         QCOMPARE(mgr.useTabs(QStringLiteral("python"), false), false);
     }
 
+    // ── Profile enabled/active tests ──────────────────────────────────────
+
+    void enabledDefaultTrue()
+    {
+        LanguageProfileData d;
+        QCOMPARE(d.enabled, true);
+    }
+
+    void setEnabledPersists()
+    {
+        {
+            LanguageProfileManager mgr;
+            LanguageProfileData d;
+            d.tabSize = 4;
+            mgr.setProfile(QStringLiteral("rust"), d);
+            QVERIFY(mgr.isActive(QStringLiteral("rust")));
+
+            mgr.setEnabled(QStringLiteral("rust"), false);
+            QVERIFY(!mgr.isActive(QStringLiteral("rust")));
+        }
+        // Reload from persistence
+        LanguageProfileManager mgr2;
+        QVERIFY(!mgr2.isActive(QStringLiteral("rust")));
+        auto p = mgr2.profile(QStringLiteral("rust"));
+        QCOMPARE(p.enabled, false);
+    }
+
+    void activeLanguageIds_onlyEnabled()
+    {
+        LanguageProfileManager mgr;
+
+        LanguageProfileData py;
+        py.tabSize = 4;
+        mgr.setProfile(QStringLiteral("python"), py);
+
+        LanguageProfileData cpp;
+        cpp.tabSize = 2;
+        mgr.setProfile(QStringLiteral("cpp"), cpp);
+
+        LanguageProfileData rs;
+        rs.tabSize = 4;
+        rs.enabled = false;
+        mgr.setProfile(QStringLiteral("rust"), rs);
+
+        auto active = mgr.activeLanguageIds();
+        QVERIFY(active.contains(QStringLiteral("python")));
+        QVERIFY(active.contains(QStringLiteral("cpp")));
+        QVERIFY(!active.contains(QStringLiteral("rust")));
+        QCOMPARE(active.size(), 2);
+    }
+
+    void isActive_unknownLanguageFalse()
+    {
+        LanguageProfileManager mgr;
+        QVERIFY(!mgr.isActive(QStringLiteral("nonexistent")));
+    }
+
+    void setEnabled_emitsSignal()
+    {
+        LanguageProfileManager mgr;
+        LanguageProfileData d;
+        d.tabSize = 4;
+        mgr.setProfile(QStringLiteral("go"), d);
+
+        QSignalSpy spy(&mgr, &LanguageProfileManager::profileChanged);
+        mgr.setEnabled(QStringLiteral("go"), false);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("go"));
+    }
+
     void cleanup()
     {
         QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));

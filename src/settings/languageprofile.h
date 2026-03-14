@@ -2,6 +2,7 @@
 
 #include <QMap>
 #include <QObject>
+#include <QSet>
 #include <QString>
 
 // ── LanguageProfile ──────────────────────────────────────────────────────────
@@ -11,6 +12,7 @@
 
 struct LanguageProfileData
 {
+    bool    enabled        = true;  // whether this profile is active
     int     tabSize        = -1;    // -1 = use global
     bool    useTabs        = false; // false = spaces (default)
     bool    useTabsSet     = false; // whether useTabs was explicitly set
@@ -41,6 +43,13 @@ public:
 
     void load();
     void save() const;
+
+    /// Returns the set of language IDs whose profiles are enabled.
+    QSet<QString> activeLanguageIds() const;
+
+    /// Enable/disable a language profile.
+    void setEnabled(const QString &languageId, bool enabled);
+    bool isActive(const QString &languageId) const;
 
 signals:
     void profileChanged(const QString &languageId);

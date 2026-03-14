@@ -49,6 +49,13 @@ LanguageSettingsPage::LanguageSettingsPage(LanguageProfileManager *mgr,
     auto *rightGroup = new QGroupBox(tr("Language Settings"), this);
     auto *formLayout = new QFormLayout(rightGroup);
 
+    m_enabled = new QCheckBox(tr("Profile enabled (activates language plugins)"), this);
+    m_enabled->setToolTip(tr("When enabled, language-specific plugins for this language will load.\n"
+                             "When disabled, plugins bound to this language stay dormant."));
+    formLayout->addRow(QString(), m_enabled);
+
+    formLayout->addRow(new QLabel(QString(), this)); // spacer
+
     m_tabSize = new QSpinBox(this);
     m_tabSize->setRange(1, 16);
     m_tabSize->setValue(4);
@@ -114,6 +121,7 @@ void LanguageSettingsPage::onLanguageSelected(int row)
         g->setEnabled(true);
 
     const LanguageProfileData d = m_mgr->profile(m_currentLang);
+    m_enabled->setChecked(d.enabled);
     m_tabSize->setValue(d.tabSize > 0 ? d.tabSize : 4);
     m_useTabs->setChecked(d.useTabs);
     m_trimWhitespace->setChecked(d.trimWhitespace);
@@ -171,6 +179,7 @@ void LanguageSettingsPage::syncFromWidgets()
     if (m_currentLang.isEmpty()) return;
 
     LanguageProfileData d;
+    d.enabled        = m_enabled->isChecked();
     d.tabSize        = m_tabSize->value();
     d.useTabs        = m_useTabs->isChecked();
     d.useTabsSet     = true;

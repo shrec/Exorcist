@@ -32,6 +32,7 @@ private:
 
     LanguageProfileManager *m_mgr = nullptr;
     QListWidget *m_langList       = nullptr;
+    QCheckBox   *m_enabled        = nullptr;
     QSpinBox    *m_tabSize        = nullptr;
     QCheckBox   *m_useTabs        = nullptr;
     QCheckBox   *m_trimWhitespace = nullptr;
