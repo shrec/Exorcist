@@ -4,6 +4,8 @@
 #include "sdk/pluginpermission.h"
 
 #include <QList>
+#include <QSet>
+#include <QString>
 
 // ── PermissionGuardedHostServices ────────────────────────────────────────────
 //
@@ -13,6 +15,11 @@
 // Services that access filesystem, git, terminal, or diagnostics
 // check the plugin's granted permissions first.
 //
+// queryService() is filtered through an allowlist — core-internal services
+// (mainwindow, secureKeyStorage, agentController, toolRegistry, etc.) are
+// never exposed to plugins. Plugins may only register and query services
+// that are NOT in the protected set.
+//
 // If a permission is denied, the service method returns a safe default
 // (empty string, false, empty list, or no-op for void methods).
 
@@ -20,11 +27,7 @@ class PermissionGuardedHostServices : public IHostServices
 {
 public:
     PermissionGuardedHostServices(IHostServices *delegate,
-                                  const QList<PluginPermission> &granted)
-        : m_delegate(delegate)
-        , m_permissions{granted}
-    {
-    }
+                                  const QList<PluginPermission> &granted);
 
     // Always available — no permission required
     ICommandService *commands() override { return m_delegate->commands(); }
@@ -33,47 +36,21 @@ public:
     INotificationService *notifications() override { return m_delegate->notifications(); }
 
     // Requires WorkspaceRead or WorkspaceWrite
-    IWorkspaceService *workspace() override
-    {
-        if (m_permissions.has(PluginPermission::WorkspaceRead)
-            || m_permissions.has(PluginPermission::WorkspaceWrite))
-            return m_delegate->workspace();
-        return nullptr;
-    }
-
-    // Requires GitRead or GitWrite
-    IGitService *git() override
-    {
-        if (m_permissions.has(PluginPermission::GitRead)
-            || m_permissions.has(PluginPermission::GitWrite))
-            return m_delegate->git();
-        return nullptr;
-    }
-
-    // Requires TerminalExecute
-    ITerminalService *terminal() override
-    {
-        if (m_permissions.has(PluginPermission::TerminalExecute))
-            return m_delegate->terminal();
-        return nullptr;
-    }
-
-    // Requires DiagnosticsRead
-    IDiagnosticsService *diagnostics() override
-    {
-        if (m_permissions.has(PluginPermission::DiagnosticsRead))
-            return m_delegate->diagnostics();
-        return nullptr;
-    }
+    IWorkspaceService *workspace() override;
+    IGitService *git() override;
+    ITerminalService *terminal() override;
+    IDiagnosticsService *diagnostics() override;
 
     // Task service — available to all (task execution checks handled elsewhere)
     ITaskService *tasks() override { return m_delegate->tasks(); }
 
-    // Service registry delegation — always available
-    void registerService(const QString &name, QObject *svc) override { m_delegate->registerService(name, svc); }
-    QObject *queryService(const QString &name) override { return m_delegate->queryService(name); }
+    // Service registry — guarded: plugins cannot access or shadow core services
+    void registerService(const QString &name, QObject *svc) override;
+    QObject *queryService(const QString &name) override;
 
 private:
+    static const QSet<QString> &protectedServiceNames();
+
     IHostServices *m_delegate;
     PluginPermissions m_permissions;
 };

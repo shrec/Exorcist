@@ -424,6 +424,7 @@ add_executable(exorcist WIN32
     sdk/contributionregistry.cpp
     sdk/contributionregistry.h
     sdk/permissionguard.h
+    sdk/permissionguard.cpp
     plugin/pluginmanifest.cpp
     plugin/pluginmanifest.h
     plugin/icommandhandler.h
@@ -493,8 +494,12 @@ target_include_directories(exorcist PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # This is required for Qt MOC-generated symbols (Q_OBJECT meta-objects, signals)
 # in SDK interfaces that plugins instantiate or connect to.
 set_target_properties(exorcist PROPERTIES ENABLE_EXPORTS TRUE)
-if(MINGW OR CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND WIN32)
+if(MINGW OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND WIN32))
+    # MinGW / llvm-mingw: export all symbols to create an import library
     target_link_options(exorcist PRIVATE "-Wl,--export-all-symbols")
+elseif(UNIX)
+    # Linux / macOS: export dynamic symbols so dlopen'd plugins can resolve them
+    target_link_options(exorcist PRIVATE "-rdynamic")
 endif()
 
 if(EXORCIST_USE_TREESITTER)

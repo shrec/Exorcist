@@ -5,6 +5,14 @@
 #include <QRandomGenerator>
 #include <QTimer>
 
+// POSIX shell quoting — wraps in single quotes, escapes embedded quotes.
+static QString shellQuote(const QString &s)
+{
+    QString quoted = s;
+    quoted.replace(QLatin1Char('\''), QLatin1String("'\\''"));
+    return QLatin1Char('\'') + quoted + QLatin1Char('\'');
+}
+
 RemoteLspManager::RemoteLspManager(QObject *parent)
     : QObject(parent)
 {
@@ -25,38 +33,15 @@ void RemoteLspManager::start(SshSession *session, const QString &remoteWorkDir,
     m_remotePort = m_localPort; // Use same port on remote side for simplicity
     m_running = true;
 
-    // Step 1: Start clangd in listen mode on the remote host
-    const QString cmd = QStringLiteral("cd %1 && %2 --log=error --background-index=false "
-                                       "--header-insertion=never --pch-storage=memory "
-                                       "--input-mirror-file=/dev/null 2>/dev/null")
-                            .arg(m_remoteWorkDir, m_clangdBinary);
-
-    // clangd doesn't natively support TCP listen, so we use stdio over SSH.
-    // Alternative approach: use socat or ncat on remote to bridge stdio to TCP.
-    // For simplicity, we'll run clangd via SSH and pipe stdio through the tunnel.
-    //
-    // Actually, the cleanest approach: run clangd on the remote via SSH stdio mode,
-    // and pipe its stdin/stdout through the SSH connection. This avoids needing
-    // port forwarding entirely — SSH already provides the encrypted pipe.
-    //
-    // However, for the architecture to use SocketLspTransport properly with
-    // potential future remote servers that do support TCP, we implement both:
-    //
-    // Path A (used here): SSH stdio pipe — command runs on remote, I/O through SSH
-    // Path B (future): clangd --listen=tcp:port + SSH port forward + SocketLspTransport
-
-    // We use Path A: run clangd on remote via SSH, capture stdio as LSP transport.
-    // The SshSession::runCommand approach provides stdout/stderr via signals.
-    // For a proper bidirectional pipe, we need a dedicated QProcess with SSH.
-
     m_transport = std::make_unique<SocketLspTransport>(this);
 
     // Start remote clangd via SSH port forward + socat bridge
     // Remote: socat TCP-LISTEN:${remotePort},fork EXEC:"clangd ..."
+    // All user-supplied values are shell-quoted to prevent injection.
     const QString socatCmd = QStringLiteral(
         "cd %1 && socat TCP-LISTEN:%2,reuseaddr,fork "
         "EXEC:\"%3 --log=error --background-index=false\""
-    ).arg(m_remoteWorkDir).arg(m_remotePort).arg(m_clangdBinary);
+    ).arg(shellQuote(m_remoteWorkDir)).arg(m_remotePort).arg(shellQuote(m_clangdBinary));
 
     m_clangdCmdId = m_session->runCommand(socatCmd);
     if (m_clangdCmdId < 0) {
@@ -160,9 +145,12 @@ void RemoteLspManager::stop()
     if (m_transport)
         m_transport->stop();
 
-    // Kill remote clangd (send SIGTERM via SSH)
+    // Kill the specific remote clangd socat that we started on our port.
+    // Scoped to our exact port to avoid killing other users' processes.
     if (m_session && m_session->isConnected()) {
-        m_session->runCommand(QStringLiteral("pkill -f 'socat.*clangd' 2>/dev/null; true"));
+        m_session->runCommand(
+            QStringLiteral("pkill -f 'socat.*TCP-LISTEN:%1.*clangd' 2>/dev/null; true")
+                .arg(m_remotePort));
     }
 
     m_transport.reset();

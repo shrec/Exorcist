@@ -218,8 +218,14 @@ void PluginMarketplaceService::handleDownloadFinished(
 
     const QByteArray data = reply->readAll();
 
-    // ── SHA-256 integrity verification ─────────────────────────────
-    if (!entry.sha256.isEmpty()) {
+    // ── SHA-256 integrity verification (mandatory) ─────────────────────────
+    if (entry.sha256.isEmpty()) {
+        emit error(tr("Refusing to install %1: package has no SHA-256 hash. "
+                      "All marketplace packages must include a sha256 field.")
+                       .arg(entry.name));
+        return;
+    }
+    {
         const QByteArray actual = QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex();
         if (actual != entry.sha256.toLatin1()) {
             emit error(tr("Integrity check failed for %1: expected SHA-256 %2, got %3")
