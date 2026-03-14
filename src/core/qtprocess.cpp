@@ -1,6 +1,8 @@
 #include "qtprocess.h"
 
+#include <QEventLoop>
 #include <QProcess>
+#include <QTimer>
 
 ProcessResult QtProcess::run(const QString &program,
                              const QStringList &args,
@@ -15,9 +17,28 @@ ProcessResult QtProcess::run(const QString &program,
         return result;
     }
 
-    if (!process.waitForFinished(timeoutMs)) {
+    // Use local event loop so the main thread stays responsive
+    QEventLoop loop;
+    bool timedOut = false;
+
+    QObject::connect(&process,
+                     QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                     &loop, &QEventLoop::quit);
+
+    QTimer timer;
+    timer.setSingleShot(true);
+    QObject::connect(&timer, &QTimer::timeout, &loop, [&]() {
+        timedOut = true;
+        loop.quit();
+    });
+    timer.start(timeoutMs);
+
+    loop.exec(QEventLoop::ExcludeSocketNotifiers);
+    timer.stop();
+
+    if (timedOut) {
         process.kill();
-        process.waitForFinished();
+        process.waitForFinished(2000);
         result.timedOut = true;
         result.stdErr = "Process timed out";
         return result;

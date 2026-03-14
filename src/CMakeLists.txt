@@ -160,6 +160,7 @@ add_executable(exorcist WIN32
     agent/tools/searchworkspacetool.h
     agent/tools/semanticsearchtool.h
     agent/tools/runcommandtool.h
+    agent/tools/runcommandtool.cpp
     agent/tools/applypatchtool.h
     agent/tools/idetools.h
     agent/tools/moretools.h
@@ -204,6 +205,7 @@ add_executable(exorcist WIN32
     agent/notebookstubs.h
     agent/notebookstubs.cpp
     agent/terminalsessionmanager.h
+    agent/terminalsessionmanager.cpp
     agent/workspacecontextdetector.h
     ui/markdownrenderer.cpp
     ui/markdownrenderer.h

@@ -426,7 +426,7 @@ See [docs/luajit.md](luajit.md)
 - [x] SSH command/path escaping — shellQuote() POSIX single-quote wrapper applied to all 5 remote path interpolation sites (cd, ls, cat, cat >, test -e)
 - [x] Plugin apiVersion validation — activatePlugin() checks PluginInfo.apiVersion major against EXORCIST_SDK_VERSION_MAJOR, skips incompatible plugins with error
 - [x] Dashboard fallback null guard — handleEvent() checks m_stepsList/m_logsList before use in QWidget fallback path
-- [ ] Fix terminal tool execution hang
+- [x] Fix terminal tool execution hang — replaced blocking `waitForFinished()` with local `QEventLoop` in `TerminalSessionManager::runForeground()`, `awaitSession()`, and `QtProcess::run()`. Added `cancelForeground()` + `RunCommandTool::cancel()` override so watchdog timer can kill hung processes. Split both classes to .h/.cpp.
 
 ### Agent Platform — Competitive Gap Fixes
 - [x] **Multi-file edit checkpoint** — `snapshotFilesForTool()` captures file state before tool execution, `filesChanged` signal with undo support (Keep/Undo bar)

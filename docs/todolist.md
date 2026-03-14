@@ -250,4 +250,4 @@
 
 - [ ] **Text selection/copy** — Ultralight chat panel-ში ტექსტის მონიშვნა და კოპირება
 - [ ] **Stream consolidation** — tool call-ები compact unified stream-ად (VS Code parity)
-- [ ] **Terminal tool hang fix** — terminal execution stuck in "Executing" state
+- [x] **Terminal tool hang fix** — replaced blocking `waitForFinished()` with `QEventLoop`, added `cancelForeground()` + `RunCommandTool::cancel()`
