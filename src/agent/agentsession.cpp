@@ -67,6 +67,34 @@ int AgentSession::totalSteps() const
     return n;
 }
 
+void AgentSession::addToolCallBatch(const QString &modelText,
+                                     const QList<AgentStep> &toolSteps)
+{
+    Q_ASSERT(!m_turns.isEmpty());
+
+    // Record all steps in the turn (for UI step tracking)
+    for (const auto &step : toolSteps)
+        m_turns.last().steps.append(step);
+
+    // Build ONE assistant message with content + ALL tool_calls
+    // (API spec requires all tool calls in a single assistant message)
+    AgentMessage assistMsg;
+    assistMsg.role    = AgentMessage::Role::Assistant;
+    assistMsg.content = modelText;
+    for (const auto &step : toolSteps)
+        assistMsg.toolCalls.append(step.toolCall);
+    m_messages.append(assistMsg);
+
+    // Add individual tool result messages after the assistant message
+    for (const auto &step : toolSteps) {
+        AgentMessage toolMsg;
+        toolMsg.role       = AgentMessage::Role::Tool;
+        toolMsg.toolCallId = step.toolCall.id;
+        toolMsg.content    = step.toolResult;
+        m_messages.append(toolMsg);
+    }
+}
+
 int AgentSession::totalToolCalls() const
 {
     int n = 0;

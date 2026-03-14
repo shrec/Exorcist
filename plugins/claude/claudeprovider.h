@@ -47,4 +47,14 @@ private:
     QPointer<QNetworkReply> m_activeReply;
     QString        m_activeRequestId;
     QString        m_accumulated;
+
+    // Tool call accumulation during streaming
+    struct PendingToolUse {
+        QString id;
+        QString name;
+        QString argumentsJson;
+    };
+    QList<PendingToolUse>  m_pendingToolCalls;
+    PendingToolUse         m_currentToolUse;
+    bool                   m_inToolUse = false;
 };

@@ -36,29 +36,74 @@ ClaudeProvider::ClaudeProvider(QObject *parent)
     m_model = QSettings().value(QStringLiteral("ai/claude/model"),
                                 QStringLiteral("claude-sonnet-4-20250514")).toString();
 
-    // Anthropic SSE: event type "content_block_delta" carries text chunks
+    // Anthropic SSE: text_delta for text, tool_use for tool calls
     connect(m_sseParser, &SseParser::eventReceived,
             this, [this](const QString &eventType, const QString &data) {
+        Q_UNUSED(eventType)
         const QJsonObject obj = QJsonDocument::fromJson(data.toUtf8()).object();
         const QString type = obj[QLatin1String("type")].toString();
 
-        if (type == QLatin1String("content_block_delta")) {
+        if (type == QLatin1String("content_block_start")) {
+            const QJsonObject cb = obj[QLatin1String("content_block")].toObject();
+            if (cb[QLatin1String("type")].toString() == QLatin1String("tool_use")) {
+                m_inToolUse = true;
+                m_currentToolUse = {};
+                m_currentToolUse.id   = cb[QLatin1String("id")].toString();
+                m_currentToolUse.name = cb[QLatin1String("name")].toString();
+            }
+        } else if (type == QLatin1String("content_block_delta")) {
             const QJsonObject delta = obj[QLatin1String("delta")].toObject();
-            if (delta[QLatin1String("type")].toString() == QLatin1String("text_delta")) {
+            const QString deltaType = delta[QLatin1String("type")].toString();
+            if (deltaType == QLatin1String("text_delta")) {
                 const QString text = delta[QLatin1String("text")].toString();
                 if (!text.isEmpty()) {
                     m_accumulated += text;
                     emit responseDelta(m_activeRequestId, text);
                 }
+            } else if (deltaType == QLatin1String("input_json_delta")) {
+                m_currentToolUse.argumentsJson +=
+                    delta[QLatin1String("partial_json")].toString();
             }
-        } else if (type == QLatin1String("message_stop")) {
-            AgentResponse resp;
-            resp.requestId = m_activeRequestId;
-            resp.text      = m_accumulated;
-            emit responseFinished(m_activeRequestId, resp);
-            m_activeRequestId.clear();
-            m_activeReply = nullptr;
-            m_accumulated.clear();
+        } else if (type == QLatin1String("content_block_stop")) {
+            if (m_inToolUse) {
+                m_pendingToolCalls.append(m_currentToolUse);
+                m_currentToolUse = {};
+                m_inToolUse = false;
+            }
+        } else if (type == QLatin1String("message_stop")
+                   || type == QLatin1String("message_delta")) {
+            // message_delta with stop_reason="end_turn" or "tool_use"
+            const QJsonObject delta = obj[QLatin1String("delta")].toObject();
+            const QString stopReason = delta[QLatin1String("stop_reason")].toString();
+
+            if (type == QLatin1String("message_stop")
+                || stopReason == QLatin1String("end_turn")
+                || stopReason == QLatin1String("tool_use")) {
+                AgentResponse resp;
+                resp.requestId = m_activeRequestId;
+                resp.text      = m_accumulated;
+
+                // Collect tool calls
+                for (const auto &ptc : m_pendingToolCalls) {
+                    ToolCall tc;
+                    tc.id        = ptc.id;
+                    tc.name      = ptc.name;
+                    tc.arguments = ptc.argumentsJson;
+                    resp.toolCalls.append(tc);
+                }
+
+                // Extract token usage from message_delta
+                const QJsonObject usage = obj[QLatin1String("usage")].toObject();
+                if (!usage.isEmpty()) {
+                    resp.completionTokens = usage[QLatin1String("output_tokens")].toInt();
+                }
+
+                emit responseFinished(m_activeRequestId, resp);
+                m_activeRequestId.clear();
+                m_activeReply = nullptr;
+                m_accumulated.clear();
+                m_pendingToolCalls.clear();
+            }
         }
     });
 }
@@ -177,18 +222,67 @@ void ClaudeProvider::sendRequest(const AgentRequest &request)
 
     // Build messages (Anthropic format — system is a top-level field)
     QJsonArray messages;
+    QString systemText = QString::fromLatin1(
+        request.agentMode ? kAgentSystemPrompt : kSystemPrompt);
 
     for (const auto &msg : request.conversationHistory) {
-        QString role;
         switch (msg.role) {
-        case AgentMessage::Role::System:    role = QStringLiteral("user"); break;
-        case AgentMessage::Role::User:      role = QStringLiteral("user"); break;
-        case AgentMessage::Role::Assistant:  role = QStringLiteral("assistant"); break;
+        case AgentMessage::Role::System:
+            // Anthropic uses top-level system field, merge all system messages
+            if (!msg.content.isEmpty()) {
+                if (!systemText.isEmpty())
+                    systemText += QStringLiteral("\n\n");
+                systemText += msg.content;
+            }
+            break;
+
+        case AgentMessage::Role::User:
+            messages.append(QJsonObject{
+                {QStringLiteral("role"),    QStringLiteral("user")},
+                {QStringLiteral("content"), msg.content}
+            });
+            break;
+
+        case AgentMessage::Role::Assistant: {
+            // Anthropic format: content is an array of content blocks
+            QJsonArray contentBlocks;
+            if (!msg.content.isEmpty()) {
+                contentBlocks.append(QJsonObject{
+                    {QStringLiteral("type"), QStringLiteral("text")},
+                    {QStringLiteral("text"), msg.content}
+                });
+            }
+            // Add tool_use blocks for any tool calls
+            for (const auto &tc : msg.toolCalls) {
+                QJsonObject toolBlock;
+                toolBlock[QStringLiteral("type")] = QStringLiteral("tool_use");
+                toolBlock[QStringLiteral("id")]   = tc.id;
+                toolBlock[QStringLiteral("name")] = tc.name;
+                toolBlock[QStringLiteral("input")] =
+                    QJsonDocument::fromJson(tc.arguments.toUtf8()).object();
+                contentBlocks.append(toolBlock);
+            }
+            if (!contentBlocks.isEmpty()) {
+                messages.append(QJsonObject{
+                    {QStringLiteral("role"),    QStringLiteral("assistant")},
+                    {QStringLiteral("content"), contentBlocks}
+                });
+            }
+            break;
         }
-        messages.append(QJsonObject{
-            {QStringLiteral("role"),    role},
-            {QStringLiteral("content"), msg.content}
-        });
+
+        case AgentMessage::Role::Tool:
+            // Anthropic tool results are user messages with tool_result content
+            messages.append(QJsonObject{
+                {QStringLiteral("role"), QStringLiteral("user")},
+                {QStringLiteral("content"), QJsonArray{QJsonObject{
+                    {QStringLiteral("type"),        QStringLiteral("tool_result")},
+                    {QStringLiteral("tool_use_id"), msg.toolCallId},
+                    {QStringLiteral("content"),     msg.content}
+                }}}
+            });
+            break;
+        }
     }
 
     if (request.appendUserMessage) {
@@ -198,14 +292,31 @@ void ClaudeProvider::sendRequest(const AgentRequest &request)
         });
     }
 
-    const QJsonObject body{
-        {QStringLiteral("model"),      m_model},
-        {QStringLiteral("max_tokens"), 8192},
-        {QStringLiteral("system"),     QString::fromLatin1(
-            request.agentMode ? kAgentSystemPrompt : kSystemPrompt)},
-        {QStringLiteral("messages"),   messages},
-        {QStringLiteral("stream"),     true}
-    };
+    const QJsonObject body = [&]() {
+        QJsonObject b;
+        b[QStringLiteral("model")]      = m_model;
+        b[QStringLiteral("max_tokens")] = 8192;
+        b[QStringLiteral("system")]     = systemText;
+        b[QStringLiteral("messages")]   = messages;
+        b[QStringLiteral("stream")]     = true;
+
+        // Add tool definitions for agent mode
+        if (!request.tools.isEmpty()) {
+            QJsonArray tools;
+            for (const auto &td : request.tools) {
+                QJsonObject toolDef;
+                toolDef[QStringLiteral("name")]        = td.name;
+                toolDef[QStringLiteral("description")] = td.description;
+                toolDef[QStringLiteral("input_schema")] =
+                    td.inputSchema.isEmpty()
+                        ? QJsonObject{{QStringLiteral("type"), QStringLiteral("object")}}
+                        : td.inputSchema;
+                tools.append(toolDef);
+            }
+            b[QStringLiteral("tools")] = tools;
+        }
+        return b;
+    }();
 
     QNetworkRequest netReq{QUrl{QLatin1String(kApiUrl)}};
     netReq.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
@@ -216,6 +327,9 @@ void ClaudeProvider::sendRequest(const AgentRequest &request)
 
     m_activeRequestId = request.requestId;
     m_accumulated.clear();
+    m_pendingToolCalls.clear();
+    m_currentToolUse = {};
+    m_inToolUse = false;
     m_sseParser->reset();
 
     QNetworkReply *reply = m_nam.post(netReq,
@@ -234,6 +348,7 @@ void ClaudeProvider::cancelRequest(const QString &requestId)
     }
     m_activeRequestId.clear();
     m_accumulated.clear();
+    m_pendingToolCalls.clear();
 }
 
 // ── Reply wiring ──────────────────────────────────────────────────────────────

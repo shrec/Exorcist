@@ -141,7 +141,7 @@ private slots:
 
 private:
     void executeAgentStep();
-    void processToolCalls(const QList<ToolCall> &toolCalls);
+    void processToolCalls(const QList<ToolCall> &toolCalls, const QString &modelText = {});
     ToolExecResult executeSingleTool(const ToolCall &tc);
     void sendModelRequest();
     void finishTurn(const QString &finalText, const QList<PatchProposal> &patches = {});

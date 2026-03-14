@@ -135,6 +135,7 @@ public:
 
     void beginTurn(const QString &userMessage);
     void addStep(const AgentStep &step);
+    void addToolCallBatch(const QString &modelText, const QList<AgentStep> &toolSteps);
 
     // ── Conversation history (for model context) ──────────────────────────
     const QList<AgentMessage> &messages() const { return m_messages; }

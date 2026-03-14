@@ -477,12 +477,15 @@ void AgentController::onResponseFinished(const QString &requestId,
             emit tokenUsageUpdated(response.promptTokens, response.completionTokens,
                                    response.totalTokens);
 
-        // Record the model's response as a step
+        // Record model thinking as a step for UI display,
+        // but do NOT add to m_messages here — the tool call batch
+        // will create a single combined assistant message with
+        // content + tool_calls per API spec.
         AgentStep modelStep;
         modelStep.type          = AgentStep::Type::ModelCall;
         modelStep.timestamp     = QDateTime::currentDateTime().toString(Qt::ISODate);
         modelStep.modelResponse = responseText;
-        m_session->addStep(modelStep);
+        m_session->currentTurn().steps.append(modelStep);
         emit stepCompleted(modelStep);
 
         // Check step limit
@@ -494,7 +497,7 @@ void AgentController::onResponseFinished(const QString &requestId,
         }
 
         // Execute tools and continue the loop
-        processToolCalls(response.toolCalls);
+        processToolCalls(response.toolCalls, responseText);
         return;
     }
 
@@ -541,7 +544,8 @@ void AgentController::onResponseError(const QString &requestId,
 
 // ── Tool execution ────────────────────────────────────────────────────────────
 
-void AgentController::processToolCalls(const QList<ToolCall> &toolCalls)
+void AgentController::processToolCalls(const QList<ToolCall> &toolCalls,
+                                       const QString &modelText)
 {
     struct PendingTool {
         ToolCall       tc;
@@ -710,6 +714,10 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls)
     }
 
     // ── Phase 3: Record results & emit signals (main thread) ──────────────
+    // Build all tool steps, then add as one batch so the conversation history
+    // has ONE assistant message with content + ALL tool_calls, followed by
+    // individual tool result messages (required by OpenAI/Anthropic API spec).
+    QList<AgentStep> toolSteps;
     for (const auto &w : work) {
         AgentStep step;
         step.type        = AgentStep::Type::ToolCall;
@@ -717,7 +725,7 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls)
         step.toolCall    = w.tc;
         step.toolResult  = w.result.ok ? w.result.textContent : w.result.error;
         step.toolSuccess = w.result.ok;
-        m_session->addStep(step);
+        toolSteps.append(step);
         emit stepCompleted(step);
         emit toolCallFinished(w.tc.name, w.result);
 
@@ -730,11 +738,16 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls)
         m_currentStepCount++;
         if (m_currentStepCount >= m_maxSteps) {
             qCWarning(lcCtrl) << "Max steps reached during tool execution";
+            // Still add whatever we have so far as a batch
+            m_session->addToolCallBatch(modelText, toolSteps);
             finishTurn(tr("[Agent reached maximum step limit (%1). "
                          "The response may be incomplete.]").arg(m_maxSteps));
             return;
         }
     }
+
+    // Add all results as a proper batch to conversation history
+    m_session->addToolCallBatch(modelText, toolSteps);
 
     // All tools executed — notify UI of file changes if any
     if (!mutatedFiles.isEmpty())
@@ -758,6 +771,18 @@ ToolExecResult AgentController::executeSingleTool(const ToolCall &tc)
     }
 
     QJsonObject args = QJsonDocument::fromJson(tc.arguments.toUtf8()).object();
+
+    // ── Validate required parameters from inputSchema ─────────────────────
+    const ToolSpec toolSpec = tool->spec();
+    const QJsonArray required = toolSpec.inputSchema[QLatin1String("required")].toArray();
+    for (const auto &r : required) {
+        const QString key = r.toString();
+        if (!args.contains(key) || args[key].isNull()) {
+            return {false, {}, {},
+                    tr("Missing required parameter '%1' for tool '%2'.")
+                        .arg(key, tc.name)};
+        }
+    }
 
     qCDebug(lcCtrl) << "Executing tool:" << tc.name
                      << "args:" << QJsonDocument(args).toJson(QJsonDocument::Compact);
