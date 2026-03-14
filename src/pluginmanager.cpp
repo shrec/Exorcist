@@ -2,6 +2,7 @@
 #include "sdk/permissionguard.h"
 #include "sdk/cabi/cabi_bridge.h"
 #include "sdk/luajit/luascriptengine.h"
+#include "sdk/contributionregistry.h"
 
 #include <QDir>
 #include <QFile>
@@ -404,6 +405,13 @@ bool PluginManager::isPluginDisabled(const QString &pluginId) const
 void PluginManager::setActiveLanguageProfiles(const QSet<QString> &profileIds)
 {
     m_activeProfiles = profileIds;
+    m_workspaceProfiles = profileIds;  // initial set is workspace-level
+}
+
+void PluginManager::addWorkspaceLanguage(const QString &languageId)
+{
+    m_workspaceProfiles.insert(languageId);
+    m_activeProfiles.insert(languageId);
 }
 
 bool PluginManager::isPluginAllowedByProfile(const PluginManifest &manifest) const
@@ -441,6 +449,114 @@ int PluginManager::activateByLanguageProfile(const QString &languageId)
         }
     }
 
+    // Also resume any suspended plugins for this language
+    for (LoadedPlugin &lp : m_loaded) {
+        if (lp.suspended && lp.manifest.isLanguagePlugin()
+            && lp.manifest.languageIds.contains(languageId)) {
+            try {
+                lp.instance->resume();
+            } catch (...) {}
+            lp.suspended = false;
+            if (m_contributions)
+                m_contributions->registerManifest(lp.instance->info().id,
+                                                  lp.manifest, lp.instance);
+            ++activated;
+        }
+    }
+
     m_deferred = remaining;
     return activated;
+}
+
+int PluginManager::suspendByLanguageProfile(const QString &languageId)
+{
+    if (languageId.isEmpty())
+        return 0;
+
+    int suspended = 0;
+    for (LoadedPlugin &lp : m_loaded) {
+        if (lp.suspended)
+            continue;
+        if (!lp.manifest.isLanguagePlugin())
+            continue;
+        if (!lp.manifest.languageIds.contains(languageId))
+            continue;
+
+        // Don't suspend if the plugin also serves another active language
+        bool servedByOtherProfile = false;
+        for (const QString &lid : lp.manifest.languageIds) {
+            if (lid != languageId && m_activeProfiles.contains(lid)) {
+                servedByOtherProfile = true;
+                break;
+            }
+        }
+        if (servedByOtherProfile)
+            continue;
+
+        // Unregister contributions before suspending
+        if (m_contributions)
+            m_contributions->unregisterPlugin(lp.instance->info().id);
+
+        try {
+            lp.instance->suspend();
+        } catch (...) {}
+        lp.suspended = true;
+        ++suspended;
+    }
+    return suspended;
+}
+
+int PluginManager::resumeByLanguageProfile(const QString &languageId)
+{
+    if (languageId.isEmpty())
+        return 0;
+
+    int resumed = 0;
+    for (LoadedPlugin &lp : m_loaded) {
+        if (!lp.suspended)
+            continue;
+        if (!lp.manifest.isLanguagePlugin())
+            continue;
+        if (!lp.manifest.languageIds.contains(languageId))
+            continue;
+
+        try {
+            lp.instance->resume();
+        } catch (...) {}
+        lp.suspended = false;
+
+        // Re-register contributions
+        if (m_contributions)
+            m_contributions->registerManifest(lp.instance->info().id,
+                                              lp.manifest, lp.instance);
+        ++resumed;
+    }
+    return resumed;
+}
+
+void PluginManager::switchActiveLanguage(const QString &newLanguageId)
+{
+    if (newLanguageId == m_activeEditorLanguage)
+        return;
+
+    const QString prev = m_activeEditorLanguage;
+    m_activeEditorLanguage = newLanguageId;
+
+    // Suspend plugins for the previous language ONLY if it's not a
+    // workspace-level profile (workspace profiles stay active always)
+    if (!prev.isEmpty() && !m_workspaceProfiles.contains(prev)) {
+        suspendByLanguageProfile(prev);
+        m_activeProfiles.remove(prev);
+    }
+
+    // Activate / resume plugins for the new language
+    if (!newLanguageId.isEmpty()) {
+        m_activeProfiles.insert(newLanguageId);
+        activateByLanguageProfile(newLanguageId);
+    }
+}
+
+void PluginManager::setContributionRegistry(ContributionRegistry *registry)
+{
+    m_contributions = registry;
 }

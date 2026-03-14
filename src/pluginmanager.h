@@ -16,6 +16,7 @@ class QLibrary;
 class IHostServices;
 class IAgentProvider;
 class PermissionGuardedHostServices;
+class ContributionRegistry;
 namespace cabi { class CAbiPluginBridge; }
 
 #include "sdk/luajit/luascriptengine.h"
@@ -30,6 +31,7 @@ public:
         IPlugin *instance;
         QPluginLoader *loader;
         PluginManifest manifest;  // from plugin.json (may be empty)
+        bool suspended = false;   // true when language profile deactivated
     };
 
     struct LoadedCAbiPlugin {
@@ -97,14 +99,39 @@ public:
     void setActiveLanguageProfiles(const QSet<QString> &profileIds);
     QSet<QString> activeLanguageProfiles() const { return m_activeProfiles; }
 
+    /// Mark a language as workspace-level (won't be suspended on tab switch).
+    void addWorkspaceLanguage(const QString &languageId);
+
     /// Activate deferred language plugins whose languageIds match
     /// the given profile. Returns the number of newly activated plugins.
     int activateByLanguageProfile(const QString &languageId);
+
+    /// Suspend all loaded language plugins whose languageIds contain
+    /// the given ID. Calls IPlugin::suspend() and removes contributions.
+    /// Does not suspend if the plugin also serves a workspace-level profile.
+    /// Returns the number of suspended plugins.
+    int suspendByLanguageProfile(const QString &languageId);
+
+    /// Resume previously suspended language plugins matching the language.
+    /// Calls IPlugin::resume() and re-registers contributions.
+    /// Returns the number of resumed plugins.
+    int resumeByLanguageProfile(const QString &languageId);
+
+    /// Switch the active language for the editor context.
+    /// Suspends plugins for the previous language and activates/resumes
+    /// plugins for the new language. General plugins are never affected.
+    void switchActiveLanguage(const QString &newLanguageId);
+
+    /// Set the ContributionRegistry for suspend/resume contribution management.
+    void setContributionRegistry(ContributionRegistry *registry);
 
     /// Check if a plugin is allowed to run given current profile state.
     /// General plugins are always allowed. Language plugins need an
     /// active profile that matches their languageIds.
     bool isPluginAllowedByProfile(const PluginManifest &manifest) const;
+
+    /// Get the currently active editor language.
+    QString activeEditorLanguage() const { return m_activeEditorLanguage; }
 
 private:
     bool tryLoadCAbi(const QString &filePath);
@@ -129,4 +156,7 @@ private:
 
     QSet<QString> m_disabledIds;
     QSet<QString> m_activeProfiles;  // currently active language profile IDs
+    QSet<QString> m_workspaceProfiles; // workspace-detected profiles (never suspended on tab switch)
+    QString m_activeEditorLanguage;  // language of the current editor tab
+    ContributionRegistry *m_contributions = nullptr;
 };

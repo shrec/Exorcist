@@ -34,6 +34,15 @@ public:
     /// initialize(IHostServices*) instead.
     virtual void initialize(QObject *services) { Q_UNUSED(services); }
 
+    /// Temporarily suspend this plugin (language no longer active).
+    /// Plugins should release expensive resources but stay loadable.
+    /// Default: no-op (backward compatible).
+    virtual void suspend() {}
+
+    /// Resume a previously suspended plugin (language became active again).
+    /// Default: no-op (backward compatible).
+    virtual void resume() {}
+
     virtual void shutdown() = 0;
 };
 

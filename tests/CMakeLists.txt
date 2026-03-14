@@ -453,6 +453,16 @@ target_link_libraries(test_pluginmanifest PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_pluginmanifest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME PluginManifest COMMAND test_pluginmanifest)
 
+# ── PluginSuspend tests ───────────────────────────────────────────────────────
+add_executable(test_pluginsuspend
+    test_pluginsuspend.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugin/pluginmanifest.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugin/pluginmanifest.h
+)
+target_link_libraries(test_pluginsuspend PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_pluginsuspend PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME PluginSuspend COMMAND test_pluginsuspend)
+
 # ── TreeSitterQueryTool tests ─────────────────────────────────────────────────
 add_executable(test_treesitterquerytool
     test_treesitterquerytool.cpp

@@ -3056,6 +3056,13 @@ void MainWindow::onTabChanged(int /*index*/)
             m_inlineEngine->attachEditor(editor, path, lang);
         }
 
+        // Switch language-specific plugins when the active editor language changes
+        {
+            const QString lang = editor->property("languageId").toString();
+            if (!lang.isEmpty() && m_pluginManager)
+                m_pluginManager->switchActiveLanguage(lang);
+        }
+
         // Update inline diff gutter for the active editor
         updateDiffRanges(editor);
 
@@ -3348,6 +3355,102 @@ void MainWindow::openFolder(const QString &path)
     // Activate plugins with workspaceContains activation events
     if (m_pluginManager)
         m_pluginManager->activateByWorkspace(root);
+
+    // Auto-detect workspace languages and activate their profiles.
+    // Two-pass approach:
+    //   1. Marker files (build system indicators) — instant, top-level only
+    //   2. File extension scan (depth-limited) — runs async to not block startup
+    if (m_pluginManager) {
+        // Pass 1: project file markers (instant)
+        static const struct { const char *file; const char *lang; } markers[] = {
+            {"CMakeLists.txt", "cpp"}, {"Cargo.toml", "rust"},
+            {"package.json", "javascript"}, {"tsconfig.json", "typescript"},
+            {"pyproject.toml", "python"}, {"setup.py", "python"},
+            {"go.mod", "go"}, {"pom.xml", "java"},
+            {"build.gradle", "java"}, {"*.sln", "csharp"},
+        };
+        QDir ws(root);
+        for (const auto &m : markers) {
+            if (!ws.entryList(QStringList{QString::fromLatin1(m.file)},
+                              QDir::Files).isEmpty()) {
+                const QString lang = QString::fromLatin1(m.lang);
+                m_pluginManager->addWorkspaceLanguage(lang);
+                m_pluginManager->activateByLanguageProfile(lang);
+            }
+        }
+
+        // Pass 2: extension scan (async, depth-limited)
+        // Scans actual files to discover languages not covered by markers
+        QTimer::singleShot(100, this, [this, root]() {
+            if (!m_pluginManager)
+                return;
+
+            // Extension → language ID mapping (subset of LspClient::languageIdForPath)
+            static const QHash<QString, QString> extMap = {
+                {"cpp", "cpp"}, {"cxx", "cpp"}, {"cc", "cpp"}, {"c", "cpp"},
+                {"h", "cpp"}, {"hpp", "cpp"}, {"hxx", "cpp"},
+                {"py", "python"}, {"pyw", "python"},
+                {"js", "javascript"}, {"mjs", "javascript"},
+                {"ts", "typescript"}, {"tsx", "typescript"},
+                {"rs", "rust"}, {"go", "go"}, {"java", "java"},
+                {"kt", "kotlin"}, {"kts", "kotlin"},
+                {"swift", "swift"}, {"dart", "dart"},
+                {"rb", "ruby"}, {"php", "php"}, {"lua", "lua"},
+                {"scala", "scala"}, {"cs", "csharp"},
+            };
+
+            QSet<QString> detected;
+            // Depth-limited BFS (max depth 3, max 2000 entries)
+            struct Level { QString path; int depth; };
+            QVector<Level> queue;
+            queue.append({root, 0});
+            int scanned = 0;
+            constexpr int kMaxDepth = 3;
+            constexpr int kMaxEntries = 2000;
+
+            while (!queue.isEmpty() && scanned < kMaxEntries) {
+                const auto cur = queue.takeFirst();
+                QDir dir(cur.path);
+                const auto entries = dir.entryInfoList(
+                    QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+                for (const QFileInfo &fi : entries) {
+                    if (++scanned > kMaxEntries)
+                        break;
+                    if (fi.isDir()) {
+                        // Skip hidden dirs, build dirs, node_modules, .git
+                        const QString name = fi.fileName();
+                        if (name.startsWith(QLatin1Char('.'))
+                            || name == QLatin1String("node_modules")
+                            || name == QLatin1String("build")
+                            || name == QLatin1String("dist")
+                            || name == QLatin1String("__pycache__")
+                            || name.startsWith(QLatin1String("build-")))
+                            continue;
+                        if (cur.depth < kMaxDepth)
+                            queue.append({fi.absoluteFilePath(), cur.depth + 1});
+                    } else {
+                        const QString ext = fi.suffix().toLower();
+                        auto it = extMap.find(ext);
+                        if (it != extMap.end())
+                            detected.insert(it.value());
+                    }
+                }
+            }
+
+            // Activate detected languages as workspace-level profiles
+            for (const QString &lang : detected) {
+                if (!m_pluginManager->activeLanguageProfiles().contains(lang)) {
+                    m_pluginManager->addWorkspaceLanguage(lang);
+                    m_pluginManager->activateByLanguageProfile(lang);
+                }
+            }
+
+            if (!detected.isEmpty())
+                qInfo("Workspace language scan: detected %d language(s): %s",
+                      detected.size(),
+                      qUtf8Printable(QStringList(detected.begin(), detected.end()).join(", ")));
+        });
+    }
 
     // ── Toolchain & CMake detection (via build plugin service) ──────────
     // Clangd start is deferred until after CMake detection so we can pass
@@ -4347,6 +4450,9 @@ void MainWindow::loadPlugins()
 
     // Create contribution registry for wiring plugin manifests into the IDE
     m_contributions = new ContributionRegistry(this, m_hostServices->commandService(), this);
+
+    // Give PluginManager access to ContributionRegistry for suspend/resume
+    m_pluginManager->setContributionRegistry(m_contributions);
 
     // Set active language profiles before plugin initialization.
     // Language-specific plugins only load when their profile is enabled.
