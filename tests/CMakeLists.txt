@@ -1,5 +1,15 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Widgets Network Concurrent)
 
+# ── LanguageProfile tests ─────────────────────────────────────────────────────
+add_executable(test_languageprofile
+    test_languageprofile.cpp
+    ${CMAKE_SOURCE_DIR}/src/settings/languageprofile.cpp
+    ${CMAKE_SOURCE_DIR}/src/settings/languageprofile.h
+)
+target_link_libraries(test_languageprofile PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_languageprofile PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME LanguageProfile COMMAND test_languageprofile)
+
 # ── ServiceRegistry tests ─────────────────────────────────────────────────────
 add_executable(test_serviceregistry
     test_serviceregistry.cpp

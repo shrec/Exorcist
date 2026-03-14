@@ -101,6 +101,9 @@
 #include "agent/iagentplugin.h"
 #include "ui/notificationtoast.h"
 #include "ui/settingsdialog.h"
+#include "ui/extrasettingspages.h"
+#include "ui/aboutdialog.h"
+#include "ui/recentfilesmanager.h"
 #include "ui/themegallerypanel.h"
 #include "ui/keymapmanager.h"
 #include "ui/keymapdialog.h"
@@ -133,6 +136,7 @@
 #include "build/outputpanel.h"
 #include "problems/problemspanel.h"
 #include "settings/workspacesettings.h"
+#include "settings/languageprofile.h"
 #include "git/diffexplorerpanel.h"
 #include "git/mergeeditor.h"
 #include "build/runlaunchpanel.h"
@@ -1966,6 +1970,21 @@ void MainWindow::setupMenus()
     QAction *saveAction = fileMenu->addAction(tr("&Save"));
     saveAction->setShortcut(QKeySequence::Save);
 
+    QAction *saveAsAction = fileMenu->addAction(tr("Save &As..."));
+    saveAsAction->setShortcut(QKeySequence::SaveAs);
+
+    fileMenu->addSeparator();
+
+    auto *recentMgr = new RecentFilesManager(this);
+    recentMgr->setObjectName(QStringLiteral("recentFilesManager"));
+
+    auto *langProfileMgr = new LanguageProfileManager(this);
+    langProfileMgr->setObjectName(QStringLiteral("languageProfileManager"));
+    QMenu *recentMenu = fileMenu->addMenu(tr("Recent &Files"));
+    recentMgr->attachMenu(recentMenu);
+    connect(recentMgr, &RecentFilesManager::fileSelected,
+            this, [this](const QString &path) { openFile(path); });
+
     fileMenu->addSeparator();
 
     QMenu *solutionMenu = fileMenu->addMenu(tr("Solution"));
@@ -1991,6 +2010,14 @@ void MainWindow::setupMenus()
     });
     connect(openFolderAction, &QAction::triggered, this, [this]() { openFolder(); });
     connect(saveAction, &QAction::triggered, this, &MainWindow::saveCurrentTab);
+    connect(saveAsAction, &QAction::triggered, this, [this]() {
+        EditorView *editor = currentEditor();
+        if (!editor) return;
+        const QString path = QFileDialog::getSaveFileName(this, tr("Save File As"));
+        if (path.isEmpty()) return;
+        editor->setProperty("filePath", path);
+        saveCurrentTab();
+    });
     connect(newSolutionAction, &QAction::triggered, this, &MainWindow::newSolution);
     connect(openSolutionAction, &QAction::triggered, this, &MainWindow::openSolutionFile);
     connect(addProjectAction, &QAction::triggered, this, &MainWindow::addProjectToSolution);
@@ -2093,6 +2120,15 @@ void MainWindow::setupMenus()
     prefsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Comma));
     connect(prefsAction, &QAction::triggered, this, [this]() {
         SettingsDialog dlg(m_themeManager, this);
+
+        // Add Language and Terminal settings pages
+        auto *langMgr = findChild<LanguageProfileManager *>(
+            QStringLiteral("languageProfileManager"));
+        if (langMgr) {
+            dlg.addPage(new LanguageSettingsPage(langMgr, &dlg));
+        }
+        dlg.addPage(new TerminalSettingsPage(&dlg));
+
         connect(&dlg, &SettingsDialog::settingsApplied, this, [this]() {
             // Notify WorkspaceSettings so it re-resolves global → workspace hierarchy
             if (auto *wss = m_services->service<WorkspaceSettings>(
@@ -2279,8 +2315,10 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleDebugAction->setCheckable(true);
     toggleDebugAction->setChecked(false);
 
-    // ── Build shortcut (Ctrl+Shift+B) ─────────────────────────────────────
-    auto *buildAct = new QAction(tr("&Build"), this);
+    // ── Run ─────────────────────────────────────────────────────────────
+    QMenu *runMenu = menuBar()->addMenu(tr("&Run"));
+
+    auto *buildAct = runMenu->addAction(tr("&Build"));
     buildAct->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B));
     connect(buildAct, &QAction::triggered, this, [this]() {
         auto *buildSys = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
@@ -2289,10 +2327,10 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
             m_dockManager->showDock(dock(QStringLiteral("OutputDock")), exdock::SideBarArea::Bottom);
         }
     });
-    addAction(buildAct);
 
-    // ── Debug shortcut (F5) ───────────────────────────────────────────────
-    auto *runAct = new QAction(tr("&Debug"), this);
+    runMenu->addSeparator();
+
+    auto *runAct = runMenu->addAction(tr("Start &Debugging"));
     runAct->setShortcut(QKeySequence(Qt::Key_F5));
     connect(runAct, &QAction::triggered, this, [this]() {
         // If debugger is running and paused, continue
@@ -2316,10 +2354,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
             }
         }
     });
-    addAction(runAct);
 
-    // ── Run without debugging (Ctrl+F5) ───────────────────────────────────
-    auto *runNodebugAct = new QAction(tr("Run &Without Debugging"), this);
+    auto *runNodebugAct = runMenu->addAction(tr("Run &Without Debugging"));
     runNodebugAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
     connect(runNodebugAct, &QAction::triggered, this, [this]() {
         auto *launchSvc = m_services->service<ILaunchService>(QStringLiteral("launchService"));
@@ -2336,16 +2372,24 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
             }
         }
     });
-    addAction(runNodebugAct);
 
-    // ── Stop shortcut (Shift+F5) ──────────────────────────────────────────
-    auto *stopRunAct = new QAction(tr("Stop Run"), this);
+    runMenu->addSeparator();
+
+    auto *stopRunAct = runMenu->addAction(tr("&Stop"));
     stopRunAct->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F5));
     connect(stopRunAct, &QAction::triggered, this, [this]() {
         auto *launchSvc = m_services->service<ILaunchService>(QStringLiteral("launchService"));
         if (launchSvc) launchSvc->stopSession();
     });
-    addAction(stopRunAct);
+
+    // ── Help ──────────────────────────────────────────────────────────────
+    QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
+
+    QAction *aboutAction = helpMenu->addAction(tr("&About Exorcist..."));
+    connect(aboutAction, &QAction::triggered, this, [this]() {
+        AboutDialog dlg(this);
+        dlg.exec();
+    });
 
     // ── AI shortcuts ──────────────────────────────────────────────────────
     auto *focusChatAct = new QAction(tr("Focus AI Chat"), this);
@@ -3090,6 +3134,12 @@ void MainWindow::openFile(const QString &path)
         return;
     }
 
+    // Track in recent files
+    if (auto *rfm = findChild<RecentFilesManager *>(
+            QStringLiteral("recentFilesManager"))) {
+        rfm->addFile(path);
+    }
+
     for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
         if (m_editorMgr->tabs()->widget(i)->property("filePath").toString() == path) {
             m_editorMgr->tabs()->setCurrentIndex(i);
@@ -3123,6 +3173,22 @@ void MainWindow::openFile(const QString &path)
     // Set language ID on the editor for inline chat / inline completion
     const QString langId = LspClient::languageIdForPath(path);
     editor->setLanguageId(langId);
+
+    // Apply language profile overrides (tab size, indent style)
+    if (auto *lpm = findChild<LanguageProfileManager *>(
+            QStringLiteral("languageProfileManager"))) {
+        QSettings gs(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+        gs.beginGroup(QStringLiteral("editor"));
+        const int globalTab = gs.value(QStringLiteral("tabSize"), 4).toInt();
+        gs.endGroup();
+
+        const int langTab = lpm->tabSize(langId, globalTab);
+        if (langTab != globalTab) {
+            const QFont f = editor->font();
+            editor->setTabStopDistance(
+                QFontMetricsF(f).horizontalAdvance(QLatin1Char(' ')) * langTab);
+        }
+    }
 
     // Ctrl+I inline chat
     connect(editor, &EditorView::inlineChatRequested,
@@ -3467,10 +3533,39 @@ void MainWindow::saveCurrentTab()
     EditorView *editor = currentEditor();
     if (!editor) return;
 
-    // Format on save: trigger LSP formatting before writing
-    auto *bridge = editor->findChild<LspEditorBridge *>();
-    if (bridge)
-        bridge->formatDocument();
+    const QString langId = editor->property("languageId").toString();
+    auto *lpm = findChild<LanguageProfileManager *>(
+        QStringLiteral("languageProfileManager"));
+
+    // Trim trailing whitespace per language profile
+    if (lpm && lpm->trimTrailingWhitespace(langId)) {
+        QTextCursor cursor(editor->document());
+        cursor.beginEditBlock();
+        QTextBlock block = editor->document()->begin();
+        while (block.isValid()) {
+            const QString text = block.text();
+            int trailing = text.length();
+            while (trailing > 0 && text.at(trailing - 1).isSpace())
+                --trailing;
+            if (trailing < text.length()) {
+                cursor.setPosition(block.position() + trailing);
+                cursor.setPosition(block.position() + text.length(),
+                                   QTextCursor::KeepAnchor);
+                cursor.removeSelectedText();
+            }
+            block = block.next();
+        }
+        cursor.endEditBlock();
+    }
+
+    // Format on save: trigger LSP formatting if language profile requests it,
+    // or always if no profile exists (legacy behavior)
+    const bool shouldFormat = lpm ? lpm->formatOnSave(langId) : true;
+    if (shouldFormat) {
+        auto *bridge = editor->findChild<LspEditorBridge *>();
+        if (bridge)
+            bridge->formatDocument();
+    }
 
     QString path = editor->property("filePath").toString();
     if (path.isEmpty()) {

@@ -236,6 +236,12 @@ add_executable(exorcist WIN32
     ui/notificationtoast.h
     ui/settingsdialog.cpp
     ui/settingsdialog.h
+    ui/extrasettingspages.cpp
+    ui/extrasettingspages.h
+    ui/aboutdialog.cpp
+    ui/aboutdialog.h
+    ui/recentfilesmanager.cpp
+    ui/recentfilesmanager.h
     ui/themegallerypanel.cpp
     ui/themegallerypanel.h
     ui/keymapmanager.cpp
@@ -461,6 +467,8 @@ add_executable(exorcist WIN32
     process/processmanager.cpp
     settings/workspacesettings.h
     settings/workspacesettings.cpp
+    settings/languageprofile.h
+    settings/languageprofile.cpp
 )
 
 # ── Chat renderer: Ultralight (HTML/JS) vs Qt widgets ────────────────────────
