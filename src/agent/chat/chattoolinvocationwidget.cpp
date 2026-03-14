@@ -104,8 +104,20 @@ ChatToolInvocationWidget::ChatToolInvocationWidget(QWidget *parent)
                  ChatTheme::MonoFamily,
                  ChatTheme::pick(ChatTheme::CodeBg, ChatTheme::L_CodeBg)));
 
+    m_outputScroll = new QScrollArea(this);
+    m_outputScroll->setWidget(m_outputLabel);
+    m_outputScroll->setWidgetResizable(true);
+    m_outputScroll->setMaximumHeight(300);
+    m_outputScroll->setFrameShape(QFrame::NoFrame);
+    m_outputScroll->setStyleSheet(
+        QStringLiteral("QScrollArea { background: transparent; }"
+                      " QScrollBar:vertical { width:6px; background:transparent; }"
+                      " QScrollBar::handle:vertical { background:%1; border-radius:3px; min-height:20px; }"
+                      " QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }")
+            .arg(ChatTheme::pick(ChatTheme::FgDimmed, ChatTheme::L_FgDimmed)));
+
     ioLayout->addWidget(m_inputLabel);
-    ioLayout->addWidget(m_outputLabel);
+    ioLayout->addWidget(m_outputScroll);
     cardLayout->addWidget(m_ioPanel);
 
     // Confirmation buttons (hidden unless state == ConfirmationNeeded)
@@ -543,9 +555,9 @@ QString ChatToolInvocationWidget::formatJsonValue(const QJsonValue &val, int dep
 
 QString ChatToolInvocationWidget::formatTerminalOutput(const QString &text)
 {
-    // Limit to ~40 lines of output
+    // Limit to ~200 lines of output (scrollable container handles display)
     QStringList lines = text.split(QLatin1Char('\n'));
-    const int maxLines = 40;
+    const int maxLines = 200;
     bool truncated = false;
     if (lines.size() > maxLines) {
         truncated = true;

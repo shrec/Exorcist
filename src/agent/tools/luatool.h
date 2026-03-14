@@ -63,6 +63,7 @@ public:
             "64MB memory limit, 10M instruction limit.");
         s.permission  = AgentToolPermission::SafeMutate;
         s.timeoutMs   = 30000;
+        s.parallelSafe = true;
         s.inputSchema = QJsonObject{
             {QStringLiteral("type"), QStringLiteral("object")},
             {QStringLiteral("properties"), QJsonObject{

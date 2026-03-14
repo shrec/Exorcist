@@ -260,6 +260,7 @@ public:
             "If you're unsure what tools exist, call list_lua_tools first.");
         s.permission  = AgentToolPermission::SafeMutate;
         s.timeoutMs   = 30000;
+        s.parallelSafe = true;
         s.inputSchema = QJsonObject{
             {QStringLiteral("type"), QStringLiteral("object")},
             {QStringLiteral("properties"), QJsonObject{

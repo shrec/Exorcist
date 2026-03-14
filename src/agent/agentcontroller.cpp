@@ -614,62 +614,74 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls,
     // tools that use internal QEventLoop::exec() (build, HTTP, git).
     // ExcludeSocketNotifiers prevents re-entrant SSE handlers.
     //
-    // Tools with parallelSafe=true are batched and run concurrently on
-    // QThreadPool when there are 2+ of them (e.g. multiple read_file).
-    // This cuts multi-file context-gathering latency dramatically.
+    // ALL tool executions run off the main thread via QtConcurrent so the
+    // UI never freezes.  Event pumping keeps timers, signals, and UI
+    // responsive.  File snapshots (for Undo All) are taken on the main
+    // thread BEFORE dispatching each tool.  Phase 3 (signal emissions,
+    // session updates) also runs on the main thread after all tools finish.
+    //
+    // When multiple parallelSafe tools appear in one batch, they run
+    // concurrently on QThreadPool for lower latency.
+
     QStringList mutatedFiles;
 
-    // Partition approved tools into parallel-safe and sequential groups
-    QVector<int> parallelIndices, sequentialIndices;
+    // Collect approved (non-denied) tool indices
+    QVector<int> approvedIndices;
     for (int i = 0; i < work.size(); ++i) {
-        if (work[i].denied)
-            continue;
-        ITool *tool = m_toolRegistry ? m_toolRegistry->tool(work[i].tc.name) : nullptr;
-        if (tool && tool->spec().parallelSafe
-            && tool->spec().permission == AgentToolPermission::ReadOnly) {
-            parallelIndices.append(i);
-        } else {
-            sequentialIndices.append(i);
-        }
+        if (!work[i].denied)
+            approvedIndices.append(i);
     }
 
-    // ── Execute parallel-safe batch concurrently ──────────────────────────
-    if (parallelIndices.size() > 1) {
-        qCInfo(lcCtrl) << "Executing" << parallelIndices.size()
-                       << "read-only tools in parallel";
+    // ── Check for concurrent batch (multiple parallelSafe tools) ──────────
+    QVector<int> parallelBatch;
+    for (int idx : approvedIndices) {
+        ITool *tool = m_toolRegistry ? m_toolRegistry->tool(work[idx].tc.name) : nullptr;
+        if (tool && tool->spec().parallelSafe)
+            parallelBatch.append(idx);
+    }
+
+    if (parallelBatch.size() > 1) {
+        // Run the parallelSafe subset concurrently
+        qCInfo(lcCtrl) << "Executing" << parallelBatch.size()
+                       << "parallel-safe tools concurrently";
 
         struct ParallelJob {
             int index;
             QFuture<ToolExecResult> future;
         };
         QVector<ParallelJob> jobs;
-        jobs.reserve(parallelIndices.size());
+        jobs.reserve(parallelBatch.size());
 
-        for (int idx : parallelIndices) {
-            auto tc = work[idx].tc; // copy for thread safety
+        for (int idx : parallelBatch) {
+            auto tc = work[idx].tc;
             auto future = QtConcurrent::run([this, tc]() {
                 return executeSingleTool(tc);
             });
             jobs.append({idx, std::move(future)});
         }
 
-        // Wait for all parallel jobs, pumping events for UI responsiveness
         for (auto &job : jobs) {
-            while (!job.future.isFinished()) {
+            while (!job.future.isFinished())
                 QCoreApplication::processEvents(QEventLoop::ExcludeSocketNotifiers, 5);
-            }
             work[job.index].result = job.future.result();
         }
-    } else if (parallelIndices.size() == 1) {
-        // Single parallel-safe tool — run inline, no thread overhead
-        work[parallelIndices[0]].result = executeSingleTool(work[parallelIndices[0]].tc);
+
+        // Remove parallel tools from the approved list (already done)
+        QSet<int> done(parallelBatch.begin(), parallelBatch.end());
+        QVector<int> remaining;
+        for (int idx : approvedIndices) {
+            if (!done.contains(idx))
+                remaining.append(idx);
+        }
+        approvedIndices = remaining;
     }
 
-    // ── Execute sequential batch (mutation tools, main-thread-only) ───────
-    for (int idx : sequentialIndices) {
+    // ── Execute remaining tools one-by-one, each off-thread ───────────────
+    for (int idx : approvedIndices) {
         auto &w = work[idx];
 
         // Snapshot files that this tool will mutate (for Undo All)
+        // — must happen on main thread before execution.
         ITool *tool = m_toolRegistry ? m_toolRegistry->tool(w.tc.name) : nullptr;
         if (tool && static_cast<int>(tool->spec().permission) >=
                     static_cast<int>(AgentToolPermission::SafeMutate)) {
@@ -698,8 +710,18 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls,
         });
         watchdog.start(timeoutMs);
 
-        QCoreApplication::processEvents(QEventLoop::ExcludeSocketNotifiers, 10);
-        w.result = executeSingleTool(w.tc);
+        // Run off-thread so UI never freezes; pump events for watchdog.
+        // ALL tools execute on the worker thread — invoke() returns pure
+        // data and must not touch UI widgets.  Tools that internally need
+        // QProcess/QEventLoop work fine because Qt installs an event
+        // dispatcher on the worker thread automatically.
+        auto tc = w.tc;
+        auto future = QtConcurrent::run([this, tc]() {
+            return executeSingleTool(tc);
+        });
+        while (!future.isFinished())
+            QCoreApplication::processEvents(QEventLoop::ExcludeSocketNotifiers, 10);
+        w.result = future.result();
 
         watchdog.stop();
 

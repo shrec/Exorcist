@@ -595,7 +595,7 @@ void AgentPlatformBootstrap::setWorkspaceRoot(const QString &root)
     auto *diffTool = dynamic_cast<DiffTool *>(m_toolRegistry->tool(QStringLiteral("diff")));
     if (diffTool) diffTool->setWorkspaceRoot(root);
 
-    auto *dbTool = dynamic_cast<DatabaseTool *>(m_toolRegistry->tool(QStringLiteral("database")));
+    auto *dbTool = dynamic_cast<DatabaseTool *>(m_toolRegistry->tool(QStringLiteral("database_query")));
     if (dbTool) dbTool->setWorkspaceRoot(root);
 
     // ── Set workspace root on sandbox & dev tools ─────────────────────────

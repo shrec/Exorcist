@@ -1198,9 +1198,11 @@ var ChatApp = (function() {
     }
 
     api.showWelcome = function(state) {
+        var resolvedState = state || 'default';
         welcomeEl.style.display = 'flex';
         transcriptEl.style.display = 'none';
-        welcomeEl.className = 'welcome' + (state && state !== 'default' ? ' ' + state : '');
+        welcomeEl.className = 'welcome' + (resolvedState !== 'default' ? ' ' + resolvedState : '');
+        updateWelcomeState(resolvedState);
     };
 
     api.showTranscript = function() {

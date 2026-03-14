@@ -46,5 +46,11 @@ QStringList QtFileSystem::listDir(const QString &path, QString *error) const
         return {};
     }
 
-    return dir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name);
+    const auto entries = dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name);
+    QStringList result;
+    result.reserve(entries.size());
+    for (const QFileInfo &fi : entries) {
+        result << (fi.isDir() ? fi.fileName() + QLatin1Char('/') : fi.fileName());
+    }
+    return result;
 }

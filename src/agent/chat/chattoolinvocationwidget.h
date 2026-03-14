@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QLabel>
+#include <QScrollArea>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -51,6 +52,7 @@ private:
     QToolButton *m_ioToggle     = nullptr;
     QWidget     *m_ioPanel      = nullptr;
     QLabel      *m_inputLabel   = nullptr;
+    QScrollArea *m_outputScroll = nullptr;
     QLabel      *m_outputLabel  = nullptr;
     QWidget     *m_confirmRow   = nullptr;
     QToolButton *m_allowBtn     = nullptr;
