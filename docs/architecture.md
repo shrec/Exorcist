@@ -10,12 +10,15 @@ See [core-philosophy.md](core-philosophy.md) for the foundational design philoso
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│  5. Plugins   (plugins/)                                          │
+│  6. Plugins   (plugins/)                                          │
 │     AI providers (Copilot, Claude, Codex, Ollama) + future exts   │
+├────────────────────────────────────────────────────────────────────┤
+│  5. Components   (components/)                                    │
+│     DLL-based UI panels: terminal, file tree, UART, etc.          │
 ├────────────────────────────────────────────────────────────────────┤
 │  4. SDK — Stable Plugin API   (src/sdk/)                          │
 │     IHostServices, ICommandService, IViewService, IEditorService  │
-│     IWorkspaceService, IGitService, ITerminalService, etc.        │
+│     IWorkspaceService, IGitService, IComponentService, etc.       │
 ├────────────────────────────────────────────────────────────────────┤
 │  3. UI + Features   (src/)                                        │
 │     MainWindow, docks, panels — depends only on Core interfaces   │
@@ -25,6 +28,7 @@ See [core-philosophy.md](core-philosophy.md) for the foundational design philoso
 ├────────────────────────────────────────────────────────────────────┤
 │  1. Core interfaces   (src/core/i*)                               │
 │     IFileSystem, IFileWatcher, IEnvironment, IProcess, ITerminal  │
+│     IComponentFactory                                             │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -56,10 +60,12 @@ concrete core classes or MainWindow.
 | **JavaScript SDK** | `plugins/javascript-sdk/` | **Core Plugin** — Ultralight JSC-based runtime for JavaScript plugins. Two plugin types: **headless** (pure JS via `JSGlobalContext`, no DOM) and **HTML** (full WebView via `UltralightPluginView` with DOM + CSS + `ex.*` SDK). Loads JS plugins from `plugins/javascript/`. Each plugin gets sandboxed context with permission-gated `ex.*` host API. HTML plugins declare `contributions.views` in their manifest and are registered as dock panels via `IViewService`. Supports command registration, editor/workspace/git/diagnostics read, notifications, logging, events, and hot reload. | `JsPluginSdkPlugin`, `JsPluginRuntime`, `JsHostAPI`, `UltralightPluginView`, `LoadedHtmlPlugin` |
 | **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code. Includes concrete adapters that bridge core UI interfaces to real implementations: `DockManagerAdapter` (wraps `DockManager` behind `IDockManager`), `MenuManagerImpl` (manages `QMenuBar` behind `IMenuManager`), `ToolBarManagerAdapter` (wraps `DockToolBarManager` behind `IToolBarManager`), `StatusBarManagerAdapter` (wraps `QStatusBar` behind `IStatusBarManager`), `WorkspaceManagerImpl` (wraps workspace ops behind `IWorkspaceManager`). | `BridgeBootstrap`, `StatusBarManager`, `AIServicesBootstrap`, `DockManagerAdapter`, `MenuManagerImpl`, `ToolBarManagerAdapter`, `StatusBarManagerAdapter`, `WorkspaceManagerImpl` |
 | **Settings** | `settings/` | Hierarchical settings: global QSettings → workspace `.exorcist/settings.json` override layer | `WorkspaceSettings` |
-| **SDK** | `sdk/` | Stable plugin API — typed host services, permissions, service registration, build/launch/debug/LSP/UI-manager interfaces. `IHostServices` exposes `docks()`, `menus()`, `toolbars()`, `statusBar()`, `workspaceManager()` so plugins can contribute panels, menus, toolbar items, and status bar entries at runtime. | `IHostServices`, `HostServices`, `PluginPermission`, `IBuildSystem`, `ILaunchService`, `IDebugAdapter`, `IDebugService`, `ILspService` |
+| **SDK** | `sdk/` | Stable plugin API — typed host services, permissions, service registration, build/launch/debug/LSP/UI-manager/component/profile interfaces. `IHostServices` exposes `docks()`, `menus()`, `toolbars()`, `statusBar()`, `workspaceManager()`, `components()`, `profiles()` so plugins can contribute panels, menus, toolbar items, status bar entries, create component instances, and query profiles at runtime. | `IHostServices`, `HostServices`, `PluginPermission`, `IBuildSystem`, `ILaunchService`, `IDebugAdapter`, `IDebugService`, `ILspService`, `IComponentService`, `IProfileManager` |
 | **UI framework** | `ui/`, `commandpalette.*`, `thememanager.*` | Command palette, theme engine with token colors, keymap, notifications, custom docking, theme gallery | `CommandPalette`, `ThemeManager`, `KeymapManager`, `NotificationToast`, `DockManager`, `ExDockWidget`, `ThemeGalleryPanel` |
 | **Logger** | `logger.*` | Thread-safe timestamped logging | `Logger` |
 | **Crash Handler** | `crashhandler.*` | Catches unhandled exceptions/signals; writes minidumps (Windows), CPU register dumps, faulting module identification, access violation details, stack traces via StackWalk64, loaded modules list, and recent log lines ring buffer to `crashes/` directory. Integrated with Logger for automatic log capture. | `CrashHandler` |
+| **Components** | `component/` + `components/` | Dynamic component DLL system — loads shared libraries at runtime that provide UI panels. Supports multiple instances per component type. | `ComponentRegistry`, `ComponentServiceAdapter`, `IComponentFactory` |
+| **Profiles** | `profile/` + `profiles/` | Development profile system — workspace-aware plugin activation, detection rules (file existence, directory existence, file content regex), dock/settings presets. JSON-based profile manifests with auto-detection scoring. | `ProfileManager`, `ProfileManifest`, `IProfileManager` |
 | **Performance** | `startupprofiler.*`, `cmake/report_binary_size.cmake` | Startup phase timing, RSS measurement, budget enforcement (300 ms / 80 MB), post-build binary size reporting | `StartupProfiler` |
 
 ## Core interfaces (`src/core/`)
@@ -77,6 +83,93 @@ concrete core classes or MainWindow.
 | `IToolBarManager` | `ToolBarManagerAdapter` | Toolbar creation and management |
 | `IStatusBarManager` | `StatusBarManagerAdapter` | Status bar items and messages |
 | `IWorkspaceManager` | `WorkspaceManagerImpl` | Workspace/folder/file operations |
+| `IComponentFactory` | (per-DLL) | Component DLL factory — each DLL provides one panel type |
+| `IProfileManager` | `ProfileManager` | Development profiles — activation, detection, switching |
+
+## Component DLL System (`components/`)
+
+Components are lightweight shared libraries (`.dll` / `.so` / `.dylib`) that
+each provide exactly one type of UI panel. Unlike plugins (which have lifecycle,
+permissions, manifests), components are simple widget factories:
+
+| Concept | Description |
+|---------|-------------|
+| `IComponentFactory` | Interface implemented by each component DLL — metadata + `createInstance()` |
+| `ComponentRegistry` | Loads component DLLs, manages factories and instance lifecycle |
+| `IComponentService` | SDK interface for plugins — create/destroy/query component instances |
+| `ComponentServiceAdapter` | Bridges `ComponentRegistry` to `IComponentService` |
+
+Components support **multiple instances** (e.g., 3 terminals, 2 UART monitors
+for different COM ports). Each instance gets wrapped in `ExDockWidget` and
+registered with `DockManager` automatically.
+
+### Component Factory Contract
+
+```cpp
+class IComponentFactory {
+    virtual QString componentId() const = 0;        // "exorcist.terminal"
+    virtual QString displayName() const = 0;        // "Terminal"
+    virtual bool supportsMultipleInstances() const = 0;
+    virtual DockArea preferredArea() const = 0;      // Left/Right/Bottom/Center
+    virtual QWidget *createInstance(const QString &instanceId,
+                                    IHostServices *hostServices,
+                                    QWidget *parent) = 0;
+};
+```
+
+### Current Components
+
+| Component | DLL | Multi-instance | Category |
+|-----------|-----|---------------|----------|
+| Terminal | `libterminal.dll` | Yes | Core |
+
+## Profile System (`profile/` + `profiles/`)
+
+Development profiles let the IDE adapt its plugin set, dock layout, and settings
+based on the workspace type (C++, Rust, Python, etc.). Profile manifests are
+JSON files in `profiles/` loaded at startup.
+
+| Concept | Description |
+|---------|-------------|
+| `IProfileManager` | Core interface — activate/deactivate profiles, detect workspace type |
+| `ProfileManager` | Concrete implementation — loads JSON manifests, scores workspaces, manages plugin sets |
+| `ProfileManifest` | Data class — id, name, detection rules, required/disabled plugins, dock defaults, settings |
+| `ProfileDetectionRule` | Workspace scoring rule — `fileExists`, `directoryExists`, `fileContent` with weight |
+
+### Detection
+
+Each profile declares detection rules with weights. The workspace is scored
+against all registered profiles; the highest score above the threshold wins.
+
+### Profile Manifest
+
+```json
+{
+  "id": "cpp-native",
+  "name": "C++ Native",
+  "detection": [
+    { "type": "fileExists", "pattern": "CMakeLists.txt", "weight": 3 }
+  ],
+  "detectionThreshold": 2,
+  "requiredPlugins": ["copilot"],
+  "disabledPlugins": [],
+  "dockDefaults": [
+    { "id": "TerminalDock", "visible": true }
+  ]
+}
+```
+
+### Bundled Profiles
+
+| Profile | Detection | Key Plugins |
+|---------|-----------|-------------|
+| C++ Native | `CMakeLists.txt` / `*.vcxproj` | copilot, clangd |
+| Rust | `Cargo.toml` | copilot |
+| Python | `requirements.txt` / `pyproject.toml` | copilot |
+| Web/JS | `package.json` | copilot |
+| Go | `go.mod` | copilot |
+| General | Default fallback | copilot |
+| Minimal | Explicit only | (none) |
 
 ## Service Registry
 

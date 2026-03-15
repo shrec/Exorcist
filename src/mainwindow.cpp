@@ -4439,6 +4439,7 @@ void MainWindow::loadPlugins()
     // Create SDK host services for the new plugin interface
     m_hostServices = new HostServices(this, this);
     m_hostServices->initSubsystemServices(m_fileSystem.get(), m_gitService, m_terminal);
+    m_hostServices->initUIManagers();
     m_hostServices->setServiceRegistry(m_services.get());
 
     // LSP diagnostics → SDK DiagnosticsService: deferred to post-plugin wiring

@@ -597,6 +597,51 @@ target_link_libraries(test_projectbraindb PRIVATE Qt6::Test Qt6::Widgets Qt6::Sq
 target_include_directories(test_projectbraindb PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ProjectBrainDb COMMAND test_projectbraindb)
 
+# ── ComponentRegistry tests ───────────────────────────────────────────────────
+file(GLOB DOCK_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/ui/dock/*.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dock/*.h
+)
+add_executable(test_componentregistry
+    test_componentregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/component/componentregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/component/componentregistry.h
+    ${CMAKE_SOURCE_DIR}/src/core/icomponentfactory.h
+    ${DOCK_SOURCES}
+)
+target_link_libraries(test_componentregistry PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_componentregistry PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ComponentRegistry COMMAND test_componentregistry)
+
+# ── ComponentServiceAdapter tests ─────────────────────────────────────────────
+add_executable(test_componentserviceadapter
+    test_componentserviceadapter.cpp
+    ${CMAKE_SOURCE_DIR}/src/component/componentserviceadapter.cpp
+    ${CMAKE_SOURCE_DIR}/src/component/componentserviceadapter.h
+    ${CMAKE_SOURCE_DIR}/src/component/componentregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/component/componentregistry.h
+    ${CMAKE_SOURCE_DIR}/src/core/icomponentfactory.h
+    ${CMAKE_SOURCE_DIR}/src/sdk/icomponentservice.h
+    ${DOCK_SOURCES}
+)
+target_link_libraries(test_componentserviceadapter PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_componentserviceadapter PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ComponentServiceAdapter COMMAND test_componentserviceadapter)
+
+# ── ProfileManager tests ─────────────────────────────────────────────────────
+add_executable(test_profilemanager
+    test_profilemanager.cpp
+    stubs/pluginmanager_stub.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profilemanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profilemanager.h
+    ${CMAKE_SOURCE_DIR}/src/profile/profilemanifest.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profilemanifest.h
+    ${CMAKE_SOURCE_DIR}/src/core/iprofilemanager.h
+)
+target_link_libraries(test_profilemanager PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_profilemanager PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ProfileManager COMMAND test_profilemanager)
+
 # Deploy Qt DLLs so tests can run (Windows)
 if(WIN32 AND EXORCIST_DEPLOY_QT)
     find_program(WINDEPLOYQT windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")

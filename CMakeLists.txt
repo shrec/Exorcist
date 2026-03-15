@@ -175,6 +175,7 @@ endif()
 add_subdirectory(src)
 add_subdirectory(server)
 add_subdirectory(plugins)
+add_subdirectory(components)
 
 enable_testing()
 add_subdirectory(tests)

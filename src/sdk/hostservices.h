@@ -22,6 +22,14 @@
 class MainWindow;
 class EditorView;
 class ServiceRegistry;
+class DockManagerAdapter;
+class MenuManagerImpl;
+class ToolBarManagerAdapter;
+class StatusBarManagerAdapter;
+class WorkspaceManagerImpl;
+class ProfileManager;
+class ComponentRegistry;
+class ComponentServiceAdapter;
 
 namespace exdock { class ExDockWidget; }
 
@@ -252,6 +260,8 @@ public:
     IToolBarManager *toolbars() override;
     IStatusBarManager *statusBar() override;
     IWorkspaceManager *workspaceManager() override;
+    IProfileManager *profiles() override;
+    IComponentService *components() override;
 
     void registerService(const QString &name, QObject *service) override;
     QObject *queryService(const QString &name) override;
@@ -262,12 +272,15 @@ public:
     /// Access the diagnostics service for LSP signal wiring.
     DiagnosticsServiceImpl *diagnosticsService() { return m_diagnostics.get(); }
 
-    /// Set UI manager instances (called by MainWindow after managers are created).
-    void setDockManager(IDockManager *dm)         { m_dockMgr = dm; }
-    void setMenuManager(IMenuManager *mm)          { m_menuMgr = mm; }
-    void setToolBarManager(IToolBarManager *tbm)    { m_toolBarMgr = tbm; }
-    void setStatusBarManager(IStatusBarManager *sbm) { m_statusBarMgr = sbm; }
-    void setWorkspaceManager(IWorkspaceManager *wm)  { m_workspaceMgr = wm; }
+    /// Create and wire all UI manager adapters.
+    /// Call after MainWindow subsystems (dock, menus, toolbars, statusbar) are ready.
+    void initUIManagers();
+
+    /// Set the ProfileManager instance (non-owning, owned externally).
+    void setProfileManager(ProfileManager *pm) { m_profileMgr = pm; }
+
+    /// Set the ComponentRegistry instance (non-owning, owned externally).
+    void setComponentRegistry(ComponentRegistry *reg);
 
 private:
     MainWindow *m_window;
@@ -282,10 +295,13 @@ private:
     std::unique_ptr<DiagnosticsServiceImpl>   m_diagnostics;
     std::unique_ptr<TaskServiceImpl>          m_tasks;
 
-    // UI manager pointers (non-owning — owned by MainWindow bootstraps)
-    IDockManager      *m_dockMgr      = nullptr;
-    IMenuManager      *m_menuMgr      = nullptr;
-    IToolBarManager   *m_toolBarMgr   = nullptr;
-    IStatusBarManager *m_statusBarMgr = nullptr;
-    IWorkspaceManager *m_workspaceMgr = nullptr;
+    // UI manager adapters (owned here, like other service impls)
+    std::unique_ptr<DockManagerAdapter>      m_dockMgr;
+    std::unique_ptr<MenuManagerImpl>         m_menuMgr;
+    std::unique_ptr<ToolBarManagerAdapter>   m_toolBarMgr;
+    std::unique_ptr<StatusBarManagerAdapter> m_statusBarMgr;
+    std::unique_ptr<WorkspaceManagerImpl>    m_workspaceMgr;
+    ProfileManager                           *m_profileMgr = nullptr;  // non-owning, set externally
+    ComponentRegistry                        *m_componentRegistry = nullptr;
+    std::unique_ptr<ComponentServiceAdapter>  m_componentService;
 };

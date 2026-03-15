@@ -37,6 +37,8 @@ class IMenuManager;
 class IToolBarManager;
 class IStatusBarManager;
 class IWorkspaceManager;
+class IProfileManager;
+class IComponentService;
 
 class IHostServices
 {
@@ -95,6 +97,12 @@ public:
 
     /// Workspace/folder management (open folder, files, solution).
     virtual IWorkspaceManager *workspaceManager() = 0;
+
+    /// Development profile management (activate, detect, switch profiles).
+    virtual IProfileManager *profiles() = 0;
+
+    /// Component management (create, destroy, query dynamic component instances).
+    virtual IComponentService *components() = 0;
 
     // ── Dynamic service registry ──────────────────────────────────────────
 

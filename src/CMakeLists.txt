@@ -145,6 +145,16 @@ add_executable(exorcist WIN32
     bootstrap/statusbarmanageradapter.cpp
     bootstrap/workspacemanagerimpl.h
     bootstrap/workspacemanagerimpl.cpp
+    profile/profilemanifest.h
+    profile/profilemanifest.cpp
+    profile/profilemanager.h
+    profile/profilemanager.cpp
+    component/componentregistry.h
+    component/componentregistry.cpp
+    component/componentserviceadapter.h
+    component/componentserviceadapter.cpp
+    core/icomponentfactory.h
+    sdk/icomponentservice.h
     agent/agentproviderregistry.cpp
     agent/agentproviderregistry.h
     agent/agentrequestrouter.cpp
@@ -389,6 +399,7 @@ add_executable(exorcist WIN32
     core/istatusbarmanager.h
     core/itoolbarmanager.h
     core/iworkspacemanager.h
+    core/iprofilemanager.h
     core/qtfilesystem.cpp
     core/qtfilesystem.h
     core/qtfilewatcher.cpp

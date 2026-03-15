@@ -1,17 +1,21 @@
 #include "hostservices.h"
 
 #include "../mainwindow.h"
-#include "../core/idockmanager.h"
-#include "../core/imenumanager.h"
-#include "../core/istatusbarmanager.h"
-#include "../core/itoolbarmanager.h"
-#include "../core/iworkspacemanager.h"
+#include "../bootstrap/dockmanageradapter.h"
+#include "../bootstrap/menumanagerimpl.h"
+#include "../bootstrap/statusbarmanageradapter.h"
+#include "../bootstrap/toolbarmanageradapter.h"
+#include "../bootstrap/workspacemanagerimpl.h"
 #include "../core/ifilesystem.h"
+#include "../profile/profilemanager.h"
+#include "../component/componentregistry.h"
+#include "../component/componentserviceadapter.h"
 #include "../editor/editorview.h"
 #include "../git/gitservice.h"
 #include "../serviceregistry.h"
 #include "../terminal/terminalpanel.h"
 #include "../ui/dock/DockManager.h"
+#include "../ui/dock/DockToolBarManager.h"
 #include "../ui/dock/ExDockWidget.h"
 
 #include <QJsonObject>
@@ -507,11 +511,31 @@ ITerminalService *HostServices::terminal()      { return m_terminal.get(); }
 IDiagnosticsService *HostServices::diagnostics() { return m_diagnostics.get(); }
 ITaskService *HostServices::tasks()             { return m_tasks.get(); }
 
-IDockManager *HostServices::docks()             { return m_dockMgr; }
-IMenuManager *HostServices::menus()             { return m_menuMgr; }
-IToolBarManager *HostServices::toolbars()       { return m_toolBarMgr; }
-IStatusBarManager *HostServices::statusBar()    { return m_statusBarMgr; }
-IWorkspaceManager *HostServices::workspaceManager() { return m_workspaceMgr; }
+IDockManager *HostServices::docks()             { return m_dockMgr.get(); }
+IMenuManager *HostServices::menus()             { return m_menuMgr.get(); }
+IToolBarManager *HostServices::toolbars()       { return m_toolBarMgr.get(); }
+IStatusBarManager *HostServices::statusBar()    { return m_statusBarMgr.get(); }
+IWorkspaceManager *HostServices::workspaceManager() { return m_workspaceMgr.get(); }
+IProfileManager *HostServices::profiles()       { return m_profileMgr; }
+IComponentService *HostServices::components()   { return m_componentService.get(); }
+
+void HostServices::setComponentRegistry(ComponentRegistry *reg)
+{
+    m_componentRegistry = reg;
+    m_componentService = std::make_unique<ComponentServiceAdapter>(reg, this);
+}
+
+void HostServices::initUIManagers()
+{
+    m_dockMgr    = std::make_unique<DockManagerAdapter>(m_window->dockManager(), this);
+    m_menuMgr    = std::make_unique<MenuManagerImpl>(m_window, this);
+    m_statusBarMgr = std::make_unique<StatusBarManagerAdapter>(m_window->statusBar(), this);
+    m_workspaceMgr = std::make_unique<WorkspaceManagerImpl>(m_window, this);
+
+    // DockToolBarManager is a standalone component — create it here.
+    auto *tbMgr  = new exdock::DockToolBarManager(m_window, this);
+    m_toolBarMgr = std::make_unique<ToolBarManagerAdapter>(tbMgr, this);
+}
 
 void HostServices::registerService(const QString &name, QObject *service)
 {

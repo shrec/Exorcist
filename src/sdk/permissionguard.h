@@ -41,6 +41,8 @@ public:
     IToolBarManager *toolbars() override { return m_delegate->toolbars(); }
     IStatusBarManager *statusBar() override { return m_delegate->statusBar(); }
     IWorkspaceManager *workspaceManager() override { return m_delegate->workspaceManager(); }
+    IProfileManager *profiles() override { return m_delegate->profiles(); }
+    IComponentService *components() override { return m_delegate->components(); }
 
     // Requires WorkspaceRead or WorkspaceWrite
     IWorkspaceService *workspace() override;
