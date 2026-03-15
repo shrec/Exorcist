@@ -96,6 +96,13 @@ add_executable(exorcist WIN32
     project/projectmanager.h
     project/solutiontreemodel.cpp
     project/solutiontreemodel.h
+    project/iprojecttemplateprovider.h
+    project/projecttemplateregistry.cpp
+    project/projecttemplateregistry.h
+    project/builtintemplateprovider.cpp
+    project/builtintemplateprovider.h
+    project/newprojectwizard.cpp
+    project/newprojectwizard.h
     git/gitservice.cpp
     git/gitservice.h
     git/gitpanel.cpp
@@ -622,7 +629,7 @@ else()
     )
 endif()
 
-target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent Qt6::Sql libluajit)
+target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent Qt6::Sql Qt6::Svg libluajit)
 if(WIN32)
     target_link_libraries(exorcist PRIVATE dbghelp)
 endif()

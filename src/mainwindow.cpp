@@ -132,6 +132,9 @@
 #include "editor/symboloutlinepanel.h"
 #include "terminal/terminalpanel.h"
 #include "project/projectmanager.h"
+#include "project/projecttemplateregistry.h"
+#include "project/builtintemplateprovider.h"
+#include "project/newprojectwizard.h"
 #include "project/solutiontreemodel.h"
 #include "git/gitservice.h"
 #include "git/gitpanel.h"
@@ -265,6 +268,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ── Build System — registered by build plugin (plugins/build/) ──────
     // Debug adapter — registered by debug plugin (plugins/debug/)
+
+    // ── Project Template Registry ───────────────────────────────────────
+    {
+        auto *tmplRegistry = new ProjectTemplateRegistry(this);
+        auto *builtinProvider = new BuiltinTemplateProvider(this);
+        tmplRegistry->addProvider(builtinProvider);
+        m_services->registerService(QStringLiteral("projectTemplateRegistry"), tmplRegistry);
+    }
 
     // ── Workspace settings (global → workspace hierarchy) ───────────────
     {
@@ -1921,17 +1932,32 @@ void MainWindow::deferredInit()
     StartupProfiler::instance().mark(QStringLiteral("plugins loaded"));
 
     // Restore dock layout from DockManager JSON state.
+    // Layout version: bump when default dock visibility changes so stale
+    // saved state doesn't override new defaults.
     {
+        constexpr int kLayoutVersion = 4;
         QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
-        const QString dockJson = s.value(QStringLiteral("dockState")).toString();
-        if (!dockJson.isEmpty()) {
-            const QJsonObject obj = QJsonDocument::fromJson(dockJson.toUtf8()).object();
-            if (!obj.isEmpty())
-                m_dockManager->restoreState(obj);
+        const int savedVersion = s.value(QStringLiteral("dockLayoutVersion"), 0).toInt();
+        if (savedVersion >= kLayoutVersion) {
+            const QString dockJson = s.value(QStringLiteral("dockState")).toString();
+            if (!dockJson.isEmpty()) {
+                const QJsonObject obj = QJsonDocument::fromJson(dockJson.toUtf8()).object();
+                if (!obj.isEmpty())
+                    m_dockManager->restoreState(obj);
+            }
+        } else {
+            // Outdated or missing layout — use fresh defaults, save new version
+            s.setValue(QStringLiteral("dockLayoutVersion"), kLayoutVersion);
         }
     }
 
-    // Welcome page handles project selection — don't auto-open last folder.
+    // We always start on the welcome page — force close all docks
+    // regardless of what restoreState may have opened.
+    if (m_centralStack && m_centralStack->currentIndex() == 0) {
+        for (auto *dw : m_dockManager->dockWidgets())
+            m_dockManager->closeDock(dw);
+    }
+
     // Refresh the welcome page's recent list after plugins have loaded.
     if (m_welcome)
         m_welcome->refreshRecent();
@@ -2573,6 +2599,7 @@ void MainWindow::setupToolBar()
 {
     auto *bar = addToolBar(tr("Main"));
     bar->setMovable(false);
+    bar->setVisible(false);  // hidden on Welcome page, shown when editing
 
     bar->addAction(tr("New"),  this, &MainWindow::openNewTab);
     bar->addAction(tr("Open"), this, [this]() {
@@ -2592,6 +2619,8 @@ void MainWindow::createDockWidgets()
 
     // ── Create DockManager (takes over centralWidget) ─────────────────────
     m_dockManager = new DockManager(this, this);
+    // Start with dock infrastructure hidden — only the Welcome page shows.
+    m_dockManager->setDockLayoutVisible(false);
 
 
     // (ThemeManager connection deferred — m_themeManager is created later.)
@@ -2614,6 +2643,15 @@ void MainWindow::createDockWidgets()
 
     m_centralStack->setCurrentIndex(0);  // start on welcome
 
+    // Toggle dock infrastructure and toolbar with welcome ↔ editor transitions
+    connect(m_centralStack, &QStackedWidget::currentChanged, this, [this](int index) {
+        const bool editing = (index != 0);
+        m_dockManager->setDockLayoutVisible(editing);
+        // Hide/show all toolbars on welcome page
+        for (auto *tb : findChildren<QToolBar *>())
+            tb->setVisible(editing);
+    });
+
     // Wire welcome signals
     connect(m_welcome, &WelcomeWidget::openFolderBrowseRequested,
             this, [this]() { openFolder(); });
@@ -2621,6 +2659,13 @@ void MainWindow::createDockWidgets()
             this, &MainWindow::openFolder);
     connect(m_welcome, &WelcomeWidget::newProjectRequested,
             this, &MainWindow::newSolution);
+    connect(m_welcome, &WelcomeWidget::newFileRequested,
+            this, [this]() { openNewTab(); });
+    connect(m_welcome, &WelcomeWidget::openFileRequested,
+            this, [this]() {
+        const QString path = QFileDialog::getOpenFileName(this, tr("Open File"));
+        if (!path.isEmpty()) openFile(path);
+    });
 
     m_dockManager->setCentralContent(m_centralStack);
 
@@ -2641,7 +2686,8 @@ void MainWindow::createDockWidgets()
             this, &MainWindow::onTreeContextMenu);
 
     dkProjectDock->setContentWidget(m_editorMgr->fileTree());
-    m_dockManager->addDockWidget(dkProjectDock, SideBarArea::Left, /*startPinned=*/true);
+    m_dockManager->addDockWidget(dkProjectDock, SideBarArea::Left, /*startPinned=*/false);
+    m_dockManager->closeDock(dkProjectDock);        // show when folder is opened
 
     // ── Search ────────────────────────────────────────────────────────────
     m_searchPanel = new SearchPanel(m_searchService, this);
@@ -2649,6 +2695,7 @@ void MainWindow::createDockWidgets()
     dkSearchDock->setDockId(QStringLiteral("SearchDock"));
     dkSearchDock->setContentWidget(m_searchPanel);
     m_dockManager->addDockWidget(dkSearchDock, SideBarArea::Left, /*startPinned=*/false);
+    m_dockManager->closeDock(dkSearchDock);         // show via Ctrl+Shift+F
 
     // Search result → navigate to file:line
     connect(m_searchPanel, &SearchPanel::resultActivated,
@@ -2661,6 +2708,7 @@ void MainWindow::createDockWidgets()
     dkGitDock->setDockId(QStringLiteral("GitDock"));
     dkGitDock->setContentWidget(m_gitPanel);
     m_dockManager->addDockWidget(dkGitDock, SideBarArea::Left, /*startPinned=*/false);
+    m_dockManager->closeDock(dkGitDock);            // show when git repo detected
 
     // Generate commit message with AI
     connect(m_gitPanel, &GitPanel::generateCommitMessageRequested,
@@ -2734,7 +2782,8 @@ void MainWindow::createDockWidgets()
     auto *dkTerminalDock = new ExDockWidget(tr("Terminal"), this);
     dkTerminalDock->setDockId(QStringLiteral("TerminalDock"));
     dkTerminalDock->setContentWidget(m_terminal);
-    m_dockManager->addDockWidget(dkTerminalDock, SideBarArea::Bottom, /*startPinned=*/true);
+    m_dockManager->addDockWidget(dkTerminalDock, SideBarArea::Bottom, /*startPinned=*/false);
+    m_dockManager->closeDock(dkTerminalDock);        // show via Ctrl+`
 
 
     // ── AI ────────────────────────────────────────────────────────────────
@@ -2744,6 +2793,7 @@ void MainWindow::createDockWidgets()
     // NOTE: AgentController is wired after it is created in the constructor.
     dkAIDock->setContentWidget(m_chatPanel);
     m_dockManager->addDockWidget(dkAIDock, SideBarArea::Right, /*startPinned=*/false);
+    m_dockManager->closeDock(dkAIDock);              // show when user opens AI
     // Manifesto #9: start network monitor only when user opens AI panel
     connect(dkAIDock, &ExDockWidget::stateChanged, this, [this](exdock::DockState state) {
         if (state != exdock::DockState::Closed && m_aiServices && m_aiServices->networkMonitor())
@@ -2758,6 +2808,7 @@ void MainWindow::createDockWidgets()
         dkDashDock->setDockId(QStringLiteral("AgentDashboardDock"));
         dkDashDock->setContentWidget(dashPanel);
         m_dockManager->addDockWidget(dkDashDock, SideBarArea::Right, /*startPinned=*/false);
+        m_dockManager->closeDock(dkDashDock);       // operational view, show on demand
         // Register panel in ServiceRegistry so bootstrap can find it later
         if (m_services)
             m_services->registerService(QStringLiteral("agentDashboardPanel"), dashPanel);
@@ -2770,6 +2821,7 @@ void MainWindow::createDockWidgets()
     dkOutlineDock->setDockId(QStringLiteral("OutlineDock"));
     dkOutlineDock->setContentWidget(m_symbolPanel);
     m_dockManager->addDockWidget(dkOutlineDock, SideBarArea::Left, /*startPinned=*/false);
+    m_dockManager->closeDock(dkOutlineDock);          // show when file is open
 
     connect(m_symbolPanel, &SymbolOutlinePanel::symbolActivated,
             this, [this](int line, int col) {
@@ -2792,6 +2844,7 @@ void MainWindow::createDockWidgets()
     dkReferencesDock->setDockId(QStringLiteral("ReferencesDock"));
     dkReferencesDock->setContentWidget(m_referencesPanel);
     m_dockManager->addDockWidget(dkReferencesDock, SideBarArea::Bottom, /*startPinned=*/false);
+    m_dockManager->closeDock(dkReferencesDock);   // show only on "Find References"
 
     connect(m_referencesPanel, &ReferencesPanel::referenceActivated,
             this, &MainWindow::navigateToLocation);
@@ -2802,6 +2855,7 @@ void MainWindow::createDockWidgets()
     dkRequestLogDock->setDockId(QStringLiteral("RequestLogDock"));
     dkRequestLogDock->setContentWidget(m_requestLogPanel);
     m_dockManager->addDockWidget(dkRequestLogDock, SideBarArea::Bottom, /*startPinned=*/false);
+    m_dockManager->closeDock(dkRequestLogDock);    // debug tool, show via View menu
 
     // ── Trajectory Viewer (Debug) ─────────────────────────────────────────
     m_trajectoryPanel = new TrajectoryPanel(this);
@@ -2809,6 +2863,7 @@ void MainWindow::createDockWidgets()
     dkTrajectoryDock->setDockId(QStringLiteral("TrajectoryDock"));
     dkTrajectoryDock->setContentWidget(m_trajectoryPanel);
     m_dockManager->addDockWidget(dkTrajectoryDock, SideBarArea::Bottom, /*startPinned=*/false);
+    m_dockManager->closeDock(dkTrajectoryDock);    // debug tool, show via View menu
 
     // ── Settings (dialog, not dock) ──────────────────────────────────────────
     m_settingsPanel = new SettingsPanel(this);
@@ -2824,6 +2879,7 @@ void MainWindow::createDockWidgets()
     dkMemoryDock->setDockId(QStringLiteral("MemoryDock"));
     dkMemoryDock->setContentWidget(m_memoryBrowser);
     m_dockManager->addDockWidget(dkMemoryDock, SideBarArea::Right, /*startPinned=*/false);
+    m_dockManager->closeDock(dkMemoryDock);        // show on demand
 
     // ── Debug Panel — contributed by debug plugin (plugins/debug/) ───────
     // DebugDock view, IDebugAdapter ("debugAdapter"), and IDebugService
@@ -2843,6 +2899,7 @@ void MainWindow::createDockWidgets()
     dkThemeDock->setDockId(QStringLiteral("ThemeDock"));
     dkThemeDock->setContentWidget(m_themeGallery);
     m_dockManager->addDockWidget(dkThemeDock, SideBarArea::Left, /*startPinned=*/false);
+    m_dockManager->closeDock(dkThemeDock);         // show via View menu
 
     // ── Diff Viewer panel ─────────────────────────────────────────────────
     m_diffViewer = new DiffViewerPanel(this);
@@ -2850,6 +2907,7 @@ void MainWindow::createDockWidgets()
     dkDiffDock->setDockId(QStringLiteral("DiffDock"));
     dkDiffDock->setContentWidget(m_diffViewer);
     m_dockManager->addDockWidget(dkDiffDock, SideBarArea::Bottom, /*startPinned=*/false);
+    m_dockManager->closeDock(dkDiffDock);          // show when diff requested
 
     // ── Proposed Edit panel ───────────────────────────────────────────────
     m_proposedEditPanel = new ProposedEditPanel(this);
@@ -2857,6 +2915,7 @@ void MainWindow::createDockWidgets()
     dkProposedEditDock->setDockId(QStringLiteral("ProposedEditDock"));
     dkProposedEditDock->setContentWidget(m_proposedEditPanel);
     m_dockManager->addDockWidget(dkProposedEditDock, SideBarArea::Bottom, /*startPinned=*/false);
+    m_dockManager->closeDock(dkProposedEditDock);  // show when AI proposes edits
 
     connect(m_proposedEditPanel, &ProposedEditPanel::editAccepted,
             this, [this](const QString &filePath, const QString &newText) {
@@ -2887,6 +2946,7 @@ void MainWindow::createDockWidgets()
     dkMcpDock->setDockId(QStringLiteral("McpDock"));
     dkMcpDock->setContentWidget(m_mcpPanel);
     m_dockManager->addDockWidget(dkMcpDock, SideBarArea::Right, /*startPinned=*/false);
+    m_dockManager->closeDock(dkMcpDock);           // show via View menu
 
     // ── Plugin Gallery panel ──────────────────────────────────────────────
     m_pluginGallery = new PluginGalleryPanel(this);
@@ -2894,6 +2954,7 @@ void MainWindow::createDockWidgets()
     dkPluginDock->setDockId(QStringLiteral("PluginDock"));
     dkPluginDock->setContentWidget(m_pluginGallery);
     m_dockManager->addDockWidget(dkPluginDock, SideBarArea::Left, /*startPinned=*/false);
+    m_dockManager->closeDock(dkPluginDock);        // show via View menu
 
     // ── Output / Build / Run panels — contributed by build plugin ──────────
     // Created by plugins/build/ via IViewContributor (OutputDock, RunDock).
@@ -2915,6 +2976,7 @@ void MainWindow::createDockWidgets()
         dkProblemsDock->setDockId(QStringLiteral("ProblemsDock"));
         dkProblemsDock->setContentWidget(problemsPanel);
         m_dockManager->addDockWidget(dkProblemsDock, SideBarArea::Bottom, /*startPinned=*/false);
+        m_dockManager->closeDock(dkProblemsDock);      // show when diagnostics arrive
 
         connect(problemsPanel, &ProblemsPanel::navigateToFile,
                 this, &MainWindow::navigateToLocation);
@@ -2928,6 +2990,7 @@ void MainWindow::createDockWidgets()
         dkDiffDock->setDockId(QStringLiteral("DiffExplorerDock"));
         dkDiffDock->setContentWidget(diffExplorer);
         m_dockManager->addDockWidget(dkDiffDock, SideBarArea::Bottom, /*startPinned=*/false);
+        m_dockManager->closeDock(dkDiffDock);      // show from git panel
     }
 
     // ── Merge Editor panel ─────────────────────────────────────────────────
@@ -2938,6 +3001,7 @@ void MainWindow::createDockWidgets()
         dkMergeDock->setDockId(QStringLiteral("MergeEditorDock"));
         dkMergeDock->setContentWidget(mergeEditor);
         m_dockManager->addDockWidget(dkMergeDock, SideBarArea::Bottom, /*startPinned=*/false);
+        m_dockManager->closeDock(dkMergeDock);     // show during merge conflicts
     }
 
     // ── File Watch Service ────────────────────────────────────────────────
@@ -3432,6 +3496,12 @@ void MainWindow::openFolder(const QString &path)
     if (m_pluginManager)
         m_pluginManager->activateByWorkspace(root);
 
+    // ── Contextual dock activation ─────────────────────────────────────
+    // Show panels relevant to the opened workspace.
+    m_dockManager->showDock(dock(QStringLiteral("ProjectDock")), exdock::SideBarArea::Left);
+    if (m_gitService && m_gitService->isGitRepo())
+        m_dockManager->showDock(dock(QStringLiteral("GitDock")), exdock::SideBarArea::Left);
+
     // Auto-detect workspace languages and activate their profiles.
     // Two-pass approach:
     //   1. Marker files (build system indicators) — instant, top-level only
@@ -3657,36 +3727,21 @@ void MainWindow::openFolder(const QString &path)
 
 void MainWindow::newSolution()
 {
-    const QString name = QInputDialog::getText(this, tr("New Solution"), tr("Solution name"));
-    if (name.trimmed().isEmpty()) {
+    auto *registry = m_services->service<ProjectTemplateRegistry>(
+        QStringLiteral("projectTemplateRegistry"));
+    if (!registry)
         return;
-    }
 
-    QString slnPath = QFileDialog::getSaveFileName(this, tr("Save Solution"),
-                                                   m_editorMgr->currentFolder(), tr("Exorcist Solution (*.exsln)"));
-    if (slnPath.isEmpty()) {
+    NewProjectWizard wizard(registry, m_editorMgr->currentFolder(), this);
+    if (wizard.exec() != QDialog::Accepted)
         return;
-    }
-    if (!slnPath.endsWith(".exsln")) {
-        slnPath += ".exsln";
-    }
 
-    if (m_editorMgr->projectManager()->createSolution(name, slnPath)) {
-        // Switch from welcome page to editor view
-        if (m_centralStack && m_centralStack->currentIndex() == 0) {
-            m_centralStack->setCurrentIndex(1);
-            if (m_editorMgr->tabs()->count() == 0)
-                openNewTab();
-        }
-        const QString root = m_editorMgr->projectManager()->activeSolutionDir();
-        m_gitService->setWorkingDirectory(root);
-        m_searchPanel->setRootPath(root);
-        setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
-        m_editorMgr->setCurrentFolder(root);
-        m_terminal->setWorkingDirectory(root);
-        if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
-            lspSvc->startServer(root);
-    }
+    const QString projectDir = wizard.createdProjectPath();
+    if (projectDir.isEmpty())
+        return;
+
+    // Open the created project folder
+    openFolder(projectDir);
 }
 
 void MainWindow::openSolutionFile()

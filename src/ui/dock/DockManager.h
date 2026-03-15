@@ -139,6 +139,10 @@ public:
     /// Call after a theme change to keep dock styling in sync.
     void applyDockStyleSheet();
 
+    /// Show or hide the entire dock layout (sidebars, splitter areas).
+    /// Used to present a clean welcome screen with no dock infrastructure.
+    void setDockLayoutVisible(bool visible);
+
 private:
     void setupSideBars();
     DockArea *createDockArea(SideBarArea side);
@@ -177,6 +181,7 @@ private:
     // Drag-and-drop state
     DockDropOverlay                *m_dropOverlay = nullptr;
     ExDockWidget                   *m_dragDock    = nullptr;
+    bool                            m_dockLayoutVisible = true;
 };
 
 } // namespace exdock

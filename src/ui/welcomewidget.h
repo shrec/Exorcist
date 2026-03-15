@@ -2,10 +2,12 @@
 
 #include <QWidget>
 
+class QEvent;
 class QListWidget;
+class QLabel;
 
 /// Welcome page shown when no project is open.
-/// Provides quick access to recent folders, Open Folder, and New Project.
+/// VS Code–style layout: Start links on the left, info on the right.
 class WelcomeWidget : public QWidget
 {
     Q_OBJECT
@@ -26,6 +28,16 @@ signals:
     /// User clicked "New Project...".
     void newProjectRequested();
 
+    /// User clicked "New File...".
+    void newFileRequested();
+
+    /// User clicked "Open File...".
+    void openFileRequested();
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override;
+
 private:
     QListWidget *m_recentList = nullptr;
+    QLabel *m_recentLabel = nullptr;
 };

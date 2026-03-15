@@ -659,6 +659,16 @@ target_include_directories(test_kit PRIVATE
 )
 add_test(NAME Kit COMMAND test_kit)
 
+# ── Project templates tests ────────────────────────────────────────────────────
+add_executable(test_projecttemplates
+    test_projecttemplates.cpp
+    ${CMAKE_SOURCE_DIR}/src/project/projecttemplateregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/project/builtintemplateprovider.cpp
+)
+target_link_libraries(test_projecttemplates PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_projecttemplates PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ProjectTemplates COMMAND test_projecttemplates)
+
 # Deploy Qt DLLs so tests can run (Windows)
 if(WIN32 AND EXORCIST_DEPLOY_QT)
     find_program(WINDEPLOYQT windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")

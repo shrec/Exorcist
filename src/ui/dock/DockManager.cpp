@@ -76,6 +76,22 @@ void DockManager::setupSideBars()
     repositionSideBars();
 }
 
+void DockManager::setDockLayoutVisible(bool visible)
+{
+    m_dockLayoutVisible = visible;
+
+    if (!visible) {
+        // Hide sidebars off-screen
+        m_leftBar->move(-9999, -9999);
+        m_rightBar->move(-9999, -9999);
+        m_bottomBar->move(-9999, -9999);
+        if (m_overlay->isVisible())
+            m_overlay->hideOverlay();
+    } else {
+        repositionSideBars();
+    }
+}
+
 void DockManager::applyDockStyleSheet()
 {
     const QPalette &pal = qApp->palette();
@@ -635,6 +651,14 @@ void DockManager::repositionSideBars()
 
     // Left sidebar — full content height
     m_leftBar->setGeometry(0, contentTop, sideW, contentHeight);
+
+    // If dock layout is hidden (welcome page), keep sidebars off-screen
+    if (!m_dockLayoutVisible) {
+        m_leftBar->move(-9999, -9999);
+        m_rightBar->move(-9999, -9999);
+        m_bottomBar->move(-9999, -9999);
+        return;
+    }
 
     // Right sidebar — full content height
     m_rightBar->setGeometry(winW - sideW, contentTop, sideW, contentHeight);

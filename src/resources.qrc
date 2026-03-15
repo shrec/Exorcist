@@ -2,6 +2,28 @@
     <qresource prefix="/icons">
         <file>../icon.png</file>
     </qresource>
+    <qresource prefix="/lang-icons">
+        <file alias="cpp.svg">resources/lang-icons/cpp.svg</file>
+        <file alias="c.svg">resources/lang-icons/c.svg</file>
+        <file alias="rust.svg">resources/lang-icons/rust.svg</file>
+        <file alias="python.svg">resources/lang-icons/python.svg</file>
+        <file alias="go.svg">resources/lang-icons/go.svg</file>
+        <file alias="javascript.svg">resources/lang-icons/javascript.svg</file>
+        <file alias="typescript.svg">resources/lang-icons/typescript.svg</file>
+        <file alias="java.svg">resources/lang-icons/java.svg</file>
+        <file alias="csharp.svg">resources/lang-icons/csharp.svg</file>
+        <file alias="swift.svg">resources/lang-icons/swift.svg</file>
+        <file alias="kotlin.svg">resources/lang-icons/kotlin.svg</file>
+        <file alias="zig.svg">resources/lang-icons/zig.svg</file>
+        <file alias="lua.svg">resources/lang-icons/lua.svg</file>
+        <file alias="ruby.svg">resources/lang-icons/ruby.svg</file>
+        <file alias="php.svg">resources/lang-icons/php.svg</file>
+        <file alias="dart.svg">resources/lang-icons/dart.svg</file>
+        <file alias="haskell.svg">resources/lang-icons/haskell.svg</file>
+        <file alias="scala.svg">resources/lang-icons/scala.svg</file>
+        <file alias="html5.svg">resources/lang-icons/html5.svg</file>
+        <file alias="cmake.svg">resources/lang-icons/cmake.svg</file>
+    </qresource>
     <qresource prefix="/chat">
         <file alias="chat.html">resources/chat/chat.html</file>
         <file alias="chat.css">resources/chat/chat_new.css</file>
