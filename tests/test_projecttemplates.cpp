@@ -1,11 +1,15 @@
 #include <QTest>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <QTemporaryDir>
 
 #include "project/iprojecttemplateprovider.h"
 #include "project/projecttemplateregistry.h"
 #include "project/builtintemplateprovider.h"
+#include "project/projecttypes.h"
 
 class TestProjectTemplates : public QObject
 {
@@ -33,6 +37,11 @@ private slots:
     void testUnknownTemplateReturnsError();
     void testCreateInNonexistentDir();
     void testAllTemplatesHaveUniqueIds();
+    void testProjectExtForLanguage();
+    void testProjectExtLanguageFromExtension();
+    void testCppConsoleCreatesProjectFile();
+    void testRustBinaryCreatesProjectFile();
+    void testGenericCreatesProjectFile();
 };
 
 void TestProjectTemplates::testBuiltinProviderHasTemplates()
@@ -363,6 +372,104 @@ void TestProjectTemplates::testAllTemplatesHaveUniqueIds()
                  qPrintable(QStringLiteral("Duplicate template ID: %1").arg(t.id)));
         ids.insert(t.id);
     }
+}
+
+// ── .ex*prj project file tests ───────────────────────────────────────────────
+
+void TestProjectTemplates::testProjectExtForLanguage()
+{
+    QCOMPARE(ExProjectExt::forLanguage(QStringLiteral("C++")),        QStringLiteral(".excpprj"));
+    QCOMPARE(ExProjectExt::forLanguage(QStringLiteral("C")),          QStringLiteral(".excprj"));
+    QCOMPARE(ExProjectExt::forLanguage(QStringLiteral("Rust")),       QStringLiteral(".exrsprj"));
+    QCOMPARE(ExProjectExt::forLanguage(QStringLiteral("Python")),     QStringLiteral(".expyprj"));
+    QCOMPARE(ExProjectExt::forLanguage(QStringLiteral("Go")),         QStringLiteral(".exgoprj"));
+    QCOMPARE(ExProjectExt::forLanguage(QStringLiteral("JavaScript")), QStringLiteral(".exjsprj"));
+    QCOMPARE(ExProjectExt::forLanguage(QStringLiteral("TypeScript")), QStringLiteral(".extsprj"));
+    QCOMPARE(ExProjectExt::forLanguage(QStringLiteral("Zig")),        QStringLiteral(".exzgprj"));
+    QCOMPARE(ExProjectExt::forLanguage(QStringLiteral("Web")),        QStringLiteral(".exwbprj"));
+    // Unknown language → generic
+    QCOMPARE(ExProjectExt::forLanguage(QStringLiteral("COBOL")),      QStringLiteral(".exprj"));
+}
+
+void TestProjectTemplates::testProjectExtLanguageFromExtension()
+{
+    QCOMPARE(ExProjectExt::languageFromExtension(QStringLiteral(".excpprj")),  QStringLiteral("C++"));
+    QCOMPARE(ExProjectExt::languageFromExtension(QStringLiteral(".excprj")),   QStringLiteral("C"));
+    QCOMPARE(ExProjectExt::languageFromExtension(QStringLiteral(".exrsprj")),  QStringLiteral("Rust"));
+    QCOMPARE(ExProjectExt::languageFromExtension(QStringLiteral(".expyprj")),  QStringLiteral("Python"));
+    QCOMPARE(ExProjectExt::languageFromExtension(QStringLiteral(".exgoprj")),  QStringLiteral("Go"));
+    // Unknown extension → empty
+    QCOMPARE(ExProjectExt::languageFromExtension(QStringLiteral(".xyz")),      QString());
+}
+
+void TestProjectTemplates::testCppConsoleCreatesProjectFile()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString dir = tmp.filePath(QStringLiteral("TestCpp"));
+
+    BuiltinTemplateProvider provider;
+    QString error;
+    QVERIFY(provider.createProject(QStringLiteral("cpp-console"),
+                                   QStringLiteral("TestCpp"), dir, &error));
+
+    // .excpprj must exist
+    const QString prjPath = QDir(dir).filePath(QStringLiteral("TestCpp.excpprj"));
+    QVERIFY2(QFile::exists(prjPath), "C++ console template must create .excpprj file");
+
+    // Validate JSON content
+    QFile f(prjPath);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const auto doc = QJsonDocument::fromJson(f.readAll());
+    QVERIFY(doc.isObject());
+    const auto obj = doc.object();
+    QCOMPARE(obj[QStringLiteral("name")].toString(),       QStringLiteral("TestCpp"));
+    QCOMPARE(obj[QStringLiteral("language")].toString(),   QStringLiteral("C++"));
+    QCOMPARE(obj[QStringLiteral("templateId")].toString(), QStringLiteral("cpp-console"));
+    QCOMPARE(obj[QStringLiteral("version")].toInt(),       1);
+    QVERIFY(obj.contains(QStringLiteral("sources")));
+}
+
+void TestProjectTemplates::testRustBinaryCreatesProjectFile()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString dir = tmp.filePath(QStringLiteral("myrust"));
+
+    BuiltinTemplateProvider provider;
+    QString error;
+    QVERIFY(provider.createProject(QStringLiteral("rust-binary"),
+                                   QStringLiteral("myrust"), dir, &error));
+
+    const QString prjPath = QDir(dir).filePath(QStringLiteral("myrust.exrsprj"));
+    QVERIFY2(QFile::exists(prjPath), "Rust binary template must create .exrsprj file");
+
+    QFile f(prjPath);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const auto obj = QJsonDocument::fromJson(f.readAll()).object();
+    QCOMPARE(obj[QStringLiteral("language")].toString(), QStringLiteral("Rust"));
+    QCOMPARE(obj[QStringLiteral("templateId")].toString(), QStringLiteral("rust-binary"));
+}
+
+void TestProjectTemplates::testGenericCreatesProjectFile()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString dir = tmp.filePath(QStringLiteral("MyJava"));
+
+    BuiltinTemplateProvider provider;
+    QString error;
+    QVERIFY(provider.createProject(QStringLiteral("java-console"),
+                                   QStringLiteral("MyJava"), dir, &error));
+
+    const QString prjPath = QDir(dir).filePath(QStringLiteral("MyJava.exjvprj"));
+    QVERIFY2(QFile::exists(prjPath), "Java generic template must create .exjvprj file");
+
+    QFile f(prjPath);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const auto obj = QJsonDocument::fromJson(f.readAll()).object();
+    QCOMPARE(obj[QStringLiteral("language")].toString(), QStringLiteral("Java"));
+    QCOMPARE(obj[QStringLiteral("templateId")].toString(), QStringLiteral("java-console"));
 }
 
 QTEST_MAIN(TestProjectTemplates)

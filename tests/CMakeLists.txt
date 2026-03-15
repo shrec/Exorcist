@@ -669,6 +669,19 @@ target_link_libraries(test_projecttemplates PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_projecttemplates PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ProjectTemplates COMMAND test_projecttemplates)
 
+# ── Solution tree model tests ──────────────────────────────────────────────────
+add_executable(test_solutiontreemodel
+    test_solutiontreemodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/project/solutiontreemodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/project/projectmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/git/gitservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/process/bridgeclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/process/ipcprotocol.cpp
+)
+target_link_libraries(test_solutiontreemodel PRIVATE Qt6::Test Qt6::Widgets Qt6::Network Qt6::Concurrent)
+target_include_directories(test_solutiontreemodel PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME SolutionTreeModel COMMAND test_solutiontreemodel)
+
 # Deploy Qt DLLs so tests can run (Windows)
 if(WIN32 AND EXORCIST_DEPLOY_QT)
     find_program(WINDEPLOYQT windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")

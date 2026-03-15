@@ -3,6 +3,7 @@
 #include <QAbstractItemModel>
 #include <QFileIconProvider>
 #include <QFileSystemWatcher>
+#include <QSet>
 #include <memory>
 #include <vector>
 
@@ -33,6 +34,26 @@ public:
 
     QString filePath(const QModelIndex &index) const;
     bool isDir(const QModelIndex &index) const;
+
+    /// File / directory exclusion API.
+    /// By default, common build artifacts and IDE metadata are hidden.
+    void setShowHiddenFiles(bool show);
+    bool showHiddenFiles() const { return m_showHiddenFiles; }
+
+    void addExcludedDirPattern(const QString &name);
+    void removeExcludedDirPattern(const QString &name);
+    QSet<QString> excludedDirPatterns() const { return m_hiddenDirs; }
+
+    void addExcludedFilePattern(const QString &pattern);
+    void removeExcludedFilePattern(const QString &pattern);
+    QSet<QString> excludedFilePatterns() const { return m_hiddenFilePatterns; }
+
+    /// Check whether a file or directory entry should be excluded from the tree.
+    bool shouldHideEntry(const QFileInfo &info) const;
+
+    /// Static defaults for testing / reset.
+    static QSet<QString> defaultHiddenDirs();
+    static QSet<QString> defaultHiddenFilePatterns();
 
 public slots:
     void refreshGitOverlays();
@@ -67,4 +88,8 @@ private:
     GitService *m_gitService;
     QFileIconProvider m_iconProvider;
     QFileSystemWatcher m_watcher;
+
+    QSet<QString> m_hiddenDirs;
+    QSet<QString> m_hiddenFilePatterns;  // exact file names or glob suffixes
+    bool m_showHiddenFiles = false;
 };

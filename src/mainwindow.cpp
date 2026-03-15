@@ -3655,9 +3655,40 @@ void MainWindow::openFolder(const QString &path)
                     }
                 }
             } else {
-                statusBar()->showMessage(
-                    tr("CMake project detected \u2014 click Configure to generate compile_commands.json"),
-                    6000);
+                // No compile_commands.json yet — auto-configure if CMakePresets.json exists
+                // (wizard-generated projects always include presets)
+                const QString presetsPath = root + QStringLiteral("/CMakePresets.json");
+                if (QFileInfo::exists(presetsPath)) {
+                    statusBar()->showMessage(
+                        tr("CMake project detected \u2014 auto-configuring..."), 4000);
+
+                    // Defer clangd start until configure completes
+                    auto conn = std::make_shared<QMetaObject::Connection>();
+                    *conn = connect(buildSys, &IBuildSystem::configureFinished,
+                                    this, [this, root, buildSys, conn](bool ok, const QString &) {
+                        QObject::disconnect(*conn);
+                        if (!ok) return;
+
+                        // After configure, compile_commands.json should exist
+                        QString ccPath = buildSys->compileCommandsPath();
+                        QStringList args;
+                        if (!ccPath.isEmpty())
+                            args << QStringLiteral("--compile-commands-dir=")
+                                    + QFileInfo(ccPath).absolutePath();
+
+                        if (auto *lsp = m_services->service<ILspService>(QStringLiteral("lspService")))
+                            lsp->startServer(root, args);
+
+                        statusBar()->showMessage(tr("CMake configured — LSP started"), 4000);
+                    });
+
+                    buildSys->configure();
+                    return; // clangd will start from configureFinished callback
+                } else {
+                    statusBar()->showMessage(
+                        tr("CMake project detected \u2014 click Configure to generate compile_commands.json"),
+                        6000);
+                }
             }
         }
 

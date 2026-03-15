@@ -9,8 +9,10 @@
 #include "projectmanager.h"
 #include "git/gitservice.h"
 
+// ── Default hidden patterns ──────────────────────────────────────────────────
+
 // Directories hidden from the solution tree (build artifacts, VCS internals, caches)
-static const QSet<QString> kHiddenDirs = {
+static const QSet<QString> kDefaultHiddenDirs = {
     QStringLiteral(".git"),
     QStringLiteral(".svn"),
     QStringLiteral(".hg"),
@@ -36,20 +38,140 @@ static const QSet<QString> kHiddenDirs = {
     QStringLiteral(".pytest_cache"),
     QStringLiteral("target"),  // Rust/Maven
     QStringLiteral(".exorcist"),
+    QStringLiteral("CMakeFiles"),
 };
 
-static bool shouldHideEntry(const QFileInfo &info)
+// Files hidden from the solution tree.
+// These are project/build metadata that developers don't need to browse.
+// Patterns:  exact file name  OR  suffix glob like "*.o"
+static const QSet<QString> kDefaultHiddenFilePatterns = {
+    // ── Solution / project metadata ──────────────────────────────────
+    QStringLiteral("*.exsln"),
+    QStringLiteral("*.excpprj"),
+    QStringLiteral("*.excprj"),
+    QStringLiteral("*.exrsprj"),
+    QStringLiteral("*.expyprj"),
+    QStringLiteral("*.exgoprj"),
+    QStringLiteral("*.exjsprj"),
+    QStringLiteral("*.extsprj"),
+    QStringLiteral("*.exjvprj"),
+    QStringLiteral("*.excsprj"),
+    QStringLiteral("*.exswprj"),
+    QStringLiteral("*.exktprj"),
+    QStringLiteral("*.exzgprj"),
+    QStringLiteral("*.exluprj"),
+    QStringLiteral("*.exrbprj"),
+    QStringLiteral("*.exphprj"),
+    QStringLiteral("*.exdtprj"),
+    QStringLiteral("*.exhsprj"),
+    QStringLiteral("*.exscprj"),
+    QStringLiteral("*.exwbprj"),
+    QStringLiteral("*.exprj"),
+
+    // ── Build system metadata ────────────────────────────────────────
+    QStringLiteral("CMakePresets.json"),
+    QStringLiteral("CMakeUserPresets.json"),
+    QStringLiteral("compile_commands.json"),
+
+    // ── Dev tooling config (important but not for browsing) ──────────
+    QStringLiteral(".clang-format"),
+    QStringLiteral(".clang-tidy"),
+    QStringLiteral(".editorconfig"),
+
+    // ── VCS metadata ─────────────────────────────────────────────────
+    QStringLiteral(".gitignore"),
+    QStringLiteral(".gitattributes"),
+    QStringLiteral(".gitmodules"),
+
+    // ── Compiled artifacts ───────────────────────────────────────────
+    QStringLiteral("*.o"),
+    QStringLiteral("*.obj"),
+    QStringLiteral("*.pdb"),
+    QStringLiteral("*.ilk"),
+    QStringLiteral("*.lib"),
+    QStringLiteral("*.a"),
+    QStringLiteral("*.so"),
+    QStringLiteral("*.dylib"),
+    QStringLiteral("*.dll"),
+    QStringLiteral("*.exe"),
+    QStringLiteral("*.class"),
+    QStringLiteral("*.pyc"),
+    QStringLiteral("*.pyo"),
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+static bool matchesFilePattern(const QString &fileName, const QSet<QString> &patterns)
 {
-    if (!info.isDir())
+    for (const QString &pat : patterns) {
+        if (pat.startsWith(QLatin1Char('*'))) {
+            // Suffix glob: "*.o" matches "main.o"
+            if (fileName.endsWith(pat.mid(1), Qt::CaseInsensitive))
+                return true;
+        } else {
+            // Exact name match
+            if (fileName.compare(pat, Qt::CaseInsensitive) == 0)
+                return true;
+        }
+    }
+    return false;
+}
+
+bool SolutionTreeModel::shouldHideEntry(const QFileInfo &info) const
+{
+    if (m_showHiddenFiles)
         return false;
-    return kHiddenDirs.contains(info.fileName());
+
+    if (info.isDir())
+        return m_hiddenDirs.contains(info.fileName());
+
+    return matchesFilePattern(info.fileName(), m_hiddenFilePatterns);
+}
+
+QSet<QString> SolutionTreeModel::defaultHiddenDirs()
+{
+    return kDefaultHiddenDirs;
+}
+
+QSet<QString> SolutionTreeModel::defaultHiddenFilePatterns()
+{
+    return kDefaultHiddenFilePatterns;
+}
+
+void SolutionTreeModel::setShowHiddenFiles(bool show)
+{
+    if (m_showHiddenFiles == show) return;
+    m_showHiddenFiles = show;
+    rebuildFromSolution();
+}
+
+void SolutionTreeModel::addExcludedDirPattern(const QString &name)
+{
+    m_hiddenDirs.insert(name);
+}
+
+void SolutionTreeModel::removeExcludedDirPattern(const QString &name)
+{
+    m_hiddenDirs.remove(name);
+}
+
+void SolutionTreeModel::addExcludedFilePattern(const QString &pattern)
+{
+    m_hiddenFilePatterns.insert(pattern);
+}
+
+void SolutionTreeModel::removeExcludedFilePattern(const QString &pattern)
+{
+    m_hiddenFilePatterns.remove(pattern);
 }
 
 SolutionTreeModel::SolutionTreeModel(ProjectManager *pm, GitService *git, QObject *parent)
     : QAbstractItemModel(parent),
       m_root(std::make_unique<TreeNode>(TreeNode{TreeNode::Root, QString(), QString(), nullptr})),
       m_projectManager(pm),
-      m_gitService(git)
+      m_gitService(git),
+      m_hiddenDirs(kDefaultHiddenDirs),
+      m_hiddenFilePatterns(kDefaultHiddenFilePatterns)
 {
     buildTree();
     connect(m_projectManager, &ProjectManager::solutionChanged,
