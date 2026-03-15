@@ -55,7 +55,7 @@ private:
     void doUnwatch(const QJsonObject &args,
                    std::function<void(bool, QJsonObject)> respond);
     void doList(std::function<void(bool, QJsonObject)> respond);
-    void setupWatcher(WatchEntry &entry);
+    void setupWatcher(WatchEntry &entry, bool firstTime = false);
 
     std::map<QString, std::unique_ptr<WatchEntry>> m_repos;
 };

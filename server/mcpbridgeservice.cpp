@@ -232,6 +232,18 @@ void McpBridgeService::onReadyRead(const QString &name)
 
     state.buffer.append(state.process->readAllStandardOutput());
 
+    // Guard: if buffer exceeds 32 MB without a single complete line,
+    // the server is misbehaving — discard the buffer to prevent OOM.
+    static constexpr int MaxMcpBuffer = 32 * 1024 * 1024;
+    if (state.buffer.size() > MaxMcpBuffer
+        && state.buffer.indexOf('\n') < 0) {
+        qWarning("[McpBridge] MCP server '%s' buffer exceeded %d MB "
+                 "without newline — discarding",
+                 qPrintable(name), MaxMcpBuffer / (1024 * 1024));
+        state.buffer.clear();
+        return;
+    }
+
     // MCP uses newline-delimited JSON-RPC
     int consumed = 0;
     while (true) {
@@ -248,6 +260,10 @@ void McpBridgeService::onReadyRead(const QString &name)
     }
     if (consumed > 0)
         state.buffer.remove(0, consumed);
+
+    // Reclaim memory: if the buffer was fully consumed, release it.
+    if (state.buffer.isEmpty())
+        state.buffer.squeeze();
 }
 
 void McpBridgeService::onFinished(const QString &name, int exitCode)

@@ -92,7 +92,7 @@ void GitWatchBridgeService::doWatch(
     entry->debounce->setSingleShot(true);
     entry->debounce->setInterval(200);
 
-    setupWatcher(*entry);
+    setupWatcher(*entry, true);
 
     m_repos.emplace(canonical, std::move(entry));
 
@@ -144,7 +144,8 @@ void GitWatchBridgeService::doList(
     respond(true, result);
 }
 
-void GitWatchBridgeService::setupWatcher(WatchEntry &entry)
+void GitWatchBridgeService::setupWatcher(WatchEntry &entry,
+                                         bool firstTime)
 {
     const QString indexPath =
         QDir(entry.repoPath).absoluteFilePath(QStringLiteral(".git/index"));
@@ -160,6 +161,12 @@ void GitWatchBridgeService::setupWatcher(WatchEntry &entry)
     if (!files.isEmpty())
         entry.watcher->addPaths(files);
 
+    // Only wire signal connections on first setup — re-calls just re-add
+    // watched paths.  Without this guard every debounce timeout would add
+    // another pair of connections, leaking memory over time.
+    if (!firstTime)
+        return;
+
     const QString repoPath = entry.repoPath;
 
     // On file change → debounce → emit repoChanged
@@ -174,7 +181,7 @@ void GitWatchBridgeService::setupWatcher(WatchEntry &entry)
                 // sometimes delete + recreate .git/index)
                 auto it = m_repos.find(repoPath);
                 if (it != m_repos.end())
-                    setupWatcher(*it->second);
+                    setupWatcher(*it->second, false);
 
                 emit repoChanged(repoPath);
             });
