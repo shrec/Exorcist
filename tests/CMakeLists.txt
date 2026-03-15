@@ -1,4 +1,4 @@
-find_package(Qt6 REQUIRED COMPONENTS Test Widgets Network Concurrent)
+find_package(Qt6 REQUIRED COMPONENTS Test Widgets Network Concurrent Sql)
 
 # ── LanguageProfile tests ─────────────────────────────────────────────────────
 add_executable(test_languageprofile
@@ -526,6 +526,37 @@ target_include_directories(test_agentuibus PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME AgentUIBus COMMAND test_agentuibus)
 
 # ── HTTP/2 Hardening tests ────────────────────────────────────────────────────
+
+# ── JsPluginRuntime tests ─────────────────────────────────────────────────────
+add_executable(test_jspluginruntime
+    test_jspluginruntime.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/javascript-sdk/jspluginruntime.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/javascript-sdk/jspluginruntime.h
+    ${CMAKE_SOURCE_DIR}/plugins/javascript-sdk/jshostapi.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/javascript-sdk/jshostapi.h
+)
+target_link_libraries(test_jspluginruntime PRIVATE Qt6::Test Qt6::Widgets ultralight-sdk)
+target_include_directories(test_jspluginruntime PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/javascript-sdk
+    ${CMAKE_SOURCE_DIR}/src/sdk
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+# ── CodeGraph tests ───────────────────────────────────────────────────────────
+add_executable(test_codegraph
+    test_codegraph.cpp
+    ${CMAKE_SOURCE_DIR}/src/codegraph/codegraphdb.cpp
+    ${CMAKE_SOURCE_DIR}/src/codegraph/codegraphindexer.cpp
+    ${CMAKE_SOURCE_DIR}/src/codegraph/codegraphquery.cpp
+    ${CMAKE_SOURCE_DIR}/src/codegraph/codegraphutils.cpp
+    ${CMAKE_SOURCE_DIR}/src/codegraph/cpplanguageindexer.cpp
+    ${CMAKE_SOURCE_DIR}/src/codegraph/tslanguageindexer.cpp
+    ${CMAKE_SOURCE_DIR}/src/codegraph/pylanguageindexer.cpp
+)
+target_link_libraries(test_codegraph PRIVATE Qt6::Test Qt6::Widgets Qt6::Sql)
+target_include_directories(test_codegraph PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME CodeGraph COMMAND test_codegraph)
+add_test(NAME JsPluginRuntime COMMAND test_jspluginruntime)
 add_executable(test_http2hardening
     test_http2hardening.cpp
 )

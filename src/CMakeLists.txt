@@ -58,6 +58,22 @@ add_executable(exorcist WIN32
     search/workspaceindexer.h
     search/symbolindex.cpp
     search/symbolindex.h
+    codegraph/codegraphtypes.h
+    codegraph/codegraphdb.h
+    codegraph/codegraphdb.cpp
+    codegraph/codegraphindexer.h
+    codegraph/codegraphindexer.cpp
+    codegraph/codegraphquery.h
+    codegraph/codegraphquery.cpp
+    codegraph/ilanguageindexer.h
+    codegraph/codegraphutils.h
+    codegraph/codegraphutils.cpp
+    codegraph/cpplanguageindexer.h
+    codegraph/cpplanguageindexer.cpp
+    codegraph/tslanguageindexer.h
+    codegraph/tslanguageindexer.cpp
+    codegraph/pylanguageindexer.h
+    codegraph/pylanguageindexer.cpp
     lsp/lspmessage.h
     lsp/lsptransport.cpp
     lsp/lsptransport.h
@@ -206,6 +222,10 @@ add_executable(exorcist WIN32
     agent/tools/changeimpacttool.cpp
     agent/tools/scratchpadtool.h
     agent/tools/scratchpadtool.cpp
+    agent/tools/managerulestool.h
+    agent/tools/managerulestool.cpp
+    agent/tools/managememorytool.h
+    agent/tools/managememorytool.cpp
     agent/tools/terminalsessiontools.h
     agent/tools/terminalsessiontools.cpp
     agent/tools/pythontools.h
@@ -248,6 +268,8 @@ add_executable(exorcist WIN32
     agent/tools/luaagenttoolstore.cpp
     agent/tools/sandboxtools.h
     agent/tools/sandboxtools.cpp
+    agent/tools/dockertools.h
+    agent/tools/dockertools.cpp
     agent/diagnosticsnotifier.h
     agent/diagnosticsnotifier.cpp
     agent/treesitteragenthelper.h
@@ -459,6 +481,7 @@ add_executable(exorcist WIN32
     agent/chat/chatsessionmodel.cpp
     agent/chat/chatthemetokens.h
     agent/chat/chatturnmodel.h
+    agent/chat/chatturnmodel.cpp
     agent/chat/toolpresentationformatter.h
     sdk/pluginpermission.h
     sdk/icommandservice.h
@@ -530,7 +553,9 @@ if(EXORCIST_USE_ULTRALIGHT)
 else()
     target_sources(exorcist PRIVATE
         agent/chat/chatfollowupswidget.h
+        agent/chat/chatfollowupswidget.cpp
         agent/chat/chatmarkdownwidget.h
+        agent/chat/chatmarkdownwidget.cpp
         agent/chat/chatthinkingwidget.h
         agent/chat/chatthinkingwidget.cpp
         agent/chat/chattoolinvocationwidget.h
@@ -538,7 +563,9 @@ else()
         agent/chat/chattranscriptview.h
         agent/chat/chattranscriptview.cpp
         agent/chat/chatturnwidget.h
+        agent/chat/chatturnwidget.cpp
         agent/chat/chatwelcomewidget.h
+        agent/chat/chatwelcomewidget.cpp
         agent/chat/chatworkspaceeditwidget.h
         agent/chat/chatworkspaceeditwidget.cpp
     )
