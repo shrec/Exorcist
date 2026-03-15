@@ -59,6 +59,13 @@ public:
     ITerminalService     *terminal()      override { return nullptr; }
     IDiagnosticsService  *diagnostics()   override { return nullptr; }
     ITaskService         *tasks()         override { return nullptr; }
+    IDockManager         *docks()         override { return nullptr; }
+    IMenuManager         *menus()         override { return nullptr; }
+    IToolBarManager      *toolbars()      override { return nullptr; }
+    IStatusBarManager    *statusBar()     override { return nullptr; }
+    IWorkspaceManager    *workspaceManager() override { return nullptr; }
+    IProfileManager      *profiles()      override { return nullptr; }
+    IComponentService    *components()    override { return nullptr; }
 
     void registerService(const QString &, QObject *) override {}
     QObject *queryService(const QString &) override { return nullptr; }
