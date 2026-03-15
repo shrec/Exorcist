@@ -160,6 +160,9 @@
 #include "agent/trajectoryreplaywidget.h"
 #include "agent/promptarchiveexporter.h"
 #include "agent/memoryfileeditor.h"
+#include "ui/welcomewidget.h"
+
+#include <QStackedWidget>
 #include "agent/backgroundcompactor.h"
 #include "agent/errorstatewidget.h"
 #include "agent/setuptestswizard.h"
@@ -1928,11 +1931,10 @@ void MainWindow::deferredInit()
         }
     }
 
-    // Re-open last folder (deferred to avoid blocking first paint).
-    QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
-    const QString lastFolder = s.value(QStringLiteral("lastFolder")).toString();
-    if (!lastFolder.isEmpty() && QDir(lastFolder).exists())
-        openFolder(lastFolder);
+    // Welcome page handles project selection — don't auto-open last folder.
+    // Refresh the welcome page's recent list after plugins have loaded.
+    if (m_welcome)
+        m_welcome->refreshRecent();
     StartupProfiler::instance().mark(QStringLiteral("deferred init done"));
 }
 
@@ -1977,7 +1979,7 @@ void MainWindow::setupUi()
     });
     connect(m_editorMgr->tabs(), &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
     createDockWidgets();
-    openNewTab();
+    // No openNewTab() here — welcome page shows first until a project is opened.
 }
 
 void MainWindow::setupMenus()
@@ -2486,15 +2488,17 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     connect(filePaletteAction, &QAction::triggered, this, &MainWindow::showFilePalette);
 
     // Wire dock toggles via DockManager.
-    auto dockToggle = [this](exdock::ExDockWidget *dock) {
-        return [this, dock](bool on) {
+    auto dockToggle = [this](const QString &dockId) {
+        return [this, dockId](bool on) {
+            auto *d = dock(dockId);
+            if (!d) return;
             if (on)
-                m_dockManager->showDock(dock, m_dockManager->inferSide(dock));
+                m_dockManager->showDock(d, m_dockManager->inferSide(d));
             else
-                m_dockManager->closeDock(dock);
+                m_dockManager->closeDock(d);
         };
     };
-    connect(toggleProjectAction,  &QAction::toggled, this, dockToggle(dock(QStringLiteral("ProjectDock"))));
+    connect(toggleProjectAction,  &QAction::toggled, this, dockToggle(QStringLiteral("ProjectDock")));
     connect(toggleSearchAction,   &QAction::toggled, this, [this](bool on) {
         if (on) {
             m_dockManager->showDock(dock(QStringLiteral("SearchDock")), m_dockManager->inferSide(dock(QStringLiteral("SearchDock"))));
@@ -2503,13 +2507,13 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
             m_dockManager->closeDock(dock(QStringLiteral("SearchDock")));
         }
     });
-    connect(toggleGitAction,      &QAction::toggled, this, dockToggle(dock(QStringLiteral("GitDock"))));
-    connect(toggleTerminalAction, &QAction::toggled, this, dockToggle(dock(QStringLiteral("TerminalDock"))));
-    connect(toggleAiAction,       &QAction::toggled, this, dockToggle(dock(QStringLiteral("AIDock"))));
-    connect(toggleOutlineAction,  &QAction::toggled, this, dockToggle(dock(QStringLiteral("OutlineDock"))));
-    connect(toggleRefsAction,     &QAction::toggled, this, dockToggle(dock(QStringLiteral("ReferencesDock"))));
-    connect(toggleLogAction,      &QAction::toggled, this, dockToggle(dock(QStringLiteral("RequestLogDock"))));
-    connect(toggleTrajectoryAction, &QAction::toggled, this, dockToggle(dock(QStringLiteral("TrajectoryDock"))));
+    connect(toggleGitAction,      &QAction::toggled, this, dockToggle(QStringLiteral("GitDock")));
+    connect(toggleTerminalAction, &QAction::toggled, this, dockToggle(QStringLiteral("TerminalDock")));
+    connect(toggleAiAction,       &QAction::toggled, this, dockToggle(QStringLiteral("AIDock")));
+    connect(toggleOutlineAction,  &QAction::toggled, this, dockToggle(QStringLiteral("OutlineDock")));
+    connect(toggleRefsAction,     &QAction::toggled, this, dockToggle(QStringLiteral("ReferencesDock")));
+    connect(toggleLogAction,      &QAction::toggled, this, dockToggle(QStringLiteral("RequestLogDock")));
+    connect(toggleTrajectoryAction, &QAction::toggled, this, dockToggle(QStringLiteral("TrajectoryDock")));
     connect(toggleSettingsAction, &QAction::triggered, this, [this]() {
         if (!m_settingsDialog) {
             m_settingsDialog = new QDialog(this);
@@ -2531,16 +2535,17 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
             m_dockManager->closeDock(dock(QStringLiteral("MemoryDock")));
         if (on) m_memoryBrowser->refresh();
     });
-    connect(toggleMcpAction,    &QAction::toggled, this, dockToggle(dock(QStringLiteral("McpDock"))));
-    connect(togglePluginAction, &QAction::toggled, this, dockToggle(dock(QStringLiteral("PluginDock"))));
-    connect(toggleThemeAction,  &QAction::toggled, this, dockToggle(dock(QStringLiteral("ThemeDock"))));
-    connect(toggleOutputAction, &QAction::toggled, this, dockToggle(dock(QStringLiteral("OutputDock"))));
-    connect(toggleDebugAction,  &QAction::toggled, this, dockToggle(dock(QStringLiteral("DebugDock"))));
+    connect(toggleMcpAction,    &QAction::toggled, this, dockToggle(QStringLiteral("McpDock")));
+    connect(togglePluginAction, &QAction::toggled, this, dockToggle(QStringLiteral("PluginDock")));
+    connect(toggleThemeAction,  &QAction::toggled, this, dockToggle(QStringLiteral("ThemeDock")));
+    connect(toggleOutputAction, &QAction::toggled, this, dockToggle(QStringLiteral("OutputDock")));
+    connect(toggleDebugAction,  &QAction::toggled, this, dockToggle(QStringLiteral("DebugDock")));
 
     // Sync View-menu checkbox with dock state changes.
     // Use QSignalBlocker to prevent setChecked from firing toggled,
     // which would re-enter showDock/closeDock via dockToggle.
     auto syncAction = [](QAction *action, exdock::ExDockWidget *dock) {
+        if (!dock) return; // Plugin-contributed docks may not exist yet
         QObject::connect(dock, &exdock::ExDockWidget::stateChanged,
                          action, [action](exdock::DockState s) {
             QSignalBlocker blocker(action);
@@ -2591,16 +2596,33 @@ void MainWindow::createDockWidgets()
 
     // (ThemeManager connection deferred — m_themeManager is created later.)
 
-    // Build the central editor container (breadcrumb + tab widget) and set
-    // it as the center content BEFORE any dock panels are added, so that
-    // Bottom/Top areas can find the editor position in the center splitter.
-    auto *centralContainer = new QWidget(this);
-    auto *centralLayout = new QVBoxLayout(centralContainer);
-    centralLayout->setContentsMargins(0, 0, 0, 0);
-    centralLayout->setSpacing(0);
-    centralLayout->addWidget(m_editorMgr->breadcrumb());
-    centralLayout->addWidget(m_editorMgr->tabs());
-    m_dockManager->setCentralContent(centralContainer);
+    // Build the central area as a QStackedWidget:
+    //   page 0 = WelcomeWidget   (shown when no project is open)
+    //   page 1 = editor container (breadcrumb + tab widget)
+    m_centralStack = new QStackedWidget(this);
+
+    m_welcome = new WelcomeWidget(this);
+    m_centralStack->addWidget(m_welcome);  // page 0
+
+    auto *editorContainer = new QWidget(this);
+    auto *editorLayout = new QVBoxLayout(editorContainer);
+    editorLayout->setContentsMargins(0, 0, 0, 0);
+    editorLayout->setSpacing(0);
+    editorLayout->addWidget(m_editorMgr->breadcrumb());
+    editorLayout->addWidget(m_editorMgr->tabs());
+    m_centralStack->addWidget(editorContainer);  // page 1
+
+    m_centralStack->setCurrentIndex(0);  // start on welcome
+
+    // Wire welcome signals
+    connect(m_welcome, &WelcomeWidget::openFolderBrowseRequested,
+            this, [this]() { openFolder(); });
+    connect(m_welcome, &WelcomeWidget::openFolderRequested,
+            this, &MainWindow::openFolder);
+    connect(m_welcome, &WelcomeWidget::newProjectRequested,
+            this, &MainWindow::newSolution);
+
+    m_dockManager->setCentralContent(m_centralStack);
 
 
     // ── Project tree ──────────────────────────────────────────────────────
@@ -3044,6 +3066,10 @@ void MainWindow::createDockWidgets()
 
 void MainWindow::openNewTab()
 {
+    // Switch from welcome page to editor view
+    if (m_centralStack && m_centralStack->currentIndex() == 0)
+        m_centralStack->setCurrentIndex(1);
+
     auto *editor = new EditorView();
     int index = m_editorMgr->tabs()->addTab(editor, tr("Untitled"));
     m_editorMgr->tabs()->setCurrentIndex(index);
@@ -3177,6 +3203,10 @@ void MainWindow::openFile(const QString &path)
         statusBar()->showMessage(tr("File not found: %1").arg(path), 4000);
         return;
     }
+
+    // Switch from welcome page to editor view
+    if (m_centralStack && m_centralStack->currentIndex() == 0)
+        m_centralStack->setCurrentIndex(1);
 
     // Track in recent files
     if (auto *rfm = findChild<RecentFilesManager *>(
@@ -3346,6 +3376,25 @@ void MainWindow::openFolder(const QString &path)
         folder = QFileDialog::getExistingDirectory(this, tr("Open Folder"));
     }
     if (folder.isEmpty()) return;
+
+    // Switch from welcome page to editor view
+    if (m_centralStack && m_centralStack->currentIndex() == 0) {
+        m_centralStack->setCurrentIndex(1);
+        // Open a blank tab if no tabs exist yet
+        if (m_editorMgr->tabs()->count() == 0)
+            openNewTab();
+    }
+
+    // Save to recent folders list (MRU, max 10)
+    {
+        QSettings rs(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+        QStringList recent = rs.value(QStringLiteral("recentFolders")).toStringList();
+        recent.removeAll(folder);
+        recent.prepend(folder);
+        while (recent.size() > 10)
+            recent.removeLast();
+        rs.setValue(QStringLiteral("recentFolders"), recent);
+    }
 
     const bool hasSolution = m_editorMgr->projectManager()->openFolder(folder);
     m_gitService->setWorkingDirectory(folder);
@@ -3623,6 +3672,12 @@ void MainWindow::newSolution()
     }
 
     if (m_editorMgr->projectManager()->createSolution(name, slnPath)) {
+        // Switch from welcome page to editor view
+        if (m_centralStack && m_centralStack->currentIndex() == 0) {
+            m_centralStack->setCurrentIndex(1);
+            if (m_editorMgr->tabs()->count() == 0)
+                openNewTab();
+        }
         const QString root = m_editorMgr->projectManager()->activeSolutionDir();
         m_gitService->setWorkingDirectory(root);
         m_searchPanel->setRootPath(root);
@@ -3871,9 +3926,7 @@ void MainWindow::loadSettings()
     if (!geometry.isEmpty())
         restoreGeometry(geometry);
 
-    const QString lastFolder = s.value(QStringLiteral("lastFolder")).toString();
-    if (!lastFolder.isEmpty() && QDir(lastFolder).exists())
-        openFolder(lastFolder);
+    // Welcome page handles project selection — no auto-open.
 }
 
 void MainWindow::saveSettings()

@@ -62,6 +62,8 @@ class HostServices;
 class ContributionRegistry;
 class StatusBarManager;
 class AIServicesBootstrap;
+class WelcomeWidget;
+class QStackedWidget;
 
 class MainWindow : public QMainWindow
 {
@@ -152,6 +154,8 @@ private:
     AIServicesBootstrap      *m_aiServices = nullptr;
     KeymapManager            *m_keymapManager = nullptr;
     exdock::DockManager       *m_dockManager = nullptr;
+    QStackedWidget             *m_centralStack = nullptr;
+    WelcomeWidget              *m_welcome = nullptr;
 
     RunTestsTool::TestResult  m_lastTestResult;  // cached from last run_tests invocation
 
