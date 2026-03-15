@@ -35,6 +35,13 @@ public:
     IViewService *views() override { return m_delegate->views(); }
     INotificationService *notifications() override { return m_delegate->notifications(); }
 
+    // Core UI managers — always available (plugins contribute through these)
+    IDockManager *docks() override { return m_delegate->docks(); }
+    IMenuManager *menus() override { return m_delegate->menus(); }
+    IToolBarManager *toolbars() override { return m_delegate->toolbars(); }
+    IStatusBarManager *statusBar() override { return m_delegate->statusBar(); }
+    IWorkspaceManager *workspaceManager() override { return m_delegate->workspaceManager(); }
+
     // Requires WorkspaceRead or WorkspaceWrite
     IWorkspaceService *workspace() override;
     IGitService *git() override;

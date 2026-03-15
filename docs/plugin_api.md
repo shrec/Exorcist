@@ -76,6 +76,11 @@ bool initialize(IHostServices *host) override;
 | Terminal | `terminal()` | Run commands in terminal |
 | Diagnostics | `diagnostics()` | LSP diagnostics access |
 | Tasks | `tasks()` | Task runner integration |
+| Dock Manager | `docks()` | Add/remove/show/hide/pin dock panels |
+| Menu Manager | `menus()` | Contribute menu items and context actions |
+| Toolbar Manager | `toolbars()` | Create toolbars, add actions and widgets |
+| Status Bar | `statusBar()` | Add status bar items and messages |
+| Workspace Manager | `workspaceManager()` | Open folders/files, recent items |
 
 ### Service Registry Access
 

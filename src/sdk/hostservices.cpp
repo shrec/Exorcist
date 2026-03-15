@@ -1,6 +1,11 @@
 #include "hostservices.h"
 
 #include "../mainwindow.h"
+#include "../core/idockmanager.h"
+#include "../core/imenumanager.h"
+#include "../core/istatusbarmanager.h"
+#include "../core/itoolbarmanager.h"
+#include "../core/iworkspacemanager.h"
 #include "../core/ifilesystem.h"
 #include "../editor/editorview.h"
 #include "../git/gitservice.h"
@@ -501,6 +506,12 @@ IGitService *HostServices::git()                { return m_git.get(); }
 ITerminalService *HostServices::terminal()      { return m_terminal.get(); }
 IDiagnosticsService *HostServices::diagnostics() { return m_diagnostics.get(); }
 ITaskService *HostServices::tasks()             { return m_tasks.get(); }
+
+IDockManager *HostServices::docks()             { return m_dockMgr; }
+IMenuManager *HostServices::menus()             { return m_menuMgr; }
+IToolBarManager *HostServices::toolbars()       { return m_toolBarMgr; }
+IStatusBarManager *HostServices::statusBar()    { return m_statusBarMgr; }
+IWorkspaceManager *HostServices::workspaceManager() { return m_workspaceMgr; }
 
 void HostServices::registerService(const QString &name, QObject *service)
 {

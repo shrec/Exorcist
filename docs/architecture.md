@@ -51,12 +51,12 @@ concrete core classes or MainWindow.
 | **Agent framework** | `agent/` | Agent runtime, tools, chat UI (Qt widgets or Ultralight HTML renderer), session management, diagnostics push, tree-sitter AST access, agent UI protocol (structured event bus + live dashboard) | `AgentController`, `AgentOrchestrator`, `ChatPanelWidget`, `UltralightWidget`, `ChatJSBridge`, `DiagnosticsNotifier`, `TreeSitterAgentHelper`, `AgentUIBus`, `AgentDashboardPanel`, `DashboardJSBridge` |
 | **ExoBridge** | `process/`, `server/` | IPC protocol, shared daemon, cross-instance process management | `ExoBridgeCore`, `BridgeClient`, `ProcessManager`, `Ipc::Message` |
 | **Project Brain** | `agent/projectbrain*`, `agent/tools/managerules*`, `agent/tools/managememory*` | Persistent workspace knowledge (rules, facts, notes, sessions). Provides `manage_rules` and `manage_memory` tools so the AI model can read/write project rules and memory facts. Data stored in `.exorcist/` (rules.json, memory.json, notes/). `BrainContextBuilder` auto-injects rules, facts, and notes into system prompts. | `ProjectBrainService`, `BrainContextBuilder`, `MemorySuggestionEngine`, `ManageRulesTool`, `ManageMemoryTool` |
-| **Core abstractions** | `core/` | OS interfaces (filesystem, file watching, environment, process, terminal, network) | `IFileSystem`, `IFileWatcher`, `IEnvironment`, `IProcess`, `ITerminal`, `INetwork` |
+| **Core abstractions** | `core/` | OS interfaces (filesystem, file watching, environment, process, terminal, network) + UI manager interfaces (dock panels, menus, toolbars, status bar, workspace). These interfaces form the plugin-first extension model: the core IDE is a minimal shell, and everything else is contributed by plugins through these interfaces at runtime. | `IFileSystem`, `IFileWatcher`, `IEnvironment`, `IProcess`, `ITerminal`, `INetwork`, `IDockManager`, `IMenuManager`, `IToolBarManager`, `IStatusBarManager`, `IWorkspaceManager` |
 | **Plugin system** | `pluginmanager.*`, `serviceregistry.*`, `plugin/` | Plugin loader (Qt + C ABI + Lua + JS), typed service resolution, extension gallery with enable/disable toggle, marketplace (registry, download, install). Plugins declare `plugin.json` manifests with activation events and contributions. Disabled plugins persisted in QSettings and skipped during initialization. | `PluginManager`, `ServiceRegistry`, `PluginGalleryPanel`, `PluginMarketplaceService`, `PluginManifest` |
 | **JavaScript SDK** | `plugins/javascript-sdk/` | **Core Plugin** — Ultralight JSC-based runtime for JavaScript plugins. Two plugin types: **headless** (pure JS via `JSGlobalContext`, no DOM) and **HTML** (full WebView via `UltralightPluginView` with DOM + CSS + `ex.*` SDK). Loads JS plugins from `plugins/javascript/`. Each plugin gets sandboxed context with permission-gated `ex.*` host API. HTML plugins declare `contributions.views` in their manifest and are registered as dock panels via `IViewService`. Supports command registration, editor/workspace/git/diagnostics read, notifications, logging, events, and hot reload. | `JsPluginSdkPlugin`, `JsPluginRuntime`, `JsHostAPI`, `UltralightPluginView`, `LoadedHtmlPlugin` |
-| **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code | `BridgeBootstrap`, `StatusBarManager`, `AIServicesBootstrap` |
+| **Bootstrap** | `bootstrap/` | Subsystem bootstrappers that own and wire groups of related objects, reducing MainWindow init code. Includes concrete adapters that bridge core UI interfaces to real implementations: `DockManagerAdapter` (wraps `DockManager` behind `IDockManager`), `MenuManagerImpl` (manages `QMenuBar` behind `IMenuManager`), `ToolBarManagerAdapter` (wraps `DockToolBarManager` behind `IToolBarManager`), `StatusBarManagerAdapter` (wraps `QStatusBar` behind `IStatusBarManager`), `WorkspaceManagerImpl` (wraps workspace ops behind `IWorkspaceManager`). | `BridgeBootstrap`, `StatusBarManager`, `AIServicesBootstrap`, `DockManagerAdapter`, `MenuManagerImpl`, `ToolBarManagerAdapter`, `StatusBarManagerAdapter`, `WorkspaceManagerImpl` |
 | **Settings** | `settings/` | Hierarchical settings: global QSettings → workspace `.exorcist/settings.json` override layer | `WorkspaceSettings` |
-| **SDK** | `sdk/` | Stable plugin API — typed host services, permissions, service registration, build/launch/debug/LSP interfaces | `IHostServices`, `HostServices`, `PluginPermission`, `IBuildSystem`, `ILaunchService`, `IDebugAdapter`, `IDebugService`, `ILspService` |
+| **SDK** | `sdk/` | Stable plugin API — typed host services, permissions, service registration, build/launch/debug/LSP/UI-manager interfaces. `IHostServices` exposes `docks()`, `menus()`, `toolbars()`, `statusBar()`, `workspaceManager()` so plugins can contribute panels, menus, toolbar items, and status bar entries at runtime. | `IHostServices`, `HostServices`, `PluginPermission`, `IBuildSystem`, `ILaunchService`, `IDebugAdapter`, `IDebugService`, `ILspService` |
 | **UI framework** | `ui/`, `commandpalette.*`, `thememanager.*` | Command palette, theme engine with token colors, keymap, notifications, custom docking, theme gallery | `CommandPalette`, `ThemeManager`, `KeymapManager`, `NotificationToast`, `DockManager`, `ExDockWidget`, `ThemeGalleryPanel` |
 | **Logger** | `logger.*` | Thread-safe timestamped logging | `Logger` |
 | **Crash Handler** | `crashhandler.*` | Catches unhandled exceptions/signals; writes minidumps (Windows), CPU register dumps, faulting module identification, access violation details, stack traces via StackWalk64, loaded modules list, and recent log lines ring buffer to `crashes/` directory. Integrated with Logger for automatic log capture. | `CrashHandler` |
@@ -72,6 +72,11 @@ concrete core classes or MainWindow.
 | `IProcess` | `QtProcess` | Process launch and I/O |
 | `ITerminal` | `QtTerminal` | Terminal emulator backend |
 | `INetwork` | `NullNetwork` | HTTP requests (stub) |
+| `IDockManager` | `DockManagerAdapter` | Dock panel lifecycle (add, show, hide, pin, unpin) |
+| `IMenuManager` | `MenuManagerImpl` | Menu bar contribution (standard + custom menus, actions) |
+| `IToolBarManager` | `ToolBarManagerAdapter` | Toolbar creation and management |
+| `IStatusBarManager` | `StatusBarManagerAdapter` | Status bar items and messages |
+| `IWorkspaceManager` | `WorkspaceManagerImpl` | Workspace/folder/file operations |
 
 ## Service Registry
 
@@ -131,6 +136,11 @@ bool MyPlugin::initialize(IHostServices *host) override
 | `IBuildSystem` | `ibuildsystem.h` | Build/configure/clean, targets, build directory |
 | `ITestRunner` | `itestrunner.h` | Test discovery, execution, results |
 | `ContributionRegistry` | `contributionregistry.h` | Wires manifest contributions to IDE subsystems |
+| `IDockManager` | `core/idockmanager.h` | Add/remove/show/hide/pin dock panels |
+| `IMenuManager` | `core/imenumanager.h` | Contribute menu items and context actions |
+| `IToolBarManager` | `core/itoolbarmanager.h` | Create toolbars, add actions and widgets |
+| `IStatusBarManager` | `core/istatusbarmanager.h` | Add/remove status bar items |
+| `IWorkspaceManager` | `core/iworkspacemanager.h` | Open folders/files, recent items, workspace state |
 
 ### Permissions
 

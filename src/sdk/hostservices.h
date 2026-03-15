@@ -247,6 +247,12 @@ public:
     IDiagnosticsService *diagnostics() override;
     ITaskService *tasks() override;
 
+    IDockManager *docks() override;
+    IMenuManager *menus() override;
+    IToolBarManager *toolbars() override;
+    IStatusBarManager *statusBar() override;
+    IWorkspaceManager *workspaceManager() override;
+
     void registerService(const QString &name, QObject *service) override;
     QObject *queryService(const QString &name) override;
 
@@ -255,6 +261,13 @@ public:
 
     /// Access the diagnostics service for LSP signal wiring.
     DiagnosticsServiceImpl *diagnosticsService() { return m_diagnostics.get(); }
+
+    /// Set UI manager instances (called by MainWindow after managers are created).
+    void setDockManager(IDockManager *dm)         { m_dockMgr = dm; }
+    void setMenuManager(IMenuManager *mm)          { m_menuMgr = mm; }
+    void setToolBarManager(IToolBarManager *tbm)    { m_toolBarMgr = tbm; }
+    void setStatusBarManager(IStatusBarManager *sbm) { m_statusBarMgr = sbm; }
+    void setWorkspaceManager(IWorkspaceManager *wm)  { m_workspaceMgr = wm; }
 
 private:
     MainWindow *m_window;
@@ -268,4 +281,11 @@ private:
     std::unique_ptr<TerminalServiceImpl>      m_terminal;
     std::unique_ptr<DiagnosticsServiceImpl>   m_diagnostics;
     std::unique_ptr<TaskServiceImpl>          m_tasks;
+
+    // UI manager pointers (non-owning — owned by MainWindow bootstraps)
+    IDockManager      *m_dockMgr      = nullptr;
+    IMenuManager      *m_menuMgr      = nullptr;
+    IToolBarManager   *m_toolBarMgr   = nullptr;
+    IStatusBarManager *m_statusBarMgr = nullptr;
+    IWorkspaceManager *m_workspaceMgr = nullptr;
 };

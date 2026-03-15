@@ -438,3 +438,9 @@ See [docs/luajit.md](luajit.md)
 - [x] **Per-mode model persistence** — QSettings `AI/PerModeModel/<modeIndex>` saves/restores model selection per agent mode (Ask/Edit/Agent) across sessions
 - [x] **Code review annotation wiring** — `/review` slash command now parses response for `Line N:` patterns and emits `reviewAnnotationsReady` to push inline annotations to the active editor
 - [x] **ReviewManager .h/.cpp split** — moved from header-only stub to proper declaration/implementation separation
+
+### Plugin-First Core UI Managers
+- [x] **5 core UI manager interfaces** — `IDockManager`, `IMenuManager`, `IToolBarManager`, `IStatusBarManager`, `IWorkspaceManager` in `src/core/`
+- [x] **5 concrete adapter/impl classes** — `DockManagerAdapter`, `MenuManagerImpl`, `ToolBarManagerAdapter`, `StatusBarManagerAdapter`, `WorkspaceManagerImpl` in `src/bootstrap/`
+- [x] **IHostServices expanded** — new accessors `docks()`, `menus()`, `toolbars()`, `statusBar()`, `workspaceManager()` so plugins can contribute UI at runtime
+- [x] **PermissionGuardedHostServices** — pass-through for all 5 new services (no permission gating needed)

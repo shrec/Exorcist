@@ -31,6 +31,13 @@ class ITerminalService;
 class IDiagnosticsService;
 class ITaskService;
 
+// Core UI manager interfaces
+class IDockManager;
+class IMenuManager;
+class IToolBarManager;
+class IStatusBarManager;
+class IWorkspaceManager;
+
 class IHostServices
 {
 public:
@@ -66,6 +73,28 @@ public:
 
     /// Build / test task runner.
     virtual ITaskService *tasks() = 0;
+
+    // ── Core UI managers ──────────────────────────────────────────────────
+    //
+    // These are the plugin-first extension points. Plugins use these
+    // to contribute dock panels, menus, toolbars, and status bar items
+    // at runtime. The core IDE is just a shell — everything else comes
+    // from plugins through these interfaces.
+
+    /// Dock panel management (create, show, hide, pin panels).
+    virtual IDockManager *docks() = 0;
+
+    /// Menu bar management (add menus, actions, submenus).
+    virtual IMenuManager *menus() = 0;
+
+    /// Toolbar management (create toolbars, add actions/widgets).
+    virtual IToolBarManager *toolbars() = 0;
+
+    /// Status bar management (add items, show messages).
+    virtual IStatusBarManager *statusBar() = 0;
+
+    /// Workspace/folder management (open folder, files, solution).
+    virtual IWorkspaceManager *workspaceManager() = 0;
 
     // ── Dynamic service registry ──────────────────────────────────────────
 
