@@ -439,6 +439,7 @@ add_executable(exorcist WIN32
     agent/securekeystorage.cpp
     agent/securekeystorage.h
     agent/promptfilemanager.h
+    agent/promptfilemanager.cpp
     editor/mergeconflictresolver.h
     editor/mergeconflictresolver.cpp
     editor/inlinereviewwidget.cpp
@@ -467,6 +468,7 @@ add_executable(exorcist WIN32
     agent/promptfilepicker.h
     agent/chatthemeadapter.h
     agent/apikeymanagerwidget.h
+    agent/apikeymanagerwidget.cpp
     agent/networkmonitor.h
     agent/networkmonitor.cpp
     agent/citationmanager.h
@@ -476,18 +478,21 @@ add_executable(exorcist WIN32
     search/workspacechunkindex.h
     search/workspacechunkindex.cpp
     agent/modelconfigwidget.h
+    agent/modelconfigwidget.cpp
     agent/contextinspector.h
     agent/toolcalltrace.h
     agent/trajectoryreplaywidget.h
     agent/trajectoryreplaywidget.cpp
     agent/promptarchiveexporter.h
     agent/memoryfileeditor.h
+    agent/memoryfileeditor.cpp
     agent/backgroundcompactor.h
     agent/errorstatewidget.h
     agent/errorstatewidget.cpp
     agent/telemetrymanager.h
     agent/telemetrymanager.cpp
     agent/setuptestswizard.h
+    agent/setuptestswizard.cpp
     agent/renameintegration.h
     agent/accessibilityhelper.h
     agent/tooltogglemanager.h
