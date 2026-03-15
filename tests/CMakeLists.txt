@@ -650,5 +650,13 @@ if(WIN32 AND EXORCIST_DEPLOY_QT)
             COMMAND "${WINDEPLOYQT}" --compiler-runtime "$<TARGET_FILE:test_serviceregistry>"
             COMMENT "Deploying Qt for tests"
         )
+        # test_codegraph needs Qt6Sql.dll which windeployqt on serviceregistry doesn't deploy
+        add_custom_command(TARGET test_codegraph POST_BUILD
+            COMMAND "${WINDEPLOYQT}" --compiler-runtime "$<TARGET_FILE:test_codegraph>"
+            COMMENT "Deploying Qt (with Sql) for codegraph tests"
+        )
     endif()
 endif()
+
+# Deploy Ultralight DLLs for JsPluginRuntime tests
+ultralight_deploy_runtime(test_jspluginruntime)

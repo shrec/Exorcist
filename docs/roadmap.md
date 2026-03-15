@@ -312,6 +312,7 @@ See [docs/luajit.md](luajit.md)
 
 ### Test coverage expansion — completed
 - [x] 29 test targets (was 12), 646+ test cases, **29/29 pass**
+- [x] Current: **54 test targets**, 54/54 pass (100%)
 - [x] New tests: test_projectmanager (20 cases), test_terminalscreen (60 cases), test_treesitter_highlighter (42 cases), test_syntaxhighlighter (43 cases), test_highlighterfactory (24 cases), test_keymapmanager (19 cases), test_commandpalette (17 cases), test_testdiscovery (13 cases), test_problemspanel (9 cases), test_gitignorefilter (24 cases), test_contextpruner (23 cases), test_autocompactor (19 cases)
 - [x] TerminalScreen OSC ESC\ bug fix — `m_pbuf` was cleared before ST arrived
 
@@ -380,6 +381,39 @@ See [docs/luajit.md](luajit.md)
 ### Phase A — Zero-Dependency Extractions ✅
 - [x] A1. GitHub integration → `plugins/github/` (IPlugin + IViewContributor, GitHubDock view via manifest)
 - [x] A2. Remote/SSH → `plugins/remote/` (3 MainWindow members removed, binary -5 MB)
+
+### Phase B — Infrastructure Prerequisites ✅
+- [x] B1. `IBuildSystem` SDK interface + BuildSystemService adapter, registered as "buildSystem"
+- [x] B2. `ITestRunner` SDK interface + TestRunnerService adapter, TestItem moved to SDK
+- [x] B3. Split `BuildDebugBootstrap` → `BuildBootstrap` + `DebugBootstrap` (compatibility wrapper)
+- [x] B4. Agent build/test callbacks refactored to ServiceRegistry IBuildSystem lookups
+- [x] B5. Plugin activation model (lazy loading, workspace detection, event-based activation)
+- [x] B6. ContributionRegistry wires languages, tasks, settings, themes + query APIs
+
+### Phase C — Subsystem Extractions ✅
+- [x] C1. Build System → `plugins/build/`
+- [x] C2. Testing System → `plugins/testing/`
+- [x] C3. Debug System → `plugins/debug/`
+- [x] C4. Clangd Manager → `plugins/cpp-language/`
+- [x] C5. Language highlighting data → plugin-driven via ContributionRegistry
+
+### Phase D — God Object Decomposition ✅
+- [x] D1. Agent member deduplication (52→48 members)
+- [x] D2. Extract `EditorManager` from MainWindow (48→41 members)
+- [x] D3. Final member count: **41** (target was <80)
+
+### Phase E — Plugin Ecosystem Polish ✅
+- [x] E1. C++ plugin manifests (plugin.json for all 5 AI providers)
+- [x] E2. Plugin Gallery enable/disable runtime toggle
+- [x] E3. Agent tool plugin wiring
+
+### Phase F — Plugin-First Architecture ✅
+- [x] F1. 5 core UI manager interfaces: `IDockManager`, `IMenuManager`, `IToolBarManager`, `IStatusBarManager`, `IWorkspaceManager` in `src/core/`
+- [x] F2. 5 concrete adapter/impl classes in `src/bootstrap/`
+- [x] F3. `IHostServices` expanded with `docks()`, `menus()`, `toolbars()`, `statusBar()`, `workspaceManager()`, `components()`, `profiles()`
+- [x] F4. Development Profile System — `IProfileManager`, `ProfileManager`, `ProfileManifest` with workspace scoring, 7 bundled profiles (C++, Rust, Python, Web/JS, Go, General, Minimal), 31 tests
+- [x] F5. Component DLL System — `IComponentFactory`, `ComponentRegistry`, `IComponentService`, `ComponentServiceAdapter`, terminal component DLL, 31 tests (18 registry + 13 adapter)
+- [x] F6. SDK wiring — `HostServices` + `PermissionGuardedHostServices` expose components/profiles to plugins
 
 ### Phase B — Infrastructure Prerequisites ✅ (commit `5caca2a`)
 - [x] B1. `IBuildSystem` SDK interface + BuildSystemService adapter, registered as "buildSystem"
