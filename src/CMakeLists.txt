@@ -465,8 +465,10 @@ add_executable(exorcist WIN32
     agent/testgenerator.h
     agent/testgenerator.cpp
     agent/authstatusindicator.h
+    agent/authstatusindicator.cpp
     agent/promptfilepicker.h
     agent/chatthemeadapter.h
+    agent/chatthemeadapter.cpp
     agent/apikeymanagerwidget.h
     agent/apikeymanagerwidget.cpp
     agent/networkmonitor.h
@@ -481,9 +483,11 @@ add_executable(exorcist WIN32
     agent/modelconfigwidget.cpp
     agent/contextinspector.h
     agent/toolcalltrace.h
+    agent/toolcalltrace.cpp
     agent/trajectoryreplaywidget.h
     agent/trajectoryreplaywidget.cpp
     agent/promptarchiveexporter.h
+    agent/promptarchiveexporter.cpp
     agent/memoryfileeditor.h
     agent/memoryfileeditor.cpp
     agent/backgroundcompactor.h
