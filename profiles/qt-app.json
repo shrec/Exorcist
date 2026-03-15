@@ -1,0 +1,41 @@
+{
+    "id": "qt-app",
+    "name": "Qt Application Development",
+    "description": "Qt 6 C++ applications with CMake, MOC, and Qt Designer",
+    "icon": "qt",
+    "category": "native",
+
+    "requiredPlugins": [
+        "org.exorcist.cpp-language",
+        "org.exorcist.build",
+        "org.exorcist.debug",
+        "org.exorcist.qt-tools"
+    ],
+    "optionalPlugins": [
+        "org.exorcist.testing",
+        "org.exorcist.github"
+    ],
+    "disabledPlugins": [],
+
+    "detection": [
+        { "type": "fileContent", "pattern": "CMakeLists.txt:find_package\\(Qt", "weight": 5 },
+        { "type": "fileExists", "pattern": "*.pro", "weight": 4 },
+        { "type": "fileExists", "pattern": "*.ui", "weight": 3 },
+        { "type": "fileExists", "pattern": "*.qrc", "weight": 2 },
+        { "type": "fileExists", "pattern": "*.qml", "weight": 2 }
+    ],
+    "detectionThreshold": 4,
+
+    "dockDefaults": [
+        { "id": "ProjectDock", "visible": true },
+        { "id": "TerminalDock", "visible": true },
+        { "id": "OutlineDock", "visible": true },
+        { "id": "ProblemsDock", "visible": true },
+        { "id": "OutputDock", "visible": false }
+    ],
+
+    "settings": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true
+    }
+}

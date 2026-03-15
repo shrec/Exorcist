@@ -1,0 +1,32 @@
+{
+    "id": "lightweight",
+    "name": "Lightweight Text Editing",
+    "description": "Minimal mode — fast startup, basic editing only",
+    "icon": "edit",
+    "category": "minimal",
+
+    "requiredPlugins": [],
+    "optionalPlugins": [],
+    "disabledPlugins": [
+        "org.exorcist.cpp-language",
+        "org.exorcist.build",
+        "org.exorcist.debug",
+        "org.exorcist.testing",
+        "org.exorcist.github",
+        "org.exorcist.remote"
+    ],
+
+    "detection": [],
+    "detectionThreshold": 999,
+
+    "dockDefaults": [
+        { "id": "ProjectDock", "visible": true },
+        { "id": "SearchDock", "visible": false },
+        { "id": "TerminalDock", "visible": false }
+    ],
+
+    "settings": {
+        "editor.minimap": false,
+        "editor.indentGuides": true
+    }
+}

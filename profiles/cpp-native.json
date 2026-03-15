@@ -1,0 +1,45 @@
+{
+    "id": "cpp-native",
+    "name": "C++ Native Development",
+    "description": "CMake/Ninja/Clang C++ projects with full LSP, build, and debug",
+    "icon": "cpp",
+    "category": "native",
+
+    "requiredPlugins": [
+        "org.exorcist.cpp-language",
+        "org.exorcist.build",
+        "org.exorcist.debug",
+        "org.exorcist.testing"
+    ],
+    "optionalPlugins": [
+        "org.exorcist.github"
+    ],
+    "disabledPlugins": [],
+
+    "detection": [
+        { "type": "fileExists", "pattern": "CMakeLists.txt", "weight": 3 },
+        { "type": "fileExists", "pattern": "Makefile", "weight": 1 },
+        { "type": "fileExists", "pattern": "*.cpp", "weight": 1 },
+        { "type": "fileExists", "pattern": "*.h", "weight": 1 },
+        { "type": "fileExists", "pattern": "compile_commands.json", "weight": 2 },
+        { "type": "directoryExists", "pattern": "build", "weight": 1 }
+    ],
+    "detectionThreshold": 3,
+
+    "dockDefaults": [
+        { "id": "ProjectDock", "visible": true },
+        { "id": "SearchDock", "visible": false },
+        { "id": "GitDock", "visible": false },
+        { "id": "TerminalDock", "visible": true },
+        { "id": "OutlineDock", "visible": true },
+        { "id": "ProblemsDock", "visible": true },
+        { "id": "OutputDock", "visible": false }
+    ],
+
+    "settings": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.formatOnSave": false,
+        "build.defaultTarget": "all"
+    }
+}

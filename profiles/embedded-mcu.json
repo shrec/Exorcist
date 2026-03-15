@@ -1,0 +1,40 @@
+{
+    "id": "embedded-mcu",
+    "name": "Embedded / MCU Development",
+    "description": "ESP32, ARM Cortex-M, AVR, RISC-V microcontroller projects",
+    "icon": "chip",
+    "category": "embedded",
+
+    "requiredPlugins": [
+        "org.exorcist.cpp-language",
+        "org.exorcist.embedded-tools",
+        "org.exorcist.debug"
+    ],
+    "optionalPlugins": [
+        "org.exorcist.serial-monitor",
+        "org.exorcist.build"
+    ],
+    "disabledPlugins": [],
+
+    "detection": [
+        { "type": "fileExists", "pattern": "platformio.ini", "weight": 5 },
+        { "type": "fileExists", "pattern": "*.ioc", "weight": 4 },
+        { "type": "fileContent", "pattern": "Makefile:arm-none-eabi", "weight": 4 },
+        { "type": "fileContent", "pattern": "CMakeLists.txt:ESP-IDF", "weight": 4 },
+        { "type": "directoryExists", "pattern": ".pio", "weight": 3 }
+    ],
+    "detectionThreshold": 3,
+
+    "dockDefaults": [
+        { "id": "ProjectDock", "visible": true },
+        { "id": "TerminalDock", "visible": true },
+        { "id": "SerialMonitorDock", "visible": true },
+        { "id": "OutputDock", "visible": true }
+    ],
+
+    "settings": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "terminal.defaultShell": ""
+    }
+}

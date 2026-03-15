@@ -1,0 +1,35 @@
+{
+    "id": "rust",
+    "name": "Rust Development",
+    "description": "Cargo/Rust projects with rust-analyzer LSP",
+    "icon": "rust",
+    "category": "native",
+
+    "requiredPlugins": [
+        "org.exorcist.rust-language",
+        "org.exorcist.build",
+        "org.exorcist.debug",
+        "org.exorcist.testing"
+    ],
+    "optionalPlugins": [],
+    "disabledPlugins": [],
+
+    "detection": [
+        { "type": "fileExists", "pattern": "Cargo.toml", "weight": 5 },
+        { "type": "fileExists", "pattern": "*.rs", "weight": 2 },
+        { "type": "directoryExists", "pattern": "target", "weight": 1 }
+    ],
+    "detectionThreshold": 3,
+
+    "dockDefaults": [
+        { "id": "ProjectDock", "visible": true },
+        { "id": "TerminalDock", "visible": true },
+        { "id": "ProblemsDock", "visible": true },
+        { "id": "OutputDock", "visible": false }
+    ],
+
+    "settings": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true
+    }
+}

@@ -1,0 +1,40 @@
+{
+    "id": "web-frontend",
+    "name": "Web Frontend Development",
+    "description": "HTML/CSS/JavaScript and modern frameworks (React, Vue, Svelte)",
+    "icon": "web",
+    "category": "web",
+
+    "requiredPlugins": [
+        "org.exorcist.js-language",
+        "org.exorcist.web-tools"
+    ],
+    "optionalPlugins": [
+        "org.exorcist.build",
+        "org.exorcist.testing"
+    ],
+    "disabledPlugins": [],
+
+    "detection": [
+        { "type": "fileExists", "pattern": "package.json", "weight": 2 },
+        { "type": "fileExists", "pattern": "*.html", "weight": 1 },
+        { "type": "fileExists", "pattern": "*.jsx", "weight": 3 },
+        { "type": "fileExists", "pattern": "*.tsx", "weight": 3 },
+        { "type": "fileExists", "pattern": "*.vue", "weight": 3 },
+        { "type": "fileExists", "pattern": "*.svelte", "weight": 3 },
+        { "type": "fileExists", "pattern": "vite.config.*", "weight": 3 },
+        { "type": "directoryExists", "pattern": "node_modules", "weight": 1 }
+    ],
+    "detectionThreshold": 3,
+
+    "dockDefaults": [
+        { "id": "ProjectDock", "visible": true },
+        { "id": "TerminalDock", "visible": true },
+        { "id": "ProblemsDock", "visible": true }
+    ],
+
+    "settings": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true
+    }
+}
