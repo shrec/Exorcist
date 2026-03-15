@@ -78,7 +78,9 @@ bool ProjectManager::createSolution(const QString &name, const QString &slnPath)
     return ok;
 }
 
-bool ProjectManager::addProject(const QString &name, const QString &rootPath)
+bool ProjectManager::addProject(const QString &name, const QString &rootPath,
+                                const QString &language,
+                                const QString &templateId)
 {
     if (rootPath.isEmpty()) {
         return false;
@@ -87,6 +89,15 @@ bool ProjectManager::addProject(const QString &name, const QString &rootPath)
     ExProject project;
     project.name = name;
     project.rootPath = QDir(rootPath).absolutePath();
+    project.language = language;
+    project.templateId = templateId;
+
+    // Set project file name based on language
+    if (!language.isEmpty()) {
+        const QString ext = ExProjectExt::forLanguage(language);
+        project.projectFile = name + ext;
+    }
+
     m_solution.projects.append(project);
     emit projectAdded(m_solution.projects.size() - 1);
     emit solutionChanged();
@@ -145,6 +156,18 @@ bool ProjectManager::loadFromJson(const QString &slnPath)
         proj.name = p.value("name").toString();
         const QString relPath = p.value("path").toString();
         proj.rootPath = slnDir.absoluteFilePath(relPath);
+        proj.projectFile = p.value("projectFile").toString();
+        proj.language = p.value("language").toString();
+        proj.templateId = p.value("templateId").toString();
+
+        // Auto-detect language from project file extension if missing
+        if (proj.language.isEmpty() && !proj.projectFile.isEmpty()) {
+            const int dot = proj.projectFile.lastIndexOf(QLatin1Char('.'));
+            if (dot >= 0)
+                proj.language = ExProjectExt::languageFromExtension(
+                    proj.projectFile.mid(dot));
+        }
+
         solution.projects.append(proj);
     }
 
@@ -163,6 +186,12 @@ bool ProjectManager::writeToJson(const QString &slnPath)
         QJsonObject p;
         p["name"] = proj.name;
         p["path"] = slnDir.relativeFilePath(proj.rootPath);
+        if (!proj.projectFile.isEmpty())
+            p["projectFile"] = proj.projectFile;
+        if (!proj.language.isEmpty())
+            p["language"] = proj.language;
+        if (!proj.templateId.isEmpty())
+            p["templateId"] = proj.templateId;
         projects.append(p);
     }
     obj["projects"] = projects;

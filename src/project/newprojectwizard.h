@@ -27,6 +27,12 @@ public:
     /// The created project path (valid after accept()).
     QString createdProjectPath() const;
 
+    /// The selected language (valid after accept()).
+    QString selectedLanguage() const;
+
+    /// The selected template ID (valid after accept()).
+    QString selectedTemplateId() const;
+
 private slots:
     void onLanguageSelected();
     void onTemplateSelected();
@@ -47,4 +53,6 @@ private:
     QLineEdit   *m_locationEdit = nullptr;
 
     QString m_createdPath;
+    QString m_selectedLanguage;
+    QString m_selectedTemplateId;
 };

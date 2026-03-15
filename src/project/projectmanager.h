@@ -18,7 +18,9 @@ public:
     bool saveSolution();
     bool saveSolutionAs(const QString &slnPath);
     bool createSolution(const QString &name, const QString &slnPath);
-    bool addProject(const QString &name, const QString &rootPath);
+    bool addProject(const QString &name, const QString &rootPath,
+                    const QString &language = {},
+                    const QString &templateId = {});
     bool removeProject(int index);
 
     const ExSolution &solution() const;

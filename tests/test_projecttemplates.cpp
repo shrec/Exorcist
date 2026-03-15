@@ -113,8 +113,31 @@ void TestProjectTemplates::testCppConsoleCreation()
     QVERIFY(registry.createProject(QStringLiteral("cpp-console"),
                                    QStringLiteral("MyCppApp"), dir, &error));
     QVERIFY(error.isEmpty());
+
+    // Core project files
     QVERIFY(QFile::exists(QDir(dir).filePath(QStringLiteral("CMakeLists.txt"))));
+    QVERIFY(QFile::exists(QDir(dir).filePath(QStringLiteral("CMakePresets.json"))));
     QVERIFY(QFile::exists(QDir(dir).filePath(QStringLiteral("src/main.cpp"))));
+    QVERIFY(QFile::exists(QDir(dir).filePath(QStringLiteral("include/MyCppApp/version.h"))));
+
+    // Test infrastructure
+    QVERIFY(QFile::exists(QDir(dir).filePath(QStringLiteral("tests/CMakeLists.txt"))));
+    QVERIFY(QFile::exists(QDir(dir).filePath(QStringLiteral("tests/test_main.cpp"))));
+
+    // Dev tooling
+    QVERIFY(QFile::exists(QDir(dir).filePath(QStringLiteral(".gitignore"))));
+    QVERIFY(QFile::exists(QDir(dir).filePath(QStringLiteral(".clang-format"))));
+    QVERIFY(QFile::exists(QDir(dir).filePath(QStringLiteral(".clang-tidy"))));
+    QVERIFY(QFile::exists(QDir(dir).filePath(QStringLiteral("README.md"))));
+
+    // Verify CMakeLists.txt content has key sections
+    QFile cmake(QDir(dir).filePath(QStringLiteral("CMakeLists.txt")));
+    QVERIFY(cmake.open(QIODevice::ReadOnly));
+    const QString cmakeContent = QString::fromUtf8(cmake.readAll());
+    QVERIFY(cmakeContent.contains(QStringLiteral("cmake_minimum_required")));
+    QVERIFY(cmakeContent.contains(QStringLiteral("CMAKE_CXX_STANDARD 17")));
+    QVERIFY(cmakeContent.contains(QStringLiteral("enable_testing()")));
+    QVERIFY(cmakeContent.contains(QStringLiteral("compile_commands")));
 }
 
 void TestProjectTemplates::testCppLibraryCreation()

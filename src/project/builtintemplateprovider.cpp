@@ -1,8 +1,12 @@
 #include "builtintemplateprovider.h"
+#include "projecttypes.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTextStream>
 
 BuiltinTemplateProvider::BuiltinTemplateProvider(QObject *parent)
@@ -16,7 +20,8 @@ QList<ProjectTemplate> BuiltinTemplateProvider::templates() const
         // ── C++ ──────────────────────────────────────────────────────────
         {QStringLiteral("cpp-console"),  QStringLiteral("C++"),
          tr("Console Application"),
-         tr("A C++ console application with CMake build system."),
+         tr("Professional C++17 console app with CMake presets, tests, "
+            "clang-format, clang-tidy, and full project structure."),
          QStringLiteral(":/lang-icons/cpp.svg")},
         {QStringLiteral("cpp-library"),  QStringLiteral("C++"),
          tr("Static Library"),
@@ -188,70 +193,77 @@ bool BuiltinTemplateProvider::createProject(const QString &templateId,
     // ── Generic single-file scaffolds ────────────────────────────────────
     // Java
     if (templateId == QLatin1String("java-console")) {
-        const QString cls = projectName;
-        cls[0].toUpper();
         return createGenericProject(projectName, location,
             QStringLiteral("src/Main.java"),
             QStringLiteral("public class Main {\n"
                            "    public static void main(String[] args) {\n"
                            "        System.out.println(\"Hello, %1!\");\n"
                            "    }\n"
-                           "}\n").arg(projectName), error);
+                           "}\n").arg(projectName),
+            QStringLiteral("Java"), templateId, error);
     }
     // C#
     if (templateId == QLatin1String("csharp-console"))
         return createGenericProject(projectName, location,
             QStringLiteral("Program.cs"),
             QStringLiteral("Console.WriteLine(\"Hello, %1!\");\n").arg(projectName),
-            error);
+            QStringLiteral("C#"), templateId, error);
     // Swift
     if (templateId == QLatin1String("swift-package"))
         return createGenericProject(projectName, location,
             QStringLiteral("Sources/main.swift"),
-            QStringLiteral("print(\"Hello, %1!\")\n").arg(projectName), error);
+            QStringLiteral("print(\"Hello, %1!\")\n").arg(projectName),
+            QStringLiteral("Swift"), templateId, error);
     // Kotlin
     if (templateId == QLatin1String("kotlin-jvm"))
         return createGenericProject(projectName, location,
             QStringLiteral("src/main/kotlin/Main.kt"),
             QStringLiteral("fun main() {\n"
                            "    println(\"Hello, %1!\")\n"
-                           "}\n").arg(projectName), error);
+                           "}\n").arg(projectName),
+            QStringLiteral("Kotlin"), templateId, error);
     // Lua
     if (templateId == QLatin1String("lua-script"))
         return createGenericProject(projectName, location,
             QStringLiteral("main.lua"),
-            QStringLiteral("print(\"Hello, %1!\")\n").arg(projectName), error);
+            QStringLiteral("print(\"Hello, %1!\")\n").arg(projectName),
+            QStringLiteral("Lua"), templateId, error);
     // Ruby
     if (templateId == QLatin1String("ruby-script"))
         return createGenericProject(projectName, location,
             QStringLiteral("main.rb"),
-            QStringLiteral("puts \"Hello, %1!\"\n").arg(projectName), error);
+            QStringLiteral("puts \"Hello, %1!\"\n").arg(projectName),
+            QStringLiteral("Ruby"), templateId, error);
     // PHP
     if (templateId == QLatin1String("php-project"))
         return createGenericProject(projectName, location,
             QStringLiteral("index.php"),
-            QStringLiteral("<?php\necho \"Hello, %1!\\n\";\n").arg(projectName), error);
+            QStringLiteral("<?php\necho \"Hello, %1!\\n\";\n").arg(projectName),
+            QStringLiteral("PHP"), templateId, error);
     // Dart
     if (templateId == QLatin1String("dart-console"))
         return createGenericProject(projectName, location,
             QStringLiteral("bin/main.dart"),
             QStringLiteral("void main() {\n"
                            "  print('Hello, %1!');\n"
-                           "}\n").arg(projectName), error);
+                           "}\n").arg(projectName),
+            QStringLiteral("Dart"), templateId, error);
     // Haskell
     if (templateId == QLatin1String("haskell-stack"))
         return createGenericProject(projectName, location,
             QStringLiteral("app/Main.hs"),
             QStringLiteral("module Main where\n\n"
                            "main :: IO ()\n"
-                           "main = putStrLn \"Hello, %1!\"\n").arg(projectName), error);
+                           "main = putStrLn \"Hello, %1!\"\n").arg(projectName),
+            QStringLiteral("Haskell"), templateId, error);
     // Scala
     if (templateId == QLatin1String("scala-sbt"))
         return createGenericProject(projectName, location,
             QStringLiteral("src/main/scala/Main.scala"),
             QStringLiteral("object Main extends App {\n"
                            "  println(\"Hello, %1!\")\n"
-                           "}\n").arg(projectName), error);
+                           "}\n").arg(projectName),
+            QStringLiteral("Scala"), templateId, error);
 
     if (error)
         *error = tr("Unknown template: %1").arg(templateId);
@@ -285,18 +297,62 @@ static bool ensureDir(const QString &dir, QString *error)
     return true;
 }
 
+/// Write a .ex*prj project file (JSON) into the project directory.
+///
+/// Format:
+/// {
+///     "name": "MyApp",
+///     "language": "C++",
+///     "templateId": "cpp-console",
+///     "version": 1,
+///     "buildSystem": "cmake",
+///     "sources": [ "src/main.cpp" ],
+///     "includes": [ "include" ]
+/// }
+static bool writeProjectFile(const QString &dir,
+                              const QString &name,
+                              const QString &language,
+                              const QString &templateId,
+                              const QString &buildSystem,
+                              const QStringList &sources,
+                              const QStringList &includes,
+                              QString *error)
+{
+    const QString ext = ExProjectExt::forLanguage(language);
+    const QString path = QDir(dir).filePath(name + ext);
+
+    QJsonObject obj;
+    obj[QStringLiteral("name")] = name;
+    obj[QStringLiteral("language")] = language;
+    obj[QStringLiteral("templateId")] = templateId;
+    obj[QStringLiteral("version")] = 1;
+    if (!buildSystem.isEmpty())
+        obj[QStringLiteral("buildSystem")] = buildSystem;
+    if (!sources.isEmpty())
+        obj[QStringLiteral("sources")] = QJsonArray::fromStringList(sources);
+    if (!includes.isEmpty())
+        obj[QStringLiteral("includes")] = QJsonArray::fromStringList(includes);
+
+    const QJsonDocument doc(obj);
+    return writeFile(path, QString::fromUtf8(doc.toJson(QJsonDocument::Indented)), error);
+}
+
 // ── Generic scaffold ─────────────────────────────────────────────────────────
 
 bool BuiltinTemplateProvider::createGenericProject(const QString &name,
                                                    const QString &dir,
                                                    const QString &filename,
                                                    const QString &content,
+                                                   const QString &language,
+                                                   const QString &templateId,
                                                    QString *error)
 {
-    Q_UNUSED(name)
     if (!ensureDir(dir, error))
         return false;
-    return writeFile(QDir(dir).filePath(filename), content, error);
+    if (!writeFile(QDir(dir).filePath(filename), content, error))
+        return false;
+    return writeProjectFile(dir, name, language, templateId,
+                            {}, {filename}, {}, error);
 }
 
 // ── C++ ──────────────────────────────────────────────────────────────────────
@@ -306,32 +362,261 @@ bool BuiltinTemplateProvider::createCppConsole(const QString &name,
                                                QString *error)
 {
     QDir d(dir);
-    if (!d.mkpath(QStringLiteral("src"))) {
-        if (error) *error = tr("Cannot create directory: %1").arg(dir);
+    if (!d.mkpath(QStringLiteral("src")) ||
+        !d.mkpath(QStringLiteral("include/%1").arg(name)) ||
+        !d.mkpath(QStringLiteral("tests"))) {
+        if (error) *error = tr("Cannot create project directories: %1").arg(dir);
         return false;
     }
 
-    // CMakeLists.txt
+    // ── CMakeLists.txt ───────────────────────────────────────────────────
     const QString cmake = QStringLiteral(
         "cmake_minimum_required(VERSION 3.21)\n"
-        "project(%1 LANGUAGES CXX)\n\n"
+        "project(%1\n"
+        "    VERSION 0.1.0\n"
+        "    LANGUAGES CXX\n"
+        "    DESCRIPTION \"%1 console application\"\n"
+        ")\n\n"
+        "# ── C++ Standard ─────────────────────────────────────────────────\n"
         "set(CMAKE_CXX_STANDARD 17)\n"
-        "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n"
-        "add_executable(%1 src/main.cpp)\n").arg(name);
+        "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n"
+        "set(CMAKE_CXX_EXTENSIONS OFF)\n\n"
+        "# ── Compiler warnings ────────────────────────────────────────────\n"
+        "add_compile_options(\n"
+        "    $<$<CXX_COMPILER_ID:MSVC>:/W4 /permissive->\n"
+        "    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>\n"
+        ")\n\n"
+        "# ── Export compile_commands.json for LSP/clangd ──────────────────\n"
+        "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\n\n"
+        "# ── Main executable ──────────────────────────────────────────────\n"
+        "add_executable(%1\n"
+        "    src/main.cpp\n"
+        ")\n\n"
+        "target_include_directories(%1 PUBLIC\n"
+        "    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>\n"
+        "    $<INSTALL_INTERFACE:include>\n"
+        ")\n\n"
+        "# ── Tests ────────────────────────────────────────────────────────\n"
+        "option(BUILD_TESTS \"Build unit tests\" ON)\n"
+        "if(BUILD_TESTS)\n"
+        "    enable_testing()\n"
+        "    add_subdirectory(tests)\n"
+        "endif()\n\n"
+        "# ── Install ──────────────────────────────────────────────────────\n"
+        "install(TARGETS %1 RUNTIME DESTINATION bin)\n").arg(name);
 
     if (!writeFile(d.filePath(QStringLiteral("CMakeLists.txt")), cmake, error))
         return false;
 
-    // src/main.cpp
-    const QString main = QStringLiteral(
-        "#include <iostream>\n\n"
-        "int main()\n"
+    // ── CMakePresets.json ────────────────────────────────────────────────
+    const QString presets = QStringLiteral(
         "{\n"
-        "    std::cout << \"Hello, %1!\" << std::endl;\n"
+        "    \"version\": 3,\n"
+        "    \"configurePresets\": [\n"
+        "        {\n"
+        "            \"name\": \"debug\",\n"
+        "            \"displayName\": \"Debug\",\n"
+        "            \"binaryDir\": \"${sourceDir}/build-debug\",\n"
+        "            \"cacheVariables\": {\n"
+        "                \"CMAKE_BUILD_TYPE\": \"Debug\"\n"
+        "            }\n"
+        "        },\n"
+        "        {\n"
+        "            \"name\": \"release\",\n"
+        "            \"displayName\": \"Release\",\n"
+        "            \"binaryDir\": \"${sourceDir}/build-release\",\n"
+        "            \"cacheVariables\": {\n"
+        "                \"CMAKE_BUILD_TYPE\": \"Release\"\n"
+        "            }\n"
+        "        },\n"
+        "        {\n"
+        "            \"name\": \"relwithdebinfo\",\n"
+        "            \"displayName\": \"Release with Debug Info\",\n"
+        "            \"binaryDir\": \"${sourceDir}/build-relwithdebinfo\",\n"
+        "            \"cacheVariables\": {\n"
+        "                \"CMAKE_BUILD_TYPE\": \"RelWithDebInfo\"\n"
+        "            }\n"
+        "        }\n"
+        "    ],\n"
+        "    \"buildPresets\": [\n"
+        "        { \"name\": \"debug\",          \"configurePreset\": \"debug\" },\n"
+        "        { \"name\": \"release\",        \"configurePreset\": \"release\" },\n"
+        "        { \"name\": \"relwithdebinfo\", \"configurePreset\": \"relwithdebinfo\" }\n"
+        "    ]\n"
+        "}\n");
+
+    if (!writeFile(d.filePath(QStringLiteral("CMakePresets.json")), presets, error))
+        return false;
+
+    // ── src/main.cpp ─────────────────────────────────────────────────────
+    const QString mainCpp = QStringLiteral(
+        "#include <%1/version.h>\n\n"
+        "#include <iostream>\n"
+        "#include <string>\n\n"
+        "int main(int argc, char *argv[])\n"
+        "{\n"
+        "    std::cout << \"%1 v\" << %1::version() << std::endl;\n\n"
+        "    if (argc > 1) {\n"
+        "        std::cout << \"Arguments:\" << std::endl;\n"
+        "        for (int i = 1; i < argc; ++i)\n"
+        "            std::cout << \"  [\" << i << \"] \" << argv[i] << std::endl;\n"
+        "    }\n\n"
         "    return 0;\n"
         "}\n").arg(name);
 
-    return writeFile(d.filePath(QStringLiteral("src/main.cpp")), main, error);
+    if (!writeFile(d.filePath(QStringLiteral("src/main.cpp")), mainCpp, error))
+        return false;
+
+    // ── include/<name>/version.h ─────────────────────────────────────────
+    const QString versionH = QStringLiteral(
+        "#pragma once\n\n"
+        "#include <string>\n\n"
+        "namespace %1 {\n\n"
+        "inline std::string version() { return \"0.1.0\"; }\n\n"
+        "} // namespace %1\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("include/%1/version.h").arg(name)),
+                   versionH, error))
+        return false;
+
+    // ── tests/CMakeLists.txt ─────────────────────────────────────────────
+    const QString testsCmake = QStringLiteral(
+        "add_executable(test_%1\n"
+        "    test_main.cpp\n"
+        ")\n\n"
+        "target_include_directories(test_%1 PRIVATE\n"
+        "    ${CMAKE_SOURCE_DIR}/include\n"
+        ")\n\n"
+        "add_test(NAME %1_tests COMMAND test_%1)\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("tests/CMakeLists.txt")),
+                   testsCmake, error))
+        return false;
+
+    // ── tests/test_main.cpp ──────────────────────────────────────────────
+    const QString testMain = QStringLiteral(
+        "#include <%1/version.h>\n\n"
+        "#include <cassert>\n"
+        "#include <iostream>\n\n"
+        "void test_version()\n"
+        "{\n"
+        "    assert(!%1::version().empty());\n"
+        "    std::cout << \"[PASS] version is not empty\" << std::endl;\n"
+        "}\n\n"
+        "int main()\n"
+        "{\n"
+        "    test_version();\n"
+        "    std::cout << \"All tests passed!\" << std::endl;\n"
+        "    return 0;\n"
+        "}\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("tests/test_main.cpp")),
+                   testMain, error))
+        return false;
+
+    // ── .gitignore ───────────────────────────────────────────────────────
+    const QString gitignore = QStringLiteral(
+        "# Build directories\n"
+        "build*/\n"
+        "out/\n\n"
+        "# IDE / editor\n"
+        ".vs/\n"
+        ".vscode/\n"
+        ".idea/\n"
+        "*.user\n"
+        "*.suo\n"
+        "*.swp\n"
+        "*~\n\n"
+        "# Compiled objects\n"
+        "*.o\n"
+        "*.obj\n"
+        "*.a\n"
+        "*.lib\n"
+        "*.so\n"
+        "*.dylib\n"
+        "*.dll\n"
+        "*.exe\n\n"
+        "# CMake\n"
+        "CMakeCache.txt\n"
+        "CMakeFiles/\n"
+        "cmake_install.cmake\n"
+        "compile_commands.json\n"
+        "CTestTestfile.cmake\n"
+        "Makefile\n"
+        "*.ninja\n");
+
+    if (!writeFile(d.filePath(QStringLiteral(".gitignore")), gitignore, error))
+        return false;
+
+    // ── .clang-format ────────────────────────────────────────────────────
+    const QString clangfmt = QStringLiteral(
+        "BasedOnStyle: LLVM\n"
+        "IndentWidth: 4\n"
+        "ColumnLimit: 100\n"
+        "BreakBeforeBraces: Allman\n"
+        "AllowShortFunctionsOnASingleLine: Inline\n"
+        "AllowShortIfStatementsOnASingleLine: Never\n"
+        "SortIncludes: CaseSensitive\n"
+        "IncludeBlocks: Regroup\n");
+
+    if (!writeFile(d.filePath(QStringLiteral(".clang-format")), clangfmt, error))
+        return false;
+
+    // ── .clang-tidy ──────────────────────────────────────────────────────
+    const QString clangtidy = QStringLiteral(
+        "Checks: >-\n"
+        "  -*,\n"
+        "  bugprone-*,\n"
+        "  clang-analyzer-*,\n"
+        "  cppcoreguidelines-*,\n"
+        "  modernize-*,\n"
+        "  performance-*,\n"
+        "  readability-*,\n"
+        "  -modernize-use-trailing-return-type,\n"
+        "  -readability-magic-numbers,\n"
+        "  -cppcoreguidelines-avoid-magic-numbers\n"
+        "WarningsAsErrors: ''\n"
+        "HeaderFilterRegex: 'include/.*'\n");
+
+    if (!writeFile(d.filePath(QStringLiteral(".clang-tidy")), clangtidy, error))
+        return false;
+
+    // ── README.md ────────────────────────────────────────────────────────
+    const QString readme = QStringLiteral(
+        "# %1\n\n"
+        "A C++ console application.\n\n"
+        "## Build\n\n"
+        "```bash\n"
+        "cmake --preset debug\n"
+        "cmake --build build-debug\n"
+        "```\n\n"
+        "## Run\n\n"
+        "```bash\n"
+        "./build-debug/%1\n"
+        "```\n\n"
+        "## Test\n\n"
+        "```bash\n"
+        "cd build-debug && ctest --output-on-failure\n"
+        "```\n\n"
+        "## Project Structure\n\n"
+        "```\n"
+        "%1/\n"
+        "+-- CMakeLists.txt          # Build configuration\n"
+        "+-- CMakePresets.json        # Build presets (debug/release)\n"
+        "+-- include/%1/             # Public headers\n"
+        "+-- src/                     # Source files\n"
+        "+-- tests/                   # Unit tests\n"
+        "+-- .clang-format            # Code formatting rules\n"
+        "+-- .clang-tidy              # Static analysis config\n"
+        "```\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("README.md")), readme, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("C++"),
+                            QStringLiteral("cpp-console"), QStringLiteral("cmake"),
+                            {QStringLiteral("src/main.cpp")},
+                            {QStringLiteral("include")}, error);
 }
 
 bool BuiltinTemplateProvider::createCppLibrary(const QString &name,
@@ -375,7 +660,13 @@ bool BuiltinTemplateProvider::createCppLibrary(const QString &name,
         "int version() { return 1; }\n\n"
         "} // namespace %1\n").arg(name);
 
-    return writeFile(d.filePath(QStringLiteral("src/%1.cpp").arg(name)), source, error);
+    if (!writeFile(d.filePath(QStringLiteral("src/%1.cpp").arg(name)), source, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("C++"),
+                            QStringLiteral("cpp-library"), QStringLiteral("cmake"),
+                            {QStringLiteral("src/%1.cpp").arg(name)},
+                            {QStringLiteral("include")}, error);
 }
 
 bool BuiltinTemplateProvider::createCMakeProject(const QString &name,
@@ -394,7 +685,12 @@ bool BuiltinTemplateProvider::createCMakeProject(const QString &name,
         "set(CMAKE_CXX_STANDARD 17)\n"
         "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n").arg(name);
 
-    return writeFile(d.filePath(QStringLiteral("CMakeLists.txt")), cmake, error);
+    if (!writeFile(d.filePath(QStringLiteral("CMakeLists.txt")), cmake, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("C++"),
+                            QStringLiteral("cmake-project"), QStringLiteral("cmake"),
+                            {}, {QStringLiteral("src")}, error);
 }
 
 // ── C ────────────────────────────────────────────────────────────────────────
@@ -425,7 +721,12 @@ bool BuiltinTemplateProvider::createCConsole(const QString &name,
         "    return 0;\n"
         "}\n").arg(name);
 
-    return writeFile(d.filePath(QStringLiteral("src/main.c")), main, error);
+    if (!writeFile(d.filePath(QStringLiteral("src/main.c")), main, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("C"),
+                            QStringLiteral("c-console"), QStringLiteral("cmake"),
+                            {QStringLiteral("src/main.c")}, {}, error);
 }
 
 // ── Rust ─────────────────────────────────────────────────────────────────────
@@ -452,7 +753,12 @@ bool BuiltinTemplateProvider::createRustBinary(const QString &name,
         "    println!(\"Hello, %1!\");\n"
         "}\n").arg(name);
 
-    return writeFile(d.filePath(QStringLiteral("src/main.rs")), main, error);
+    if (!writeFile(d.filePath(QStringLiteral("src/main.rs")), main, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("Rust"),
+                            QStringLiteral("rust-binary"), QStringLiteral("cargo"),
+                            {QStringLiteral("src/main.rs")}, {}, error);
 }
 
 bool BuiltinTemplateProvider::createRustLibrary(const QString &name,
@@ -487,7 +793,12 @@ bool BuiltinTemplateProvider::createRustLibrary(const QString &name,
         "    }\n"
         "}\n").arg(name);
 
-    return writeFile(d.filePath(QStringLiteral("src/lib.rs")), lib, error);
+    if (!writeFile(d.filePath(QStringLiteral("src/lib.rs")), lib, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("Rust"),
+                            QStringLiteral("rust-library"), QStringLiteral("cargo"),
+                            {QStringLiteral("src/lib.rs")}, {}, error);
 }
 
 // ── Python ───────────────────────────────────────────────────────────────────
@@ -505,7 +816,12 @@ bool BuiltinTemplateProvider::createPythonScript(const QString &name,
         "if __name__ == \"__main__\":\n"
         "    main()\n").arg(name);
 
-    return writeFile(d.filePath(QStringLiteral("main.py")), main, error);
+    if (!writeFile(d.filePath(QStringLiteral("main.py")), main, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("Python"),
+                            QStringLiteral("python-script"), {},
+                            {QStringLiteral("main.py")}, {}, error);
 }
 
 bool BuiltinTemplateProvider::createPythonPackage(const QString &name,
@@ -531,8 +847,14 @@ bool BuiltinTemplateProvider::createPythonPackage(const QString &name,
                    QStringLiteral("\"\"\"Package %1.\"\"\"\n").arg(pkg), error))
         return false;
 
-    return writeFile(d.filePath(QStringLiteral("%1/__main__.py").arg(pkg)),
-        QStringLiteral("from . import *\n\nprint(\"Hello, %1!\")\n").arg(name), error);
+    if (!writeFile(d.filePath(QStringLiteral("%1/__main__.py").arg(pkg)),
+        QStringLiteral("from . import *\n\nprint(\"Hello, %1!\")\n").arg(name), error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("Python"),
+                            QStringLiteral("python-package"), {},
+                            {QStringLiteral("%1/__init__.py").arg(pkg),
+                             QStringLiteral("%1/__main__.py").arg(pkg)}, {}, error);
 }
 
 // ── Go ───────────────────────────────────────────────────────────────────────
@@ -558,7 +880,12 @@ bool BuiltinTemplateProvider::createGoModule(const QString &name,
         "\tfmt.Println(\"Hello, %1!\")\n"
         "}\n").arg(name);
 
-    return writeFile(d.filePath(QStringLiteral("main.go")), main, error);
+    if (!writeFile(d.filePath(QStringLiteral("main.go")), main, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("Go"),
+                            QStringLiteral("go-module"), QStringLiteral("go"),
+                            {QStringLiteral("main.go")}, {}, error);
 }
 
 // ── JavaScript / Node.js ─────────────────────────────────────────────────────
@@ -586,7 +913,12 @@ bool BuiltinTemplateProvider::createNodeJs(const QString &name,
     const QString index = QStringLiteral(
         "console.log('Hello, %1!');\n").arg(name);
 
-    return writeFile(d.filePath(QStringLiteral("index.js")), index, error);
+    if (!writeFile(d.filePath(QStringLiteral("index.js")), index, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("JavaScript"),
+                            QStringLiteral("js-node"), QStringLiteral("npm"),
+                            {QStringLiteral("index.js")}, {}, error);
 }
 
 bool BuiltinTemplateProvider::createWebProject(const QString &name,
@@ -619,8 +951,15 @@ bool BuiltinTemplateProvider::createWebProject(const QString &name,
                    QStringLiteral("body {\n  font-family: sans-serif;\n  margin: 2rem;\n}\n"), error))
         return false;
 
-    return writeFile(d.filePath(QStringLiteral("js/main.js")),
-        QStringLiteral("console.log('Hello, %1!');\n").arg(name), error);
+    if (!writeFile(d.filePath(QStringLiteral("js/main.js")),
+        QStringLiteral("console.log('Hello, %1!');\n").arg(name), error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("Web"),
+                            QStringLiteral("js-web"), {},
+                            {QStringLiteral("index.html"),
+                             QStringLiteral("css/style.css"),
+                             QStringLiteral("js/main.js")}, {}, error);
 }
 
 // ── TypeScript ───────────────────────────────────────────────────────────────
@@ -664,8 +1003,13 @@ bool BuiltinTemplateProvider::createTypeScriptNode(const QString &name,
     if (!writeFile(d.filePath(QStringLiteral("tsconfig.json")), tsconfig, error))
         return false;
 
-    return writeFile(d.filePath(QStringLiteral("src/index.ts")),
-        QStringLiteral("console.log('Hello, %1!');\n").arg(name), error);
+    if (!writeFile(d.filePath(QStringLiteral("src/index.ts")),
+        QStringLiteral("console.log('Hello, %1!');\n").arg(name), error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("TypeScript"),
+                            QStringLiteral("ts-node"), QStringLiteral("npm"),
+                            {QStringLiteral("src/index.ts")}, {}, error);
 }
 
 // ── Zig ──────────────────────────────────────────────────────────────────────
@@ -700,5 +1044,10 @@ bool BuiltinTemplateProvider::createZigProject(const QString &name,
         "    try stdout.print(\"Hello, %1!\\n\", .{});\n"
         "}\n").arg(name);
 
-    return writeFile(d.filePath(QStringLiteral("src/main.zig")), main, error);
+    if (!writeFile(d.filePath(QStringLiteral("src/main.zig")), main, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("Zig"),
+                            QStringLiteral("zig-project"), QStringLiteral("zig"),
+                            {QStringLiteral("src/main.zig")}, {}, error);
 }

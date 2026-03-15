@@ -37,8 +37,9 @@ private:
     bool createWebProject(const QString &name, const QString &dir, QString *error);
     bool createZigProject(const QString &name, const QString &dir, QString *error);
 
-    // Generic scaffold (creates dir + single source file)
+    // Generic scaffold (creates dir + single source file + project file)
     bool createGenericProject(const QString &name, const QString &dir,
                               const QString &filename, const QString &content,
+                              const QString &language, const QString &templateId,
                               QString *error);
 };

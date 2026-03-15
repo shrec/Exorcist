@@ -160,6 +160,16 @@ QString NewProjectWizard::createdProjectPath() const
     return m_createdPath;
 }
 
+QString NewProjectWizard::selectedLanguage() const
+{
+    return m_selectedLanguage;
+}
+
+QString NewProjectWizard::selectedTemplateId() const
+{
+    return m_selectedTemplateId;
+}
+
 void NewProjectWizard::populateLanguages()
 {
     m_languageList->clear();
@@ -258,6 +268,12 @@ void NewProjectWizard::onCreateClicked()
     }
 
     m_createdPath = projectDir;
+    m_selectedTemplateId = templateId;
+
+    auto *langItem = m_languageList->currentItem();
+    if (langItem)
+        m_selectedLanguage = langItem->text();
+
     accept();
 }
 

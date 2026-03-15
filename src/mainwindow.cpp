@@ -3740,8 +3740,61 @@ void MainWindow::newSolution()
     if (projectDir.isEmpty())
         return;
 
-    // Open the created project folder
-    openFolder(projectDir);
+    // The wizard creates:  <location>/<ProjectName>/  with project files.
+    // We treat that parent directory as the solution root and create .exsln there.
+    //
+    // VS-style structure:
+    //   <location>/<SolutionName>/
+    //   ├── <SolutionName>.exsln
+    //   └── <ProjectName>/        ← created by wizard
+    //       ├── CMakeLists.txt
+    //       └── src/main.cpp
+    //
+    // When SolutionName == ProjectName (common case), the wizard already
+    // created  <location>/<Name>/<files>  so we wrap one level up.
+
+    const QDir projDir(projectDir);
+    const QString projectName = projDir.dirName();
+    const QString solutionRoot = projDir.absolutePath();  // this IS the project dir
+
+    // If the wizard put files directly in <location>/<name>, we need to move
+    // them into a subdirectory so the solution root stays clean.
+    // Check if CMakeLists.txt or any build file is at project root level.
+    const bool hasProjectFiles = QFileInfo::exists(projDir.filePath(QStringLiteral("CMakeLists.txt")))
+                              || QFileInfo::exists(projDir.filePath(QStringLiteral("Cargo.toml")))
+                              || QFileInfo::exists(projDir.filePath(QStringLiteral("go.mod")))
+                              || QFileInfo::exists(projDir.filePath(QStringLiteral("package.json")))
+                              || QFileInfo::exists(projDir.filePath(QStringLiteral("pyproject.toml")))
+                              || QFileInfo::exists(projDir.filePath(QStringLiteral("main.py")))
+                              || QFileInfo::exists(projDir.filePath(QStringLiteral("build.zig")));
+
+    if (hasProjectFiles) {
+        // Move all content into a subdirectory with the same name
+        const QString subDir = solutionRoot + QStringLiteral("/__tmp_proj__");
+        QDir().mkpath(subDir);
+        const QFileInfoList entries = projDir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot);
+        for (const QFileInfo &fi : entries) {
+            if (fi.fileName() == QStringLiteral("__tmp_proj__"))
+                continue;
+            QFile::rename(fi.absoluteFilePath(),
+                          subDir + QStringLiteral("/") + fi.fileName());
+        }
+        // Rename __tmp_proj__ to projectName
+        const QString finalProjDir = solutionRoot + QStringLiteral("/") + projectName;
+        QDir().rename(subDir, finalProjDir);
+    }
+
+    // Create .exsln solution file at solution root
+    const QString slnPath = solutionRoot + QStringLiteral("/") + projectName + QStringLiteral(".exsln");
+    auto *pm = m_editorMgr->projectManager();
+    pm->createSolution(projectName, slnPath);
+    pm->addProject(projectName,
+                   solutionRoot + QStringLiteral("/") + projectName,
+                   wizard.selectedLanguage(), wizard.selectedTemplateId());
+    pm->saveSolution();
+
+    // Open the solution root
+    openFolder(solutionRoot);
 }
 
 void MainWindow::openSolutionFile()
@@ -3768,17 +3821,56 @@ void MainWindow::openSolutionFile()
 
 void MainWindow::addProjectToSolution()
 {
-    const QString folder = QFileDialog::getExistingDirectory(this, tr("Add Folder to Solution"));
-    if (folder.isEmpty()) {
+    auto *pm = m_editorMgr->projectManager();
+    if (pm->solution().name.isEmpty()) {
+        QMessageBox::information(this, tr("No Solution"),
+                                 tr("Open or create a solution first."));
         return;
     }
-    const QString name = QInputDialog::getText(this, tr("Project Name"), tr("Project name"));
-    const QString projectName = name.trimmed().isEmpty() ? QFileInfo(folder).baseName() : name.trimmed();
 
-    if (m_editorMgr->projectManager()->addProject(projectName, folder)) {
-        if (!m_editorMgr->projectManager()->solution().filePath.isEmpty()) {
-            m_editorMgr->projectManager()->saveSolution();
-        }
+    // Offer two choices: create new project from template, or add existing folder
+    QStringList options;
+    options << tr("New Project (from template)...")
+            << tr("Existing Folder...");
+
+    bool ok = false;
+    const QString choice = QInputDialog::getItem(
+        this, tr("Add Project to Solution"), tr("Choose:"), options, 0, false, &ok);
+    if (!ok)
+        return;
+
+    if (choice == options.at(0)) {
+        // Create new project via wizard, place inside solution root
+        auto *registry = m_services->service<ProjectTemplateRegistry>(
+            QStringLiteral("projectTemplateRegistry"));
+        if (!registry)
+            return;
+
+        NewProjectWizard wizard(registry, pm->activeSolutionDir(), this);
+        if (wizard.exec() != QDialog::Accepted)
+            return;
+
+        const QString projectDir = wizard.createdProjectPath();
+        if (projectDir.isEmpty())
+            return;
+
+        const QString projectName = QDir(projectDir).dirName();
+        pm->addProject(projectName, projectDir,
+                       wizard.selectedLanguage(), wizard.selectedTemplateId());
+        pm->saveSolution();
+        // Refresh tree
+        emit pm->solutionChanged();
+    } else {
+        // Add existing folder
+        const QString folder = QFileDialog::getExistingDirectory(
+            this, tr("Add Folder to Solution"), pm->activeSolutionDir());
+        if (folder.isEmpty())
+            return;
+
+        const QString projectName = QDir(folder).dirName();
+        pm->addProject(projectName, folder);
+        if (!pm->solution().filePath.isEmpty())
+            pm->saveSolution();
     }
 }
 
