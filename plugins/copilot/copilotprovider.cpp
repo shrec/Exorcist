@@ -1018,11 +1018,10 @@ void CopilotProvider::connectReply(QNetworkReply *reply)
             return;
         m_idleTimer.stop();
         if (m_activeReply != safeReply) {
-            // This reply is orphaned (superseded by a new one during SSE
-            // finish_reason handling).  Just disconnect and schedule deletion
-            // — do NOT touch m_activeReply or m_activeRequestId.
-            safeReply->disconnect(this);
-            safeReply->deleteLater();
+            // Orphan reply — already cleaned up by cleanupActiveReply() in
+            // the tool_calls/SSE-done handler.  Do NOT touch the reply here;
+            // disconnect/deleteLater was already called by cleanupActiveReply.
+            // Redundant calls can tickle stale internal state in Qt6Network.
             return;
         }
 
@@ -1196,7 +1195,13 @@ void CopilotProvider::handleChatCompletionsEvent(const QString &data)
         m_idleTimer.stop();
         m_pendingToolCalls.clear();
         m_pendingThinking.clear();
-        emit responseFinished(reqId, resp);
+        // Defer emission to the next event-loop iteration so Qt6Network
+        // finishes processing internal state for the closed reply before
+        // the controller creates a new one.  This prevents use-after-free
+        // crashes in Qt6Network's connection pool / HTTP handler.
+        QTimer::singleShot(0, this, [this, reqId, resp] {
+            emit responseFinished(reqId, resp);
+        });
     } else if (finishReason == QLatin1String("content_filter")) {
         qCWarning(lcCopilot) << "Response blocked by content filter";
         AgentError err;
@@ -1210,6 +1215,10 @@ void CopilotProvider::handleChatCompletionsEvent(const QString &data)
         m_pendingToolCalls.clear();
         m_pendingThinking.clear();
         emit responseError(reqId, err);
+    } else if (finishReason == QLatin1String("length")
+               || finishReason == QLatin1String("stop")) {
+        // Model hit max_tokens or naturally stopped — finalize response
+        handleSseDone();
     }
 }
 
@@ -1330,7 +1339,14 @@ void CopilotProvider::handleResponsesEvent(const QString &eventType, const QStri
         m_idleTimer.stop();
         m_pendingToolCalls.clear();
         m_pendingThinking.clear();
-        emit responseFinished(reqId, resp);
+        // Defer emission — see handleChatCompletionsEvent comment.
+        if (!resp.toolCalls.isEmpty()) {
+            QTimer::singleShot(0, this, [this, reqId, resp] {
+                emit responseFinished(reqId, resp);
+            });
+        } else {
+            emit responseFinished(reqId, resp);
+        }
     }
 }
 
@@ -1362,7 +1378,14 @@ void CopilotProvider::handleSseDone()
     // cleanupActiveReply is safe to call even if already cleaned up by the
     // finished handler — it checks m_activeReply for null.
     cleanupActiveReply();
-    emit responseFinished(reqId, resp);
+    // Defer emission if tool calls present — see handleChatCompletionsEvent.
+    if (!resp.toolCalls.isEmpty()) {
+        QTimer::singleShot(0, this, [this, reqId, resp] {
+            emit responseFinished(reqId, resp);
+        });
+    } else {
+        emit responseFinished(reqId, resp);
+    }
 }
 
 // ── Retry with exponential backoff ────────────────────────────────────────────

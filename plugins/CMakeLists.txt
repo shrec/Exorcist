@@ -8,6 +8,7 @@ add_subdirectory(build)
 add_subdirectory(testing)
 add_subdirectory(debug)
 add_subdirectory(cpp-language)
+add_subdirectory(javascript-sdk)
 # add_subdirectory(claude)   # disabled — Copilot-first
 # add_subdirectory(codex)    # disabled — Copilot-first
 # add_subdirectory(ollama)   # disabled — Copilot-first

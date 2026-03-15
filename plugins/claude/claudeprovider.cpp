@@ -8,6 +8,7 @@
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QSettings>
+#include <QTimer>
 
 static const char kApiUrl[] = "https://api.anthropic.com/v1/messages";
 
@@ -78,7 +79,8 @@ ClaudeProvider::ClaudeProvider(QObject *parent)
 
             if (type == QLatin1String("message_stop")
                 || stopReason == QLatin1String("end_turn")
-                || stopReason == QLatin1String("tool_use")) {
+                || stopReason == QLatin1String("tool_use")
+                || stopReason == QLatin1String("max_tokens")) {
                 AgentResponse resp;
                 resp.requestId = m_activeRequestId;
                 resp.text      = m_accumulated;
@@ -98,11 +100,25 @@ ClaudeProvider::ClaudeProvider(QObject *parent)
                     resp.completionTokens = usage[QLatin1String("output_tokens")].toInt();
                 }
 
-                emit responseFinished(m_activeRequestId, resp);
+                // Clear state BEFORE emitting — the connected slot
+                // (AgentController) may synchronously call sendRequest()
+                // which creates a new QNetworkReply.  We must fully detach
+                // the old reply first to prevent use-after-free in
+                // Qt6Network's connection pool.
+                const QString reqId = m_activeRequestId;
                 m_activeRequestId.clear();
-                m_activeReply = nullptr;
+                cleanupActiveReply();
                 m_accumulated.clear();
                 m_pendingToolCalls.clear();
+                // Defer emission if tool calls present so deleteLater()
+                // destroys the old reply before a new one is created.
+                if (!resp.toolCalls.isEmpty()) {
+                    QTimer::singleShot(0, this, [this, reqId, resp] {
+                        emit responseFinished(reqId, resp);
+                    });
+                } else {
+                    emit responseFinished(reqId, resp);
+                }
             }
         }
     });
@@ -209,6 +225,19 @@ void ClaudeProvider::fetchModels()
 
 // ── Requests ──────────────────────────────────────────────────────────────────
 
+int ClaudeProvider::maxOutputTokensForModel(const QString &model)
+{
+    // Opus and Sonnet 4 support up to 64K output tokens.
+    // Claude 3.5 Haiku and older: 8192.
+    // Fall back to 16384 for unknown models.
+    if (model.contains(QLatin1String("opus")) ||
+        model.contains(QLatin1String("sonnet-4")))
+        return 64000;
+    if (model.contains(QLatin1String("haiku")))
+        return 8192;
+    return 16384;
+}
+
 void ClaudeProvider::sendRequest(const AgentRequest &request)
 {
     if (!m_available) {
@@ -295,7 +324,7 @@ void ClaudeProvider::sendRequest(const AgentRequest &request)
     const QJsonObject body = [&]() {
         QJsonObject b;
         b[QStringLiteral("model")]      = m_model;
-        b[QStringLiteral("max_tokens")] = 8192;
+        b[QStringLiteral("max_tokens")] = maxOutputTokensForModel(m_model);
         b[QStringLiteral("system")]     = systemText;
         b[QStringLiteral("messages")]   = messages;
         b[QStringLiteral("stream")]     = true;
@@ -342,13 +371,20 @@ void ClaudeProvider::cancelRequest(const QString &requestId)
 {
     if (requestId.isEmpty() || requestId != m_activeRequestId)
         return;
-    if (m_activeReply) {
-        m_activeReply->abort();
-        m_activeReply = nullptr;
-    }
+    cleanupActiveReply();
     m_activeRequestId.clear();
     m_accumulated.clear();
     m_pendingToolCalls.clear();
+}
+
+void ClaudeProvider::cleanupActiveReply()
+{
+    if (m_activeReply) {
+        m_activeReply->disconnect(this);
+        m_activeReply->abort();
+        m_activeReply->deleteLater();
+        m_activeReply = nullptr;
+    }
 }
 
 // ── Reply wiring ──────────────────────────────────────────────────────────────
@@ -366,36 +402,46 @@ void ClaudeProvider::connectReply(QNetworkReply *reply)
     connect(reply, &QNetworkReply::finished, this, [this, safeReply] {
         if (!safeReply)
             return;
-        safeReply->deleteLater();
-        if (m_activeReply != safeReply)
+        if (m_activeReply != safeReply) {
+            // Orphan reply — already cleaned up by cleanupActiveReply()
+            // in the message_stop handler.  Do not touch it.
             return;
-        m_activeReply = nullptr;
+        }
+
+        // Read everything we need BEFORE cleanup.
+        const int status =
+            safeReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const auto error = safeReply->error();
+        const QString errorStr = safeReply->errorString();
+
+        cleanupActiveReply();
 
         if (m_activeRequestId.isEmpty())
             return; // Already handled by message_stop event
 
-        const int status =
-            safeReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-
-        if (safeReply->error() == QNetworkReply::NoError) {
+        if (error == QNetworkReply::NoError) {
             AgentResponse resp;
             resp.requestId = m_activeRequestId;
             resp.text      = m_accumulated;
-            emit responseFinished(m_activeRequestId, resp);
+            const QString reqId = m_activeRequestId;
+            m_activeRequestId.clear();
+            m_accumulated.clear();
+            emit responseFinished(reqId, resp);
         } else {
             AgentError err;
             err.requestId = m_activeRequestId;
-            err.message   = safeReply->errorString();
+            err.message   = errorStr;
             if (status == 401 || status == 403)
                 err.code = AgentError::Code::AuthError;
             else if (status == 429)
                 err.code = AgentError::Code::RateLimited;
             else
                 err.code = AgentError::Code::NetworkError;
-            emit responseError(m_activeRequestId, err);
+            const QString reqId = m_activeRequestId;
+            m_activeRequestId.clear();
+            m_accumulated.clear();
+            emit responseError(reqId, err);
         }
-        m_activeRequestId.clear();
-        m_accumulated.clear();
     });
 }
 

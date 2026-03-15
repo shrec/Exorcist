@@ -7,6 +7,7 @@
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QSettings>
+#include <QTimer>
 
 static const char kDefaultUrl[] = "http://localhost:11434";
 
@@ -208,25 +209,32 @@ void OllamaProvider::sendRequest(const AgentRequest &request)
     connect(reply, &QNetworkReply::finished, this, [this, safeReply] {
         if (!safeReply)
             return;
-        safeReply->deleteLater();
-        if (m_activeReply != safeReply)
+        if (m_activeReply != safeReply) {
+            // Orphan reply — already cleaned up.
             return;
-        m_activeReply = nullptr;
+        }
 
-        if (safeReply->error() != QNetworkReply::NoError
-            && safeReply->error() != QNetworkReply::OperationCanceledError) {
+        // Read everything we need BEFORE cleanup.
+        const auto error = safeReply->error();
+        const QString errorStr = safeReply->errorString();
+        const QByteArray remaining = safeReply->readAll().trimmed();
+
+        cleanupActiveReply();
+
+        if (error != QNetworkReply::NoError
+            && error != QNetworkReply::OperationCanceledError) {
             AgentError err;
             err.requestId = m_activeRequestId;
             err.code      = AgentError::Code::NetworkError;
-            err.message   = safeReply->errorString();
-            emit responseError(m_activeRequestId, err);
+            err.message   = errorStr;
+            const QString reqId = m_activeRequestId;
             m_activeRequestId.clear();
             m_accumulated.clear();
+            emit responseError(reqId, err);
             return;
         }
 
         // Process any remaining data
-        const QByteArray remaining = safeReply->readAll().trimmed();
         if (!remaining.isEmpty()) {
             for (const QByteArray &line : remaining.split('\n')) {
                 const QByteArray trimmed = line.trimmed();
@@ -240,20 +248,32 @@ void OllamaProvider::sendRequest(const AgentRequest &request)
             AgentResponse resp;
             resp.requestId = m_activeRequestId;
             resp.text      = m_accumulated;
-            emit responseFinished(m_activeRequestId, resp);
+            const QString reqId = m_activeRequestId;
+            m_activeRequestId.clear();
+            m_accumulated.clear();
+            emit responseFinished(reqId, resp);
+        } else {
+            m_accumulated.clear();
         }
-        m_activeRequestId.clear();
-        m_accumulated.clear();
     });
 }
 
 void OllamaProvider::cancelRequest(const QString &requestId)
 {
     if (m_activeRequestId == requestId && m_activeReply) {
-        m_activeReply->abort();
-        m_activeReply = nullptr;
+        cleanupActiveReply();
         m_activeRequestId.clear();
         m_accumulated.clear();
+    }
+}
+
+void OllamaProvider::cleanupActiveReply()
+{
+    if (m_activeReply) {
+        m_activeReply->disconnect(this);
+        m_activeReply->abort();
+        m_activeReply->deleteLater();
+        m_activeReply = nullptr;
     }
 }
 

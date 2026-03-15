@@ -1,0 +1,9 @@
+{
+    "id": "org.exorcist.js-word-count",
+    "name": "Word Count (JS)",
+    "version": "1.0.0",
+    "description": "Shows word/line/character count for the current selection or file",
+    "author": "Exorcist Team",
+    "permissions": ["commands", "notifications", "editor.read"],
+    "memoryLimit": 8
+}

@@ -37,6 +37,7 @@ public:
 
 private:
     void connectReply(QNetworkReply *reply);
+    void cleanupActiveReply();
     QString buildUserContent(const AgentRequest &req) const;
 
     QNetworkAccessManager m_nam;

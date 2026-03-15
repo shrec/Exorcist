@@ -8,6 +8,7 @@
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QSettings>
+#include <QTimer>
 
 static const char kDefaultUrl[] = "https://api.openai.com/v1/chat/completions";
 
@@ -57,9 +58,11 @@ CodexProvider::CodexProvider(QObject *parent)
     connect(m_sseParser, &SseParser::done, this, [this] {
         AgentResponse resp;
         resp.requestId = m_activeRequestId;
-        emit responseFinished(m_activeRequestId, resp);
+        // Clear state and clean up reply BEFORE emitting
+        const QString reqId = m_activeRequestId;
         m_activeRequestId.clear();
-        m_activeReply = nullptr;
+        cleanupActiveReply();
+        emit responseFinished(reqId, resp);
     });
 }
 
@@ -233,11 +236,18 @@ void CodexProvider::cancelRequest(const QString &requestId)
 {
     if (requestId.isEmpty() || requestId != m_activeRequestId)
         return;
+    cleanupActiveReply();
+    m_activeRequestId.clear();
+}
+
+void CodexProvider::cleanupActiveReply()
+{
     if (m_activeReply) {
+        m_activeReply->disconnect(this);
         m_activeReply->abort();
+        m_activeReply->deleteLater();
         m_activeReply = nullptr;
     }
-    m_activeRequestId.clear();
 }
 
 // ── Reply wiring ──────────────────────────────────────────────────────────────
@@ -255,34 +265,42 @@ void CodexProvider::connectReply(QNetworkReply *reply)
     connect(reply, &QNetworkReply::finished, this, [this, safeReply] {
         if (!safeReply)
             return;
-        safeReply->deleteLater();
-        if (m_activeReply != safeReply)
+        if (m_activeReply != safeReply) {
+            // Orphan reply — already cleaned up.
             return;
-        m_activeReply = nullptr;
+        }
+
+        // Read everything we need BEFORE cleanup.
+        const int status =
+            safeReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const auto error = safeReply->error();
+        const QString errorStr = safeReply->errorString();
+
+        cleanupActiveReply();
 
         if (m_activeRequestId.isEmpty())
             return; // Already handled by SSE done
 
-        const int status =
-            safeReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-
-        if (safeReply->error() == QNetworkReply::NoError) {
+        if (error == QNetworkReply::NoError) {
             AgentResponse resp;
             resp.requestId = m_activeRequestId;
-            emit responseFinished(m_activeRequestId, resp);
+            const QString reqId = m_activeRequestId;
+            m_activeRequestId.clear();
+            emit responseFinished(reqId, resp);
         } else {
             AgentError err;
             err.requestId = m_activeRequestId;
-            err.message   = safeReply->errorString();
+            err.message   = errorStr;
             if (status == 401 || status == 403)
                 err.code = AgentError::Code::AuthError;
             else if (status == 429)
                 err.code = AgentError::Code::RateLimited;
             else
                 err.code = AgentError::Code::NetworkError;
-            emit responseError(m_activeRequestId, err);
+            const QString reqId = m_activeRequestId;
+            m_activeRequestId.clear();
+            emit responseError(reqId, err);
         }
-        m_activeRequestId.clear();
     });
 }
 

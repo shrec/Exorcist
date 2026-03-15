@@ -31,6 +31,7 @@ public:
     void cancelRequest(const QString &requestId)   override;
 
 private:
+    void cleanupActiveReply();
     void fetchModels();
     void processLine(const QByteArray &line);
 

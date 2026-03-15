@@ -1,0 +1,20 @@
+{
+    "id": "org.exorcist.js-hello-html",
+    "name": "Hello HTML Plugin",
+    "type": "html",
+    "version": "1.0.0",
+    "description": "Example HTML-based JS plugin with UI rendered via Ultralight",
+    "author": "Exorcist Team",
+    "htmlEntry": "ui/index.html",
+    "permissions": ["commands", "notifications", "workspace.read", "editor.read"],
+    "contributions": {
+        "views": [
+            {
+                "id": "HelloHtmlPanel",
+                "title": "Hello HTML",
+                "location": "right",
+                "defaultVisible": true
+            }
+        ]
+    }
+}

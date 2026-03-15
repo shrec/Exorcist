@@ -33,8 +33,10 @@ public:
 
 private:
     void connectReply(QNetworkReply *reply);
+    void cleanupActiveReply();
     void fetchModels();
     QString buildUserContent(const AgentRequest &req) const;
+    static int maxOutputTokensForModel(const QString &model);
 
     QNetworkAccessManager m_nam;
     SseParser            *m_sseParser;

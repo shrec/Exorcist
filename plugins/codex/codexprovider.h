@@ -33,6 +33,7 @@ public:
 
 private:
     void connectReply(QNetworkReply *reply);
+    void cleanupActiveReply();
     void fetchModels();
     QString buildUserContent(const AgentRequest &req) const;
 

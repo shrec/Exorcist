@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Hello HTML Plugin</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h2>Hello HTML Plugin</h2>
+        <p class="subtitle">UI rendered by Ultralight, logic powered by ex.* SDK</p>
+
+        <div class="section">
+            <button id="btnWorkspace" onclick="showWorkspaceInfo()">Show Workspace</button>
+            <button id="btnEditor" onclick="showEditorInfo()">Active File</button>
+            <button id="btnNotify" onclick="sendNotification()">Send Notification</button>
+        </div>
+
+        <div id="output" class="output">
+            <p class="placeholder">Click a button to interact with the IDE...</p>
+        </div>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>

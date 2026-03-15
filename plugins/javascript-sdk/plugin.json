@@ -1,0 +1,8 @@
+{
+    "id": "org.exorcist.javascript-sdk",
+    "name": "JavaScript SDK",
+    "version": "1.0.0",
+    "description": "Ultralight-based JavaScript plugin runtime — loads and runs JS plugins",
+    "author": "Exorcist Team",
+    "activationEvents": ["*"]
+}

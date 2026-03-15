@@ -1,0 +1,9 @@
+{
+    "id": "org.exorcist.js-file-stats",
+    "name": "File Stats (JS)",
+    "version": "1.0.0",
+    "description": "Shows file count and workspace information",
+    "author": "Exorcist Team",
+    "permissions": ["commands", "notifications", "workspace.read"],
+    "memoryLimit": 8
+}

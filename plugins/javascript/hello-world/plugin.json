@@ -1,0 +1,9 @@
+{
+    "id": "org.exorcist.js-hello-world",
+    "name": "Hello World (JS)",
+    "version": "1.0.0",
+    "description": "Sample JavaScript plugin — registers a greeting command and listens for editor events",
+    "author": "Exorcist Team",
+    "permissions": ["commands", "notifications", "logging", "events", "editor.read"],
+    "memoryLimit": 8
+}
