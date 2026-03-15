@@ -455,6 +455,7 @@ add_executable(exorcist WIN32
     agent/contexteditor.cpp
     agent/contexteditor.h
     agent/trajectoryrecorder.h
+    agent/trajectoryrecorder.cpp
     agent/featureflags.h
     agent/featureflags.cpp
     agent/notebookstubs.h
@@ -478,6 +479,7 @@ add_executable(exorcist WIN32
     agent/contextinspector.h
     agent/toolcalltrace.h
     agent/trajectoryreplaywidget.h
+    agent/trajectoryreplaywidget.cpp
     agent/promptarchiveexporter.h
     agent/memoryfileeditor.h
     agent/backgroundcompactor.h
