@@ -3,6 +3,10 @@
 #include "../itool.h"
 #include "../../core/ifilesystem.h"
 
+#include <functional>
+
+#include <QHash>
+
 // Shared path-resolution helper for all filesystem tools.
 // Turns a workspace-relative path into an absolute one.
 namespace FsToolUtil {
@@ -61,4 +65,48 @@ public:
 private:
     IFileSystem *m_fs;
     QString      m_workspaceRoot;
+};
+
+// ── OverwriteFileTool ─────────────────────────────────────────────────────────
+// Explicitly overwrites an existing file. Same engine as WriteFileTool but
+// registered as "write_file" with a description that allows overwriting.
+
+class OverwriteFileTool : public ITool
+{
+public:
+    explicit OverwriteFileTool(IFileSystem *fs);
+
+    void setWorkspaceRoot(const QString &root) { m_workspaceRoot = root; }
+
+    ToolSpec spec() const override;
+    ToolExecResult invoke(const QJsonObject &args) override;
+
+private:
+    IFileSystem *m_fs;
+    QString      m_workspaceRoot;
+};
+
+// ── UndoFileEditTool ──────────────────────────────────────────────────────────
+// Rolls back file changes made during the current agent session by restoring
+// pre-edit snapshots. Can undo a single file or all changed files.
+
+class UndoFileEditTool : public ITool
+{
+public:
+    struct UndoResult {
+        bool    success;
+        int     filesRestored;
+        QString detail;
+    };
+    using SnapshotGetter = std::function<QHash<QString, QString>()>;
+    using FileRestorer   = std::function<UndoResult(const QString &path)>;
+
+    UndoFileEditTool(SnapshotGetter snapshotGetter, FileRestorer restorer);
+
+    ToolSpec spec() const override;
+    ToolExecResult invoke(const QJsonObject &args) override;
+
+private:
+    SnapshotGetter m_snapshotGetter;
+    FileRestorer   m_restorer;
 };
