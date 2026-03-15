@@ -157,6 +157,7 @@ private:
     QString             m_activeRequestId;
     QString             m_streamAccum;    // accumulated streaming text
     bool                m_busy = false;
+    bool                m_processingTools = false; // re-entrancy guard
     int                 m_currentStepCount = 0;
     int                 m_maxSteps = 25;   // safety limit per turn
     AgentToolPermission  m_maxPermission = AgentToolPermission::SafeMutate;

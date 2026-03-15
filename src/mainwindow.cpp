@@ -29,9 +29,11 @@
 #include <QDesktopServices>
 #include <QMessageBox>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QRegularExpression>
 
+#include <atomic>
 #include <memory>
 
 #ifdef Q_OS_UNIX
@@ -616,7 +618,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ── Build & test (via ServiceRegistry) ──────────────────────────────
     agentCallbacks.buildProjectFn =
-        [this](const QString &target) -> BuildProjectTool::BuildResult {
+        [this](const QString &target, std::atomic<bool> &cancelled) -> BuildProjectTool::BuildResult {
         auto *buildSvc = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
         if (!buildSvc)
             return {false, QStringLiteral("No build system configured."), -1};
@@ -635,16 +637,26 @@ MainWindow::MainWindow(QWidget *parent)
                 exitCode = code;
                 loop.quit();
             });
+        // Safety timeout
         QTimer::singleShot(120000, &loop, &QEventLoop::quit);
+        // Cancel check — poll every 200ms so tool responds promptly
+        QTimer cancelCheck;
+        QObject::connect(&cancelCheck, &QTimer::timeout, &loop, [&]() {
+            if (cancelled.load()) loop.quit();
+        });
+        cancelCheck.start(200);
         buildSvc->build(target);
         loop.exec();
         disconnect(connOut);
         disconnect(connDone);
+        if (cancelled.load())
+            return {false, QStringLiteral("Build cancelled."), -1};
         return {success, output, exitCode};
     };
 
     agentCallbacks.runTestsFn =
-        [this](const QString &scope, const QString &filter) -> RunTestsTool::TestResult {
+        [this](const QString &scope, const QString &filter,
+               std::atomic<bool> &cancelled) -> RunTestsTool::TestResult {
         Q_UNUSED(scope)
         auto *buildSvc = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
         if (!buildSvc)
@@ -659,9 +671,24 @@ MainWindow::MainWindow(QWidget *parent)
         QProcess proc;
         proc.setWorkingDirectory(buildDir);
         proc.start(QStringLiteral("ctest"), args);
-        proc.waitForFinished(60000);
-        const QString output = proc.readAllStandardOutput() + proc.readAllStandardError();
+        // Poll with cancel check instead of blocking waitForFinished
+        constexpr int kTestTimeout = 120000;
+        QElapsedTimer elapsed;
+        elapsed.start();
+        while (!proc.waitForFinished(200)) {
+            if (elapsed.elapsed() > kTestTimeout || cancelled.load()) {
+                proc.kill();
+                proc.waitForFinished(2000);
+                break;
+            }
+        }
+        const QString output = QString::fromUtf8(proc.readAllStandardOutput())
+                             + QString::fromUtf8(proc.readAllStandardError());
         const int exitCode = proc.exitCode();
+        if (cancelled.load()) {
+            m_lastTestResult = {false, 0, 0, 0, QStringLiteral("Tests cancelled.")};
+            return m_lastTestResult;
+        }
         int passed = 0, failed = 0, total = 0;
         QRegularExpression re(QStringLiteral("(\\d+)% tests passed, (\\d+) tests failed out of (\\d+)"));
         auto match = re.match(output);

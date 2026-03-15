@@ -81,7 +81,10 @@ ToolExecResult RunCommandTool::invoke(const QJsonObject &args)
 
     // ── Foreground execution ──────────────────────────────────────────
     if (m_sessionMgr) {
-        const int timeout = args[QLatin1String("timeoutMs")].toInt(30000);
+        int timeout = args[QLatin1String("timeoutMs")].toInt(30000);
+        // Cap timeout: 0 = infinite which would hang; max 120s for foreground
+        if (timeout <= 0 || timeout > 120000)
+            timeout = 120000;
         TerminalSession s = m_sessionMgr->runForeground(command, timeout);
 
         QJsonObject data;

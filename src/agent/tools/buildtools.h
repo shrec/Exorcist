@@ -2,6 +2,7 @@
 
 #include "../itool.h"
 
+#include <atomic>
 #include <functional>
 
 // ── BuildProjectTool ─────────────────────────────────────────────────────────
@@ -10,22 +11,24 @@
 class BuildProjectTool : public ITool
 {
 public:
-    // builder(target) → {success, output, exitCode}
+    // builder(target, cancelled) → {success, output, exitCode}
     struct BuildResult {
         bool    success;
         QString output;    // combined stdout+stderr
         int     exitCode;
     };
-    using Builder = std::function<BuildResult(const QString &target)>;
+    using Builder = std::function<BuildResult(const QString &target, std::atomic<bool> &cancelled)>;
 
     explicit BuildProjectTool(Builder builder)
         : m_builder(std::move(builder)) {}
 
     ToolSpec spec() const override;
     ToolExecResult invoke(const QJsonObject &args) override;
+    void cancel() override;
 
 private:
     Builder m_builder;
+    std::atomic<bool> m_cancelled{false};
 };
 
 // ── RunTestsTool ─────────────────────────────────────────────────────────────
@@ -41,16 +44,19 @@ public:
         int     total;
         QString output;
     };
-    using TestRunner = std::function<TestResult(const QString &scope, const QString &filter)>;
+    using TestRunner = std::function<TestResult(const QString &scope, const QString &filter,
+                                                std::atomic<bool> &cancelled)>;
 
     explicit RunTestsTool(TestRunner runner)
         : m_runner(std::move(runner)) {}
 
     ToolSpec spec() const override;
     ToolExecResult invoke(const QJsonObject &args) override;
+    void cancel() override;
 
 private:
     TestRunner m_runner;
+    std::atomic<bool> m_cancelled{false};
 };
 
 // ── GetBuildTargetsTool ──────────────────────────────────────────────────────

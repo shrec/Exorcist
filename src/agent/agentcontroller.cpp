@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
@@ -426,6 +427,13 @@ void AgentController::sendModelRequest()
             ContextSnapshot ctx = watcher->result();
             watcher->deleteLater();
 
+            // Guard: controller may have been cancelled or reset while
+            // the async context build was in flight.
+            if (!m_busy || m_activeRequestId.isEmpty()) {
+                qCWarning(lcCtrl) << "Async context returned but turn is no longer active";
+                return;
+            }
+
             req.workspaceRoot = ctx.workspaceRoot;
             if (req.activeFilePath.isEmpty())
                 req.activeFilePath = ctx.activeFilePath;
@@ -434,7 +442,14 @@ void AgentController::sendModelRequest()
                              << "step" << m_currentStepCount
                              << "tools:" << req.tools.size();
 
-            m_orchestrator->sendRequest(req);
+            if (!m_orchestrator->sendRequest(req)) {
+                qCWarning(lcCtrl) << "sendRequest failed (provider unavailable)";
+                AgentError err;
+                err.requestId = m_activeRequestId;
+                err.message = tr("AI provider is not available. Check your connection and provider settings.");
+                err.code = AgentError::Code::NetworkError;
+                onResponseError(m_activeRequestId, err);
+            }
         });
         watcher->setFuture(m_contextProvider->buildContextAsync(
             req.userPrompt, m_activeFilePath, m_selectedText, m_languageId));
@@ -443,7 +458,14 @@ void AgentController::sendModelRequest()
                          << "step" << m_currentStepCount
                          << "tools:" << req.tools.size();
 
-        m_orchestrator->sendRequest(req);
+        if (!m_orchestrator->sendRequest(req)) {
+            qCWarning(lcCtrl) << "sendRequest failed (provider unavailable)";
+            AgentError err;
+            err.requestId = m_activeRequestId;
+            err.message = tr("AI provider is not available. Check your connection and provider settings.");
+            err.code = AgentError::Code::NetworkError;
+            onResponseError(m_activeRequestId, err);
+        }
     }
 }
 
@@ -496,8 +518,25 @@ void AgentController::onResponseFinished(const QString &requestId,
             return;
         }
 
-        // Execute tools and continue the loop
-        processToolCalls(response.toolCalls, responseText);
+        // Execute tools and continue the loop.
+        // Queue via invokeMethod to prevent re-entrancy when
+        // processEvents() during tool execution processes SSE data
+        // that triggers another responseFinished signal.
+        if (m_processingTools) {
+            qCWarning(lcCtrl) << "Re-entrant responseFinished detected "
+                                 "during tool execution — queueing";
+            const auto tc = response.toolCalls;
+            const auto rt = responseText;
+            QMetaObject::invokeMethod(this, [this, tc, rt]() {
+                if (!m_busy) {
+                    qCWarning(lcCtrl) << "Queued processToolCalls skipped — turn cancelled";
+                    return;
+                }
+                processToolCalls(tc, rt);
+            }, Qt::QueuedConnection);
+        } else {
+            processToolCalls(response.toolCalls, responseText);
+        }
         return;
     }
 
@@ -623,6 +662,8 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls,
     // When multiple parallelSafe tools appear in one batch, they run
     // concurrently on QThreadPool for lower latency.
 
+    m_processingTools = true;
+
     QStringList mutatedFiles;
 
     // Collect approved (non-denied) tool indices
@@ -661,9 +702,33 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls,
         }
 
         for (auto &job : jobs) {
-            while (!job.future.isFinished())
+            QElapsedTimer jobTimer;
+            jobTimer.start();
+            constexpr int kParallelTimeout = 120000;
+            while (!job.future.isFinished()) {
                 QCoreApplication::processEvents(QEventLoop::ExcludeSocketNotifiers, 5);
-            work[job.index].result = job.future.result();
+                if (jobTimer.elapsed() > kParallelTimeout) {
+                    qCWarning(lcCtrl) << "Parallel tool timed out";
+                    // Cancel if possible, then bounded grace wait
+                    ITool *ptool = m_toolRegistry ? m_toolRegistry->tool(work[job.index].tc.name) : nullptr;
+                    if (ptool) ptool->cancel();
+                    QElapsedTimer grace;
+                    grace.start();
+                    constexpr int kGraceMs = 5000;
+                    while (!job.future.isFinished() && grace.elapsed() < kGraceMs)
+                        QCoreApplication::processEvents(QEventLoop::ExcludeSocketNotifiers, 10);
+                    if (!job.future.isFinished())
+                        qCWarning(lcCtrl) << "Parallel tool" << work[job.index].tc.name
+                                          << "did not respond to cancel() within grace period";
+                    break;
+                }
+            }
+            if (job.future.isFinished())
+                work[job.index].result = job.future.result();
+            else
+                work[job.index].result = {false, {}, {},
+                    tr("Tool '%1' timed out and did not respond to cancellation.")
+                        .arg(work[job.index].tc.name)};
         }
 
         // Remove parallel tools from the approved list (already done)
@@ -700,38 +765,49 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls,
         if (timeoutMs <= 0)
             timeoutMs = 30000;
 
-        bool timedOut = false;
-        QTimer watchdog;
-        watchdog.setSingleShot(true);
-        connect(&watchdog, &QTimer::timeout, this, [&timedOut, tool]() {
-            timedOut = true;
-            if (tool)
-                tool->cancel();
-        });
-        watchdog.start(timeoutMs);
+        // Use QElapsedTimer for watchdog instead of QTimer.
+        // QTimer relies on socket notifiers on Qt6/Windows, and
+        // ExcludeSocketNotifiers (needed to prevent SSE re-entrancy
+        // crashes in QNetworkAccessManager) prevents it from firing.
+        QElapsedTimer watchdog;
+        watchdog.start();
 
-        // Run off-thread so UI never freezes; pump events for watchdog.
-        // ALL tools execute on the worker thread — invoke() returns pure
-        // data and must not touch UI widgets.  Tools that internally need
-        // QProcess/QEventLoop work fine because Qt installs an event
-        // dispatcher on the worker thread automatically.
+        // Run off-thread so UI never freezes; pump events for UI.
+        // ExcludeSocketNotifiers prevents re-entrant SSE handling that
+        // crashes QNetworkAccessManager on Qt6.
         auto tc = w.tc;
         auto future = QtConcurrent::run([this, tc]() {
             return executeSingleTool(tc);
         });
-        while (!future.isFinished())
+        while (!future.isFinished()) {
             QCoreApplication::processEvents(QEventLoop::ExcludeSocketNotifiers, 10);
-        w.result = future.result();
-
-        watchdog.stop();
-
-        if (timedOut) {
-            qCWarning(lcCtrl) << "Tool" << w.tc.name
-                              << "timed out after" << timeoutMs << "ms";
-            w.result = {false, {}, {},
-                tr("Tool '%1' timed out after %2 seconds.")
-                    .arg(w.tc.name)
-                    .arg(timeoutMs / 1000)};
+            if (watchdog.elapsed() > timeoutMs) {
+                qCWarning(lcCtrl) << "Tool" << w.tc.name
+                                  << "timed out after" << timeoutMs << "ms";
+                if (tool)
+                    tool->cancel();
+                // Bounded grace period — never wait forever
+                {
+                    QElapsedTimer grace;
+                    grace.start();
+                    constexpr int kGraceMs = 5000;
+                    while (!future.isFinished() && grace.elapsed() < kGraceMs)
+                        QCoreApplication::processEvents(QEventLoop::ExcludeSocketNotifiers, 10);
+                    if (!future.isFinished())
+                        qCWarning(lcCtrl) << "Tool" << w.tc.name
+                                          << "did not respond to cancel() within grace period";
+                }
+                w.result = {false, {}, {},
+                    tr("Tool '%1' timed out after %2 seconds.")
+                        .arg(w.tc.name)
+                        .arg(timeoutMs / 1000)};
+                break;
+            }
+        }
+        if (!w.result.error.isEmpty()) {
+            // Already set by timeout above
+        } else {
+            w.result = future.result();
         }
     }
 
@@ -762,6 +838,7 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls,
             qCWarning(lcCtrl) << "Max steps reached during tool execution";
             // Still add whatever we have so far as a batch
             m_session->addToolCallBatch(modelText, toolSteps);
+            m_processingTools = false;
             finishTurn(tr("[Agent reached maximum step limit (%1). "
                          "The response may be incomplete.]").arg(m_maxSteps));
             return;
@@ -775,8 +852,23 @@ void AgentController::processToolCalls(const QList<ToolCall> &toolCalls,
     if (!mutatedFiles.isEmpty())
         emit filesChanged(mutatedFiles);
 
-    // All tools executed — send results back to model for next step
-    sendModelRequest();
+    m_processingTools = false;
+
+    // All tools executed — send results back to model for next step.
+    // Use QueuedConnection so the call runs in a clean event-loop iteration,
+    // after any deferred signals from the provider have been processed.
+    // This prevents the QNetworkAccessManager cross-thread crash (Qt6Network)
+    // that occurs when processEvents() during tool waiting re-entrantly
+    // triggers SSE handling on the main thread.
+    QMetaObject::invokeMethod(this, [this]() {
+        // Safety: verify the turn is still active before sending.
+        // A cancel or error may have fired while this was queued.
+        if (!m_busy) {
+            qCWarning(lcCtrl) << "Queued sendModelRequest skipped — turn no longer active";
+            return;
+        }
+        sendModelRequest();
+    }, Qt::QueuedConnection);
 }
 
 ToolExecResult AgentController::executeSingleTool(const ToolCall &tc)
@@ -863,6 +955,7 @@ void AgentController::snapshotFilesForTool(const QString &toolName,
     static const QStringList singlePathTools = {
         QStringLiteral("apply_patch"),
         QStringLiteral("create_file"),
+        QStringLiteral("write_file"),
         QStringLiteral("replace_string_in_file"),
         QStringLiteral("insert_edit_into_file"),
     };

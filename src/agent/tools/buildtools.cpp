@@ -31,17 +31,23 @@ ToolSpec BuildProjectTool::spec() const
 
 ToolExecResult BuildProjectTool::invoke(const QJsonObject &args)
 {
+    m_cancelled.store(false);
     const QString target = args[QLatin1String("target")].toString();
-    const BuildResult result = m_builder(target);
+    const BuildResult result = m_builder(target, m_cancelled);
 
-    // Truncate very long output for model context
+    if (m_cancelled.load())
+        return {false, {}, {}, QStringLiteral("Build cancelled.")};
+
+    // Truncate very long output for model context — keep first + last
     constexpr int kMaxOutput = 30000;
+    constexpr int kHeadSize  = 5000;
     QString output = result.output;
     bool truncated = false;
     if (output.size() > kMaxOutput) {
-        // Keep the last part (errors are usually at the end)
-        output = QStringLiteral("... (truncated %1 chars) ...\n").arg(output.size() - kMaxOutput)
-               + output.right(kMaxOutput);
+        const int tailSize = kMaxOutput - kHeadSize;
+        output = output.left(kHeadSize)
+               + QStringLiteral("\n\n... (%1 chars truncated) ...\n\n").arg(output.size() - kMaxOutput)
+               + output.right(tailSize);
         truncated = true;
     }
 
@@ -61,6 +67,11 @@ ToolExecResult BuildProjectTool::invoke(const QJsonObject &args)
     data[QLatin1String("truncated")] = truncated;
 
     return {result.success, data, summary, result.success ? QString{} : QStringLiteral("Build failed.")};
+}
+
+void BuildProjectTool::cancel()
+{
+    m_cancelled.store(true);
 }
 
 // ── RunTestsTool ─────────────────────────────────────────────────────────────
@@ -98,15 +109,22 @@ ToolSpec RunTestsTool::spec() const
 
 ToolExecResult RunTestsTool::invoke(const QJsonObject &args)
 {
+    m_cancelled.store(false);
     const QString scope  = args[QLatin1String("scope")].toString(QStringLiteral("all"));
     const QString filter = args[QLatin1String("filter")].toString();
 
-    const TestResult result = m_runner(scope, filter);
+    const TestResult result = m_runner(scope, filter, m_cancelled);
+
+    if (m_cancelled.load())
+        return {false, {}, {}, QStringLiteral("Tests cancelled.")};
 
     constexpr int kMaxOutput = 20000;
+    constexpr int kHeadSize  = 4000;
     QString output = result.output;
     if (output.size() > kMaxOutput)
-        output = QStringLiteral("... (truncated) ...\n") + output.right(kMaxOutput);
+        output = output.left(kHeadSize)
+               + QStringLiteral("\n\n... (%1 chars truncated) ...\n\n").arg(output.size() - kMaxOutput)
+               + output.right(kMaxOutput - kHeadSize);
 
     QString summary;
     if (result.success) {
@@ -126,6 +144,11 @@ ToolExecResult RunTestsTool::invoke(const QJsonObject &args)
 
     return {result.success, data, summary,
             result.success ? QString{} : QStringLiteral("Some tests failed.")};
+}
+
+void RunTestsTool::cancel()
+{
+    m_cancelled.store(true);
 }
 
 // ── GetBuildTargetsTool ──────────────────────────────────────────────────────

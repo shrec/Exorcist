@@ -1,8 +1,6 @@
 #include "terminalsessionmanager.h"
 
 #include <QCoreApplication>
-#include <QEventLoop>
-#include <QTimer>
 
 // ── Run foreground (non-blocking local event loop) ────────────────────────────
 TerminalSession TerminalSessionManager::runForeground(const QString &command, int timeoutMs)
@@ -20,37 +18,24 @@ TerminalSession TerminalSessionManager::runForeground(const QString &command, in
     proc->start();
     if (!proc->waitForStarted(5000)) {
         m_foregroundProcess.storeRelaxed(nullptr);
-        s.stdErr = tr("Failed to start process.");
+        s.stdErr = tr("Failed to start process: %1").arg(proc->errorString());
+        s.exitCode = -1;
         return s;
     }
 
     s.running = true;
 
-    // Use a local event loop so the main thread keeps processing events
-    // (timers, signals) while waiting for the process to finish.
-    QEventLoop loop;
-    bool timedOut = false;
-
-    QObject::connect(proc.get(),
-                     QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                     &loop, &QEventLoop::quit);
-
-    QTimer timer;
-    timer.setSingleShot(true);
-    QObject::connect(&timer, &QTimer::timeout, &loop, [&]() {
-        timedOut = true;
-        loop.quit();
-    });
-    timer.start(timeoutMs);
-
-    loop.exec(QEventLoop::ExcludeSocketNotifiers);
-
-    timer.stop();
+    // Tools run on worker threads (QtConcurrent). Use blocking
+    // waitForFinished instead of QEventLoop — a fast command (e.g. dir)
+    // can finish before a QEventLoop is created on the worker thread,
+    // causing the finished() signal to be lost and the tool to hang
+    // until the 30s timeout.
+    const bool finished = proc->waitForFinished(timeoutMs);
 
     s.running  = false;
-    s.timedOut = timedOut;
+    s.timedOut = !finished;
 
-    if (timedOut) {
+    if (!finished) {
         proc->kill();
         proc->waitForFinished(2000);
     }
@@ -165,19 +150,9 @@ TerminalSession TerminalSessionManager::awaitSession(const QString &id, int time
     }
 
     if (proc && proc->state() != QProcess::NotRunning) {
-        QEventLoop loop;
-
-        QObject::connect(proc,
-                         QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                         &loop, &QEventLoop::quit);
-
-        QTimer timer;
-        timer.setSingleShot(true);
-        QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
-        timer.start(timeoutMs);
-
-        loop.exec(QEventLoop::ExcludeSocketNotifiers);
-        timer.stop();
+        // Use blocking wait — same race-condition reasoning as runForeground:
+        // on a worker thread, QEventLoop may miss the finished() signal.
+        proc->waitForFinished(timeoutMs);
     }
 
     return sess->snapshot();
