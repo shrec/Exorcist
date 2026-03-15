@@ -148,6 +148,7 @@ These interfaces are defined in `src/agent/` and can be implemented by plugins:
 | `IAgentSettingsPageProvider` | `iagentsettingspageprovider.h` | Plugin contributes a settings page widget to the AI Settings panel |
 | `IProviderAuthIntegration` | `iproviderauthintegration.h` | Unified sign-in/sign-out lifecycle and auth status |
 | `IChatSessionImporter` | `ichatsessionimporter.h` | Import vendor-specific remote session transcripts |
+| `ILanguageIndexer` | `codegraph/ilanguageindexer.h` | Language-specific code indexing (classes, functions, imports, tests). Register via `CodeGraphIndexer::registerLanguageIndexer()`. See [docs/codegraph.md](codegraph.md) |
 
 Plugins that implement these interfaces are discovered during
 `AgentPlatformBootstrap::registerPluginProviders()` via `qobject_cast`.

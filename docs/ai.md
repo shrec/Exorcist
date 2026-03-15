@@ -39,6 +39,29 @@ Project Brain (persistent knowledge): `docs/project-brain.md`
 Tools registered centrally and available to all providers. Permission/approval
 controlled by `ToolApprovalService`.
 
+**Tool categories:**
+
+| Category | Tools |
+|----------|-------|
+| File system | `read_file`, `write_file`, `create_file`, `list_directory`, `search_files`, `grep_search` |
+| Editor | `replace_in_file`, `open_file`, `get_diagnostics` |
+| Terminal | `run_in_terminal`, `get_terminal_output`, `await_terminal`, `kill_terminal` |
+| Build & test | `build_project`, `run_tests`, `get_build_targets`, `test_failure` |
+| Code intelligence | `code_graph`, `tree_sitter_query` |
+| Git | `git_status`, `git_diff`, `git_log`, `git_blame` |
+| Docker | `docker` (container/image management) |
+| Project Brain | `manage_rules`, `manage_memory`, `project_brain_db` |
+| Code formatting | `format_code` |
+| Refactoring | `refactor` |
+| Navigation | `open_file` |
+| Lua scripting | `lua_execute` |
+
+**Error handling & cancellation:**
+- All tools support `cancel()` — watchdog enforces timeout with bounded 5s grace period
+- `BuildProjectTool` and `RunTestsTool` use `std::atomic<bool>` cancel flag polled every 200ms
+- Process start failures include `QProcess::errorString()` diagnostics
+- Output truncation preserves first + last portions (not just tail)
+
 ### Provider Plugins (`plugins/`)
 
 | Plugin | Directory | Backend |
