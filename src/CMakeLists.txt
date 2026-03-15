@@ -461,11 +461,13 @@ add_executable(exorcist WIN32
     agent/reviewmanager.h
     agent/reviewmanager.cpp
     agent/testgenerator.h
+    agent/testgenerator.cpp
     agent/authstatusindicator.h
     agent/promptfilepicker.h
     agent/chatthemeadapter.h
     agent/apikeymanagerwidget.h
     agent/networkmonitor.h
+    agent/networkmonitor.cpp
     agent/citationmanager.h
     agent/citationmanager.cpp
     mcp/mcpservermanager.h
@@ -480,6 +482,9 @@ add_executable(exorcist WIN32
     agent/memoryfileeditor.h
     agent/backgroundcompactor.h
     agent/errorstatewidget.h
+    agent/errorstatewidget.cpp
+    agent/telemetrymanager.h
+    agent/telemetrymanager.cpp
     agent/setuptestswizard.h
     agent/renameintegration.h
     agent/accessibilityhelper.h
