@@ -645,6 +645,26 @@ Info present(const QString &toolName)
                  QStringLiteral("Queried repository"),
                  QStringLiteral("\u2630") };
 
+    // ── Write / undo file tools ──────────────────────────────────────
+    if (toolName == QLatin1String("write_file"))
+        return { QStringLiteral("Write File"),
+                 QStringLiteral("Writing file\u2026"),
+                 QStringLiteral("Wrote file"),
+                 QStringLiteral("\u270E") };
+
+    if (toolName == QLatin1String("undo_file_edit"))
+        return { QStringLiteral("Undo File Edit"),
+                 QStringLiteral("Restoring file\u2026"),
+                 QStringLiteral("Restored file"),
+                 QStringLiteral("\u21B6") };
+
+    // ── Docker ───────────────────────────────────────────────────────
+    if (toolName == QLatin1String("docker"))
+        return { QStringLiteral("Docker"),
+                 QStringLiteral("Running Docker\u2026"),
+                 QStringLiteral("Docker complete"),
+                 QStringLiteral("\u2630") };
+
     // ── Default ──────────────────────────────────────────────────────
     return { toolName,
              QStringLiteral("Running %1\u2026").arg(toolName),

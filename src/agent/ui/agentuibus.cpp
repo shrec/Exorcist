@@ -1,6 +1,8 @@
 #include "agentuibus.h"
 #include "iagentuirenderer.h"
 
+#include <QThread>
+
 AgentUIBus::AgentUIBus(QObject *parent)
     : QObject(parent)
 {
@@ -19,6 +21,16 @@ void AgentUIBus::removeRenderer(IAgentUIRenderer *renderer)
 
 void AgentUIBus::post(const AgentUIEvent &event)
 {
+    // Renderers (Ultralight WebView) are not thread-safe.
+    // If called from a worker thread (e.g. QtConcurrent tool execution),
+    // marshal back to the main thread.
+    if (QThread::currentThread() != thread()) {
+        AgentUIEvent copy = event;
+        QMetaObject::invokeMethod(this, [this, copy]() { post(copy); },
+                                  Qt::QueuedConnection);
+        return;
+    }
+
     AgentUIEvent stamped = event;
     if (stamped.timestamp == 0)
         stamped.timestamp = QDateTime::currentMSecsSinceEpoch();
@@ -56,6 +68,14 @@ QString AgentUIBus::currentMissionId() const
 
 void AgentUIBus::clearMission(const QString &missionId)
 {
+    // Marshal to main thread if called from a worker.
+    if (QThread::currentThread() != thread()) {
+        QString copy = missionId;
+        QMetaObject::invokeMethod(this, [this, copy]() { clearMission(copy); },
+                                  Qt::QueuedConnection);
+        return;
+    }
+
     const QString id = missionId.isEmpty() ? m_currentMissionId : missionId;
     m_history.remove(id);
     m_missionOrder.removeAll(id);

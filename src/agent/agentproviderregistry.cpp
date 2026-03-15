@@ -3,6 +3,7 @@
 #include "../aiinterface.h"
 
 #include <QLoggingCategory>
+#include <QSettings>
 
 Q_LOGGING_CATEGORY(lcProvReg, "exorcist.agent.registry")
 
@@ -28,13 +29,35 @@ void AgentProviderRegistry::registerProvider(IAgentProvider *provider)
     m_providers.append(provider);
 
     connect(provider, &IAgentProvider::availabilityChanged,
-            this, &AgentProviderRegistry::providerAvailabilityChanged);
+            this, [this, provider](bool available) {
+        emit providerAvailabilityChanged(available);
+        // Auto-switch: if the current active provider is unavailable
+        // and this provider just became available, switch to it.
+        if (available && m_active && !m_active->isAvailable() && provider != m_active)
+            setActiveProvider(provider->id());
+    });
 
     qCInfo(lcProvReg) << "Registered provider:" << provider->id();
     emit providerRegistered(provider->id());
 
-    if (!m_active)
-        setActiveProvider(provider->id());
+    // Auto-select: prefer user's last explicit choice (if that provider is
+    // actually loaded), otherwise just pick the first registered provider.
+    // Each provider is independent — we never block on a missing provider.
+    if (!m_active) {
+        const QString saved = QSettings().value(
+            QStringLiteral("ai/activeProvider")).toString();
+        if (!saved.isEmpty() && provider->id() == saved)
+            setActiveProvider(saved);
+        else
+            setActiveProvider(provider->id());
+    } else if (m_providers.size() > 1) {
+        // Multiple providers loaded — check if the newly arrived one is
+        // the user's saved preference and should take over.
+        const QString saved = QSettings().value(
+            QStringLiteral("ai/activeProvider")).toString();
+        if (!saved.isEmpty() && provider->id() == saved && m_active->id() != saved)
+            setActiveProvider(saved);
+    }
 }
 
 void AgentProviderRegistry::removeProvider(const QString &providerId)
@@ -90,6 +113,9 @@ void AgentProviderRegistry::setActiveProvider(const QString &id)
 
     m_active = next;
     m_active->initialize();
+
+    // Persist user's choice so it survives restarts
+    QSettings().setValue(QStringLiteral("ai/activeProvider"), m_active->id());
 
     qCInfo(lcProvReg) << "Active provider:" << m_active->id();
     emit activeProviderChanged(m_active->id());

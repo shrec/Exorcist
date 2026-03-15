@@ -27,6 +27,9 @@ public:
     /// True if a valid project root has been loaded.
     bool isLoaded() const { return !m_root.isEmpty(); }
 
+    /// Return the workspace root path.
+    QString root() const { return m_root; }
+
     // ── Rules ────────────────────────────────────────────────────────────
 
     const QList<ProjectRule> &rules() const { return m_rules; }

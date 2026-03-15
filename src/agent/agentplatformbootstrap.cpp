@@ -42,6 +42,8 @@
 #include "tools/editorcontexttool.h"
 #include "tools/changeimpacttool.h"
 #include "tools/scratchpadtool.h"
+#include "tools/managerulestool.h"
+#include "tools/managememorytool.h"
 #include "tools/terminalsessiontools.h"
 #include "tools/pythontools.h"
 #include "tools/packagemanagertools.h"
@@ -63,6 +65,7 @@
 #include "tools/devtools.h"
 #include "tools/treesitterquerytool.h"
 #include "tools/dashboardtools.h"
+#include "tools/dockertools.h"
 #include "ui/agentuibus.h"
 #include "diagnosticsnotifier.h"
 #include "terminalsessionmanager.h"
@@ -152,7 +155,37 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
     m_toolRegistry->registerTool(std::make_unique<ReadFileTool>(m_fileSystem));
     m_toolRegistry->registerTool(std::make_unique<ListFilesTool>(m_fileSystem));
     m_toolRegistry->registerTool(std::make_unique<WriteFileTool>(m_fileSystem));
+    m_toolRegistry->registerTool(std::make_unique<OverwriteFileTool>(m_fileSystem));
     m_toolRegistry->registerTool(std::make_unique<ApplyPatchTool>(m_fileSystem));
+
+    // ── Undo file edits (snapshot rollback) ──────────────────────────────
+    {
+        auto snapshotGetter = [this]() -> QHash<QString, QString> {
+            auto *session = m_agentController ? m_agentController->session() : nullptr;
+            return session ? session->fileSnapshots() : QHash<QString, QString>{};
+        };
+        auto fileRestorer = [this](const QString &path) -> UndoFileEditTool::UndoResult {
+            auto *session = m_agentController ? m_agentController->session() : nullptr;
+            if (!session)
+                return {false, 0, QStringLiteral("No active session.")};
+            const auto snaps = session->fileSnapshots();
+            if (!snaps.contains(path))
+                return {false, 0, QStringLiteral("No snapshot for: %1").arg(path)};
+
+            const QString &original = snaps[path];
+            if (original.isNull()) {
+                // File didn't exist before — delete it
+                QFile::remove(path);
+                return {true, 1, QStringLiteral("Deleted (file did not exist before).")};
+            }
+            QString error;
+            if (!m_fileSystem->writeTextFile(path, original, &error))
+                return {false, 0, error};
+            return {true, 1, QStringLiteral("Restored to pre-edit state.")};
+        };
+        m_toolRegistry->registerTool(std::make_unique<UndoFileEditTool>(
+            std::move(snapshotGetter), std::move(fileRestorer)));
+    }
     m_toolRegistry->registerTool(std::make_unique<ReplaceStringTool>());
     m_toolRegistry->registerTool(std::make_unique<MultiReplaceStringTool>());
     m_toolRegistry->registerTool(std::make_unique<InsertEditIntoFileTool>());
@@ -355,6 +388,10 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
     // ── Project brain database (workspace code index) ─────────────────────
     m_toolRegistry->registerTool(std::make_unique<ProjectBrainDbTool>());
 
+    // ── Project brain rules & memory management ──────────────────────────
+    m_toolRegistry->registerTool(std::make_unique<ManageRulesTool>(m_brainService));
+    m_toolRegistry->registerTool(std::make_unique<ManageMemoryTool>(m_brainService));
+
     // ── System / process management tool ──────────────────────────────────
     m_toolRegistry->registerTool(std::make_unique<ProcessManagementTool>());
 
@@ -386,6 +423,9 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
     m_toolRegistry->registerTool(std::make_unique<ArchiveTool>());
     m_toolRegistry->registerTool(std::make_unique<CreatePatchTool>());
     m_toolRegistry->registerTool(std::make_unique<ImageInfoTool>());
+
+    // ── Docker management ─────────────────────────────────────────────────
+    m_toolRegistry->registerTool(std::make_unique<DockerTool>(m_process.get()));
 
     // ── Tree-sitter AST parsing ───────────────────────────────────────────
     if (m_callbacks.treeSitterParser) {
@@ -634,6 +674,12 @@ void AgentPlatformBootstrap::setWorkspaceRoot(const QString &root)
 
     auto *brainDbTool = dynamic_cast<ProjectBrainDbTool *>(m_toolRegistry->tool(QStringLiteral("project_brain_db")));
     if (brainDbTool) brainDbTool->setWorkspaceRoot(root);
+
+    auto *overwriteTool = dynamic_cast<OverwriteFileTool *>(m_toolRegistry->tool(QStringLiteral("write_file")));
+    if (overwriteTool) overwriteTool->setWorkspaceRoot(root);
+
+    auto *dockerTool = dynamic_cast<DockerTool *>(m_toolRegistry->tool(QStringLiteral("docker")));
+    if (dockerTool) dockerTool->setWorkspaceRoot(root);
 }
 
 DiagnosticsNotifier *AgentPlatformBootstrap::diagnosticsNotifier() const
