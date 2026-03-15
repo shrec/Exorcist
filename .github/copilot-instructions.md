@@ -7,6 +7,7 @@ Exorcist is a fast, lightweight, cross-platform Qt 6–based open-source IDE tar
 The editor must always stay **lightweight**. Users who don't need a module must never pay its memory or startup cost. The modular plugin system gives users maximum freedom to compose exactly the environment they need — enable what they use, disable everything else. No wasted resources, no unnecessary complexity.
 
 See [docs/core-philosophy.md](docs/core-philosophy.md) for the full Core IDE vs Core Plugins philosophy, activation model, and performance principles.
+See [docs/development-principles.md](docs/development-principles.md) for the 10 development principles that guide how the project evolves.
 
 ## Architecture
 
@@ -35,6 +36,7 @@ The core IDE — all subsystems below ship as one executable and work together:
 | **Build System** | Task runner, build profiles, problem matchers | `build/` |
 | **Source Control** | Git integration, blame, diff, staging | `git/` |
 | **Search** | Workspace search, file search, regex search | `search/` |
+| **Code Graph** | SQLite code intelligence — file/class/function indexing with line ranges, edges, Qt connections, services, tests, CMake targets, FTS5 | `codegraph/` |
 | **Project** | Solution/project tree model, workspace management | `project/` |
 | **MCP** | Model Context Protocol client for tool servers | `mcp/` |
 | **Debug** | Debug adapter framework, GDB/MI, breakpoints, debug panel | `debug/` |
@@ -241,6 +243,159 @@ Documentation is **not optional** and must be maintained **alongside** implement
 - Follow the phased roadmap in [docs/roadmap.md](docs/roadmap.md) — do not skip phases.
 - Commit messages: imperative mood, max 72 chars subject (`Add file search`, not `Added file search`).
 - No `using namespace` in headers. Acceptable in `.cpp` files for `Qt` namespaces only.
+
+## Code Graph — Codebase Intelligence (MANDATORY)
+
+The project has a **SQLite-based code graph** that indexes the entire codebase. This is the authoritative source of truth about project structure, feature status, subsystem dependencies, and implementation gaps. **Always consult the code graph before making architectural decisions or answering questions about what exists/doesn't exist.**
+
+### Tools
+
+| Tool | Purpose | Usage |
+|------|---------|-------|
+| `tools/build_codegraph.py` | Full rebuild of `tools/codegraph.db` | `python tools/build_codegraph.py` |
+| `tools/gap_report.py` | Actionable gap report (features, QObject, orphans) | `python tools/gap_report.py` |
+| `tools/find_class.py` | Quick class/file/method/implementor/dependent lookup | `python tools/find_class.py ClassName` |
+| `tools/check_deps.py` | Impact analysis before editing a file | `python tools/check_deps.py src/path/file.h` |
+| `tools/gen_stub.py` | Generate .cpp skeleton from .h header | `python tools/gen_stub.py src/path/file.h [--dry]` |
+| `tools/style_check.py` | Check coding conventions (bare new/delete, header-only) | `python tools/style_check.py [path]` |
+| `tools/todo_extract.py` | Extract TODO/FIXME/HACK comments by subsystem | `python tools/todo_extract.py [path] [--summary] [--tag FIXME]` |
+| `tools/test_coverage.py` | Map test gaps — which classes/subsystems lack tests | `python tools/test_coverage.py [subsystem] [--untested]` |
+| `tools/api_surface.py` | Extract public API (signals, slots, methods) of a class | `python tools/api_surface.py ClassName [--signals]` |
+| `tools/query_graph.py` | Interactive queries: context, search, functions, edges, features, subsystems, tests, services, connections, targets, SQL | `python tools/query_graph.py [mode] [args]` |
+| `tools/verify_graph.py` | Data integrity verification | `python tools/verify_graph.py` |
+| `tools/codegraph.db` | SQLite3 database (~35 MB) | Direct SQL queries via Python or `sqlite3` CLI |
+
+### Database Schema
+
+| Table | Contents | Key Columns |
+|-------|----------|-------------|
+| `files` | All indexed files (14k+) | `path`, `lang`, `lines`, `subsystem`, `has_qobject` |
+| `classes` | All C++/TS classes (12k+) | `name`, `bases`, `is_interface`, `has_impl`, `file_id` |
+| `methods` | Method declarations | `name`, `is_pure_virtual`, `is_signal`, `is_slot`, `has_body` |
+| `includes` | `#include` edges | `file_id`, `included` |
+| `implementations` | Header↔Source pairings (383+) | `header_id`, `source_id`, `class_name`, `method_count` |
+| `features` | Feature detection results (56+) | `name`, `status`, `header_file`, `source_file` |
+| `subsystems` | Subsystem stats (18) | `name`, `file_count`, `line_count`, `class_count`, `interface_count` |
+| `subsystem_deps` | Inter-subsystem include edges | `from_subsystem`, `to_subsystem`, `edge_count` |
+| `class_refs` | Class cross-references (19k+) | `from_class`, `to_class`, `ref_type` |
+| `namespaces` | Namespace declarations | `file_id`, `name` |
+| `file_summaries` | 1-line summary per file (14k+) | `file_id`, `summary`, `category`, `key_classes` |
+| `function_index` | Functions with exact line ranges (3.9k+) | `file_id`, `name`, `qualified_name`, `start_line`, `end_line`, `class_name` |
+| `edges` | Unified relationship graph (25k+) | `source_file`, `target_file`, `edge_type` (`includes`, `implements`, `inherits`, `tests`) |
+| `qt_connections` | Qt signal/slot connections (408+) | `file_id`, `sender`, `signal_name`, `receiver`, `slot_name`, `line_num` |
+| `services` | ServiceRegistry register/resolve calls | `file_id`, `service_key`, `reg_type` (`register`/`resolve`) |
+| `test_cases` | QTest test methods (130+) | `file_id`, `test_class`, `test_method`, `line_num` |
+| `cmake_targets` | CMake build targets (114+) | `target_name`, `target_type` (`executable`/`library`/`plugin`/`test`) |
+| `fts_index` | FTS5 full-text search (30k+ entries) | `name`, `qualified_name`, `file_path`, `kind`, `summary` |
+
+### Feature Status Values
+
+| Status | Tag | Meaning |
+|--------|-----|---------|
+| `implemented` | `[OK]` | Has both `.h` and `.cpp` with matching class |
+| `header-only` | `[HO]` | Header exists but no `.cpp` implementation found |
+| `stub` | `[ST]` | `.cpp` exists but contains minimal/empty methods |
+| `missing` | `[--]` | Neither header nor source found for the feature |
+
+### Usage Rules
+
+1. **Rebuild before major analysis.** If you've made structural changes (added/removed files, classes, or subsystems), rebuild the graph first: `$env:PYTHONIOENCODING="utf-8"; python tools/build_codegraph.py`
+2. **Query don't guess.** When asked "does X exist?" or "what's the status of Y?", query the database — don't guess from memory or file names.
+3. **Use SQL directly for ad-hoc questions.** Run inline Python with sqlite3 for one-off queries against `tools/codegraph.db`.
+4. **Feature detection patterns live in `detect_features()`.** When adding a new tracked feature, add a tuple to the features list in `tools/build_codegraph.py`.
+5. **Subsystem = top-level dir under `src/`.** The `detect_subsystem()` function maps paths to subsystem names (e.g., `src/agent/*` → `agent`, `src/editor/*` → `editor`, `plugins/copilot/*` → `plugin-copilot`).
+
+### Development Workflow (MANDATORY)
+
+Use the code graph tools **proactively** — not just when asked. This is how AI agents work efficiently with this codebase:
+
+| When | Tool | Why |
+|------|------|-----|
+| **Before editing any `.h` or `.cpp`** | `check_deps.py <file>` | Know what breaks. See dependents, risk level, MOC/API warnings. |
+| **Before implementing a new feature** | `find_class.py <name>` | Check if it already exists, find related classes, see subsystem structure. |
+| **Before creating a new `.cpp`** | `gen_stub.py <header> --dry` | Preview the skeleton. Then `gen_stub.py <header>` to generate it. Never write boilerplate by hand. |
+| **After adding/removing files or classes** | `build_codegraph.py` | Keep the graph current. Stale data = wrong decisions. |
+| **When planning work** | `gap_report.py` | See what's missing, stubbed, or header-only. Prioritize effectively. |
+| **When investigating a subsystem** | `find_class.py --sub <name>` | Get full class inventory + dependency map for that subsystem. |
+| **Before integrating with a class** | `api_surface.py <Class>` | See public API, signals, slots. Understand the interface before wiring. |
+| **Before writing tests** | `test_coverage.py [sub]` | See what's tested and what's not. Target high-value untested classes. |
+| **When reviewing tech debt** | `todo_extract.py [path]` | Find all TODO/FIXME/HACK comments. Prioritize by subsystem. |
+| **Before submitting changes** | `style_check.py [path]` | Catch bare `new`/`delete`, header-only violations, missing `.cpp` files. |
+| **After any refactor** | `verify_graph.py` | Ensure graph integrity hasn't been broken. |
+| **Full file context in one shot** | `query_graph.py context <file\|class>` | Summary + deps + rdeps + tests + functions with line ranges. One query instead of 5-6 tool calls (~80% fewer calls). |
+| **Searching for symbols** | `query_graph.py search <query>` | FTS5 structured search — faster and better results than grep. |
+| **Reading specific functions** | `query_graph.py functions <file\|class>` | Get exact line ranges, then `read_file L278-L354` vs reading entire file (~85% fewer tokens). |
+| **Understanding relationships** | `query_graph.py edges <file>` | Unified view: who includes, tests, implements, inherits this file. |
+| **Quick file lookup** | `file_summaries` table | 1-line summary per file — know what a file does without opening it. |
+
+**Key principle:** Query → Understand → Plan → Implement → Verify. Never skip the first two steps.
+
+### Common Queries
+
+```python
+# Feature status overview
+SELECT name, status, header_file, source_file FROM features ORDER BY status, name;
+
+# Header-only classes in src/ (need .cpp files)
+SELECT c.name, f.path FROM classes c JOIN files f ON c.file_id = f.id
+WHERE c.has_impl = 0 AND c.is_interface = 0 AND f.ext = '.h' AND f.path LIKE 'src/%';
+
+# Subsystem stats
+SELECT name, file_count, line_count, class_count, interface_count FROM subsystems ORDER BY line_count DESC;
+
+# Dependency edges between subsystems
+SELECT from_subsystem, to_subsystem, edge_count FROM subsystem_deps ORDER BY edge_count DESC;
+
+# Find all classes in a subsystem
+SELECT c.name, f.path FROM classes c JOIN files f ON c.file_id = f.id WHERE f.subsystem = 'agent';
+
+# Interfaces without implementations
+SELECT c.name, f.path FROM classes c JOIN files f ON c.file_id = f.id
+WHERE c.is_interface = 1 AND c.has_impl = 0 AND f.path LIKE 'src/%';
+```
+
+### Enhanced Queries (New Tables)
+
+```python
+# Full context for a file (use query_graph.py context instead for formatted output)
+SELECT fs.summary, fs.category, fs.key_classes FROM file_summaries fs
+JOIN files f ON fs.file_id = f.id WHERE f.path LIKE '%chatinputwidget.cpp';
+
+# Functions with line ranges (for targeted file reading)
+SELECT fi.qualified_name, fi.start_line, fi.end_line, fi.line_count
+FROM function_index fi JOIN files f ON fi.file_id = f.id
+WHERE f.path LIKE '%agentcontroller.cpp' ORDER BY fi.start_line;
+
+# All edges for a file
+SELECT e.edge_type, f2.path FROM edges e
+JOIN files f1 ON e.source_file = f1.id JOIN files f2 ON e.target_file = f2.id
+WHERE f1.path LIKE '%chatinputwidget.cpp';
+
+# Qt signal/slot connections in a subsystem
+SELECT q.sender, q.signal_name, q.receiver, q.slot_name, f.path
+FROM qt_connections q JOIN files f ON q.file_id = f.id WHERE f.subsystem = 'agent';
+
+# FTS5 full-text search across all symbols
+SELECT name, qualified_name, file_path, kind FROM fts_index
+WHERE fts_index MATCH 'AgentController' ORDER BY rank LIMIT 20;
+
+# Test cases for a specific test file
+SELECT test_class, test_method, line_num FROM test_cases tc
+JOIN files f ON tc.file_id = f.id WHERE f.path LIKE '%test_searchworker%';
+
+# CMake targets by type
+SELECT target_name, target_type FROM cmake_targets ORDER BY target_type, target_name;
+
+# Files without summaries (orphans)
+SELECT f.path FROM files f LEFT JOIN file_summaries fs ON f.id = fs.file_id WHERE fs.file_id IS NULL;
+```
+
+### PowerShell Note
+
+When running Python scripts that output special characters on Windows, always set encoding:
+```powershell
+$env:PYTHONIOENCODING="utf-8"; python tools/build_codegraph.py
+```
 
 ## MainWindow God Object — FREEZE (STRICT)
 

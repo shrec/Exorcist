@@ -233,11 +233,24 @@ void BridgeClient::onReadyRead()
 {
     m_buffer.append(m_socket->readAll());
 
+    // Guard: cap read buffer at 64 MB to prevent OOM.
+    static constexpr int MaxReadBuffer = 64 * 1024 * 1024;
+    if (m_buffer.size() > MaxReadBuffer) {
+        qWarning("[BridgeClient] Read buffer exceeded %d MB — "
+                 "clearing", MaxReadBuffer / (1024 * 1024));
+        m_buffer.clear();
+        return;
+    }
+
     QByteArray payload;
     while (Ipc::tryUnframe(m_buffer, payload)) {
         const auto msg = Ipc::Message::deserialize(payload);
         handleMessage(msg);
     }
+
+    // Reclaim memory when buffer is fully consumed.
+    if (m_buffer.isEmpty())
+        m_buffer.squeeze();
 }
 
 void BridgeClient::handleMessage(const Ipc::Message &msg)

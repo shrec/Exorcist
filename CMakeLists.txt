@@ -21,9 +21,11 @@ if(EXORCIST_USE_LLVM)
     find_package(LLVM CONFIG REQUIRED)
 endif()
 
+include(FetchContent)
+
 # ── Tree-sitter ──────────────────────────────────────────────────────────────
 if(EXORCIST_USE_TREESITTER)
-    include(FetchContent)
+    #include(FetchContent)  # already included above
 
     FetchContent_Declare(
         tree-sitter

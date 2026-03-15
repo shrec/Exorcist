@@ -1,5 +1,7 @@
 # VS Code Copilot Chat — UI/UX Porting Reference Document
 
+> **სტატუსი:** ✅ პორტირება სრულად დასრულებულია. ეს დოკუმენტი რჩება არქივის/რეფერენს სახით.
+>
 > **Purpose:** Deep analysis of the VS Code Copilot Chat extension UI/UX, mapped against the current Exorcist `AgentChatPanel` implementation. Every visual component, color, spacing value, behavior, and interaction pattern is documented with exact CSS values from the VS Code source. Gaps are identified with specific remediation steps.
 
 ---

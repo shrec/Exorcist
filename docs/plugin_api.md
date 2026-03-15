@@ -126,6 +126,19 @@ Related core interfaces:
 - Core owns the shared tool registry and tool execution pipeline.
 - Plugins must not duplicate tool implementations that are already part of the shared platform.
 
+### Core Brain Tools (available to all providers)
+
+The agent platform includes tools that let the AI model manage persistent project knowledge:
+
+| Tool | Operations | Purpose |
+|------|-----------|---------|
+| `manage_rules` | add, remove, list | Read/write project rules (conventions, style, safety). Rules are auto-injected into system prompts via `<project_rules>`. |
+| `manage_memory` | add_fact, update_fact, forget_fact, list_facts, read_note, write_note, list_notes | Read/write memory facts and markdown notes. Facts injected as `<project_memory>`, notes as `<architecture_notes>`, `<build_notes>`, `<pitfall_notes>`. |
+| `project_brain_db` | init, scan, query, learn, forget, status, execute | SQLite codebase index (files, symbols, dependencies, modules). |
+| `scratchpad` | write, append, read, list, search, delete | Project-linked markdown notes outside the repo. |
+
+Data storage: `.exorcist/rules.json`, `.exorcist/memory.json`, `.exorcist/notes/`, `.exorcist/project.db`
+
 ### Extension Interfaces (implemented)
 
 These interfaces are defined in `src/agent/` and can be implemented by plugins:
@@ -321,3 +334,130 @@ All functions are under the `ex` global table:
 - Hot reload on file change (QFileSystemWatcher + 300ms debounce)
 
 Full reference: [docs/luajit.md](luajit.md)
+
+## JavaScript Plugin SDK (Ultralight JSC)
+
+For rich scripting with a modern JavaScript engine, Exorcist ships a **JavaScript
+Plugin SDK** as a Core Plugin (`plugins/javascript-sdk/`). It uses the JavaScriptCore
+C API bundled with the Ultralight SDK. Two plugin types are supported:
+
+- **Headless** — Pure JS execution (no DOM). Uses a bare `JSGlobalContext`.
+- **HTML** — Full WebView with DOM + CSS + HTML rendered by Ultralight. The `ex.*`
+  SDK is injected into the WebView context. Developer writes HTML/CSS/JS and uses
+  `ex.*` for IDE communication. UI is rendered via Ultralight CPU renderer.
+
+### Directory layout
+
+**Headless plugin** (pure JS, no UI):
+```
+plugins/javascript/<plugin-name>/
+├── plugin.json    # manifest (id, name, version, permissions)
+└── main.js        # entry script (must define initialize/shutdown)
+```
+
+**HTML plugin** (WebView UI + ex.* SDK):
+```
+plugins/javascript/<plugin-name>/
+├── plugin.json    # manifest with type: "html", contributions.views
+└── ui/
+    ├── index.html # HTML entry point
+    ├── styles.css # styling (inlined at load time)
+    └── main.js    # plugin logic using ex.* SDK + DOM
+```
+
+### `plugin.json` manifest
+
+**Headless:**
+```json
+{
+  "id": "org.example.my-plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "permissions": ["commands", "notifications", "editor.read", "workspace.read"]
+}
+```
+
+**HTML:**
+```json
+{
+  "id": "org.example.my-html-plugin",
+  "name": "My HTML Plugin",
+  "type": "html",
+  "version": "1.0.0",
+  "htmlEntry": "ui/index.html",
+  "permissions": ["commands", "notifications", "editor.read"],
+  "contributions": {
+    "views": [
+      { "id": "MyPanel", "title": "My Plugin", "location": "right", "defaultVisible": true }
+    ]
+  }
+}
+```
+
+Available permissions: `commands`, `editor.read`, `notifications`, `workspace.read`,
+`git.read`, `diagnostics.read`, `logging`, `events`.
+
+View locations: `left`, `right`, `bottom`, `top`.
+
+### JavaScript API surface (`ex.*`)
+
+| Namespace | Methods | Required Permission |
+|-----------|---------|-------------------|
+| `ex.commands` | `register(id, title, callback)`, `execute(id)` | `commands` |
+| `ex.editor` | `activeFile()`, `language()`, `selectedText()`, `cursorLine()`, `cursorColumn()` | `editor.read` |
+| `ex.notify` | `info(text)`, `warning(text)`, `error(text)`, `status(text, timeoutMs)` | `notifications` |
+| `ex.workspace` | `root()`, `readFile(path)`, `exists(path)`, `listDir(path)`, `openFiles()` | `workspace.read` |
+| `ex.git` | `isRepo()`, `branch()`, `diff(staged)` | `git.read` |
+| `ex.diagnostics` | `errorCount()`, `warningCount()` | `diagnostics.read` |
+| `ex.log` | `debug(msg)`, `info(msg)`, `warning(msg)`, `error(msg)` | `logging` |
+| `ex.events` | `on(name, callback)`, `off(name)` | `events` |
+
+### Example plugin
+
+```js
+function initialize() {
+    ex.commands.register('myPlugin.greet', 'Greet', function() {
+        ex.notify.info('Hello from JavaScript!');
+    });
+
+    ex.events.on('fileSaved', function(path) {
+        ex.log.info('Saved: ' + path);
+    });
+}
+
+function shutdown() {
+    ex.log.info('Plugin shutting down');
+}
+```
+
+### Features
+
+- Each JS plugin gets its own sandboxed `JSGlobalContext` (headless) or WebView (HTML)
+- Permission-gated: only declared API namespaces are injected
+- Hot reload on file change (QFileSystemWatcher + 300ms debounce) — headless plugins
+- Multiple plugins can coexist independently
+- Uses `JSEvaluateScript` for VM entry scope safety
+
+### HTML plugin architecture
+
+For HTML plugins, the SDK DLL (`libjavascript-sdk.dll`) handles everything:
+
+1. Plugin manifest declares `"type": "html"` and `contributions.views`
+2. `JsPluginRuntime` parses the manifest and creates `LoadedHtmlPlugin` entries
+3. `JsPluginSdkPlugin` creates `UltralightPluginView` widgets (one per view)
+4. Each view loads the HTML file with `<script>` and `<link>` resources inlined
+5. After DOM is ready, the `ex.*` SDK is injected via `JsHostAPI::registerAll()`
+6. The plugin's `initialize()` function is called
+7. The view is registered as a dock panel via `IViewService::registerPanel()`
+
+The JS developer writes standard HTML/CSS/JS and uses `ex.*` for IDE communication.
+The Ultralight renderer (CPU mode) handles all rendering, input, and clipboard.
+
+**Renderer sharing:** The process-wide Ultralight renderer is shared via
+`qApp->property("__exo_ul_renderer")`. Whether the chat panel or a plugin
+initializes Ultralight first, all views share the same renderer.
+
+**Resource inlining:** Since Ultralight 1.4-beta crashes on `ulViewLoadHTML` and
+`file://` URLs, external `<script src="...">` and `<link href="...">` references
+are read from disk and inlined before loading via the about:blank + base64
+injection workaround.

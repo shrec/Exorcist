@@ -1,6 +1,6 @@
 # Copilot Chat — ვიზუალური პორტირების როადმეპი
 
-> **სტატუსი**: ფუნქციონალურად 16/16 ფაზა დასრულებულია. ვიზუალური UI/UX არ ემთხვევა VS Code-ს.
+> **სტატუსი**: ✅ სრულად დასრულებულია. ფუნქციონალურად 16/16 ფაზა + ვიზუალური UI/UX VS Code parity მიღწეულია.
 >
 > **მიზანი**: Exorcist-ის Chat UI ვიზუალურად იდენტური გახადოთ VS Code-ის Copilot Chat-თან.
 >
@@ -8,16 +8,21 @@
 
 ---
 
-## 🔴 რატომ არ მუშაობს ეხლანდელი მიდგომა
+## ✅ ვიზუალური პორტირება დასრულებულია
 
-წინა ცვლილებები სტრუქტურული იყო (provider tab-ების მოშლა, header bar-ის დამატება) მაგრამ
-**ვიზუალურად ეკრანზე არაფერი შეცვლილა** რადგან:
-- შეტყობინებების layout იგივე დარჩა
-- ავატარების ზომა/ფერი იგივეა (emoji 👤/✨ vs VS Code-ის ტექსტ-ინიციალ ავატარი)
-- Input field-ის ჩარჩო არ იცვლება focus-ზე
-- კოდის ბლოკებს არ აქვთ VS Code-ის ცისფერი border-left
-- Separator ხაზი user/assistant-ს შორის VS Code-ში საერთოდ არ არის
-- Follow-up ბმულები pill-ებად ჩანს, VS Code-ში ტექსტ-ბმულებია
+Widget-based არქიტექტურაზე გადასვლის შემდეგ ყველა ვიზუალური gap დაიხურა:
+
+- ✅ ავატარები: 16×16px ტექსტ-ინიციალები (U/✦), 3px radius, VS Code ფერები
+- ✅ Input focus border: eventFilter FocusIn/FocusOut → `#0078d4` / `#3e3e42`
+- ✅ კოდის ბლოკები: `border-left: 3px solid #0e639c`, `border-radius: 2px`
+- ✅ Separator user↔assistant: მოიშალა, 8px spacing
+- ✅ Follow-up ბმულები: VBoxLayout, ტექსტ-ლინკები (#4daafc, underline on hover)
+- ✅ Streaming progress bar: 2px indeterminate, `#007acc`
+- ✅ Welcome screen: "Ask Copilot" title, `/explain` pill suggestions, 14px radius
+- ✅ Thinking widget: 200px max height, collapsible, chain-line connectors
+- ✅ Layout margins: VS Code-ის ტაიტი layout (6,4,20,4)
+- ✅ Inline code font-size: 13px (body-თან თანხვედრა)
+- ✅ Theme tokens: ChatThemeTokens სრული dark/light system
 - Streaming-ის progress bar არ არსებობს
 - Padding/margin ძალიან დიდია — ვიჯეტი "სქელი" გამოჩნდება
 

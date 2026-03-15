@@ -13,6 +13,7 @@
 /build-llvm/
 /build*/
 /bw-output/
+/Testing/
 
 # Temporary build/run logs
 *.log
@@ -40,16 +41,30 @@ dbg_stderr.txt
 debug_out.txt
 err.txt
 launch_output.txt
+launch_stderr.txt
+launch_stdout.txt
 lj_vm_disasm.txt
 model_log*.txt
 model_policy_log.txt
 out.txt
-stderr_debug.txt
-stderr_log*.txt
-stdout_debug.txt
+stderr_*.txt
+stdout_*.txt
 test_file.txt
+test_out*.txt
+test_err*.txt
+test_stderr*.txt
+test_stdout*.txt
+test_results.txt
+ctest_err.txt
+ctest_out.txt
+git_files.txt
+git_stat.txt
+git_status.txt
+ul_crash_*.txt
+ul_test*.txt
 ui_screenshot.png
 ui_ss*.png
+*.bak
 
 # Research repositories (local reference only, not committed)
 /ReserchRepos/

@@ -1,5 +1,7 @@
 #include "exobridgecore.h"
 
+#include <QPointer>
+
 ExoBridgeCore::ExoBridgeCore(QObject *parent)
     : QObject(parent)
 {
@@ -126,11 +128,26 @@ void ExoBridgeCore::onReadyRead(QLocalSocket *socket)
     auto &buf = m_readBuffers[socket];
     buf.append(socket->readAll());
 
+    // Guard: cap per-client read buffer at 64 MB to prevent OOM from
+    // malformed data that never forms a complete framed message.
+    static constexpr int MaxReadBuffer = 64 * 1024 * 1024;
+    if (buf.size() > MaxReadBuffer) {
+        qWarning("[ExoBridge] Client read buffer exceeded %d MB — "
+                 "disconnecting", MaxReadBuffer / (1024 * 1024));
+        buf.clear();
+        socket->disconnectFromServer();
+        return;
+    }
+
     QByteArray payload;
     while (Ipc::tryUnframe(buf, payload)) {
         const auto msg = Ipc::Message::deserialize(payload);
         handleMessage(socket, msg);
     }
+
+    // Reclaim memory when buffer is fully consumed.
+    if (buf.isEmpty())
+        buf.squeeze();
 }
 
 void ExoBridgeCore::handleMessage(QLocalSocket *socket, const Ipc::Message &msg)
@@ -182,6 +199,7 @@ void ExoBridgeCore::handleRequest(QLocalSocket *socket, const Ipc::Message &req)
     } else if (method == QLatin1String(Ipc::Method::UnregisterService)) {
         const QString name = req.params.value(QLatin1String("name")).toString();
         m_sharedServices.remove(name);
+        m_serviceHandlers.remove(name);
         sendMessage(socket, Ipc::Message::response(req.id, {}));
 
         QJsonObject event;
@@ -200,14 +218,19 @@ void ExoBridgeCore::handleRequest(QLocalSocket *socket, const Ipc::Message &req)
         auto handlerIt = m_serviceHandlers.find(name);
         if (handlerIt != m_serviceHandlers.end()) {
             const int reqId = req.id;
+            // Capture a QPointer so the lambda safely detects a
+            // disconnected (and deleteLater'd) socket.
+            QPointer<QLocalSocket> safeSocket(socket);
             handlerIt.value()(
                 svcMethod, args,
-                [this, socket, reqId](bool ok, const QJsonObject &result) {
+                [this, safeSocket, reqId](bool ok, const QJsonObject &result) {
+                    if (safeSocket.isNull())
+                        return; // socket already destroyed
                     if (ok)
-                        sendMessage(socket,
+                        sendMessage(safeSocket,
                                     Ipc::Message::response(reqId, result));
                     else
-                        sendMessage(socket,
+                        sendMessage(safeSocket,
                                     Ipc::Message::errorResponse(
                                         reqId, Ipc::ErrorCode::InternalError,
                                         result.value(QLatin1String("message"))

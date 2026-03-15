@@ -129,8 +129,12 @@ bool tryUnframe(QByteArray &buffer, QByteArray &outPayload)
                       | (static_cast<quint32>(ptr[2]) << 8)
                       | static_cast<quint32>(ptr[3]);
 
-    if (len > 16 * 1024 * 1024)  // sanity: max 16 MB per message
+    if (len > 16 * 1024 * 1024) {  // sanity: max 16 MB per message
+        // Drain the oversized header to prevent the buffer from being
+        // stuck forever with unparseable data.
+        buffer.remove(0, 4);
         return false;
+    }
 
     if (static_cast<quint32>(buffer.size()) < 4 + len)
         return false;

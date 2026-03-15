@@ -304,6 +304,8 @@ See [docs/plugin_api.md](docs/plugin_api.md) for the plugin development guide.
 | Document | Description |
 |----------|-------------|
 | [Architecture](docs/architecture.md) | System design, layers, ExoBridge |
+| [Development Principles](docs/development-principles.md) | How Exorcist evolves as a system |
+| [Core Philosophy](docs/core-philosophy.md) | Core vs Plugin boundary, activation model |
 | [Roadmap](docs/roadmap.md) | Development phases and progress |
 | [Plugin API](docs/plugin_api.md) | Plugin development guide |
 | [AI Integration](docs/ai.md) | AI architecture and providers |
@@ -318,10 +320,12 @@ See [docs/plugin_api.md](docs/plugin_api.md) for the plugin development guide.
 
 | Metric | Value |
 |--------|-------|
-| Source files | **423** |
-| Lines of C++ | **~65,000** |
+| Source files | **664** |
+| Lines of C++ | **~96,000** |
 | Languages highlighted | **41+** |
-| AI agent tools | **15+** |
+| AI agent tools | **112** |
+| Plugins | **12** |
+| Tests | **49** |
 | Required dependency | **Qt 6 only** |
 | License | **MIT** |
 
