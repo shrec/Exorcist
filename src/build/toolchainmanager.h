@@ -81,6 +81,9 @@ public:
     /// Find clangd on the system.
     ToolInfo findClangd() const;
 
+    /// Extract a version number (e.g. "17.0.6") from version output.
+    QString extractVersion(const QString &output) const;
+
 signals:
     void detectionFinished();
     void detectionError(const QString &error);
@@ -95,7 +98,6 @@ private:
                              const QStringList &versionArgs = {QStringLiteral("--version")}) const;
     ToolInfo probeAtPath(const QString &path,
                          const QStringList &versionArgs = {QStringLiteral("--version")}) const;
-    QString extractVersion(const QString &output) const;
     QStringList searchPaths() const;
 #ifdef Q_OS_WIN
     void detectMsvcToolchains();

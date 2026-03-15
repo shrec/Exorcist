@@ -416,6 +416,8 @@ add_executable(exorcist WIN32
     build/outputpanel.h
     build/runlaunchpanel.cpp
     build/runlaunchpanel.h
+    build/kit.cpp
+    build/kit.h
     problems/problemspanel.h
     problems/problemspanel.cpp
     editor/filewatchservice.cpp

@@ -13,6 +13,8 @@ add_library(build_plugin SHARED
     debuglaunchcontroller.cpp
     buildsystemservice.h
     buildsystemservice.cpp
+    kitmanager.h
+    kitmanager.cpp
 )
 
 target_link_libraries(build_plugin PRIVATE

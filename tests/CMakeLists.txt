@@ -642,6 +642,23 @@ target_link_libraries(test_profilemanager PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_profilemanager PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ProfileManager COMMAND test_profilemanager)
 
+# ── Kit tests ──────────────────────────────────────────────────────────────────
+add_executable(test_kit
+    test_kit.cpp
+    ${CMAKE_SOURCE_DIR}/src/build/kit.cpp
+    ${CMAKE_SOURCE_DIR}/src/build/kit.h
+    ${CMAKE_SOURCE_DIR}/plugins/build/kitmanager.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/build/kitmanager.h
+    ${CMAKE_SOURCE_DIR}/plugins/build/toolchainmanager.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/build/toolchainmanager.h
+)
+target_link_libraries(test_kit PRIVATE Qt6::Test Qt6::Widgets Qt6::Concurrent)
+target_include_directories(test_kit PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/plugins/build
+)
+add_test(NAME Kit COMMAND test_kit)
+
 # Deploy Qt DLLs so tests can run (Windows)
 if(WIN32 AND EXORCIST_DEPLOY_QT)
     find_program(WINDEPLOYQT windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")

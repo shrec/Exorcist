@@ -219,6 +219,13 @@ See [docs/debug.md](debug.md)
   - Ctrl+F5: Run without debugging
   - Shift+F5: Stop (debugLauncher + runPanel)
   - openFolder: async toolchain detection, CMake auto-detect configs, toolbar refresh, compile_commands.json status
+- **Kit System** (`src/build/kit.h/.cpp`, `plugins/build/kitmanager.h/.cpp`) — unified build environment bundles
+  - `Kit` struct bundles compiler (C/C++), debugger, CMake, generator, target triple into one selectable profile
+  - `IKitManager` interface (core) — query, CRUD, detection, active kit selection
+  - `KitManager` (build plugin) — auto-detects kits from ToolchainManager results
+  - Persistent user-defined kits via QSettings (auto-detected kits re-detected each session)
+  - Registered as `"kitManager"` service in ServiceRegistry
+  - 25 unit tests (`tests/test_kit.cpp`) covering Kit validation, display name, CRUD, signals
 
 ---
 

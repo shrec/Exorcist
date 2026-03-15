@@ -4,6 +4,7 @@
 #include "buildtoolbar.h"
 #include "cmakeintegration.h"
 #include "debuglaunchcontroller.h"
+#include "kitmanager.h"
 #include "build/outputpanel.h"
 #include "build/runlaunchpanel.h"
 #include "toolchainmanager.h"
@@ -99,6 +100,7 @@ bool BuildPlugin::initialize(IHostServices *host)
 
     // Create build subsystem objects
     m_toolchainMgr = new ToolchainManager(this);
+    m_kitMgr       = new KitManager(m_toolchainMgr, this);
     m_cmake        = new CMakeIntegration(this);
     m_cmake->setToolchainManager(m_toolchainMgr);
     m_output       = new OutputPanel(nullptr);
@@ -125,6 +127,9 @@ bool BuildPlugin::initialize(IHostServices *host)
     auto *launchSvc = new LaunchServiceAdapter(m_launcher, this);
     m_host->registerService(QStringLiteral("launchService"), launchSvc);
 
+    // Register kit manager
+    m_host->registerService(QStringLiteral("kitManager"), m_kitMgr);
+
     // Register the toolbar widget as a service so MainWindow can add it
     m_host->registerService(QStringLiteral("buildToolbar"), m_toolbar);
 
@@ -140,6 +145,9 @@ bool BuildPlugin::initialize(IHostServices *host)
         if (!root.isEmpty())
             setWorkingDir(root);
     }
+
+    // Auto-detect kits (async)
+    m_kitMgr->detectKits();
 
     return true;
 }

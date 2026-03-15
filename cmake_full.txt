@@ -1,0 +1,5 @@
+-- Could NOT find WrapVulkanHeaders (missing: Vulkan_INCLUDE_DIR) 
+-- Ultralight SDK not found locally, using FetchContent...
+-- Configuring done (7.4s)
+-- Generating done (1.4s)
+-- Build files have been written to: D:/Dev/Exorcist/build-llvm

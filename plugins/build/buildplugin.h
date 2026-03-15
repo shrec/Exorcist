@@ -12,6 +12,7 @@ class OutputPanel;
 class RunLaunchPanel;
 class DebugLaunchController;
 class BuildSystemService;
+class KitManager;
 class IDebugAdapter;
 
 class BuildPlugin : public QObject, public IPlugin, public IViewContributor
@@ -45,6 +46,7 @@ private:
     IHostServices *m_host = nullptr;
 
     ToolchainManager      *m_toolchainMgr = nullptr;
+    KitManager            *m_kitMgr       = nullptr;
     CMakeIntegration      *m_cmake        = nullptr;
     BuildToolbar          *m_toolbar      = nullptr;
     OutputPanel           *m_output       = nullptr;
