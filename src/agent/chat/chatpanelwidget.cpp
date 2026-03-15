@@ -592,11 +592,6 @@ void ChatPanelWidget::connectController()
         part.toolInput = QString::fromUtf8(
             QJsonDocument(args).toJson(QJsonDocument::Compact));
 
-        // Build a human-readable description from tool arguments
-        const QString desc = ToolPresentationFormatter::descriptionFromArgs(toolName, args);
-        if (!desc.isEmpty())
-            part.toolInvocationMsg = desc;
-
         m_sessionModel->appendPart(part);
         int idx = m_sessionModel->turnCount() - 1;
 #ifdef EXORCIST_HAS_ULTRALIGHT
@@ -1018,6 +1013,7 @@ void ChatPanelWidget::setEditorContext(const QString &filePath,
 void ChatPanelWidget::focusInput()
 {
 #ifdef EXORCIST_HAS_ULTRALIGHT
+    m_ultralightView->setFocus(Qt::OtherFocusReason);
     m_jsBridge->focusInput();
 #else
     m_inputWidget->focusInput();

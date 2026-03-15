@@ -60,6 +60,7 @@
     --avatar-bg: #5a4fcf;
     --avatar-fg: #ffffff;
     --avatar-user-bg: #0078d4;
+    --request-bubble-bg: #2d2d2d;
 
     --scroll-track: transparent;
     --scroll-thumb: #424242;
@@ -253,7 +254,7 @@ html, body {
  * Message Row (Turn)
  * ═══════════════════════════════════════════════════════════════════════════════ */
 .interactive-item-container {
-    padding: 10px 16px 8px 16px;
+    padding: 8px 20px;
     display: flex;
     flex-direction: column;
     color: var(--fg-primary);
@@ -262,9 +263,20 @@ html, body {
     -webkit-user-select: text;
 }
 
-/* Request row gets a subtle top border */
+/* Request row — no border separator (VS Code uses spacing only) */
 .interactive-item-container.interactive-request {
-    border-top: 1px solid var(--sep-line);
+    border-top: none;
+}
+
+/* User message bubble — VS Code parity */
+.interactive-item-container.interactive-request .value .rendered-markdown {
+    background-color: var(--request-bubble-bg);
+    border-radius: 12px;
+    padding: 8px 12px;
+    max-width: 90%;
+    margin-left: auto;
+    width: fit-content;
+    margin-bottom: 5px;
 }
 
 .interactive-item-container.interactive-request:first-child {
@@ -305,13 +317,14 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
-    font-size: 11px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    font-size: 12px;
     font-weight: 700;
     color: var(--avatar-fg);
     flex-shrink: 0;
+    outline: 1px solid var(--border);
 }
 
 .avatar-user {
@@ -323,13 +336,20 @@ html, body {
 }
 
 .avatar .icon {
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
 }
 
 .avatar + .avatar {
-    margin-left: -6px;
+    margin-left: -8px;
+}
+
+/* Avatar SVG icon */
+.avatar svg {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
 }
 
 /* ── Value (content body) ─────────────────────────────────────────────────── */
@@ -374,6 +394,19 @@ html, body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.context-chip-icon {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+}
+
+.context-chip-icon svg {
+    width: 14px;
+    height: 14px;
 }
 
 .context-chip:hover {
@@ -539,15 +572,15 @@ html, body {
     position: relative;
     margin: 0 0 16px 0;
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    overflow: hidden;
+    border-radius: 5px;
+    overflow: visible;
     background-color: var(--code-bg);
 }
 
 /* Toolbar: hidden by default, shows on hover */
 .interactive-result-code-block .code-block-toolbar {
     position: absolute;
-    top: 6px;
+    top: -15px;
     right: 10px;
     z-index: 10;
     display: flex;
@@ -555,8 +588,8 @@ html, body {
     gap: 2px;
     height: 26px;
     background-color: var(--code-bg);
-    border: 1px solid var(--request-border);
-    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    border-radius: 5px;
     padding: 0 2px;
     opacity: 0;
     pointer-events: none;
@@ -573,15 +606,25 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
+    gap: 3px;
+    min-width: 24px;
     height: 24px;
     border: none;
     background: transparent;
     color: var(--fg-secondary);
     font-size: var(--font-size-xs);
+    font-family: var(--font-family);
     cursor: pointer;
     border-radius: var(--radius-sm);
-    padding: 0;
+    padding: 0 4px;
+    white-space: nowrap;
+}
+
+.code-block-toolbar .code-action-btn svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    fill: currentColor;
 }
 
 .code-block-toolbar .code-action-btn:hover {
@@ -591,6 +634,14 @@ html, body {
 
 .code-block-toolbar .code-action-btn[title]::after {
     content: none; /* Tooltip via title attr */
+}
+
+/* Separator between actions */
+.code-block-toolbar .toolbar-sep {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+    flex-shrink: 0;
 }
 
 /* Language label at top-left */
@@ -637,6 +688,16 @@ html, body {
     font-size: inherit;
 }
 
+/* ── Syntax highlighting tokens ──────────────────────────── */
+.hl-keyword   { color: #C586C0; }
+.hl-type      { color: #4EC9B0; }
+.hl-string    { color: #CE9178; }
+.hl-comment   { color: #6A9955; font-style: italic; }
+.hl-number    { color: #B5CEA8; }
+.hl-function  { color: #DCDCAA; }
+.hl-decorator { color: #DCDCAA; }
+.hl-directive { color: #C586C0; }
+
 /* ═══════════════════════════════════════════════════════════════════════════════
  * Thinking Block — VS Code shimmer parity
  * ═══════════════════════════════════════════════════════════════════════════════ */
@@ -645,6 +706,24 @@ html, body {
     position: relative;
     color: var(--thinking-fg);
     margin: 0 0 16px 0;
+}
+
+/* Chain line — vertical connector on the left */
+.chat-thinking-box::before {
+    content: '';
+    position: absolute;
+    top: 32px;
+    left: 14px;
+    bottom: 4px;
+    width: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.chat-thinking-box:not(.collapsed)::before {
+    opacity: 1;
 }
 
 /* Collapsible header button */
@@ -663,6 +742,8 @@ html, body {
     line-height: 1.5em;
     text-align: left;
     border-radius: var(--radius-sm);
+    position: relative;
+    z-index: 1;
 }
 
 .chat-thinking-box .thinking-header-btn:hover {
@@ -670,6 +751,33 @@ html, body {
     color: var(--fg-primary);
 }
 
+/* Spinning icon in header */
+.thinking-header-btn .thinking-spinner-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: var(--thinking-shimmer);
+}
+
+.thinking-header-btn .thinking-spinner-icon svg {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+}
+
+.chat-thinking-box.streaming .thinking-spinner-icon svg {
+    animation: thinking-spin 1.2s linear infinite;
+}
+
+@keyframes thinking-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Static chevron (when not streaming) */
 .thinking-header-btn .thinking-chevron {
     font-size: 12px;
     transition: transform 0.15s ease;
@@ -685,6 +793,25 @@ html, body {
 
 .thinking-header-btn .thinking-label {
     font-size: var(--font-size-s);
+}
+
+/* Rotating status message next to label */
+.thinking-header-btn .thinking-status-msg {
+    font-size: var(--font-size-xs);
+    color: var(--fg-dimmed);
+    margin-left: 4px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.chat-thinking-box.streaming .thinking-status-msg {
+    opacity: 1;
+    animation: thinking-status-fade 3s ease-in-out infinite;
+}
+
+@keyframes thinking-status-fade {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
 }
 
 /* Shimmer animation on active thinking title */
@@ -712,7 +839,9 @@ html, body {
     border: 1px solid var(--request-border);
     border-radius: var(--radius-md);
     margin-top: 2px;
+    margin-left: 24px;
     overflow: hidden;
+    position: relative;
 }
 
 .chat-thinking-box.collapsed .thinking-content {
@@ -721,7 +850,7 @@ html, body {
 
 /* Thinking text inside */
 .thinking-content .thinking-text {
-    padding: 6px 12px 6px 24px;
+    padding: 6px 12px 6px 12px;
     font-size: var(--font-size-s);
     line-height: 1.5;
     white-space: pre-wrap;
@@ -730,43 +859,462 @@ html, body {
 }
 
 /* Tool items nested inside thinking */
+.thinking-content .chat-tool-invocation-part {
+    margin: 4px 8px;
+}
+
 .thinking-content .tool-invocation-item {
     padding: 4px 12px 4px 18px;
     position: relative;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
- * Tool Invocation Cards — VS Code parity
+ * Subagent Block — Nested agent runs (VS Code parity)
  * ═══════════════════════════════════════════════════════════════════════════════ */
-.chat-tool-invocation-part {
-    margin: 4px 0 6px 0;
+.chat-subagent-box {
+    outline: none;
+    position: relative;
+    color: var(--fg-secondary);
+    margin: 0 0 16px 0;
+    padding-left: 0;
 }
 
-/* ── Card container ───────────────────────────────────────────────────────── */
-.tool-card {
-    border: 1px solid var(--widget-border);
+/* Chain line */
+.chat-subagent-box::before {
+    content: '';
+    position: absolute;
+    top: 32px;
+    left: 14px;
+    bottom: 4px;
+    width: 2px;
+    background: var(--accent-purple);
+    border-radius: 1px;
+    opacity: 0.5;
+}
+
+.chat-subagent-box.collapsed::before {
+    opacity: 0;
+}
+
+.chat-subagent-box .subagent-header-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    width: 100%;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--fg-secondary);
+    font-size: var(--font-size-m);
+    font-family: var(--font-family);
+    line-height: 1.5em;
+    text-align: left;
+    border-radius: var(--radius-sm);
+    position: relative;
+    z-index: 1;
+}
+
+.chat-subagent-box .subagent-header-btn:hover {
+    background: var(--hover-bg);
+    color: var(--fg-primary);
+}
+
+.subagent-header-btn .subagent-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: var(--accent-purple);
+}
+
+.subagent-header-btn .subagent-icon svg {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+}
+
+.chat-subagent-box.streaming .subagent-icon svg {
+    animation: thinking-spin 1.2s linear infinite;
+}
+
+.subagent-header-btn .subagent-chevron {
+    font-size: 12px;
+    transition: transform 0.15s ease;
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 16px;
+    justify-content: center;
+    color: var(--fg-dimmed);
+}
+
+.chat-subagent-box.collapsed .subagent-chevron {
+    transform: rotate(-90deg);
+}
+
+.subagent-header-btn .subagent-label {
+    font-size: var(--font-size-s);
+    font-weight: 500;
+}
+
+.chat-subagent-box.streaming .subagent-label {
+    background: linear-gradient(90deg,
+        var(--fg-secondary) 0%,
+        var(--fg-secondary) 30%,
+        var(--accent-purple) 50%,
+        var(--fg-secondary) 70%,
+        var(--fg-secondary) 100%);
+    background-size: 400% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: chat-thinking-shimmer 2s linear infinite;
+}
+
+.subagent-header-btn .subagent-status {
+    font-size: var(--font-size-xs);
+    color: var(--fg-dimmed);
+    margin-left: auto;
+}
+
+.chat-subagent-box .subagent-content {
+    border: 1px solid var(--accent-purple);
+    border-left: 2px solid var(--accent-purple);
     border-radius: var(--radius-md);
-    background: var(--widget-bg);
+    margin-top: 2px;
+    margin-left: 24px;
     overflow: hidden;
-    transition: border-color 0.2s;
+    background: rgba(90, 79, 207, 0.03);
 }
 
-/* ── Card header ──────────────────────────────────────────────────────────── */
+.chat-subagent-box.collapsed .subagent-content {
+    display: none;
+}
+
+.subagent-content .subagent-body {
+    padding: 8px 12px;
+}
+
+.subagent-content .subagent-body .chat-tool-invocation-part {
+    margin: 4px 0;
+}
+
+.subagent-content .subagent-body .rendered-markdown {
+    font-size: var(--font-size-s);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * Working Section — VS Code Copilot Chat parity
+ *
+ * Groups tool invocations inside a collapsible "Working" container with:
+ *   - "Working" header with shimmer animation
+ *   - Bordered body with chain-of-thought vertical line
+ *   - Each step: icon + invocation message + inline code summary
+ *   - Bottom spinner with shimmer label ("Analyzing", "Loading", etc.)
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+.wk-box {
+    outline: none;
+    position: relative;
+    color: var(--fg-secondary);
+    margin: 4px 0 8px 0;
+}
+
+/* ── Header button ───────────────────────────────────────────────────────── */
+.wk-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    width: 100%;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--fg-secondary);
+    font-size: 13px;
+    font-family: var(--font-family);
+    line-height: 1.5em;
+    text-align: left;
+    border-radius: var(--radius-sm);
+}
+
+.wk-header:hover {
+    background: var(--hover-bg);
+    color: var(--fg-primary);
+}
+
+.wk-header-icon {
+    width: 12px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--fg-dimmed);
+}
+
+.wk-header-icon svg {
+    fill: currentColor;
+}
+
+.wk-header-label {
+    font-size: var(--font-size-s);
+    font-weight: 400;
+}
+
+/* Active shimmer on "Working" label */
+.wk-box.wk-active .wk-header-label {
+    background: linear-gradient(90deg,
+        var(--fg-secondary) 0%,
+        var(--fg-secondary) 30%,
+        var(--thinking-shimmer) 50%,
+        var(--fg-secondary) 70%,
+        var(--fg-secondary) 100%);
+    background-size: 400% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: chat-thinking-shimmer 2s linear infinite;
+}
+
+/* Finished state: plain text */
+.wk-box:not(.wk-active) .wk-header-label {
+    background: none;
+    -webkit-text-fill-color: var(--fg-secondary);
+}
+
+/* ── Collapsible body ────────────────────────────────────────────────────── */
+.wk-body {
+    border: 1px solid var(--request-border, var(--border));
+    border-radius: var(--radius-md, 6px);
+    overflow: hidden;
+    margin-top: 2px;
+}
+
+/* Streaming: fixed viewport with scroll */
+.wk-box.wk-active .wk-body {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* Finished + expanded: show all */
+.wk-box:not(.wk-active):not(.wk-collapsed) .wk-body {
+    max-height: none;
+    overflow: visible;
+}
+
+.wk-collapsed .wk-body {
+    display: none;
+}
+
+/* ── Steps container ─────────────────────────────────────────────────────── */
+.wk-steps {
+    /* No padding — steps manage their own */
+}
+
+/* ── Individual step ─────────────────────────────────────────────────────── */
+.wk-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px 4px 24px;
+    position: relative;
+    font-size: var(--font-size-s);
+    line-height: 1.5;
+}
+
+/* Chain-of-thought vertical line */
+.wk-step::before {
+    content: '';
+    position: absolute;
+    left: 10.5px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: var(--request-border, var(--border));
+    mask-image: linear-gradient(to bottom, #000 0 5px, transparent 5px 25px, #000 24px 100%);
+}
+
+.wk-step:first-child::before {
+    mask-image: linear-gradient(to bottom, transparent 0 25px, #000 25px 100%);
+}
+
+.wk-step:last-child::before {
+    mask-image: linear-gradient(to bottom, #000 0 5px, transparent 5px 100%);
+}
+
+.wk-step:only-child::before {
+    background: none;
+    mask-image: none;
+}
+
+/* ── Step icon ───────────────────────────────────────────────────────────── */
+.wk-step-icon {
+    position: absolute;
+    left: 5px;
+    top: 7px;
+    width: 12px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.wk-step-icon svg {
+    fill: currentColor;
+}
+
+.wk-step-icon.wk-active {
+    color: var(--fg-dimmed);
+}
+
+.wk-step-icon.wk-check {
+    color: var(--fg-dimmed);
+}
+
+.wk-step-icon.wk-error {
+    color: var(--error-fg);
+}
+
+/* ── Step text ───────────────────────────────────────────────────────────── */
+.wk-step-text {
+    color: var(--fg-secondary);
+    white-space: normal;
+    word-break: break-word;
+}
+
+.wk-step-done .wk-step-text {
+    color: var(--fg-dimmed);
+}
+
+.wk-step-fail .wk-step-text {
+    color: var(--fg-dimmed);
+}
+
+/* Inline code in step text (file paths, queries) */
+.wk-step-code {
+    background-color: var(--code-bg);
+    padding: 1px 4px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    font-family: var(--mono-family);
+    font-size: var(--font-size-xs);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* ── Spinner item at bottom ──────────────────────────────────────────────── */
+.wk-spinner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px 6px 24px;
+    position: relative;
+    font-size: var(--font-size-s);
+}
+
+/* Chain line for spinner */
+.wk-spinner::before {
+    content: '';
+    position: absolute;
+    left: 10.5px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: var(--request-border, var(--border));
+    mask-image: linear-gradient(to bottom, #000 0 5px, transparent 5px 100%);
+}
+
+.wk-spinner-dot {
+    position: absolute;
+    left: 5px;
+    top: 7px;
+    width: 12px;
+    height: 12px;
+    font-size: 12px;
+    line-height: 12px;
+    text-align: center;
+    color: var(--fg-dimmed);
+}
+
+.wk-spinner-label {
+    color: var(--fg-dimmed);
+    background: linear-gradient(90deg,
+        var(--fg-dimmed) 0%,
+        var(--fg-dimmed) 30%,
+        var(--thinking-shimmer) 50%,
+        var(--fg-dimmed) 70%,
+        var(--fg-dimmed) 100%);
+    background-size: 400% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: chat-thinking-shimmer 2s linear infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * Tool Invocation — VS Code Copilot Chat parity
+ *
+ * VS Code renders tool calls as minimal inline rows with:
+ *   - Chevron (▶/▼) to expand/collapse
+ *   - Status indicator (spinner dot / checkmark / error cross)
+ *   - Tool action text ("Read file crash_log.txt")
+ *   - No card border, no heavy box — just a single clickable row
+ *   - Expanded detail shows I/O in a subtle code block
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+.chat-tool-invocation-part {
+    margin: 2px 0;
+}
+
+/* ── Row container (replaces card) ────────────────────────────────────────── */
+.tool-card {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    overflow: hidden;
+}
+
+/* ── Clickable header row ─────────────────────────────────────────────────── */
 .tool-card-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 7px 10px;
+    gap: 6px;
+    padding: 3px 4px;
     font-size: var(--font-size-s);
-    color: var(--fg-primary);
+    color: var(--fg-secondary);
     cursor: pointer;
     user-select: none;
+    border-radius: var(--radius-sm);
+    line-height: 22px;
 }
 
 .tool-card-header:hover {
     background: var(--hover-bg);
+    color: var(--fg-primary);
 }
 
+/* ── Chevron ──────────────────────────────────────────────────────────────── */
+.tool-card-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--fg-dimmed);
+    transition: transform 0.12s ease;
+}
+
+.tool-card.expanded .tool-card-chevron {
+    transform: rotate(90deg);
+}
+
+/* ── Status icon (spinner / check / error) ────────────────────────────────── */
 .tool-card-icon {
     display: inline-flex;
     align-items: center;
@@ -774,21 +1322,24 @@ html, body {
     width: 16px;
     height: 16px;
     flex-shrink: 0;
-    color: var(--fg-secondary);
+    color: var(--fg-dimmed);
 }
 
 .tool-card-icon svg {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     fill: currentColor;
 }
 
+/* ── Title text ───────────────────────────────────────────────────────────── */
 .tool-card-title {
     flex-shrink: 0;
-    font-weight: 500;
+    font-weight: 400;
     white-space: nowrap;
+    color: var(--fg-secondary);
 }
 
+/* ── Inline summary (file path, query, etc.) ──────────────────────────────── */
 .tool-card-summary-inline {
     flex: 1;
     min-width: 0;
@@ -800,9 +1351,9 @@ html, body {
     font-size: var(--font-size-xs);
 }
 
-/* ── Card body ────────────────────────────────────────────────────────────── */
+/* ── Body (status text) ───────────────────────────────────────────────────── */
 .tool-card-body {
-    padding: 0 10px 8px 10px;
+    padding: 0;
 }
 
 .tool-card-body:empty {
@@ -813,7 +1364,7 @@ html, body {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding-left: 24px;
+    padding: 2px 4px 2px 38px;
     font-size: var(--font-size-xs);
 }
 
@@ -844,32 +1395,31 @@ html, body {
 }
 
 /* ── Streaming state ──────────────────────────────────────────────────────── */
-.tool-card.is-streaming {
-    border-color: var(--progress-blue);
+.tool-card.is-streaming .tool-card-icon {
+    color: var(--progress-blue);
+}
+
+.tool-card.is-streaming .tool-card-icon svg {
+    animation: thinking-spin 1.2s linear infinite;
 }
 
 .tool-card.is-streaming .tool-card-title {
-    background: linear-gradient(90deg,
-        var(--fg-primary) 0%,
-        var(--fg-primary) 30%,
-        var(--thinking-shimmer) 50%,
-        var(--fg-primary) 70%,
-        var(--fg-primary) 100%);
-    background-size: 400% 100%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: chat-thinking-shimmer 2s linear infinite;
+    color: var(--fg-primary);
 }
 
 /* ── Complete states ──────────────────────────────────────────────────────── */
 .tool-card.is-complete .tool-card-icon { color: var(--success-fg); }
+.tool-card.is-complete .tool-card-title { color: var(--fg-secondary); }
 .tool-card.is-error .tool-card-icon { color: var(--error-fg); }
-.tool-card.is-error { border-color: rgba(241, 76, 76, 0.3); }
+.tool-card.is-error .tool-card-title { color: var(--fg-secondary); }
 
-/* ── Card detail (expandable) ─────────────────────────────────────────────── */
+/* ── Expandable detail ────────────────────────────────────────────────────── */
 .tool-card-detail {
-    border-top: 1px solid var(--widget-border);
+    margin: 2px 0 4px 22px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--code-bg);
+    overflow: hidden;
 }
 
 .tool-card-detail.hidden {
@@ -877,7 +1427,7 @@ html, body {
 }
 
 .tool-detail-section {
-    padding: 8px 12px;
+    padding: 6px 10px;
     font-family: var(--mono-family);
     font-size: var(--font-size-xs);
     white-space: pre-wrap;
@@ -1059,7 +1609,7 @@ html, body {
 /* Diff preview */
 .diff-content {
     margin: 4px 0 8px 0;
-    padding: 8px 12px;
+    padding: 0;
     background: var(--code-bg);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -1067,17 +1617,78 @@ html, body {
     font-size: var(--font-size-l);
     line-height: 1.5;
     overflow-x: auto;
-    white-space: pre;
 }
 
-.diff-line-add {
-    background: var(--diff-insert-bg);
+.diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+
+.diff-table tr {
+    border: none;
+}
+
+.diff-ln {
+    width: 1px;
+    min-width: 32px;
+    padding: 0 4px;
+    text-align: right;
+    color: var(--fg-dimmed);
+    font-size: var(--font-size-xs);
+    user-select: none;
+    opacity: 0.6;
+    vertical-align: top;
+}
+
+.diff-ln-old {
+    border-right: 1px solid var(--border);
+}
+
+.diff-gutter {
+    width: 1px;
+    min-width: 18px;
+    padding: 0 2px;
+    text-align: center;
+    color: var(--fg-dimmed);
+    font-size: var(--font-size-s);
+    user-select: none;
+    vertical-align: top;
+}
+
+.diff-gutter-add {
     color: var(--diff-insert-fg);
 }
 
-.diff-line-del {
-    background: var(--diff-delete-bg);
+.diff-gutter-del {
     color: var(--diff-delete-fg);
+}
+
+.diff-text {
+    padding: 0 8px;
+    white-space: pre;
+}
+
+.diff-line-add td {
+    background: var(--diff-insert-bg);
+}
+
+.diff-line-add .diff-text {
+    color: var(--diff-insert-fg);
+}
+
+.diff-line-del td {
+    background: var(--diff-delete-bg);
+}
+
+.diff-line-del .diff-text {
+    color: var(--diff-delete-fg);
+}
+
+.diff-line-hunk td {
+    background: rgba(var(--accent-blue-rgb, 0, 122, 204), 0.1);
+    color: var(--fg-dimmed);
+    font-style: italic;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -1085,45 +1696,99 @@ html, body {
  * ═══════════════════════════════════════════════════════════════════════════════ */
 .interactive-session-followups {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 6px;
     margin-top: 8px;
+    align-items: flex-start;
     color: var(--link-fg);
 }
 
 .followup-pill {
-    padding: 5px 12px;
-    border: 1px solid var(--border);
-    border-radius: 14px;
+    padding: 4px 8px;
+    border: none;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--link-fg);
     font-size: var(--font-size-s);
     font-family: var(--font-family);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: color 0.15s ease;
+    text-align: left;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 .followup-pill:hover {
-    background: var(--hover-bg);
-    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+    text-decoration: underline;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
- * Confirmation Widget
+ * Confirmation Widget — VS Code parity (expandable title bar)
  * ═══════════════════════════════════════════════════════════════════════════════ */
 .chat-confirmation-widget {
     margin: 8px 0;
-    padding: 10px 12px;
     border: 1px solid var(--warning-fg);
     border-radius: var(--radius-md);
     background: rgba(204, 167, 0, 0.06);
+    overflow: hidden;
+}
+
+.chat-confirmation-widget .confirmation-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.chat-confirmation-widget .confirmation-header:hover {
+    background: rgba(204, 167, 0, 0.08);
+}
+
+.chat-confirmation-widget .confirmation-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: var(--warning-fg);
+}
+
+.chat-confirmation-widget .confirmation-icon svg {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+}
+
+.chat-confirmation-widget .confirmation-chevron {
+    font-size: 10px;
+    color: var(--fg-dimmed);
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+}
+
+.chat-confirmation-widget.collapsed .confirmation-chevron {
+    transform: rotate(-90deg);
 }
 
 .chat-confirmation-widget .confirmation-title {
     font-weight: 600;
     color: var(--warning-fg);
-    margin-bottom: 4px;
     font-size: var(--font-size-s);
+    flex: 1;
+}
+
+.chat-confirmation-widget .confirmation-body {
+    padding: 0 12px 10px 12px;
+}
+
+.chat-confirmation-widget.collapsed .confirmation-body {
+    display: none;
 }
 
 .chat-confirmation-widget .confirmation-msg {
@@ -1138,9 +1803,12 @@ html, body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
- * Warning / Error / Progress Boxes
+ * Warning / Error / Progress Boxes — VS Code notification style
  * ═══════════════════════════════════════════════════════════════════════════════ */
 .warning-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
     padding: 8px 12px;
     margin: 4px 0;
     border-left: 3px solid var(--warning-fg);
@@ -1150,7 +1818,31 @@ html, body {
     color: var(--warning-fg);
 }
 
+.warning-box .notification-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.warning-box .notification-icon svg {
+    width: 14px;
+    height: 14px;
+    fill: var(--warning-fg);
+}
+
+.warning-box .notification-text {
+    flex: 1;
+    min-width: 0;
+}
+
 .error-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
     padding: 8px 12px;
     margin: 4px 0;
     border-left: 3px solid var(--error-fg);
@@ -1160,11 +1852,32 @@ html, body {
     color: var(--error-fg);
 }
 
+.error-box .notification-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.error-box .notification-icon svg {
+    width: 14px;
+    height: 14px;
+    fill: var(--error-fg);
+}
+
+.error-box .notification-text {
+    flex: 1;
+    min-width: 0;
+}
+
 .progress-box {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 0;
+    padding: 6px 0;
     font-size: var(--font-size-s);
     color: var(--fg-secondary);
 }
@@ -1176,6 +1889,81 @@ html, body {
     border-top-color: var(--progress-blue);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+.progress-box .progress-label {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Progress shimmer on label during streaming */
+.progress-box.streaming .progress-label {
+    background: linear-gradient(90deg,
+        var(--fg-secondary) 0%,
+        var(--fg-secondary) 30%,
+        var(--thinking-shimmer) 50%,
+        var(--fg-secondary) 70%,
+        var(--fg-secondary) 100%);
+    background-size: 400% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: chat-thinking-shimmer 2s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * Inline Anchor Widgets — pill-style file/symbol references in markdown
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+.chat-inline-anchor {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-size: var(--font-size-xs);
+    font-family: var(--mono-family);
+    color: var(--link-fg);
+    cursor: pointer;
+    text-decoration: none;
+    vertical-align: baseline;
+    line-height: 1.4;
+    transition: background 0.1s ease, border-color 0.1s ease;
+}
+
+.chat-inline-anchor:hover {
+    background: var(--hover-bg);
+    border-color: var(--accent-blue);
+    text-decoration: none;
+}
+
+.chat-inline-anchor .anchor-icon {
+    display: inline-flex;
+    align-items: center;
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+.chat-inline-anchor .anchor-icon svg {
+    width: 12px;
+    height: 12px;
+    fill: currentColor;
+}
+
+.chat-inline-anchor .anchor-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════

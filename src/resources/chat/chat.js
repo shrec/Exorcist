@@ -21,6 +21,11 @@ var ChatApp = (function() {
     var historyIndex = -1;
     var thinkingEnabled = false;
 
+    // ── SVG icons ────────────────────────────────────────────────────────────
+    var SPARKLE_SVG = '<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M8 1.5l1.28 3.96L13.25 6.5l-3.97 1.04L8 11.5l-1.28-3.96L2.75 6.5l3.97-1.04L8 1.5z" fill="currentColor"/></svg>';
+    var COPILOT_AVATAR = '<div class="avatar avatar-ai">' + SPARKLE_SVG + '</div>';
+    var USER_AVATAR = '<div class="avatar avatar-user">U</div>';
+
     // ── DOM refs ─────────────────────────────────────────────────────────────
     var welcomeEl       = document.getElementById('welcome');
     var transcriptEl    = document.getElementById('transcript');
@@ -299,6 +304,29 @@ var ChatApp = (function() {
         }
     }
 
+    // VS Code–style status icons: spinner for streaming, checkmark for complete,
+    // X for error, circle for queued/pending
+    function toolStatusIcon(state) {
+        // Completed — checkmark
+        if (state === 3) {
+            return '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M6.27 10.87h.71l4.56-6.47-.71-.5-4.2 5.94-2.26-2.03-.64.56 2.54 2.5z"/></svg>';
+        }
+        // Error — X
+        if (state === 4) {
+            return '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z"/></svg>';
+        }
+        // Streaming — animated spinner (circle with gap)
+        if (state === 1) {
+            return '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="tool-spinner-icon">' +
+                '<path d="M13.917 7A6.002 6.002 0 0 0 2.083 7H1.071a7.002 7.002 0 0 1 13.858 0h-1.012z"/></svg>';
+        }
+        // Queued/default — small circle
+        return '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">' +
+            '<circle cx="8" cy="8" r="3" opacity="0.4"/></svg>';
+    }
+
     function buildCardStatusHtml(state) {
         if (state === 0) {
             return '<div class="tool-card-status">' +
@@ -331,17 +359,26 @@ var ChatApp = (function() {
     }
 
     function buildConfirmHtml(callId, toolName) {
+        var warnIcon = '<span class="confirmation-icon">' +
+            '<svg viewBox="0 0 16 16"><path d="M7.56 1h.88l6.54 12.26-.44.74H1.46L1.02 13.26 7.56 1zM8 2.28L2.28 13h11.44L8 2.28zM8.625 12v-1h-1.25v1h1.25zm-1.25-2V6h1.25v4h-1.25z"/></svg>' +
+            '</span>';
         return '<div class="chat-confirmation-widget">' +
-            '<div class="confirmation-title">Allow \u201C' +
-                MarkdownRenderer.escapeHtml(toolName || 'tool') +
-            '\u201D?</div>' +
-            '<div class="confirmation-actions">' +
-                '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
-                    callId + '\', 2)">Allow Always</button>' +
-                '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
-                    callId + '\', 1)">Allow</button>' +
-                '<button class="ws-action-btn" onclick="ChatApp._confirmTool(\'' +
-                    callId + '\', 0)">Deny</button>' +
+            '<div class="confirmation-header" onclick="ChatApp._toggleConfirmation(this.parentElement)">' +
+                warnIcon +
+                '<span class="confirmation-title">Allow \u201C' +
+                    MarkdownRenderer.escapeHtml(toolName || 'tool') +
+                '\u201D?</span>' +
+                '<span class="confirmation-chevron">&#x25BC;</span>' +
+            '</div>' +
+            '<div class="confirmation-body">' +
+                '<div class="confirmation-actions">' +
+                    '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
+                        callId + '\', 2)">Allow Always</button>' +
+                    '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
+                        callId + '\', 1)">Allow</button>' +
+                    '<button class="ws-action-btn" onclick="ChatApp._confirmTool(\'' +
+                        callId + '\', 0)">Deny</button>' +
+                '</div>' +
             '</div></div>';
     }
 
@@ -353,6 +390,10 @@ var ChatApp = (function() {
             MarkdownRenderer.render(text, streaming) +
         '</div>';
     }
+
+    // Rotating status messages for thinking animation
+    var thinkingMessages = ['Thinking', 'Reasoning', 'Processing', 'Analyzing', 'Considering'];
+    var thinkingMsgIndex = 0;
 
     function renderThinkingPart(part) {
         var collapsed = part.thinkingCollapsed ? ' collapsed' : '';
@@ -367,14 +408,142 @@ var ChatApp = (function() {
             }
         }
 
+        // Spinner icon (gear) for streaming, chevron for collapsed state
+        var spinnerIcon = '<span class="thinking-spinner-icon">' +
+            '<svg viewBox="0 0 16 16"><path d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.3.7L2 7.4v1.2l2.4.5.3.7-1.3 2 .8.9 2-1.3.7.3.5 2.4h1.2l.5-2.4.7-.3 2 1.3.9-.8-1.3-2 .3-.7 2.4-.5V7.4l-2.4-.5-.3-.7 1.3-2-.8-.9-2 1.3-.7-.3zM8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0-1a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>' +
+            '</span>';
+        var chevronIcon = '<span class="thinking-chevron">&#x25BC;</span>';
+        var headerIcon = part._streaming ? spinnerIcon : chevronIcon;
+
+        // Status message for streaming
+        var statusMsg = part._streaming
+            ? '<span class="thinking-status-msg">\u2014 ' +
+              MarkdownRenderer.escapeHtml(thinkingMessages[thinkingMsgIndex % thinkingMessages.length]) +
+              '...</span>'
+            : '';
+
         return '<div class="chat-thinking-box' + collapsed + streamingClass + '" data-type="thinking">' +
             '<button class="thinking-header-btn" onclick="ChatApp._toggleThinking(this.parentElement)">' +
-                '<span class="thinking-chevron">&#x25BC;</span>' +
+                headerIcon +
                 '<span class="thinking-label">Thinking</span>' +
+                statusMsg +
             '</button>' +
             '<div class="thinking-content">' +
                 '<div class="thinking-text">' + text.replace(/\n/g, '<br>') + '</div>' +
                 toolsHtml +
+            '</div>' +
+        '</div>';
+    }
+
+    // ── VS Code–style Working Section ─────────────────────────────────────
+    // Rotating spinner messages (matches VS Code)
+    var workingMessages = ['Processing', 'Preparing', 'Loading', 'Analyzing', 'Evaluating'];
+    var workingMsgIdx = 0;
+
+    function renderWorkingStepIcon(toolName, state) {
+        // Completed — checkmark
+        if (state === 3) {
+            return '<span class="wk-step-icon wk-check">' +
+                '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M6.27 10.87h.71l4.56-6.47-.71-.5-4.2 5.94-2.26-2.03-.64.56 2.54 2.5z"/></svg></span>';
+        }
+        // Error — X
+        if (state === 4) {
+            return '<span class="wk-step-icon wk-error">' +
+                '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z"/></svg></span>';
+        }
+        // Streaming — category icon from the tool
+        var name = (toolName || '').toLowerCase();
+        if (name === 'grep_search' || name === 'semantic_search' ||
+            name === 'file_search' || name === 'codebase_search') {
+            return '<span class="wk-step-icon wk-active">' +
+                '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M15.25 15.02l-4.57-4.57a5.49 5.49 0 1 0-.71.7l4.57 4.58.71-.71zM6.5 11a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg></span>';
+        }
+        if (name === 'read_file') {
+            return '<span class="wk-step-icon wk-active">' +
+                '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M1 4.27v7.47c0 .45.3.84.74.97l6.12 1.76c.1.03.21.03.31 0l6.12-1.76c.44-.13.74-.52.74-.97V4.27c0-.45-.3-.84-.74-.97L8.17 1.54a.99.99 0 0 0-.31 0L1.74 3.3c-.44.13-.74.52-.74.97zm7 9.09l-5.5-1.58V4.86L7.5 6.3v7.06H8zm.5 0V6.3l5-1.44v6.92L8.5 13.36zM8 5.45L3.22 4.1 8 2.56l4.78 1.54L8 5.45z"/></svg></span>';
+        }
+        if (name === 'create_file' || name === 'edit_file' ||
+            name === 'replace_string_in_file' || name === 'multi_replace_string_in_file') {
+            return '<span class="wk-step-icon wk-active">' +
+                '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M13.23 1h-1.46L3.52 9.25l-.16.22L1 13.59 2.41 15l4.12-2.36.22-.16L15 4.23V2.77L13.23 1zM2.41 13.59l1.51-3 1.45 1.45-2.96 1.55zm3.83-2.06L4.47 9.76l8-8 1.77 1.77-8 8z"/></svg></span>';
+        }
+        if (name === 'run_in_terminal' || name === 'run_command') {
+            return '<span class="wk-step-icon wk-active">' +
+                '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M0 3v10h16V3H0zm15 9H1V4h14v8zM8 8h4v1H8V8zM2 8l3-2v1L3 8.5 5 10v1L2 9V8z"/></svg></span>';
+        }
+        if (name === 'list_dir') {
+            return '<span class="wk-step-icon wk-active">' +
+                '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">' +
+                '<path d="M2 3h12v1H2V3zm0 3h12v1H2V6zm0 3h10v1H2V9zm0 3h8v1H2v-1z"/></svg></span>';
+        }
+        // Default — gear
+        return '<span class="wk-step-icon wk-active">' +
+            '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">' +
+            '<path d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.3.7L2 7.4v1.2l2.4.5.3.7-1.3 2 .8.9 2-1.3.7.3.5 2.4h1.2l.5-2.4.7-.3 2 1.3.9-.8-1.3-2 .3-.7 2.4-.5V7.4l-2.4-.5-.3-.7 1.3-2-.8-.9-2 1.3-.7-.3zM8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0-1a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg></span>';
+    }
+
+    function renderWorkingStepHtml(part) {
+        var toolName = toolNameOf(part);
+        var toolState = toolStateOf(part);
+        var callId = MarkdownRenderer.escapeHtml(toolCallIdOf(part));
+        var title = '';
+        if (toolState === 3 || toolState === 4) {
+            title = toolPastTenseMsgOf(part) || toolTitleOf(part) || toolName || 'Tool';
+        } else {
+            title = toolInvocationMsgOf(part) || toolTitleOf(part) || toolName || 'Tool';
+        }
+        // Inline summary
+        var args = parseToolInputJson(toolInputOf(part));
+        var summary = summarizeToolArgs(toolName, args);
+        var summaryHtml = summary
+            ? ' <code class="wk-step-code">' + MarkdownRenderer.escapeHtml(summary) + '</code>'
+            : '';
+        // Result count for search tools
+        var resultHtml = '';
+        if ((toolState === 3 || toolState === 4) && toolOutputOf(part)) {
+            var output = toolOutputOf(part);
+            if (toolName.indexOf('search') >= 0 || toolName.indexOf('grep') >= 0) {
+                var count = (output.match(/\n/g) || []).length;
+                if (count > 0) resultHtml = ', ' + count + ' results';
+            }
+        }
+        var icon = renderWorkingStepIcon(toolName, toolState);
+        var stateClass = toolState === 1 ? ' wk-step-streaming' :
+                         toolState === 3 ? ' wk-step-done' :
+                         toolState === 4 ? ' wk-step-fail' : '';
+
+        return '<div class="wk-step' + stateClass + '" data-call-id="' + callId + '">' +
+            icon +
+            '<span class="wk-step-text">' +
+                MarkdownRenderer.escapeHtml(title) + summaryHtml + resultHtml +
+            '</span>' +
+        '</div>';
+    }
+
+    function createWorkingBoxHtml() {
+        return '<div class="wk-box wk-active" data-type="workingBox" data-step-count="0">' +
+            '<button class="wk-header" onclick="ChatApp._toggleWorking(this.parentElement)">' +
+                '<span class="wk-header-icon">' +
+                    '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">' +
+                    '<path d="M7.976 10.072l4.357-7.532.894.516L7.976 12.192l-4.19-4.19.708-.708 3.482 2.778z"/>' +
+                    '</svg>' +
+                '</span>' +
+                '<span class="wk-header-label">Working</span>' +
+            '</button>' +
+            '<div class="wk-body">' +
+                '<div class="wk-steps"></div>' +
+                '<div class="wk-spinner">' +
+                    '<span class="wk-spinner-dot">&#9679;</span>' +
+                    '<span class="wk-spinner-label">' +
+                        workingMessages[workingMsgIdx % workingMessages.length] +
+                    '</span>' +
+                '</div>' +
             '</div>' +
         '</div>';
     }
@@ -434,6 +603,12 @@ var ChatApp = (function() {
         return toolInvocationMsgOf(part) || 'Running command';
     }
 
+    function shortPath(fp) {
+        if (!fp) return '';
+        var i = Math.max(fp.lastIndexOf('/'), fp.lastIndexOf('\\'));
+        return i >= 0 ? fp.substring(i + 1) : fp;
+    }
+
     function summarizeToolArgs(name, args) {
         if (!args) return '';
         var tool = (name || '').toLowerCase();
@@ -441,17 +616,18 @@ var ChatApp = (function() {
         if (tool === 'read_file' || tool === 'create_file' ||
             tool === 'edit_file' || tool === 'replace_string_in_file' ||
             tool === 'delete_file') {
-            return pick('filePath') || pick('path');
+            return shortPath(pick('filePath') || pick('path'));
         }
         if (tool === 'list_dir') {
-            return pick('path');
+            return shortPath(pick('path'));
         }
         if (tool === 'grep_search' || tool === 'semantic_search' ||
             tool === 'codebase_search' || tool === 'file_search') {
             return pick('query');
         }
         if (tool === 'run_in_terminal' || tool === 'run_command') {
-            return pick('command');
+            var cmd = pick('command');
+            return cmd.length > 60 ? cmd.substring(0, 57) + '\u2026' : cmd;
         }
         if (tool === 'run_subagent' || tool === 'subagent') {
             return pick('goal') || pick('prompt') || pick('task') || pick('message');
@@ -494,34 +670,35 @@ var ChatApp = (function() {
         var cmd = args.command || '';
         var label = toolStateLabel(part);
         var stateClass = toolCardStateClass(toolState);
-        var iconHtml = toolCategoryIcon('run_in_terminal');
+        var statusIcon = toolStatusIcon(toolState);
 
+        // VS Code style: inline command with chevron
         var commandHtml = '';
         if (cmd) {
-            commandHtml = '<div class="tool-card-command">' +
-                '<span class="terminal-prompt">&#x276F;</span>' +
-                '<code>' + MarkdownRenderer.escapeHtml(cmd) + '</code></div>';
+            commandHtml = '<span class="tool-card-summary-inline">' +
+                '<span class="terminal-prompt">&#x276F;</span> ' +
+                MarkdownRenderer.escapeHtml(cmd) + '</span>';
         }
-
-        var statusHtml = buildCardStatusHtml(toolState);
 
         var output = toolOutputOf(part);
         var hasOutput = !!output;
-        var outputHtml = '<div class="chat-terminal-output-container' +
-            (hasOutput ? ' expanded' : ' collapsed') + '">' +
-            '<div class="chat-terminal-output-body">' +
-                '<pre class="chat-terminal-output">' + MarkdownRenderer.escapeHtml(output) + '</pre>' +
-            '</div></div>';
+        var outputHtml = hasOutput ?
+            '<div class="tool-card-detail hidden">' +
+                '<div class="tool-detail-section">' +
+                    '<pre class="tool-io">' + MarkdownRenderer.escapeHtml(output) + '</pre>' +
+                '</div></div>' : '';
+
+        var hasDetail = hasOutput;
+        var chevronHtml = hasDetail ?
+            '<span class="tool-card-chevron">&#x25B6;</span>' : '';
 
         return '<div class="chat-tool-invocation-part" data-call-id="' + callId + '">' +
             '<div class="tool-card tool-card-terminal' + stateClass + '">' +
-                '<div class="tool-card-header">' +
-                    '<span class="tool-card-icon">' + iconHtml + '</span>' +
+                '<div class="tool-card-header" onclick="ChatApp._toggleCardDetail(this)">' +
+                    chevronHtml +
+                    '<span class="tool-card-icon">' + statusIcon + '</span>' +
                     '<span class="tool-card-title">' + MarkdownRenderer.escapeHtml(label) + '</span>' +
-                '</div>' +
-                '<div class="tool-card-body">' +
                     commandHtml +
-                    statusHtml +
                 '</div>' +
                 outputHtml +
             '</div></div>';
@@ -535,7 +712,9 @@ var ChatApp = (function() {
         var callId = MarkdownRenderer.escapeHtml(toolCallIdOf(part));
         var toolName = toolNameOf(part);
         var stateClass = toolCardStateClass(toolState);
-        var iconHtml = toolCategoryIcon(toolName);
+
+        // VS Code style: status icon (spinner/check/error) instead of category icon
+        var statusIcon = toolStatusIcon(toolState);
 
         // Title: past tense when complete, invocation msg otherwise
         var title = '';
@@ -552,11 +731,13 @@ var ChatApp = (function() {
             ('<span class="tool-card-summary-inline">' +
                 MarkdownRenderer.escapeHtml(summary) + '</span>') : '';
 
-        // Status indicator (queued/processing)
-        var statusHtml = buildCardStatusHtml(toolState);
-
         // Expandable detail
         var detailHtml = buildCardDetailHtml(toolName, toolInputOf(part), toolOutputOf(part));
+        var hasDetail = detailHtml.length > 0;
+
+        // Chevron — VS Code style expand/collapse indicator
+        var chevronHtml = hasDetail ?
+            '<span class="tool-card-chevron">&#x25B6;</span>' : '';
 
         // Confirmation widget
         var confirmHtml = (toolState === 2) ? buildConfirmHtml(callId, toolName) : '';
@@ -564,12 +745,10 @@ var ChatApp = (function() {
         return '<div class="chat-tool-invocation-part" data-call-id="' + callId + '">' +
             '<div class="tool-card' + stateClass + '">' +
                 '<div class="tool-card-header" onclick="ChatApp._toggleCardDetail(this)">' +
-                    '<span class="tool-card-icon">' + iconHtml + '</span>' +
+                    chevronHtml +
+                    '<span class="tool-card-icon">' + statusIcon + '</span>' +
                     '<span class="tool-card-title">' + MarkdownRenderer.escapeHtml(title) + '</span>' +
                     summaryInline +
-                '</div>' +
-                '<div class="tool-card-body">' +
-                    statusHtml +
                 '</div>' +
                 detailHtml +
                 confirmHtml +
@@ -619,18 +798,51 @@ var ChatApp = (function() {
                 '</div>' +
             '</div>';
 
-            // Diff preview
+            // Diff preview with line numbers and gutter
             if (f.diff) {
-                html += '<div class="diff-content">';
+                html += '<div class="diff-content"><table class="diff-table">';
                 var diffLines = f.diff.split('\n');
+                var oldLine = 0, newLine = 0;
                 for (var j = 0; j < diffLines.length; j++) {
                     var dl = diffLines[j];
                     var cls = '';
-                    if (dl.charAt(0) === '+') cls = ' class="diff-line-add"';
-                    else if (dl.charAt(0) === '-') cls = ' class="diff-line-del"';
-                    html += '<div' + cls + '>' + MarkdownRenderer.escapeHtml(dl) + '</div>';
+                    var gutterCls = 'diff-gutter';
+                    var oldNum = '', newNum = '';
+                    var gutterSign = ' ';
+                    if (dl.charAt(0) === '+') {
+                        cls = 'diff-line-add';
+                        gutterCls += ' diff-gutter-add';
+                        newLine++;
+                        newNum = newLine;
+                        gutterSign = '+';
+                    } else if (dl.charAt(0) === '-') {
+                        cls = 'diff-line-del';
+                        gutterCls += ' diff-gutter-del';
+                        oldLine++;
+                        oldNum = oldLine;
+                        gutterSign = '\u2212';
+                    } else if (dl.substring(0, 2) === '@@') {
+                        cls = 'diff-line-hunk';
+                        var hunkMatch = dl.match(/@@ -(\d+)(?:,\d+)? \+(\d+)/);
+                        if (hunkMatch) {
+                            oldLine = parseInt(hunkMatch[1], 10) - 1;
+                            newLine = parseInt(hunkMatch[2], 10) - 1;
+                        }
+                        gutterSign = ' ';
+                    } else {
+                        oldLine++; newLine++;
+                        oldNum = oldLine; newNum = newLine;
+                    }
+                    // Hunk headers show full text, other lines strip the +/-/space prefix
+                    var lineText = (cls === 'diff-line-hunk') ? dl : dl.substring(1);
+                    html += '<tr class="' + cls + '">' +
+                        '<td class="diff-ln diff-ln-old">' + oldNum + '</td>' +
+                        '<td class="diff-ln diff-ln-new">' + newNum + '</td>' +
+                        '<td class="' + gutterCls + '">' + gutterSign + '</td>' +
+                        '<td class="diff-text">' + MarkdownRenderer.escapeHtml(lineText) + '</td>' +
+                    '</tr>';
                 }
-                html += '</div>';
+                html += '</table></div>';
             }
         }
         html += '</div>';
@@ -654,38 +866,61 @@ var ChatApp = (function() {
 
     function renderConfirmationPart(part) {
         var callId = MarkdownRenderer.escapeHtml(toolCallIdOf(part));
+        var title = MarkdownRenderer.escapeHtml(part.confirmTitle || part.confirmationTitle || part.title || 'Confirm');
+        var msg = MarkdownRenderer.escapeHtml(part.confirmMessage || part.confirmationMessage || part.message || '');
+
+        // Warning triangle icon
+        var warnIcon = '<span class="confirmation-icon">' +
+            '<svg viewBox="0 0 16 16"><path d="M7.56 1h.88l6.54 12.26-.44.74H1.46L1.02 13.26 7.56 1zM8 2.28L2.28 13h11.44L8 2.28zM8.625 12v-1h-1.25v1h1.25zm-1.25-2V6h1.25v4h-1.25z"/></svg>' +
+            '</span>';
+
         return '<div class="chat-confirmation-widget" data-type="confirmation" data-call-id="' + callId + '">' +
-            '<div class="confirmation-title">' +
-                MarkdownRenderer.escapeHtml(part.confirmTitle || part.confirmationTitle || part.title || 'Confirm') + '</div>' +
-            '<div class="confirmation-msg">' +
-                MarkdownRenderer.escapeHtml(part.confirmMessage || part.confirmationMessage || part.message || '') + '</div>' +
-            '<div class="confirmation-actions">' +
-                '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
-                    callId + '\', 2)">Always Allow</button>' +
-                '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
-                    callId + '\', 1)">Allow</button>' +
-                '<button class="ws-action-btn" onclick="ChatApp._confirmTool(\'' +
-                    callId + '\', 0)">Deny</button>' +
+            '<div class="confirmation-header" onclick="ChatApp._toggleConfirmation(this.parentElement)">' +
+                warnIcon +
+                '<span class="confirmation-title">' + title + '</span>' +
+                '<span class="confirmation-chevron">&#x25BC;</span>' +
+            '</div>' +
+            '<div class="confirmation-body">' +
+                (msg ? '<div class="confirmation-msg">' + msg + '</div>' : '') +
+                '<div class="confirmation-actions">' +
+                    '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
+                        callId + '\', 2)">Always Allow</button>' +
+                    '<button class="ws-action-btn primary" onclick="ChatApp._confirmTool(\'' +
+                        callId + '\', 1)">Allow</button>' +
+                    '<button class="ws-action-btn" onclick="ChatApp._confirmTool(\'' +
+                        callId + '\', 0)">Deny</button>' +
+                '</div>' +
             '</div>' +
         '</div>';
     }
 
     function renderWarningPart(part) {
+        var text = MarkdownRenderer.escapeHtml(part.warningText || part.text || part.markdownText || '');
+        var warnIcon = '<span class="notification-icon">' +
+            '<svg viewBox="0 0 16 16"><path d="M7.56 1h.88l6.54 12.26-.44.74H1.46L1.02 13.26 7.56 1zM8 2.28L2.28 13h11.44L8 2.28zM8.625 12v-1h-1.25v1h1.25zm-1.25-2V6h1.25v4h-1.25z"/></svg>' +
+            '</span>';
         return '<div class="warning-box" data-type="warning">' +
-            MarkdownRenderer.escapeHtml(part.warningText || part.text || part.markdownText || '') +
+            warnIcon +
+            '<span class="notification-text">' + text + '</span>' +
         '</div>';
     }
 
     function renderErrorPart(part) {
+        var text = MarkdownRenderer.escapeHtml(part.errorText || part.text || part.markdownText || '');
+        var errIcon = '<span class="notification-icon">' +
+            '<svg viewBox="0 0 16 16"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1a6 6 0 1 1 0 12A6 6 0 0 1 8 2zm-.75 3h1.5v5h-1.5V5zm0 6h1.5v1.5h-1.5V11z"/></svg>' +
+            '</span>';
         return '<div class="error-box" data-type="error">' +
-            MarkdownRenderer.escapeHtml(part.errorText || part.text || part.markdownText || '') +
+            errIcon +
+            '<span class="notification-text">' + text + '</span>' +
         '</div>';
     }
 
     function renderProgressPart(part) {
-        return '<div class="progress-box" data-type="progress">' +
+        var label = MarkdownRenderer.escapeHtml(part.progressLabel || part.label || 'Working...');
+        return '<div class="progress-box streaming" data-type="progress">' +
             '<div class="progress-spinner"></div>' +
-            '<span>' + MarkdownRenderer.escapeHtml(part.progressLabel || part.label || 'Working...') + '</span>' +
+            '<span class="progress-label">' + label + '</span>' +
         '</div>';
     }
 
@@ -708,6 +943,66 @@ var ChatApp = (function() {
         '</button>';
     }
 
+    function renderSubagentPart(part) {
+        var collapsed = part._collapsed ? ' collapsed' : '';
+        var streamingClass = part._streaming ? ' streaming' : '';
+        var agentName = MarkdownRenderer.escapeHtml(part.agentName || part.name || 'Agent');
+        var status = part._streaming ? 'Running...' : (part._error ? 'Failed' : 'Completed');
+
+        // Agent icon (people/group icon)
+        var agentIcon = '<span class="subagent-icon">' +
+            '<svg viewBox="0 0 16 16"><path d="M8 1a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm5 3a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM3 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm5 4c2.21 0 4 1.12 4 2.5V12H4v-1.5C4 9.12 5.79 8 8 8zm5 1c1.1 0 2 .67 2 1.5V12h-2v-1.5c0-.54-.17-1.05-.5-1.5zm-10 0c-.33.45-.5.96-.5 1.5V12H1v-1.5C1 9.67 1.9 9 3 9z"/></svg>' +
+            '</span>';
+
+        // Inner content
+        var bodyHtml = '';
+        var innerParts = part.parts || [];
+        for (var i = 0; i < innerParts.length; i++) {
+            bodyHtml += renderContentPart(innerParts[i], false);
+        }
+        // If there's a result text
+        if (part.resultText) {
+            bodyHtml += '<div class="rendered-markdown">' +
+                MarkdownRenderer.render(part.resultText, false) +
+            '</div>';
+        }
+
+        return '<div class="chat-subagent-box' + collapsed + streamingClass + '" data-type="subagent">' +
+            '<button class="subagent-header-btn" onclick="ChatApp._toggleSubagent(this.parentElement)">' +
+                agentIcon +
+                '<span class="subagent-label">' + agentName + '</span>' +
+                '<span class="subagent-chevron">&#x25BC;</span>' +
+                '<span class="subagent-status">' + MarkdownRenderer.escapeHtml(status) + '</span>' +
+            '</button>' +
+            '<div class="subagent-content">' +
+                '<div class="subagent-body">' + bodyHtml + '</div>' +
+            '</div>' +
+        '</div>';
+    }
+
+    function contextChipIcon(label, path) {
+        var ext = '';
+        var src = path || label || '';
+        var dotIdx = src.lastIndexOf('.');
+        if (dotIdx !== -1) ext = src.substring(dotIdx + 1).toLowerCase();
+        // Language-specific icons
+        var iconMap = {
+            'cpp': '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#519aba" d="M2 3v10h12V3H2zm6.5 7.5h-1V9H6v1.5H5V7h1v1.5h1.5V7h1v3.5zm4 0h-1V9H10v1.5H9V7h1v1.5h1.5V7h1v3.5z"/></svg>',
+            'h': '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#a074c4" d="M2 3v10h12V3H2zm7 7.5h-1V9H6v1.5H5V6h1v2h2V6h1v4.5z"/></svg>',
+            'hpp': '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#a074c4" d="M2 3v10h12V3H2zm7 7.5h-1V9H6v1.5H5V6h1v2h2V6h1v4.5z"/></svg>',
+            'py': '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#3572A5" d="M6 2C4.34 2 3 3.34 3 5v2h4V6H5V5c0-.55.45-1 1-1h4c.55 0 1 .45 1 1v1.5c0 .83-.67 1.5-1.5 1.5H6.46C5.1 8 4 9.1 4 10.46V13h5c1.66 0 3-1.34 3-5V5c0-1.66-1.34-3-3-3H6z"/></svg>',
+            'js': '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#f0db4f" d="M2 2h12v12H2V2zm6.6 10c.9 0 1.6-.4 2-1.1l-1-.6c-.2.4-.5.6-.9.6-.6 0-.9-.4-.9-1V7h-1.3v3c0 1.2.8 2 2.1 2zm-3.4-.1c.8 0 1.4-.3 1.7-.9l-1-.5c-.2.3-.4.4-.7.4-.4 0-.7-.3-.7-.9V9h-.2V7.9c0-1.2.8-1.9 1.8-1.9z"/></svg>',
+            'ts': '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#3178c6" d="M2 2h12v12H2V2zm5.5 5v1H6v4H5V8H3.5V7h4zm1 0h3.9v1H11v1.3c.4-.2.9-.3 1.3-.3.8 0 1.2.5 1.2 1.2V12h-1v-1.6c0-.4-.2-.6-.5-.6-.3 0-.6.1-1 .3V12H10V7z"/></svg>',
+            'json': '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#cbcb41" d="M5 3c0-.55.45-1 1-1h4c.55 0 1 .45 1 1v2h-1.5V4h-3v3h2V8.5h-2v3h3v-1h1.5v2c0 .55-.45 1-1 1H6c-.55 0-1-.45-1-1V3z"/></svg>',
+            'rs': '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#dea584" d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2zm-.5 3h2c.83 0 1.5.67 1.5 1.5S10.33 8 9.5 8H9v2.5H7.5V5z"/></svg>',
+            'cmake': '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#6d8086" d="M8 1L1 15h14L8 1zm0 4l3.5 8h-7L8 5z"/></svg>',
+            'md': '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#519aba" d="M2 3v10h12V3H2zm2 8V5h1.5l1.5 2 1.5-2H10v6H8.5V7.5L7 9.5 5.5 7.5V11H4zm8-1.5L10 7h1.5V5h1v2H14l-2 2.5z"/></svg>'
+        };
+        if (iconMap[ext]) return iconMap[ext];
+        // Generic file icon
+        return '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="var(--fg-dimmed)" d="M4 1h5.5L13 4.5V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zm5 1v3h3L9 2z"/></svg>';
+    }
+
     function renderReferences(refs) {
         if (!refs || refs.length === 0) return '';
         var html = '<div class="chat-used-context">' +
@@ -718,11 +1013,12 @@ var ChatApp = (function() {
             var label = r.label || '';
             var tip = r.tooltip || '';
             var path = r.filePath || '';
-            var click = path ? (' onclick="ChatApp._openContext(' +
-                JSON.stringify(path) + ')"') : '';
+            var click = path ? (' onclick="ChatApp._openContext(\'' +
+                MarkdownRenderer.escapeHtml(path).replace(/'/g, '\\\'') + '\')"') : '';
+            var icon = '<span class="context-chip-icon">' + contextChipIcon(label, path) + '</span>';
             html += '<span class="context-chip"' + click +
                 (tip ? (' title="' + MarkdownRenderer.escapeHtml(tip) + '"') : '') +
-                '>' + MarkdownRenderer.escapeHtml(label) + '</span>';
+                '>' + icon + MarkdownRenderer.escapeHtml(label) + '</span>';
         }
         html += '</div></div>';
         return html;
@@ -740,7 +1036,8 @@ var ChatApp = (function() {
         7: renderErrorPart,
         8: renderProgressPart,
         9: renderFileTreePart,
-        10: renderCommandButtonPart
+        10: renderCommandButtonPart,
+        11: renderSubagentPart
     };
 
     var partRenderersByName = {
@@ -755,7 +1052,8 @@ var ChatApp = (function() {
         error: renderErrorPart,
         progress: renderProgressPart,
         fileTree: renderFileTreePart,
-        commandButton: renderCommandButtonPart
+        commandButton: renderCommandButtonPart,
+        subagent: renderSubagentPart
     };
 
     function renderContentPart(part, streaming) {
@@ -782,7 +1080,7 @@ var ChatApp = (function() {
             html += '<div class="header">' +
                 '<div class="user">' +
                     '<div class="avatar-container">' +
-                        '<div class="avatar avatar-user">U</div>' +
+                        USER_AVATAR +
                     '</div>' +
                     '<span class="username">You</span>' +
                 '</div>' +
@@ -803,7 +1101,7 @@ var ChatApp = (function() {
             html += '<div class="header"' + (isUser ? ' style="margin-top:16px"' : '') + '>' +
                 '<div class="user">' +
                     '<div class="avatar-container">' +
-                        '<div class="avatar avatar-ai">&#x2728;</div>' +
+                        COPILOT_AVATAR +
                     '</div>' +
                     '<span class="username">Copilot</span>' +
                 '</div>' +
@@ -814,9 +1112,64 @@ var ChatApp = (function() {
                 html += renderReferences(turn.references);
             }
             var turnIsStreaming = (turn.state === 0);
+            var inWorkingBox = false;
+            var wkStepCount = 0;
+            var wkBoxStartIdx = 0;
             for (var i = 0; i < parts.length; i++) {
                 var isLast = (i === parts.length - 1);
-                html += renderContentPart(parts[i], turnIsStreaming && isLast);
+                var pt = parts[i];
+                var isToolPart = (pt.type === 2 || pt.type === 'toolInvocation');
+                if (isToolPart) {
+                    if (!inWorkingBox) {
+                        inWorkingBox = true;
+                        wkStepCount = 0;
+                        wkBoxStartIdx = html.length;
+                        var wkActiveClass = turnIsStreaming ? ' wk-active' : ' wk-collapsed';
+                        html += '<div class="wk-box' + wkActiveClass + '" data-type="workingBox">' +
+                            '<button class="wk-header" onclick="ChatApp._toggleWorking(this.parentElement)">' +
+                                '<span class="wk-header-icon">' +
+                                    '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">' +
+                                    '<path d="M7.976 10.072l4.357-7.532.894.516L7.976 12.192l-4.19-4.19.708-.708 3.482 2.778z"/>' +
+                                    '</svg>' +
+                                '</span>' +
+                                '<span class="wk-header-label">__WK_LABEL__</span>' +
+                            '</button>' +
+                            '<div class="wk-body"><div class="wk-steps">';
+                    }
+                    html += renderWorkingStepHtml(pt);
+                    wkStepCount++;
+                } else {
+                    if (inWorkingBox) {
+                        html += '</div>'; // close .wk-steps
+                        if (turnIsStreaming) {
+                            html += '<div class="wk-spinner">' +
+                                '<span class="wk-spinner-dot">&#9679;</span>' +
+                                '<span class="wk-spinner-label">' +
+                                    workingMessages[workingMsgIdx % workingMessages.length] +
+                                '</span></div>';
+                        }
+                        html += '</div></div>'; // close .wk-body, .wk-box
+                        var wkLabel = turnIsStreaming ? 'Working'
+                            : 'Finished with ' + wkStepCount + ' step' + (wkStepCount === 1 ? '' : 's');
+                        html = html.substring(0, wkBoxStartIdx) + html.substring(wkBoxStartIdx).replace('__WK_LABEL__', wkLabel);
+                        inWorkingBox = false;
+                    }
+                    html += renderContentPart(pt, turnIsStreaming && isLast);
+                }
+            }
+            if (inWorkingBox) {
+                html += '</div>'; // close .wk-steps
+                if (turnIsStreaming) {
+                    html += '<div class="wk-spinner">' +
+                        '<span class="wk-spinner-dot">&#9679;</span>' +
+                        '<span class="wk-spinner-label">' +
+                            workingMessages[workingMsgIdx % workingMessages.length] +
+                        '</span></div>';
+                }
+                html += '</div></div>'; // close .wk-body, .wk-box
+                var wkLabel2 = turnIsStreaming ? 'Working'
+                    : 'Finished with ' + wkStepCount + ' step' + (wkStepCount === 1 ? '' : 's');
+                html = html.substring(0, wkBoxStartIdx) + html.substring(wkBoxStartIdx).replace('__WK_LABEL__', wkLabel2);
             }
             html += '</div>';
         }
@@ -882,7 +1235,7 @@ var ChatApp = (function() {
                 var headerHtml = '<div class="header" style="margin-top:16px">' +
                     '<div class="user">' +
                         '<div class="avatar-container">' +
-                            '<div class="avatar avatar-ai">&#x2728;</div>' +
+                            COPILOT_AVATAR +
                         '</div>' +
                         '<span class="username">Copilot</span>' +
                     '</div>' +
@@ -925,6 +1278,9 @@ var ChatApp = (function() {
 
         lastPart.thinkingText = (lastPart.thinkingText || '') + delta;
 
+        // Rotate the status message periodically
+        thinkingMsgIndex = Math.floor((lastPart.thinkingText || '').length / 120) % thinkingMessages.length;
+
         var partsEl = document.getElementById('parts-' + turnIndex);
         if (!partsEl) return;
 
@@ -936,6 +1292,11 @@ var ChatApp = (function() {
             var bodyEl = thinkingDiv.querySelector('.thinking-text');
             if (bodyEl) {
                 bodyEl.innerHTML = MarkdownRenderer.escapeHtml(lastPart.thinkingText).replace(/\n/g, '<br>');
+            }
+            // Update status message
+            var statusEl = thinkingDiv.querySelector('.thinking-status-msg');
+            if (statusEl) {
+                statusEl.textContent = '\u2014 ' + thinkingMessages[thinkingMsgIndex % thinkingMessages.length] + '...';
             }
             thinkingDiv.classList.add('streaming');
             thinkingDiv.classList.remove('collapsed');
@@ -963,6 +1324,14 @@ var ChatApp = (function() {
                     if (last) {
                         last.classList.add('collapsed');
                         last.classList.remove('streaming');
+                        // Swap spinner for chevron
+                        var spinnerEl = last.querySelector('.thinking-spinner-icon');
+                        if (spinnerEl) {
+                            spinnerEl.outerHTML = '<span class="thinking-chevron">&#x25BC;</span>';
+                        }
+                        // Remove status message
+                        var statusMsg = last.querySelector('.thinking-status-msg');
+                        if (statusMsg) statusMsg.remove();
                     }
                 }
             }
@@ -978,7 +1347,7 @@ var ChatApp = (function() {
                 var headerHtml = '<div class="header" style="margin-top:16px">' +
                     '<div class="user">' +
                         '<div class="avatar-container">' +
-                            '<div class="avatar avatar-ai">&#x2728;</div>' +
+                            COPILOT_AVATAR +
                         '</div>' +
                         '<span class="username">Copilot</span>' +
                     '</div>' +
@@ -990,6 +1359,35 @@ var ChatApp = (function() {
         }
         if (!partsEl) return;
 
+        // Tool invocations go into the Working box (VS Code style)
+        if (partJson.type === 2 || partJson.type === 'toolInvocation') {
+            var wkBox = partsEl.querySelector('.wk-box');
+            if (!wkBox) {
+                partsEl.insertAdjacentHTML('beforeend', createWorkingBoxHtml());
+                wkBox = partsEl.querySelector('.wk-box');
+            }
+            var stepsEl = wkBox.querySelector('.wk-steps');
+            if (stepsEl) {
+                stepsEl.insertAdjacentHTML('beforeend', renderWorkingStepHtml(partJson));
+            }
+            // Track step count
+            var count = parseInt(wkBox.getAttribute('data-step-count') || '0', 10) + 1;
+            wkBox.setAttribute('data-step-count', String(count));
+            // Update spinner message
+            workingMsgIdx++;
+            var spinLabel = wkBox.querySelector('.wk-spinner-label');
+            if (spinLabel) {
+                spinLabel.textContent = workingMessages[workingMsgIdx % workingMessages.length];
+            }
+            // Auto-scroll body to bottom
+            var wkBody = wkBox.querySelector('.wk-body');
+            if (wkBody) {
+                wkBody.scrollTop = wkBody.scrollHeight;
+            }
+            scheduleScroll();
+            return;
+        }
+
         partsEl.insertAdjacentHTML('beforeend', renderContentPart(partJson, false));
         scheduleScroll();
     };
@@ -1000,6 +1398,13 @@ var ChatApp = (function() {
 
         var toolPart = partsEl.querySelector('[data-call-id="' + callId + '"]');
         if (!toolPart) return;
+
+        // Working box step (VS Code style)
+        if (toolPart.classList.contains('wk-step')) {
+            toolPart.outerHTML = renderWorkingStepHtml(stateJson);
+            scheduleScroll();
+            return;
+        }
 
         // Terminal tools: full re-render for simplicity
         if (isTerminalTool(stateJson)) {
@@ -1016,6 +1421,12 @@ var ChatApp = (function() {
             if (st === 1) cardEl.classList.add('is-streaming');
             else if (st === 3) cardEl.classList.add('is-complete');
             else if (st === 4) cardEl.classList.add('is-error');
+        }
+
+        // Update status icon
+        var iconEl = toolPart.querySelector('.tool-card-icon');
+        if (iconEl) {
+            iconEl.innerHTML = toolStatusIcon(st);
         }
 
         // Update title (present → past tense)
@@ -1045,12 +1456,6 @@ var ChatApp = (function() {
             }
         }
 
-        // Update body status
-        var bodyEl = toolPart.querySelector('.tool-card-body');
-        if (bodyEl) {
-            bodyEl.innerHTML = buildCardStatusHtml(st);
-        }
-
         // Update or create detail section
         var stInput = toolInputOf(stateJson);
         var stOutput = toolOutputOf(stateJson);
@@ -1066,6 +1471,11 @@ var ChatApp = (function() {
                     confirmWidget.insertAdjacentHTML('beforebegin', newDetailHtml);
                 } else {
                     cardEl.insertAdjacentHTML('beforeend', newDetailHtml);
+                }
+                // Add chevron if not present
+                if (headerEl && !headerEl.querySelector('.tool-card-chevron')) {
+                    headerEl.insertAdjacentHTML('afterbegin',
+                        '<span class="tool-card-chevron">&#x25B6;</span>');
                 }
             }
         }
@@ -1097,12 +1507,78 @@ var ChatApp = (function() {
         var thinkingBoxes = turnEl.querySelectorAll('.chat-thinking-box.streaming');
         for (var j = 0; j < thinkingBoxes.length; j++) {
             thinkingBoxes[j].classList.remove('streaming');
+            // Swap spinner for chevron
+            var spinnerEl = thinkingBoxes[j].querySelector('.thinking-spinner-icon');
+            if (spinnerEl) {
+                spinnerEl.outerHTML = '<span class="thinking-chevron">&#x25BC;</span>';
+            }
+            // Remove status message
+            var statusMsg = thinkingBoxes[j].querySelector('.thinking-status-msg');
+            if (statusMsg) statusMsg.remove();
         }
 
         // Remove streaming shimmer from tool labels
         var streamingSteps = turnEl.querySelectorAll('.progress-step.is-streaming');
         for (var k = 0; k < streamingSteps.length; k++) {
             streamingSteps[k].classList.remove('is-streaming');
+        }
+
+        // Clean up tool cards still in streaming state
+        var streamingCards = turnEl.querySelectorAll('.tool-card.is-streaming');
+        for (var tc = 0; tc < streamingCards.length; tc++) {
+            streamingCards[tc].classList.remove('is-streaming');
+            streamingCards[tc].classList.add('is-complete');
+            // Update status dot
+            var statusDot = streamingCards[tc].querySelector('.tool-card-status-dot');
+            if (statusDot) statusDot.classList.remove('spinning');
+        }
+
+        // Clean up streaming subagent boxes
+        var subagentBoxes = turnEl.querySelectorAll('.chat-subagent-box.streaming');
+        for (var s = 0; s < subagentBoxes.length; s++) {
+            subagentBoxes[s].classList.remove('streaming');
+            var statusEl = subagentBoxes[s].querySelector('.subagent-status');
+            if (statusEl) statusEl.textContent = 'Completed';
+        }
+
+        // Remove streaming progress boxes
+        var progressBoxes = turnEl.querySelectorAll('.progress-box.streaming');
+        for (var p = 0; p < progressBoxes.length; p++) {
+            progressBoxes[p].remove();
+        }
+
+        // Finalize Working boxes: remove spinner, deactivate shimmer, auto-collapse
+        var wkBoxes = turnEl.querySelectorAll('.wk-box.wk-active');
+        for (var wb = 0; wb < wkBoxes.length; wb++) {
+            var box = wkBoxes[wb];
+            box.classList.remove('wk-active');
+            var spinner = box.querySelector('.wk-spinner');
+            if (spinner) spinner.remove();
+            // Mark any remaining streaming steps as done
+            var activeSteps = box.querySelectorAll('.wk-step-streaming');
+            for (var as = 0; as < activeSteps.length; as++) {
+                activeSteps[as].classList.remove('wk-step-streaming');
+                activeSteps[as].classList.add('wk-step-done');
+                var iconEl = activeSteps[as].querySelector('.wk-step-icon');
+                if (iconEl) {
+                    iconEl.outerHTML = '<span class="wk-step-icon wk-check">' +
+                        '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">' +
+                        '<path d="M6.27 10.87h.71l4.56-6.47-.71-.5-4.2 5.94-2.26-2.03-.64.56 2.54 2.5z"/></svg></span>';
+                }
+            }
+            // Auto-collapse like VS Code
+            box.classList.add('wk-collapsed');
+            // Update header label with step count
+            var stepCount = parseInt(box.getAttribute('data-step-count') || '0', 10);
+            if (stepCount === 0) {
+                stepCount = box.querySelectorAll('.wk-step').length;
+            }
+            var label = box.querySelector('.wk-header-label');
+            if (label) {
+                label.textContent = stepCount > 0
+                    ? 'Finished with ' + stepCount + ' step' + (stepCount === 1 ? '' : 's')
+                    : 'Finished Working';
+            }
         }
 
         // Mark as most recent for persistent footer visibility
@@ -1475,6 +1951,18 @@ var ChatApp = (function() {
         if (boxEl) boxEl.classList.toggle('collapsed');
     };
 
+    api._toggleWorking = function(boxEl) {
+        if (boxEl) boxEl.classList.toggle('wk-collapsed');
+    };
+
+    api._toggleSubagent = function(boxEl) {
+        if (boxEl) boxEl.classList.toggle('collapsed');
+    };
+
+    api._toggleConfirmation = function(widgetEl) {
+        if (widgetEl) widgetEl.classList.toggle('collapsed');
+    };
+
     api._toggleToolDetail = function(toggleBtn) {
         var container = toggleBtn.parentElement;
         if (!container) return;
@@ -1494,7 +1982,12 @@ var ChatApp = (function() {
         if (!card) return;
         var detail = card.querySelector('.tool-card-detail');
         if (detail) {
-            detail.classList.toggle('hidden');
+            var isHidden = detail.classList.toggle('hidden');
+            if (isHidden) {
+                card.classList.remove('expanded');
+            } else {
+                card.classList.add('expanded');
+            }
         }
     };
 

@@ -436,6 +436,7 @@ static ULMouseButton qtButtonToUL(Qt::MouseButton btn)
 void UltralightWidget::mousePressEvent(QMouseEvent *event)
 {
     if (!m_view) return;
+    setFocus(Qt::MouseFocusReason);
     ULMouseEvent evt = ulCreateMouseEvent(kMouseEventType_MouseDown,
                                           event->pos().x(), event->pos().y(),
                                           qtButtonToUL(event->button()));
@@ -522,6 +523,25 @@ static void fireKeyEvent(ULView view, QKeyEvent *event, ULKeyEventType type)
     ulDestroyKeyEvent(evt);
     ulDestroyString(text);
     ulDestroyString(unmod);
+}
+
+bool UltralightWidget::event(QEvent *event)
+{
+    // Accept ShortcutOverride for clipboard/select-all key sequences so that
+    // global QAction shortcuts (Edit menu) do not steal them when we have focus.
+    if (event->type() == QEvent::ShortcutOverride) {
+        auto *ke = static_cast<QKeyEvent *>(event);
+        if (ke->matches(QKeySequence::Paste)
+            || ke->matches(QKeySequence::Copy)
+            || ke->matches(QKeySequence::Cut)
+            || ke->matches(QKeySequence::SelectAll)
+            || ke->matches(QKeySequence::Undo)
+            || ke->matches(QKeySequence::Redo)) {
+            event->accept();
+            return true;
+        }
+    }
+    return QWidget::event(event);
 }
 
 void UltralightWidget::keyPressEvent(QKeyEvent *event)

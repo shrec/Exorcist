@@ -98,7 +98,7 @@ ChatThinkingWidget::ChatThinkingWidget(QWidget *parent)
     auto *textScroll = new QScrollArea(m_thinkingTextContainer);
     textScroll->setWidgetResizable(true);
     textScroll->setFrameShape(QFrame::NoFrame);
-    textScroll->setMaximumHeight(180);
+    textScroll->setMaximumHeight(200);
     textScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     textScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     textScroll->setStyleSheet(

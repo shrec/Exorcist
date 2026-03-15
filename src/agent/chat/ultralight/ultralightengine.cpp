@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QStandardPaths>
+#include <QVariant>
 
 namespace exorcist {
 
@@ -52,6 +53,12 @@ void UltralightEngine::initialize(const QString &resourcePath)
 
     m_renderer = ulCreateRenderer(config);
     m_initialized = true;
+
+    // Share the renderer handle across DLL boundaries via qApp property.
+    // Plugin DLLs (e.g. javascript-sdk) need the same ULRenderer since
+    // Ultralight allows only one per process.
+    qApp->setProperty("__exo_ul_renderer",
+                       QVariant::fromValue(reinterpret_cast<quintptr>(m_renderer)));
 
     ulDestroyString(ulResPath);
     ulDestroyString(ulCachePath);
