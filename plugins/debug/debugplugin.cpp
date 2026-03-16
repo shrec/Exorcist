@@ -6,6 +6,7 @@
 #include "sdk/idebugadapter.h"
 #include "sdk/idebugservice.h"
 #include "sdk/ihostservices.h"
+#include "core/idockmanager.h"
 
 // ── DebugServiceBridge ───────────────────────────────────────────────────────
 // Concrete IDebugService that bridges adapter/panel signals to the core IDE.
@@ -87,6 +88,14 @@ bool DebugPlugin::initialize(IHostServices *host)
     // Register services
     m_host->registerService(QStringLiteral("debugAdapter"), m_adapter);
     m_host->registerService(QStringLiteral("debugService"), m_debugService);
+
+    // Auto-show debug dock when debugger stops (breakpoint hit, step)
+    if (auto *dockMgr = m_host->docks()) {
+        connect(m_debugService, &IDebugService::debugStopped,
+                this, [dockMgr](const QList<DebugFrame> &) {
+            dockMgr->showPanel(QStringLiteral("DebugDock"));
+        });
+    }
 
     return true;
 }

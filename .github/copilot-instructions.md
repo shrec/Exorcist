@@ -407,3 +407,67 @@ $env:PYTHONIOENCODING="utf-8"; python tools/build_codegraph.py
 3. **Do NOT refactor `MainWindow` piecemeal.** Decomposition must happen as a focused task with a clear plan (extract `EditorManager`, `DockBootstrap`, `BuildDebugBootstrap`, etc.), not ad-hoc member moves.
 4. **Allowed:** Bug fixes that touch existing `MainWindow` code, and wiring new callbacks in the existing agent platform bootstrap section.
 5. **Target:** Reduce from ~120 members to <80 by extracting cohesive manager classes. This is a Phase 12 task.
+
+## MainWindow Is ONLY a Container Shell (STRICT)
+
+`MainWindow` is a **bare container** — a window frame that hosts the dock layout, menu bar, status bar, and central editor area. **All instruments, toolbars, dock panels, and development tools are owned and managed by their respective plugins**, never by MainWindow directly.
+
+### What MainWindow MAY do
+
+| Action | Example |
+|--------|---------|
+| **Host the dock/toolbar/menu infrastructure** | Create `DockManager`, provide `IToolBarManager` adapter |
+| **Show core-subsystem docks on workspace open** | ProjectDock, GitDock, TerminalDock, AIDock, ProblemsDock |
+| **Wire editor-level signals** | `navigateToSource` → open file, `debugStopped` → highlight line |
+| **Route keyboard shortcuts** | Ctrl+B → build command, F5 → debug command (via CommandService) |
+| **Delegate to ServiceRegistry** | Register/resolve services, never own plugin objects |
+
+### What MainWindow MUST NEVER do
+
+| Violation | Why it's wrong | Correct approach |
+|-----------|---------------|-----------------|
+| **Create or add plugin toolbars** | MainWindow doesn't know what plugins exist | Plugin calls `host->toolbars()->createToolBar()` + `addWidget()` |
+| **Show plugin-contributed docks** | OutputDock, RunDock, DebugDock belong to their plugins | Plugin calls `host->docks()->showPanel()` in `initialize()` or on signal |
+| **Connect plugin signals to dock visibility** | `connect(toolbar, buildRequested, showOutputDock)` couples MainWindow to plugin internals | Plugin wires its own signals → `host->docks()->showPanel()` |
+| **Include plugin headers** | `#include "build/buildtoolbar.h"` in MainWindow | Never. Plugin headers are invisible to core |
+| **Register plugin widgets as services for MainWindow to consume** | `registerService("buildToolbar", widget)` then MainWindow grabs it | Plugin adds its own toolbar via `IToolBarManager` |
+
+### Plugin Self-Service Model
+
+Every plugin manages its own UI lifecycle through `IHostServices`:
+
+```cpp
+bool MyPlugin::initialize(IHostServices *host) override
+{
+    // ✅ Plugin creates its own toolbar
+    host->toolbars()->createToolBar("myTool", tr("My Tool"));
+    host->toolbars()->addWidget("myTool", m_toolbar);
+
+    // ✅ Plugin shows its own dock on activation
+    host->docks()->showPanel("MyDock");
+
+    // ✅ Plugin wires its own signals → dock visibility
+    connect(m_toolbar, &MyToolbar::actionTriggered, this, [host]() {
+        host->docks()->showPanel("MyOutputDock");
+    });
+
+    return true;
+}
+```
+
+### Available Plugin UI Interfaces
+
+| Interface | Access via | Purpose |
+|-----------|-----------|---------|
+| `IToolBarManager` | `host->toolbars()` | Create toolbars, add widgets/actions |
+| `IDockManager` | `host->docks()` | Add/show/hide/toggle dock panels |
+| `IMenuManager` | `host->menus()` | Add menus and menu actions |
+| `IStatusBarManager` | `host->statusBar()` | Add status bar items |
+| `IViewContributor` | Plugin interface | Lazy-create dock content widgets |
+| `ICommandService` | `host->commands()` | Register commands for palette/shortcuts |
+
+### Enforcement
+
+- **Code review check:** Any PR that adds plugin-specific wiring to MainWindow (toolbar creation, dock showPanel for plugin docks, signal connections to plugin objects) **must be rejected**.
+- **Grep check:** `grep -rn "showDock.*OutputDock\|showDock.*RunDock\|showDock.*DebugDock" src/mainwindow.cpp` must return 0 results.
+- **Include check:** `grep -rn "#include.*plugins/" src/` must return 0 results.

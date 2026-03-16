@@ -1,0 +1,115 @@
+Test project D:/Dev/Exorcist/build-llvm
+      Start  1: LanguageProfile
+ 1/55 Test  #1: LanguageProfile ..................   Passed    0.05 sec
+      Start  2: ServiceRegistry
+ 2/55 Test  #2: ServiceRegistry ..................   Passed    0.04 sec
+      Start  3: PieceTable
+ 3/55 Test  #3: PieceTable .......................   Passed    0.04 sec
+      Start  4: SseParser
+ 4/55 Test  #4: SseParser ........................   Passed    0.04 sec
+      Start  5: ThemeManager
+ 5/55 Test  #5: ThemeManager .....................   Passed    0.04 sec
+      Start  6: LuaScriptEngine
+ 6/55 Test  #6: LuaScriptEngine ..................   Passed    0.26 sec
+      Start  7: LspClient
+ 7/55 Test  #7: LspClient ........................   Passed    0.05 sec
+      Start  8: SearchWorker
+ 8/55 Test  #8: SearchWorker .....................   Passed    0.07 sec
+      Start  9: OutputPanel
+ 9/55 Test  #9: OutputPanel ......................   Passed    0.06 sec
+      Start 10: ToolRegistry
+10/55 Test #10: ToolRegistry .....................   Passed    0.04 sec
+      Start 11: ContextBuilder
+11/55 Test #11: ContextBuilder ...................   Passed    0.04 sec
+      Start 12: MultiCursor
+12/55 Test #12: MultiCursor ......................   Passed    0.04 sec
+      Start 13: CodeFolding
+13/55 Test #13: CodeFolding ......................   Passed    0.04 sec
+      Start 14: GitService
+14/55 Test #14: GitService .......................   Passed   10.93 sec
+      Start 15: ProjectManager
+15/55 Test #15: ProjectManager ...................   Passed    0.07 sec
+      Start 16: TerminalScreen
+16/55 Test #16: TerminalScreen ...................   Passed    0.04 sec
+      Start 17: TreeSitterHighlighter
+17/55 Test #17: TreeSitterHighlighter ............   Passed    0.05 sec
+      Start 18: SyntaxHighlighter
+18/55 Test #18: SyntaxHighlighter ................   Passed    0.05 sec
+      Start 19: HighlighterFactory
+19/55 Test #19: HighlighterFactory ...............   Passed    0.04 sec
+      Start 20: KeymapManager
+20/55 Test #20: KeymapManager ....................   Passed    0.04 sec
+      Start 21: CommandPalette
+21/55 Test #21: CommandPalette ...................   Passed    0.06 sec
+      Start 22: TestDiscovery
+22/55 Test #22: TestDiscovery ....................   Passed    4.16 sec
+      Start 23: ProblemsPanel
+23/55 Test #23: ProblemsPanel ....................   Passed    0.10 sec
+      Start 24: WorkspaceSettings
+24/55 Test #24: WorkspaceSettings ................   Passed    0.10 sec
+      Start 25: DiffMerge
+25/55 Test #25: DiffMerge ........................   Passed    0.85 sec
+      Start 26: VimHandler
+26/55 Test #26: VimHandler .......................   Passed    0.06 sec
+      Start 27: RemoteLsp
+27/55 Test #27: RemoteLsp ........................   Passed    0.49 sec
+      Start 28: PluginMarketplace
+28/55 Test #28: PluginMarketplace ................   Passed    0.05 sec
+      Start 29: GitignoreFilter
+29/55 Test #29: GitignoreFilter ..................   Passed    0.05 sec
+      Start 30: ContextPruner
+30/55 Test #30: ContextPruner ....................   Passed    0.04 sec
+      Start 31: AutoCompactor
+31/55 Test #31: AutoCompactor ....................   Passed    0.05 sec
+      Start 32: ExoBridge
+32/55 Test #32: ExoBridge ........................   Passed    1.99 sec
+      Start 33: BridgeClient
+33/55 Test #33: BridgeClient .....................   Passed    1.06 sec
+      Start 34: BridgeServices
+34/55 Test #34: BridgeServices ...................   Passed    2.10 sec
+      Start 35: CoreInterfaces
+35/55 Test #35: CoreInterfaces ...................   Passed    0.35 sec
+      Start 36: CrashHandler
+36/55 Test #36: CrashHandler .....................   Passed    0.04 sec
+      Start 37: IpcProtocol
+37/55 Test #37: IpcProtocol ......................   Passed    0.04 sec
+      Start 38: FeatureFlags
+38/55 Test #38: FeatureFlags .....................   Passed    0.04 sec
+      Start 39: PluginManifest
+39/55 Test #39: PluginManifest ...................   Passed    0.04 sec
+      Start 40: PluginSuspend
+40/55 Test #40: PluginSuspend ....................   Passed    0.04 sec
+      Start 41: TreeSitterQueryTool
+41/55 Test #41: TreeSitterQueryTool ..............   Passed    0.04 sec
+      Start 42: DiagnosticsNotifier
+42/55 Test #42: DiagnosticsNotifier ..............   Passed    0.04 sec
+      Start 43: BuildTestServices
+43/55 Test #43: BuildTestServices ................   Passed    0.04 sec
+      Start 44: ContributionRegistry
+44/55 Test #44: ContributionRegistry .............   Passed    0.04 sec
+      Start 45: AgentUIBus
+45/55 Test #45: AgentUIBus .......................   Passed    0.04 sec
+      Start 46: CodeGraph
+46/55 Test #46: CodeGraph ........................   Passed    0.24 sec
+      Start 47: JsPluginRuntime
+47/55 Test #47: JsPluginRuntime ..................   Passed    0.13 sec
+      Start 48: Http2Hardening
+48/55 Test #48: Http2Hardening ...................   Passed    0.04 sec
+      Start 49: McpTrust
+49/55 Test #49: McpTrust .........................   Passed    0.04 sec
+      Start 50: MarketplaceSafety
+50/55 Test #50: MarketplaceSafety ................   Passed    0.04 sec
+      Start 51: ProjectBrainDb
+51/55 Test #51: ProjectBrainDb ...................   Passed    0.20 sec
+      Start 52: ComponentRegistry
+52/55 Test #52: ComponentRegistry ................   Passed    0.04 sec
+      Start 53: ComponentServiceAdapter
+53/55 Test #53: ComponentServiceAdapter ..........   Passed    0.04 sec
+      Start 54: ProfileManager
+54/55 Test #54: ProfileManager ...................   Passed    0.05 sec
+      Start 55: Kit
+55/55 Test #55: Kit ..............................   Passed    0.05 sec
+
+100% tests passed, 0 tests failed out of 55
+
+Total Test time (real) =  24.81 sec

@@ -2395,7 +2395,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
         auto *buildSys = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
         if (buildSys && buildSys->hasProject()) {
             buildSys->build();
-            m_dockManager->showDock(dock(QStringLiteral("OutputDock")), exdock::SideBarArea::Bottom);
         }
     });
 
@@ -2420,7 +2419,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
                 cfg.executable = targets.first();
                 cfg.workingDir = m_editorMgr->currentFolder();
                 launchSvc->startDebugging(cfg);
-                m_dockManager->showDock(dock(QStringLiteral("DebugDock")), exdock::SideBarArea::Bottom);
                 return;
             }
         }
@@ -2438,7 +2436,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
                 cfg.executable = targets.first();
                 cfg.workingDir = m_editorMgr->currentFolder();
                 launchSvc->startWithoutDebugging(cfg);
-                m_dockManager->showDock(dock(QStringLiteral("RunDock")), exdock::SideBarArea::Bottom);
                 return;
             }
         }
@@ -2621,26 +2618,6 @@ void MainWindow::setupToolBar()
     bar->addAction(tr("Folder"), this, [this]() { openFolder(); });
 
     // Build toolbar is contributed by the build plugin — added in loadPlugins().
-}
-
-// ── Thin slots for build-plugin toolbar → dock auto-show ─────────────────────
-
-void MainWindow::showOutputDockSlot()
-{
-    m_dockManager->showDock(dock(QStringLiteral("OutputDock")),
-                            exdock::SideBarArea::Bottom);
-}
-
-void MainWindow::showDebugDockSlot()
-{
-    m_dockManager->showDock(dock(QStringLiteral("DebugDock")),
-                            exdock::SideBarArea::Bottom);
-}
-
-void MainWindow::showRunDockSlot()
-{
-    m_dockManager->showDock(dock(QStringLiteral("RunDock")),
-                            exdock::SideBarArea::Bottom);
 }
 
 void MainWindow::createDockWidgets()
@@ -3527,19 +3504,14 @@ void MainWindow::openFolder(const QString &path)
         m_pluginManager->activateByWorkspace(root);
 
     // ── Contextual dock activation ─────────────────────────────────────
-    // Show essential panels for a full development environment.
-    // Left: Project tree (always), Git (if repo), Outline
+    // Show core panels relevant to the opened workspace.
+    // Plugin-contributed docks (Output, Run, Debug) are shown by their
+    // owning plugins, NOT by MainWindow — see plugin-first extension model.
     m_dockManager->showDock(dock(QStringLiteral("ProjectDock")), exdock::SideBarArea::Left);
     if (m_gitService && m_gitService->isGitRepo())
         m_dockManager->showDock(dock(QStringLiteral("GitDock")), exdock::SideBarArea::Left);
-
-    // Right: AI Chat
     m_dockManager->showDock(dock(QStringLiteral("AIDock")), exdock::SideBarArea::Right);
-
-    // Bottom: Terminal, Output (if build plugin loaded), Problems
     m_dockManager->showDock(dock(QStringLiteral("TerminalDock")), exdock::SideBarArea::Bottom);
-    if (dock(QStringLiteral("OutputDock")))
-        m_dockManager->showDock(dock(QStringLiteral("OutputDock")), exdock::SideBarArea::Bottom);
     if (dock(QStringLiteral("ProblemsDock")))
         m_dockManager->showDock(dock(QStringLiteral("ProblemsDock")), exdock::SideBarArea::Bottom);
 
@@ -4785,21 +4757,7 @@ void MainWindow::loadPlugins()
             return lc ? lc->id : QString();
         });
 
-    // ── Post-plugin wiring: build toolbar, ProblemsPanel → OutputPanel ──
-    if (auto *toolbarWidget =
-            m_services->service<QWidget>(QStringLiteral("buildToolbar"))) {
-        auto *bar = new QToolBar(tr("Build"), this);
-        bar->setMovable(false);
-        bar->addWidget(toolbarWidget);
-        addToolBar(bar);
-
-        // Auto-show relevant docks when toolbar buttons are pressed (string-based
-        // connections because BuildToolbar is defined in the build plugin DLL).
-        connect(toolbarWidget, SIGNAL(buildRequested()), this, SLOT(showOutputDockSlot()));
-        connect(toolbarWidget, SIGNAL(configureRequested()), this, SLOT(showOutputDockSlot()));
-        connect(toolbarWidget, SIGNAL(debugRequested(QString)), this, SLOT(showDebugDockSlot()));
-        connect(toolbarWidget, SIGNAL(runRequested(QString)), this, SLOT(showRunDockSlot()));
-    }
+    // ── Post-plugin wiring: ProblemsPanel → OutputPanel ──
     if (auto *outPanel = qobject_cast<OutputPanel *>(m_services->service(QStringLiteral("outputPanel")))) {
         if (auto *pp = qobject_cast<ProblemsPanel *>(m_services->service(QStringLiteral("problemsPanel")))) {
             pp->setOutputPanel(outPanel);
@@ -4808,13 +4766,6 @@ void MainWindow::loadPlugins()
 
     // ── Post-plugin wiring: debug service signals → editor integration ──
     if (auto *debugSvc = m_services->service<IDebugService>(QStringLiteral("debugService"))) {
-        // Auto-show debug dock when debugger stops (breakpoint hit, step)
-        connect(debugSvc, &IDebugService::debugStopped,
-                this, [this](const QList<DebugFrame> &) {
-            m_dockManager->showDock(dock(QStringLiteral("DebugDock")),
-                                    exdock::SideBarArea::Bottom);
-        });
-
         // Navigate to source on stack frame double-click
         connect(debugSvc, &IDebugService::navigateToSource,
                 this, [this](const QString &filePath, int line) {

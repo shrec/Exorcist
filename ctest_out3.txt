@@ -1,0 +1,28 @@
+Test project D:/Dev/Exorcist/build-llvm
+      Start  1: LanguageProfile
+ 1/55 Test  #1: LanguageProfile ..................   Passed    0.05 sec
+      Start  2: ServiceRegistry
+ 2/55 Test  #2: ServiceRegistry ..................   Passed    0.04 sec
+      Start  3: PieceTable
+ 3/55 Test  #3: PieceTable .......................   Passed    0.05 sec
+      Start  4: SseParser
+ 4/55 Test  #4: SseParser ........................   Passed    0.05 sec
+      Start  5: ThemeManager
+ 5/55 Test  #5: ThemeManager .....................   Passed    0.05 sec
+      Start  6: LuaScriptEngine
+ 6/55 Test  #6: LuaScriptEngine ..................   Passed    0.29 sec
+      Start  7: LspClient
+ 7/55 Test  #7: LspClient ........................   Passed    0.05 sec
+      Start  8: SearchWorker
+ 8/55 Test  #8: SearchWorker .....................   Passed    0.09 sec
+      Start  9: OutputPanel
+ 9/55 Test  #9: OutputPanel ......................   Passed    0.08 sec
+      Start 10: ToolRegistry
+10/55 Test #10: ToolRegistry .....................   Passed    0.05 sec
+      Start 11: ContextBuilder
+11/55 Test #11: ContextBuilder ...................   Passed    0.05 sec
+      Start 12: MultiCursor
+12/55 Test #12: MultiCursor ......................   Passed    0.05 sec
+      Start 13: CodeFolding
+13/55 Test #13: CodeFolding ......................   Passed    0.05 sec
+      Start 14: GitService

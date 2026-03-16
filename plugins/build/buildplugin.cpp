@@ -14,6 +14,9 @@
 #include "sdk/ilaunchservice.h"
 #include "sdk/inotificationservice.h"
 #include "sdk/iworkspaceservice.h"
+#include "core/idockmanager.h"
+#include "core/itoolbarmanager.h"
+#include "sdk/ibuildsystem.h"
 
 #include <QFileInfo>
 
@@ -130,8 +133,31 @@ bool BuildPlugin::initialize(IHostServices *host)
     // Register kit manager
     m_host->registerService(QStringLiteral("kitManager"), m_kitMgr);
 
-    // Register the toolbar widget as a service so MainWindow can add it
-    m_host->registerService(QStringLiteral("buildToolbar"), m_toolbar);
+    // ── Add toolbar via IToolBarManager (plugin-owned, not MainWindow) ──
+    if (auto *tbMgr = m_host->toolbars()) {
+        tbMgr->createToolBar(QStringLiteral("build"), tr("Build"));
+        tbMgr->addWidget(QStringLiteral("build"), m_toolbar);
+    }
+
+    // ── Auto-show docks ──
+    // Plugin owns its own UI lifecycle: docks are shown by the plugin
+    // itself, never by MainWindow. This works regardless of trigger source
+    // (toolbar button, Run menu, command palette, keybinding).
+    if (auto *dockMgr = m_host->docks()) {
+        // Show Output dock when plugin activates for a build workspace
+        dockMgr->showPanel(QStringLiteral("OutputDock"));
+
+        // Show Output dock when any build/configure output arrives
+        connect(m_buildSvc, &IBuildSystem::buildOutput, this, [dockMgr](const QString &, bool) {
+            dockMgr->showPanel(QStringLiteral("OutputDock"));
+        });
+
+        // Show Run dock when a non-debug process starts
+        connect(m_launcher, &DebugLaunchController::processStarted,
+                this, [dockMgr]() {
+            dockMgr->showPanel(QStringLiteral("RunDock"));
+        });
+    }
 
     // Register OutputPanel for ProblemsPanel integration
     m_host->registerService(QStringLiteral("outputPanel"), m_output);

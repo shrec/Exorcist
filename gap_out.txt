@@ -1,0 +1,282 @@
+======================================================================
+  EXORCIST IDE - GAP REPORT
+======================================================================
+
+  Feature gaps (4):
+    [--] RemoteSSH                 Design + implement from scratch
+    [ST] BYOKProvider              Flesh out implementation
+    [ST] NextEditSuggestions       Flesh out implementation
+    [ST] Trajectory                Flesh out implementation
+
+  QObject classes without .cpp (97):
+    AccessibilityHelper                 src/agent/accessibilityhelper.h
+    Attachment                          src/agent/agentchatpanel.h
+    WorkingStep                         src/agent/agentchatpanel.h
+    Callbacks                           src/agent/agentplatformbootstrap.h
+    APIKeyManagerWidget                 src/agent/apikeymanagerwidget.h
+    AuthStatusIndicator                 src/agent/authstatusindicator.h
+    CompactionStrategy                  src/agent/backgroundcompactor.h
+    AgentBrainContext                   src/agent/braincontextbuilder.h
+    Attachment                          src/agent/chat/chatinputwidget.h
+    ToolItem                            src/agent/chat/chatthinkingwidget.h
+    ChatThemeAdapter                    src/agent/chatthemeadapter.h
+    Citation                            src/agent/citationmanager.h
+    Change                              src/agent/diagnosticsnotifier.h
+    EditChunk                           src/agent/inlinechat/inlinechatwidget.h
+    ToolSpec                            src/agent/itool.h
+    ToolExecResult                      src/agent/itool.h
+    QStringHash                         src/agent/itool.h
+    MemoryFileEditor                    src/agent/memoryfileeditor.h
+    ModelConfigWidget                   src/agent/modelconfigwidget.h
+    PromptArchiveExporter               src/agent/promptarchiveexporter.h
+    PromptFile                          src/agent/promptfilemanager.h
+    PromptFileManager                   src/agent/promptfilemanager.h
+    PromptFileEntry                     src/agent/promptfilepicker.h
+    PromptFilePicker                    src/agent/promptfilepicker.h
+    PromptVar                           src/agent/promptvariables.h
+    PromptVariable                      src/agent/promptvariables.h
+    RenameIntegration                   src/agent/renameintegration.h
+    SetupTestsWizard                    src/agent/setuptestswizard.h
+    SetupStep                           src/agent/setuptestswizard.h
+    TerminalSessionInternal             src/agent/terminalsessionmanager.h
+    DetectionResult                     src/agent/testgenerator.h
+    ToolCallTrace                       src/agent/toolcalltrace.h
+    ToolToggleManager                   src/agent/tooltogglemanager.h
+    TrajectoryStep                      src/agent/trajectoryrecorder.h
+    TrajectoryRecorder                  src/agent/trajectoryrecorder.h
+    ModelBilling                        src/aiinterface.h
+    ModelInfo                           src/aiinterface.h
+    ToolParameter                       src/aiinterface.h
+    ToolDefinition                      src/aiinterface.h
+    ToolCall                            src/aiinterface.h
+    ToolResult                          src/aiinterface.h
+    AgentMessage                        src/aiinterface.h
+    AgentDiagnostic                     src/aiinterface.h
+    Attachment                          src/aiinterface.h
+    AgentRequest                        src/aiinterface.h
+    AgentProposedEdit                   src/aiinterface.h
+    AgentError                          src/aiinterface.h
+    ContextAction                       src/bootstrap/menumanagerimpl.h
+    InstanceInfo                        src/component/componentregistry.h
+    PendingCmd                          src/debug/gdbmiadapter.h
+    DebugVarChange                      src/debug/idebugadapter.h
+    SymbolEntry                         src/editor/breadcrumbbar.h
+    FoldRegion                          src/editor/codefoldingengine.h
+    DiagnosticMark                      src/editor/editorview.h
+    ReviewAnnotation                    src/editor/editorview.h
+    DiffRange                           src/editor/editorview.h
+    BlameInfo                           src/editor/editorview.h
+    LanguageCompletionConfig            src/editor/languagecompletionconfig.h
+    ProposedEdit                        src/editor/proposededitpanel.h
+    Rule                                src/editor/syntaxhighlighter.h
+    LineChangeRange                     src/git/gitservice.h
+    BlameEntry                          src/git/gitservice.h
+    ChangedFile                         src/git/gitservice.h
+    LogEntry                            src/git/gitservice.h
+    Ref                                 src/lsp/referencespanel.h
+    McpToolInfo                         src/mcp/mcpclient.h
+    McpServerConfig                     src/mcp/mcpclient.h
+    McpToolResult                       src/mcp/mcpclient.h
+    ServerState                         src/mcp/mcpclient.h
+    MCPDiscoveredTool                   src/mcp/mcpservermanager.h
+    RegistryEntry                       src/plugin/plugingallerypanel.h
+    ClientInfo                          src/process/exobridgecore.h
+    StdStringHash                       src/process/exobridgecore.h
+    ProcessInfo                         src/process/processmanager.h
+    StdStringHash                       src/process/processmanager.h
+    CmdEntry                            src/sdk/cabi/cabi_bridge.h
+    RegisteredCommand                   src/sdk/contributionregistry.h
+    RegisteredView                      src/sdk/contributionregistry.h
+    RegisteredMenu                      src/sdk/contributionregistry.h
+    RegisteredLanguage                  src/sdk/contributionregistry.h
+    RegisteredTask                      src/sdk/contributionregistry.h
+    RegisteredSetting                   src/sdk/contributionregistry.h
+    RegisteredTheme                     src/sdk/contributionregistry.h
+    CommandEntry                        src/sdk/hostservices.h
+    DebugVarChange                      src/sdk/idebugadapter.h
+    LaunchConfig                        src/sdk/ilaunchservice.h
+    TestItem                            src/sdk/itestrunner.h
+    LuaPluginInfo                       src/sdk/luajit/luascriptengine.h
+    EmbeddingSearchResult               src/search/embeddingindex.h
+    Entry                               src/serviceregistry.h
+    LanguageProfileData                 src/settings/languageprofile.h
+    TermCell                            src/terminal/terminalscreen.h
+    DockEntry                           src/ui/dock/DockManager.h
+    ToolBarBand                         src/ui/dock/DockToolBarArea.h
+    AutoHideEntry                       src/ui/dockautohidemanager.h
+    Binding                             src/ui/keymapmanager.h
+    RegistryEntry                       src/ui/themegallerypanel.h
+
+  Interfaces without known implementors (142):
+    AgentChatPanel                      src/agent/agentchatpanel.h
+    AgentController                     src/agent/agentcontroller.h
+    AuthManager                         src/agent/authmanager.h
+    BackgroundCompactor                 src/agent/backgroundcompactor.h
+    ChatContentPart                     src/agent/chat/chatcontentpart.h
+    EditedFile                          src/agent/chat/chatcontentpart.h
+    ChatInputWidget                     src/agent/chat/chatinputwidget.h
+    ChatPanelWidget                     src/agent/chat/chatpanelwidget.h
+    ChatSessionHistoryPopup             src/agent/chat/chatsessionhistorypopup.h
+    SessionEntry                        src/agent/chat/chatsessionhistorypopup.h
+    ChatSessionModel                    src/agent/chat/chatsessionmodel.h
+    ChatThinkingWidget                  src/agent/chat/chatthinkingwidget.h
+    ChatToolInvocationWidget            src/agent/chat/chattoolinvocationwidget.h
+    ChatTurnModel                       src/agent/chat/chatturnmodel.h
+    UltralightWidget                    src/agent/chat/ultralight/ultralightwidget.h
+    EditableContextItem                 src/agent/contexteditor.h
+    ContextInspector                    src/agent/contextinspector.h
+    ContextPruner                       src/agent/contextpruner.h
+    ContextItem                         src/agent/contextpruner.h
+    DiagnosticsNotifier                 src/agent/diagnosticsnotifier.h
+    FileDiagState                       src/agent/diagnosticsnotifier.h
+    ErrorStateWidget                    src/agent/errorstatewidget.h
+    IAgentPlugin                        src/agent/iagentplugin.h
+    IAgentToolPlugin                    src/agent/iagentplugin.h
+    IAgentSettingsPageProvider          src/agent/iagentsettingspageprovider.h
+    IChatSessionImporter                src/agent/ichatsessionimporter.h
+    ContextItem                         src/agent/icontextprovider.h
+    ContextSnapshot                     src/agent/icontextprovider.h
+    IContextProvider                    src/agent/icontextprovider.h
+    InlineCompletionEngine              src/agent/inlinecompletionengine.h
+    IProviderAuthIntegration            src/agent/iproviderauthintegration.h
+    NetworkMonitor                      src/agent/networkmonitor.h
+    NextEditSuggestion                  src/agent/nexteditengine.h
+    NextEditEngine                      src/agent/nexteditengine.h
+    NotebookCell                        src/agent/notebookstubs.h
+    OAuthManager                        src/agent/oauthmanager.h
+    PromptRecord                        src/agent/promptarchiveexporter.h
+    RequestLogPanel                     src/agent/requestlogpanel.h
+    SessionStore                        src/agent/sessionstore.h
+    ChatSession                         src/agent/sessionstore.h
+    Summary                             src/agent/sessionstore.h
+    TerminalSession                     src/agent/terminalsessionmanager.h
+    ToolCallRecord                      src/agent/toolcalltrace.h
+    LuaExecuteTool                      src/agent/tools/luatool.h
+    LuaResult                           src/agent/tools/luatool.h
+    DbConnectionConfig                  src/agent/tools/projectdbtool.h
+    FileScore                           src/agent/tools/semanticsearchtool.cpp
+    TrajectoryPanel                     src/agent/trajectorypanel.h
+    TrajectoryReplayWidget              src/agent/trajectoryreplaywidget.h
+    AgentUIEvent                        src/agent/ui/agentuievent.h
+    WorkspaceContextDetector            src/agent/workspacecontextdetector.h
+    ModelCapabilities                   src/aiinterface.h
+    AgentResponse                       src/aiinterface.h
+    StatusBarManagerAdapter             src/bootstrap/statusbarmanageradapter.h
+    ItemEntry                           src/bootstrap/statusbarmanageradapter.h
+    CodeGraphQuery                      src/codegraph/codegraphquery.h
+    FileMatch                           src/codegraph/codegraphquery.h
+    CodeGraphFunction                   src/codegraph/codegraphtypes.h
+    CodeGraphStats                      src/codegraph/codegraphtypes.h
+    CodeGraphClassInfo                  src/codegraph/codegraphtypes.h
+    CodeGraphConnectionInfo             src/codegraph/codegraphtypes.h
+    CodeGraphServiceRef                 src/codegraph/codegraphtypes.h
+    CodeGraphTestCase                   src/codegraph/codegraphtypes.h
+    IComponentFactory                   src/core/icomponentfactory.h
+    IDockManager                        src/core/idockmanager.h
+    IEnvironment                        src/core/ienvironment.h
+    IFileWatcher                        src/core/ifilewatcher.h
+    IMenuManager                        src/core/imenumanager.h
+    IProfileManager                     src/core/iprofilemanager.h
+    IStatusBarManager                   src/core/istatusbarmanager.h
+    IToolBarManager                     src/core/itoolbarmanager.h
+    IWorkspaceManager                   src/core/iworkspacemanager.h
+    DebugBreakpoint                     src/debug/idebugadapter.h
+    DebugFrame                          src/debug/idebugadapter.h
+    DebugVariable                       src/debug/idebugadapter.h
+    DebugVarObj                         src/debug/idebugadapter.h
+    DebugThread                         src/debug/idebugadapter.h
+    WatchNode                           src/debug/watchtreemodel.h
+    EditorView                          src/editor/editorview.h
+    ReviewComment                       src/editor/inlinereviewwidget.h
+    InlineReviewWidget                  src/editor/inlinereviewwidget.h
+    MergeConflict                       src/editor/mergeconflictresolver.h
+    EditHunk                            src/editor/multichunkeditor.h
+    MultiChunkEditor                    src/editor/multichunkeditor.h
+    PieceTableBuffer                    src/editor/piecetablebuffer.h
+    VimHandler                          src/editor/vimhandler.h
+    CompletionPopup                     src/lsp/completionpopup.h
+    PendingRequest                      src/lsp/lspclient.h
+    LspEditorBridge                     src/lsp/lspeditorbridge.h
+    ICommandHandler                     src/plugin/icommandhandler.h
+    CompletionItem                      src/plugin/icompletioncontributor.h
+    ICompletionContributor              src/plugin/icompletioncontributor.h
+    IEditorContributor                  src/plugin/ieditorcontributor.h
+    IFormatterContributor               src/plugin/iformattercontributor.h
+    ILinterContributor                  src/plugin/ilintercontributor.h
+    ISettingsContributor                src/plugin/isettingscontributor.h
+    ITaskContributor                    src/plugin/itaskcontributor.h
+    IThemeContributor                   src/plugin/ithemecontributor.h
+    IViewContributor                    src/plugin/iviewcontributor.h
+    MenuContribution                    src/plugin/pluginmanifest.h
+    StatusBarContribution               src/plugin/pluginmanifest.h
+    IPlugin                             src/plugininterface.h
+    ProblemsPanel                       src/problems/problemspanel.h
+    ProblemEntry                        src/problems/problemspanel.h
+    WorkspaceService                    src/sdk/cabi/exorcist_sdk.hpp
+    CommandService                      src/sdk/cabi/exorcist_sdk.hpp
+    GitService                          src/sdk/cabi/exorcist_sdk.hpp
+    IBuildSystem                        src/sdk/ibuildsystem.h
+    IComponentService                   src/sdk/icomponentservice.h
+    DebugBreakpoint                     src/sdk/idebugadapter.h
+    DebugFrame                          src/sdk/idebugadapter.h
+    DebugVariable                       src/sdk/idebugadapter.h
+    DebugVarObj                         src/sdk/idebugadapter.h
+    DebugThread                         src/sdk/idebugadapter.h
+    SDKDiagnostic                       src/sdk/idiagnosticsservice.h
+    IEditorService                      src/sdk/ieditorservice.h
+    IGitService                         src/sdk/igitservice.h
+    ILaunchService                      src/sdk/ilaunchservice.h
+    ITaskService                        src/sdk/itaskservice.h
+    ITerminalService                    src/sdk/iterminalservice.h
+    IViewService                        src/sdk/iviewservice.h
+    IWorkspaceService                   src/sdk/iworkspaceservice.h
+    MemoryBudget                        src/sdk/luajit/luascriptengine.h
+    LoadedLuaPlugin                     src/sdk/luajit/luascriptengine.h
+    LuaScriptEngine                     src/sdk/luajit/luascriptengine.h
+    AdhocResult                         src/sdk/luajit/luascriptengine.h
+    EmbeddingEntry                      src/search/embeddingindex.h
+    GitignoreFilter                     src/search/gitignorefilter.h
+    RegexSearchMatch                    src/search/regexsearchengine.h
+    RegexSearchEngine                   src/search/regexsearchengine.h
+    SearchMatch                         src/search/searchmatch.h
+    SearchPanel                         src/search/searchpanel.h
+    WorkspaceSymbol                     src/search/symbolindex.h
+    CodeChunk                           src/search/workspacechunkindex.h
+    IndexChunk                          src/search/workspaceindexer.h
+    ServiceContract                     src/serviceregistry.h
+    WinPtyReader                        src/terminal/ptybackend.cpp
+    PosixPtyReader                      src/terminal/ptybackend.cpp
+    TerminalPanel                       src/terminal/terminalpanel.h
+    TerminalScreen                      src/terminal/terminalscreen.h
+    DockToolBar                         src/ui/dock/DockToolBar.h
+    IToolBarService                     src/ui/dock/IToolBarService.h
+
+  Subsystem health (header-only ratio):
+  Subsystem             Classes   H-Only    Ratio
+  -------------------- -------- -------- --------
+  mcp                        10        6    60.0% <--
+  process                     8        4    50.0% <--
+  git                         9        4    44.4% <--
+  plugin                     33       14    42.4% <--
+  project                     5        2    40.0%
+  profile                     5        2    40.0%
+  core                       53       19    35.8%
+  editor                     40       11    27.5%
+  agent                     288       65    22.6%
+  codegraph                  18        4    22.2%
+  sdk                        66       14    21.2%
+  ui                         39        7    17.9%
+  debug                      13        2    15.4%
+  lsp                        13        2    15.4%
+  search                     20        3    15.0%
+  terminal                    8        1    12.5%
+  bootstrap                  14        1     7.1%
+
+  ==================================================
+  Priority actions:
+    1. Fix 97 QObject classes missing .cpp (moc issues)
+    2. Create .cpp for 0 header-only features
+    3. Flesh out 3 stub features
+    4. Design 1 missing features
+    5. Consider implementing 142 orphan interfaces
+  ==================================================

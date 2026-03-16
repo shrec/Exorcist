@@ -1,0 +1,1108 @@
+Test project D:/Dev/Exorcist/build-llvm
+      Start  1: LanguageProfile
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_languageprofile.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_languageprofile.exe
+D:/Dev/Exorcist/build-llvm/tests/test_languageprofile.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_languageprofile.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_languageprofile.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_languageprofile.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_languageprofile.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_languageprofile.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_languageprofile.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_languageprofile.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_languageprofile.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_languageprofile.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_languageprofile.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_languageprofile.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_languageprofile.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_languageprofile.exe
+ 1/55 Test  #1: LanguageProfile ..................***Not Run   0.00 sec
+      Start  2: ServiceRegistry
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_serviceregistry.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_serviceregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/test_serviceregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_serviceregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_serviceregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_serviceregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_serviceregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_serviceregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_serviceregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_serviceregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_serviceregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_serviceregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_serviceregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_serviceregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_serviceregistry.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_serviceregistry.exe
+ 2/55 Test  #2: ServiceRegistry ..................***Not Run   0.00 sec
+      Start  3: PieceTable
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_piecetable.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_piecetable.exe
+D:/Dev/Exorcist/build-llvm/tests/test_piecetable.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_piecetable.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_piecetable.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_piecetable.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_piecetable.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_piecetable.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_piecetable.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_piecetable.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_piecetable.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_piecetable.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_piecetable.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_piecetable.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_piecetable.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_piecetable.exe
+ 3/55 Test  #3: PieceTable .......................***Not Run   0.00 sec
+      Start  4: SseParser
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_sseparser.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_sseparser.exe
+D:/Dev/Exorcist/build-llvm/tests/test_sseparser.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_sseparser.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_sseparser.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_sseparser.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_sseparser.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_sseparser.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_sseparser.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_sseparser.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_sseparser.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_sseparser.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_sseparser.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_sseparser.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_sseparser.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_sseparser.exe
+ 4/55 Test  #4: SseParser ........................***Not Run   0.00 sec
+      Start  5: ThemeManager
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_thememanager.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_thememanager.exe
+D:/Dev/Exorcist/build-llvm/tests/test_thememanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_thememanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_thememanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_thememanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_thememanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_thememanager.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_thememanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_thememanager.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_thememanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_thememanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_thememanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_thememanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_thememanager.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_thememanager.exe
+ 5/55 Test  #5: ThemeManager .....................***Not Run   0.00 sec
+      Start  6: LuaScriptEngine
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_luascriptengine.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_luascriptengine.exe
+D:/Dev/Exorcist/build-llvm/tests/test_luascriptengine.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_luascriptengine.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_luascriptengine.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_luascriptengine.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_luascriptengine.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_luascriptengine.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_luascriptengine.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_luascriptengine.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_luascriptengine.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_luascriptengine.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_luascriptengine.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_luascriptengine.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_luascriptengine.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_luascriptengine.exe
+ 6/55 Test  #6: LuaScriptEngine ..................***Not Run   0.00 sec
+      Start  7: LspClient
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_lspclient.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_lspclient.exe
+D:/Dev/Exorcist/build-llvm/tests/test_lspclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_lspclient.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_lspclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_lspclient.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_lspclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_lspclient.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_lspclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_lspclient.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_lspclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_lspclient.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_lspclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_lspclient.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_lspclient.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_lspclient.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_searchworker.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_outputpanel.exe
+ 7/55 Test  #7: LspClient ........................***Not Run   0.00 sec
+      Start  8: SearchWorker
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_searchworker.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_searchworker.exe
+D:/Dev/Exorcist/build-llvm/tests/test_searchworker.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_searchworker.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_searchworker.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_searchworker.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_searchworker.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_searchworker.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_searchworker.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_searchworker.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_searchworker.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_searchworker.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_searchworker.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_searchworker.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_searchworker.exe.exe
+ 8/55 Test  #8: SearchWorker .....................***Not Run   0.00 sec
+      Start  9: OutputPanel
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_outputpanel.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_outputpanel.exe
+D:/Dev/Exorcist/build-llvm/tests/test_outputpanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_outputpanel.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_outputpanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_outputpanel.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_outputpanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_outputpanel.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_outputpanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_outputpanel.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_outputpanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_outputpanel.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_outputpanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_outputpanel.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_outputpanel.exe.exe
+ 9/55 Test  #9: OutputPanel ......................***Not Run   0.00 sec
+      Start 10: ToolRegistry
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_toolregistry.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_toolregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/test_toolregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_toolregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_toolregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_toolregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_toolregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_toolregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_toolregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_toolregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_toolregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_toolregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_toolregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_toolregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_toolregistry.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_toolregistry.exe
+10/55 Test #10: ToolRegistry .....................***Not Run   0.00 sec
+      Start 11: ContextBuilder
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_contextbuilder.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_contextbuilder.exe
+D:/Dev/Exorcist/build-llvm/tests/test_contextbuilder.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_contextbuilder.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_contextbuilder.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_contextbuilder.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_contextbuilder.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_contextbuilder.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_contextbuilder.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_contextbuilder.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_contextbuilder.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_contextbuilder.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_contextbuilder.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_contextbuilder.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_contextbuilder.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_contextbuilder.exe
+11/55 Test #11: ContextBuilder ...................***Not Run   0.00 sec
+      Start 12: MultiCursor
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_multicursor.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_multicursor.exe
+D:/Dev/Exorcist/build-llvm/tests/test_multicursor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_multicursor.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_multicursor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_multicursor.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_multicursor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_multicursor.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_multicursor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_multicursor.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_multicursor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_multicursor.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_multicursor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_multicursor.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_multicursor.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_multicursor.exe
+12/55 Test #12: MultiCursor ......................***Not Run   0.00 sec
+      Start 13: CodeFolding
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_codefolding.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_codefolding.exe
+D:/Dev/Exorcist/build-llvm/tests/test_codefolding.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_codefolding.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_codefolding.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_codefolding.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_codefolding.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_codefolding.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_codefolding.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_codefolding.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_codefolding.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_codefolding.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_codefolding.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_codefolding.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_codefolding.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_codefolding.exe
+13/55 Test #13: CodeFolding ......................***Not Run   0.00 sec
+      Start 14: GitService
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_gitservice.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_gitservice.exe
+D:/Dev/Exorcist/build-llvm/tests/test_gitservice.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_gitservice.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_gitservice.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_gitservice.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_gitservice.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_gitservice.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_gitservice.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_gitservice.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_gitservice.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_gitservice.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_gitservice.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_gitservice.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_gitservice.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_gitservice.exe
+14/55 Test #14: GitService .......................***Not Run   0.00 sec
+      Start 15: ProjectManager
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_projectmanager.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_projectmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/test_projectmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_projectmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_projectmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_projectmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_projectmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_projectmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_projectmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_projectmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_projectmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_projectmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_projectmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_projectmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_projectmanager.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_projectmanager.exe
+15/55 Test #15: ProjectManager ...................***Not Run   0.00 sec
+      Start 16: TerminalScreen
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_terminalscreen.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_terminalscreen.exe
+D:/Dev/Exorcist/build-llvm/tests/test_terminalscreen.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_terminalscreen.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_terminalscreen.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_terminalscreen.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_terminalscreen.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_terminalscreen.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_terminalscreen.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_terminalscreen.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_terminalscreen.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_terminalscreen.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_terminalscreen.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_terminalscreen.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_terminalscreen.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_terminalscreen.exe
+16/55 Test #16: TerminalScreen ...................***Not Run   0.00 sec
+      Start 17: TreeSitterHighlighter
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_treesitter_highlighter.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_treesitter_highlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/test_treesitter_highlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_treesitter_highlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_treesitter_highlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_treesitter_highlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_treesitter_highlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_treesitter_highlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_treesitter_highlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_treesitter_highlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_treesitter_highlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_treesitter_highlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_treesitter_highlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_treesitter_highlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_treesitter_highlighter.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_treesitter_highlighter.exe
+17/55 Test #17: TreeSitterHighlighter ............***Not Run   0.00 sec
+      Start 18: SyntaxHighlighter
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_syntaxhighlighter.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_syntaxhighlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/test_syntaxhighlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_syntaxhighlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_syntaxhighlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_syntaxhighlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_syntaxhighlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_syntaxhighlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_syntaxhighlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_syntaxhighlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_syntaxhighlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_syntaxhighlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_syntaxhighlighter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_syntaxhighlighter.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_syntaxhighlighter.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_syntaxhighlighter.exe
+18/55 Test #18: SyntaxHighlighter ................***Not Run   0.00 sec
+      Start 19: HighlighterFactory
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_highlighterfactory.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_highlighterfactory.exe
+D:/Dev/Exorcist/build-llvm/tests/test_highlighterfactory.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_highlighterfactory.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_highlighterfactory.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_highlighterfactory.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_highlighterfactory.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_highlighterfactory.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_highlighterfactory.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_highlighterfactory.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_highlighterfactory.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_highlighterfactory.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_highlighterfactory.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_highlighterfactory.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_highlighterfactory.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_highlighterfactory.exe
+19/55 Test #19: HighlighterFactory ...............***Not Run   0.00 sec
+      Start 20: KeymapManager
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_keymapmanager.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_keymapmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/test_keymapmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_keymapmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_keymapmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_keymapmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_keymapmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_keymapmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_keymapmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_keymapmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_keymapmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_keymapmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_keymapmanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_keymapmanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_keymapmanager.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_keymapmanager.exe
+20/55 Test #20: KeymapManager ....................***Not Run   0.00 sec
+      Start 21: CommandPalette
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_commandpalette.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_commandpalette.exe
+D:/Dev/Exorcist/build-llvm/tests/test_commandpalette.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_commandpalette.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_commandpalette.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_commandpalette.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_commandpalette.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_commandpalette.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_commandpalette.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_commandpalette.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_commandpalette.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_commandpalette.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_commandpalette.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_commandpalette.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_commandpalette.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_commandpalette.exe
+21/55 Test #21: CommandPalette ...................***Not Run   0.00 sec
+      Start 22: TestDiscovery
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_testdiscovery.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_testdiscovery.exe
+D:/Dev/Exorcist/build-llvm/tests/test_testdiscovery.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_testdiscovery.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_testdiscovery.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_testdiscovery.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_testdiscovery.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_testdiscovery.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_testdiscovery.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_testdiscovery.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_testdiscovery.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_testdiscovery.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_testdiscovery.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_testdiscovery.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_testdiscovery.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_testdiscovery.exe
+22/55 Test #22: TestDiscovery ....................***Not Run   0.00 sec
+      Start 23: ProblemsPanel
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_problemspanel.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_problemspanel.exe
+D:/Dev/Exorcist/build-llvm/tests/test_problemspanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_problemspanel.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_problemspanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_problemspanel.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_problemspanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_problemspanel.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_problemspanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_problemspanel.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_problemspanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_problemspanel.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_problemspanel.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_problemspanel.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_problemspanel.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_problemspanel.exe
+23/55 Test #23: ProblemsPanel ....................***Not Run   0.00 sec
+      Start 24: WorkspaceSettings
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_workspacesettings.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_workspacesettings.exe
+D:/Dev/Exorcist/build-llvm/tests/test_workspacesettings.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_workspacesettings.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_workspacesettings.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_workspacesettings.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_workspacesettings.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_workspacesettings.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_workspacesettings.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_workspacesettings.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_workspacesettings.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_workspacesettings.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_workspacesettings.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_workspacesettings.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_workspacesettings.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_workspacesettings.exe
+24/55 Test #24: WorkspaceSettings ................***Not Run   0.00 sec
+      Start 25: DiffMerge
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_diffmerge.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_diffmerge.exe
+D:/Dev/Exorcist/build-llvm/tests/test_diffmerge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_diffmerge.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_diffmerge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_diffmerge.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_diffmerge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_diffmerge.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_diffmerge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_diffmerge.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_diffmerge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_diffmerge.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_diffmerge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_diffmerge.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_diffmerge.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_diffmerge.exe
+25/55 Test #25: DiffMerge ........................***Not Run   0.00 sec
+      Start 26: VimHandler
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_vimhandler.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_vimhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/test_vimhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_vimhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_vimhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_vimhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_vimhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_vimhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_vimhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_vimhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_vimhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_vimhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_vimhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_vimhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_vimhandler.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_vimhandler.exe
+26/55 Test #26: VimHandler .......................***Not Run   0.00 sec
+      Start 27: RemoteLsp
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_remotelsp.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_remotelsp.exe
+D:/Dev/Exorcist/build-llvm/tests/test_remotelsp.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_remotelsp.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_remotelsp.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_remotelsp.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_remotelsp.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_remotelsp.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_remotelsp.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_remotelsp.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_remotelsp.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_remotelsp.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_remotelsp.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_remotelsp.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_remotelsp.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_remotelsp.exe
+27/55 Test #27: RemoteLsp ........................***Not Run   0.00 sec
+      Start 28: PluginMarketplace
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_pluginmarketplace.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_pluginmarketplace.exe
+D:/Dev/Exorcist/build-llvm/tests/test_pluginmarketplace.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_pluginmarketplace.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_pluginmarketplace.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_pluginmarketplace.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_pluginmarketplace.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_pluginmarketplace.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_pluginmarketplace.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_pluginmarketplace.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_pluginmarketplace.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_pluginmarketplace.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_pluginmarketplace.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_pluginmarketplace.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_pluginmarketplace.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_pluginmarketplace.exe
+28/55 Test #28: PluginMarketplace ................***Not Run   0.00 sec
+      Start 29: GitignoreFilter
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_gitignorefilter.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_gitignorefilter.exe
+D:/Dev/Exorcist/build-llvm/tests/test_gitignorefilter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_gitignorefilter.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_gitignorefilter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_gitignorefilter.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_gitignorefilter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_gitignorefilter.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_gitignorefilter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_gitignorefilter.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_gitignorefilter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_gitignorefilter.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_gitignorefilter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_gitignorefilter.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_gitignorefilter.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_gitignorefilter.exe
+29/55 Test #29: GitignoreFilter ..................***Not Run   0.00 sec
+      Start 30: ContextPruner
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_contextpruner.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_contextpruner.exe
+D:/Dev/Exorcist/build-llvm/tests/test_contextpruner.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_contextpruner.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_contextpruner.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_contextpruner.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_contextpruner.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_contextpruner.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_contextpruner.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_contextpruner.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_contextpruner.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_contextpruner.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_contextpruner.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_contextpruner.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_contextpruner.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_contextpruner.exe
+30/55 Test #30: ContextPruner ....................***Not Run   0.00 sec
+      Start 31: AutoCompactor
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_autocompactor.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_autocompactor.exe
+D:/Dev/Exorcist/build-llvm/tests/test_autocompactor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_autocompactor.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_autocompactor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_autocompactor.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_autocompactor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_autocompactor.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_autocompactor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_autocompactor.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_autocompactor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_autocompactor.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_autocompactor.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_autocompactor.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_autocompactor.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_autocompactor.exe
+31/55 Test #31: AutoCompactor ....................***Not Run   0.00 sec
+      Start 32: ExoBridge
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_exobridge.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_exobridge.exe
+D:/Dev/Exorcist/build-llvm/tests/test_exobridge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_exobridge.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_exobridge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_exobridge.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_exobridge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_exobridge.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_exobridge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_exobridge.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_exobridge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_exobridge.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_exobridge.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_exobridge.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_exobridge.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_exobridge.exe
+32/55 Test #32: ExoBridge ........................***Not Run   0.00 sec
+      Start 33: BridgeClient
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_bridgeclient.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_bridgeclient.exe
+D:/Dev/Exorcist/build-llvm/tests/test_bridgeclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_bridgeclient.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_bridgeclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_bridgeclient.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_bridgeclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_bridgeclient.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_bridgeclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_bridgeclient.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_bridgeclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_bridgeclient.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_bridgeclient.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_bridgeclient.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_bridgeclient.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_bridgeclient.exe
+33/55 Test #33: BridgeClient .....................***Not Run   0.00 sec
+      Start 34: BridgeServices
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_bridgeservices.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_bridgeservices.exe
+D:/Dev/Exorcist/build-llvm/tests/test_bridgeservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_bridgeservices.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_bridgeservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_bridgeservices.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_bridgeservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_bridgeservices.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_bridgeservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_bridgeservices.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_bridgeservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_bridgeservices.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_bridgeservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_bridgeservices.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_bridgeservices.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_bridgeservices.exe
+34/55 Test #34: BridgeServices ...................***Not Run   0.00 sec
+      Start 35: CoreInterfaces
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_coreinterfaces.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_coreinterfaces.exe
+D:/Dev/Exorcist/build-llvm/tests/test_coreinterfaces.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_coreinterfaces.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_coreinterfaces.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_coreinterfaces.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_coreinterfaces.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_coreinterfaces.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_coreinterfaces.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_coreinterfaces.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_coreinterfaces.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_coreinterfaces.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_coreinterfaces.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_coreinterfaces.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_coreinterfaces.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_coreinterfaces.exe
+35/55 Test #35: CoreInterfaces ...................***Not Run   0.00 sec
+      Start 36: CrashHandler
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_crashhandler.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_crashhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/test_crashhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_crashhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_crashhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_crashhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_crashhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_crashhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_crashhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_crashhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_crashhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_crashhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_crashhandler.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_crashhandler.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_crashhandler.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_crashhandler.exe
+36/55 Test #36: CrashHandler .....................***Not Run   0.00 sec
+      Start 37: IpcProtocol
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_ipcprotocol.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_ipcprotocol.exe
+D:/Dev/Exorcist/build-llvm/tests/test_ipcprotocol.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_ipcprotocol.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_ipcprotocol.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_ipcprotocol.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_ipcprotocol.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_ipcprotocol.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_ipcprotocol.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_ipcprotocol.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_ipcprotocol.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_ipcprotocol.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_ipcprotocol.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_ipcprotocol.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_ipcprotocol.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_ipcprotocol.exe
+37/55 Test #37: IpcProtocol ......................***Not Run   0.00 sec
+      Start 38: FeatureFlags
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_featureflags.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_featureflags.exe
+D:/Dev/Exorcist/build-llvm/tests/test_featureflags.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_featureflags.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_featureflags.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_featureflags.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_featureflags.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_featureflags.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_featureflags.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_featureflags.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_featureflags.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_featureflags.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_featureflags.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_featureflags.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_featureflags.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_featureflags.exe
+38/55 Test #38: FeatureFlags .....................***Not Run   0.00 sec
+      Start 39: PluginManifest
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_pluginmanifest.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_pluginmanifest.exe
+D:/Dev/Exorcist/build-llvm/tests/test_pluginmanifest.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_pluginmanifest.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_pluginmanifest.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_pluginmanifest.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_pluginmanifest.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_pluginmanifest.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_pluginmanifest.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_pluginmanifest.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_pluginmanifest.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_pluginmanifest.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_pluginmanifest.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_pluginmanifest.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_pluginmanifest.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_pluginmanifest.exe
+39/55 Test #39: PluginManifest ...................***Not Run   0.00 sec
+      Start 40: PluginSuspend
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_pluginsuspend.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_pluginsuspend.exe
+D:/Dev/Exorcist/build-llvm/tests/test_pluginsuspend.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_pluginsuspend.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_pluginsuspend.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_pluginsuspend.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_pluginsuspend.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_pluginsuspend.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_pluginsuspend.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_pluginsuspend.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_pluginsuspend.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_pluginsuspend.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_pluginsuspend.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_pluginsuspend.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_pluginsuspend.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_pluginsuspend.exe
+40/55 Test #40: PluginSuspend ....................***Not Run   0.00 sec
+      Start 41: TreeSitterQueryTool
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_treesitterquerytool.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_treesitterquerytool.exe
+D:/Dev/Exorcist/build-llvm/tests/test_treesitterquerytool.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_treesitterquerytool.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_treesitterquerytool.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_treesitterquerytool.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_treesitterquerytool.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_treesitterquerytool.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_treesitterquerytool.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_treesitterquerytool.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_treesitterquerytool.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_treesitterquerytool.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_treesitterquerytool.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_treesitterquerytool.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_treesitterquerytool.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_treesitterquerytool.exe
+41/55 Test #41: TreeSitterQueryTool ..............***Not Run   0.00 sec
+      Start 42: DiagnosticsNotifier
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_diagnosticsnotifier.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_diagnosticsnotifier.exe
+D:/Dev/Exorcist/build-llvm/tests/test_diagnosticsnotifier.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_diagnosticsnotifier.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_diagnosticsnotifier.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_diagnosticsnotifier.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_diagnosticsnotifier.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_diagnosticsnotifier.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_diagnosticsnotifier.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_diagnosticsnotifier.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_diagnosticsnotifier.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_diagnosticsnotifier.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_diagnosticsnotifier.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_diagnosticsnotifier.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_diagnosticsnotifier.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_diagnosticsnotifier.exe
+42/55 Test #42: DiagnosticsNotifier ..............***Not Run   0.00 sec
+      Start 43: BuildTestServices
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_buildtestservices.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_buildtestservices.exe
+D:/Dev/Exorcist/build-llvm/tests/test_buildtestservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_buildtestservices.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_buildtestservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_buildtestservices.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_buildtestservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_buildtestservices.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_buildtestservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_buildtestservices.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_buildtestservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_buildtestservices.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_buildtestservices.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_buildtestservices.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_buildtestservices.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_buildtestservices.exe
+43/55 Test #43: BuildTestServices ................***Not Run   0.00 sec
+      Start 44: ContributionRegistry
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_contributionregistry.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_contributionregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/test_contributionregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_contributionregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_contributionregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_contributionregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_contributionregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_contributionregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_contributionregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_contributionregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_contributionregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_contributionregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_contributionregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_contributionregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_contributionregistry.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_contributionregistry.exe
+44/55 Test #44: ContributionRegistry .............***Not Run   0.00 sec
+      Start 45: AgentUIBus
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_agentuibus.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_agentuibus.exe
+D:/Dev/Exorcist/build-llvm/tests/test_agentuibus.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_agentuibus.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_agentuibus.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_agentuibus.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_agentuibus.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_agentuibus.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_agentuibus.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_agentuibus.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_agentuibus.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_agentuibus.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_agentuibus.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_agentuibus.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_agentuibus.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_agentuibus.exe
+45/55 Test #45: AgentUIBus .......................***Not Run   0.00 sec
+      Start 46: CodeGraph
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_codegraph.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_codegraph.exe
+D:/Dev/Exorcist/build-llvm/tests/test_codegraph.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_codegraph.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_codegraph.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_codegraph.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_codegraph.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_codegraph.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_codegraph.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_codegraph.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_codegraph.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_codegraph.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_codegraph.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_codegraph.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_codegraph.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_codegraph.exe
+46/55 Test #46: CodeGraph ........................***Not Run   0.00 sec
+      Start 47: JsPluginRuntime
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_jspluginruntime.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_jspluginruntime.exe
+D:/Dev/Exorcist/build-llvm/tests/test_jspluginruntime.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_jspluginruntime.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_jspluginruntime.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_jspluginruntime.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_jspluginruntime.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_jspluginruntime.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_jspluginruntime.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_jspluginruntime.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_jspluginruntime.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_jspluginruntime.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_jspluginruntime.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_jspluginruntime.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_jspluginruntime.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_jspluginruntime.exe
+47/55 Test #47: JsPluginRuntime ..................***Not Run   0.00 sec
+      Start 48: Http2Hardening
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_http2hardening.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_http2hardening.exe
+D:/Dev/Exorcist/build-llvm/tests/test_http2hardening.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_http2hardening.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_http2hardening.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_http2hardening.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_http2hardening.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_http2hardening.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_http2hardening.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_http2hardening.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_http2hardening.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_http2hardening.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_http2hardening.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_http2hardening.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_http2hardening.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_http2hardening.exe
+48/55 Test #48: Http2Hardening ...................***Not Run   0.00 sec
+      Start 49: McpTrust
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_mcptrust.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_mcptrust.exe
+D:/Dev/Exorcist/build-llvm/tests/test_mcptrust.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_mcptrust.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_mcptrust.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_mcptrust.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_mcptrust.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_mcptrust.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_mcptrust.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_mcptrust.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_mcptrust.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_mcptrust.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_mcptrust.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_mcptrust.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_mcptrust.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_mcptrust.exe
+49/55 Test #49: McpTrust .........................***Not Run   0.00 sec
+      Start 50: MarketplaceSafety
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_marketplacesafety.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_marketplacesafety.exe
+D:/Dev/Exorcist/build-llvm/tests/test_marketplacesafety.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_marketplacesafety.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_marketplacesafety.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_marketplacesafety.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_marketplacesafety.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_marketplacesafety.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_marketplacesafety.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_marketplacesafety.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_marketplacesafety.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_marketplacesafety.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_marketplacesafety.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_marketplacesafety.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_marketplacesafety.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_marketplacesafety.exe
+50/55 Test #50: MarketplaceSafety ................***Not Run   0.00 sec
+      Start 51: ProjectBrainDb
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_projectbraindb.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_projectbraindb.exe
+D:/Dev/Exorcist/build-llvm/tests/test_projectbraindb.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_projectbraindb.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_projectbraindb.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_projectbraindb.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_projectbraindb.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_projectbraindb.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_projectbraindb.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_projectbraindb.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_projectbraindb.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_projectbraindb.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_projectbraindb.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_projectbraindb.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_projectbraindb.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_projectbraindb.exe
+51/55 Test #51: ProjectBrainDb ...................***Not Run   0.00 sec
+      Start 52: ComponentRegistry
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_componentregistry.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_componentregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/test_componentregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_componentregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_componentregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_componentregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_componentregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_componentregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_componentregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_componentregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_componentregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_componentregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_componentregistry.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_componentregistry.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_componentregistry.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_componentregistry.exe
+52/55 Test #52: ComponentRegistry ................***Not Run   0.00 sec
+      Start 53: ComponentServiceAdapter
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_componentserviceadapter.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_componentserviceadapter.exe
+D:/Dev/Exorcist/build-llvm/tests/test_componentserviceadapter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_componentserviceadapter.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_componentserviceadapter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_componentserviceadapter.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_componentserviceadapter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_componentserviceadapter.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_componentserviceadapter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_componentserviceadapter.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_componentserviceadapter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_componentserviceadapter.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_componentserviceadapter.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_componentserviceadapter.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_componentserviceadapter.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_componentserviceadapter.exe
+53/55 Test #53: ComponentServiceAdapter ..........***Not Run   0.00 sec
+      Start 54: ProfileManager
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_profilemanager.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_profilemanager.exe
+D:/Dev/Exorcist/build-llvm/tests/test_profilemanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_profilemanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_profilemanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_profilemanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_profilemanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_profilemanager.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_profilemanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_profilemanager.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_profilemanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_profilemanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_profilemanager.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_profilemanager.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_profilemanager.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_profilemanager.exe
+54/55 Test #54: ProfileManager ...................***Not Run   0.00 sec
+      Start 55: Kit
+Could not find executable D:/Dev/Exorcist/build-llvm/tests/test_kit.exe
+Looked in the following places:
+D:/Dev/Exorcist/build-llvm/tests/test_kit.exe
+D:/Dev/Exorcist/build-llvm/tests/test_kit.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_kit.exe
+D:/Dev/Exorcist/build-llvm/tests/Release/test_kit.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_kit.exe
+D:/Dev/Exorcist/build-llvm/tests/Debug/test_kit.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_kit.exe
+D:/Dev/Exorcist/build-llvm/tests/MinSizeRel/test_kit.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_kit.exe
+D:/Dev/Exorcist/build-llvm/tests/RelWithDebInfo/test_kit.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_kit.exe
+D:/Dev/Exorcist/build-llvm/tests/Deployment/test_kit.exe.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_kit.exe
+D:/Dev/Exorcist/build-llvm/tests/Development/test_kit.exe.exe
+Unable to find executable: D:/Dev/Exorcist/build-llvm/tests/test_kit.exe
+55/55 Test #55: Kit ..............................***Not Run   0.00 sec
+
+0% tests passed, 55 tests failed out of 55
+
+Total Test time (real) =   0.08 sec
+
+The following tests FAILED:
+	  1 - LanguageProfile (Not Run)
+	  2 - ServiceRegistry (Not Run)
+	  3 - PieceTable (Not Run)
+	  4 - SseParser (Not Run)
+	  5 - ThemeManager (Not Run)
+	  6 - LuaScriptEngine (Not Run)
+	  7 - LspClient (Not Run)
+	  8 - SearchWorker (Not Run)
+	  9 - OutputPanel (Not Run)
+	 10 - ToolRegistry (Not Run)
+	 11 - ContextBuilder (Not Run)
+	 12 - MultiCursor (Not Run)
+	 13 - CodeFolding (Not Run)
+	 14 - GitService (Not Run)
+	 15 - ProjectManager (Not Run)
+	 16 - TerminalScreen (Not Run)
+	 17 - TreeSitterHighlighter (Not Run)
+	 18 - SyntaxHighlighter (Not Run)
+	 19 - HighlighterFactory (Not Run)
+	 20 - KeymapManager (Not Run)
+	 21 - CommandPalette (Not Run)
+	 22 - TestDiscovery (Not Run)
+	 23 - ProblemsPanel (Not Run)
+	 24 - WorkspaceSettings (Not Run)
+	 25 - DiffMerge (Not Run)
+	 26 - VimHandler (Not Run)
+	 27 - RemoteLsp (Not Run)
+	 28 - PluginMarketplace (Not Run)
+	 29 - GitignoreFilter (Not Run)
+	 30 - ContextPruner (Not Run)
+	 31 - AutoCompactor (Not Run)
+	 32 - ExoBridge (Not Run)
+	 33 - BridgeClient (Not Run)
+	 34 - BridgeServices (Not Run)
+	 35 - CoreInterfaces (Not Run)
+	 36 - CrashHandler (Not Run)
+	 37 - IpcProtocol (Not Run)
+	 38 - FeatureFlags (Not Run)
+	 39 - PluginManifest (Not Run)
+	 40 - PluginSuspend (Not Run)
+	 41 - TreeSitterQueryTool (Not Run)
+	 42 - DiagnosticsNotifier (Not Run)
+	 43 - BuildTestServices (Not Run)
+	 44 - ContributionRegistry (Not Run)
+	 45 - AgentUIBus (Not Run)
+	 46 - CodeGraph (Not Run)
+	 47 - JsPluginRuntime (Not Run)
+	 48 - Http2Hardening (Not Run)
+	 49 - McpTrust (Not Run)
+	 50 - MarketplaceSafety (Not Run)
+	 51 - ProjectBrainDb (Not Run)
+	 52 - ComponentRegistry (Not Run)
+	 53 - ComponentServiceAdapter (Not Run)
+	 54 - ProfileManager (Not Run)
+	 55 - Kit (Not Run)
+Errors while running CTest

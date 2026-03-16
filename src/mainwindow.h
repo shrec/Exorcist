@@ -87,13 +87,6 @@ public:
     /// Access the dock manager (used by ContributionRegistry).
     exdock::DockManager *dockManager() const { return m_dockManager; }
 
-private slots:
-    // Thin wiring slots for build-plugin toolbar → dock auto-show
-    // (string-based connect because BuildToolbar lives in the plugin DLL)
-    void showOutputDockSlot();
-    void showDebugDockSlot();
-    void showRunDockSlot();
-
 private:
     void setupUi();
     void setupMenus();
