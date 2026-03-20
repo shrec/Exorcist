@@ -299,7 +299,7 @@ MainWindow::MainWindow(QWidget *parent)
     agentCallbacks.openFilesGetter = [this]() {
         QStringList paths;
         for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-            auto *ed = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+            auto *ed = m_editorMgr->editorAt(i);
             const QString fp = ed ? ed->property("filePath").toString() : QString();
             if (!fp.isEmpty())
                 paths.append(fp);
@@ -835,7 +835,7 @@ MainWindow::MainWindow(QWidget *parent)
         state.visibleEndLine = botCur.blockNumber() + 1;
         // Open files
         for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-            auto *tab = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+            auto *tab = m_editorMgr->editorAt(i);
             const QString fp = tab ? tab->property("filePath").toString() : QString();
             if (!fp.isEmpty())
                 state.openFiles.append(fp);
@@ -1578,7 +1578,7 @@ MainWindow::MainWindow(QWidget *parent)
                              const QList<QPair<int, QString>> &annotations) {
             // Find open editor tab for the file
             for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-                auto *ed = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+                auto *ed = m_editorMgr->editorAt(i);
                 if (!ed) continue;
                 if (ed->property("filePath").toString() == filePath) {
                     QList<EditorView::ReviewAnnotation> anns;
@@ -2005,14 +2005,14 @@ void MainWindow::setupMenus()
     QAction *undoAction = editMenu->addAction(tr("&Undo"));
     undoAction->setShortcut(QKeySequence::Undo);
     connect(undoAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
+        if (auto *e = m_editorMgr->currentEditor())
             e->undo();
     });
 
     QAction *redoAction = editMenu->addAction(tr("&Redo"));
     redoAction->setShortcut(QKeySequence::Redo);
     connect(redoAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
+        if (auto *e = m_editorMgr->currentEditor())
             e->redo();
     });
 
@@ -2021,21 +2021,21 @@ void MainWindow::setupMenus()
     QAction *cutAction = editMenu->addAction(tr("Cu&t"));
     cutAction->setShortcut(QKeySequence::Cut);
     connect(cutAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
+        if (auto *e = m_editorMgr->currentEditor())
             e->cut();
     });
 
     QAction *copyAction = editMenu->addAction(tr("&Copy"));
     copyAction->setShortcut(QKeySequence::Copy);
     connect(copyAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
+        if (auto *e = m_editorMgr->currentEditor())
             e->copy();
     });
 
     QAction *pasteAction = editMenu->addAction(tr("&Paste"));
     pasteAction->setShortcut(QKeySequence::Paste);
     connect(pasteAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
+        if (auto *e = m_editorMgr->currentEditor())
             e->paste();
     });
 
@@ -2044,7 +2044,7 @@ void MainWindow::setupMenus()
     QAction *selectAllAction = editMenu->addAction(tr("Select &All"));
     selectAllAction->setShortcut(QKeySequence::SelectAll);
     connect(selectAllAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
+        if (auto *e = m_editorMgr->currentEditor())
             e->selectAll();
     });
 
@@ -2053,14 +2053,14 @@ void MainWindow::setupMenus()
     QAction *findAction = editMenu->addAction(tr("&Find..."));
     findAction->setShortcut(QKeySequence::Find);
     connect(findAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
+        if (auto *e = m_editorMgr->currentEditor())
             e->showFindBar();
     });
 
     QAction *findReplAction = editMenu->addAction(tr("Find && &Replace..."));
     findReplAction->setShortcut(QKeySequence::Replace);
     connect(findReplAction, &QAction::triggered, this, [this]() {
-        if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget()))
+        if (auto *e = m_editorMgr->currentEditor())
             e->showFindBar();
     });
 
@@ -2096,7 +2096,7 @@ void MainWindow::setupMenus()
                 s.endGroup();
 
                 for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-                    if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i))) {
+                    if (auto *e = m_editorMgr->editorAt(i)) {
                         e->setFont(font);
                         e->setTabStopDistance(QFontMetricsF(font).horizontalAdvance(QLatin1Char(' ')) * tabSize);
                         e->setWordWrapMode(wrap ? QTextOption::WordWrap : QTextOption::NoWrap);
@@ -2183,7 +2183,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     minimapAction->setChecked(true);
     connect(minimapAction, &QAction::toggled, this, [this](bool on) {
         for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-            if (auto *ev = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i)))
+            if (auto *ev = m_editorMgr->editorAt(i))
                 ev->setMinimapVisible(on);
         }
     });
@@ -2193,7 +2193,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     indentGuidesAction->setChecked(true);
     connect(indentGuidesAction, &QAction::toggled, this, [this](bool on) {
         for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-            if (auto *ev = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i)))
+            if (auto *ev = m_editorMgr->editorAt(i))
                 ev->setIndentGuidesVisible(on);
         }
     });
@@ -2742,7 +2742,7 @@ void MainWindow::createDockWidgets()
             f.close();
         }
         for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-            auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+            auto *editor = m_editorMgr->editorAt(i);
             if (editor && editor->property("filePath").toString() == filePath) {
                 editor->setPlainText(newText);
                 break;
@@ -2787,7 +2787,7 @@ void MainWindow::createDockWidgets()
     connect(m_workbenchServices->fileWatcher(), &FileWatchService::fileChangedExternally,
             this, [this](const QString &path) {
         for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-            auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+            auto *editor = m_editorMgr->editorAt(i);
             if (!editor) continue;
             if (editor->property("filePath").toString() == path) {
                 QFile f(path);
@@ -4162,7 +4162,7 @@ void MainWindow::navigateToLocation(const QString &path, int line, int character
     openFile(path);   // opens or switches to the existing tab
 
     for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-        auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+        auto *editor = m_editorMgr->editorAt(i);
         if (!editor || editor->property("filePath").toString() != path)
             continue;
 
@@ -4185,7 +4185,7 @@ void MainWindow::onLspInitialized()
 {
     // Open bridges for any tabs that were already open before LSP was ready.
     for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-        auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+        auto *editor = m_editorMgr->editorAt(i);
         if (!editor) continue;
         const QString path = editor->property("filePath").toString();
         if (path.isEmpty()) continue;
@@ -4201,7 +4201,7 @@ void MainWindow::applyWorkspaceEdit(const QJsonObject &workspaceEdit)
         if (filePath.isEmpty() || edits.isEmpty()) return;
         openFile(filePath);
         for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-            auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+            auto *editor = m_editorMgr->editorAt(i);
             if (!editor || editor->property("filePath").toString() != filePath) continue;
             editor->applyTextEdits(edits);
             break;
@@ -4258,7 +4258,7 @@ void MainWindow::pushBuildDiagnostics()
 
     // Push to each open editor tab that has build problems
     for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-        auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+        auto *editor = m_editorMgr->editorAt(i);
         if (!editor) continue;
         const QString filePath = editor->property("filePath").toString();
         if (filePath.isEmpty()) continue;
@@ -4498,7 +4498,7 @@ void MainWindow::loadPlugins()
             const bool minimap = settings->showMinimap();
 
             for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-                if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i))) {
+                if (auto *e = m_editorMgr->editorAt(i)) {
                     e->setFont(font);
                     e->setTabStopDistance(
                         QFontMetricsF(font).horizontalAdvance(QLatin1Char(' ')) * tabSize);
@@ -4606,13 +4606,13 @@ void MainWindow::loadPlugins()
         connect(debugSvc, &IDebugService::debugStopped,
                 this, [this](const QList<DebugFrame> &frames) {
             for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-                auto *ed = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+                auto *ed = m_editorMgr->editorAt(i);
                 if (ed) ed->setCurrentDebugLine(0);
             }
             if (!frames.isEmpty()) {
                 const auto &top = frames.first();
                 for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-                    auto *ed = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+                    auto *ed = m_editorMgr->editorAt(i);
                     if (ed && ed->property("filePath").toString() == top.filePath) {
                         ed->setCurrentDebugLine(top.line);
                         m_editorMgr->tabs()->setCurrentIndex(i);
@@ -4626,7 +4626,7 @@ void MainWindow::loadPlugins()
         connect(debugSvc, &IDebugService::debugTerminated,
                 this, [this]() {
             for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-                auto *ed = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+                auto *ed = m_editorMgr->editorAt(i);
                 if (ed) ed->setCurrentDebugLine(0);
             }
         });
