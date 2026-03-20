@@ -144,6 +144,11 @@ void PluginManager::activatePlugin(const LoadedPlugin &lp)
 {
     try {
         const PluginInfo pi = lp.instance->info();
+        QList<PluginPermission> permissions = pi.requestedPermissions;
+        for (const PluginPermission permission : lp.manifest.requestedPermissions) {
+            if (!permissions.contains(permission))
+                permissions.append(permission);
+        }
 
         // ── apiVersion compatibility check ───────────────────────────────
         if (!pi.apiVersion.isEmpty()) {
@@ -158,7 +163,7 @@ void PluginManager::activatePlugin(const LoadedPlugin &lp)
             }
         }
 
-        auto guard = std::make_unique<PermissionGuardedHostServices>(m_host, pi.requestedPermissions);
+        auto guard = std::make_unique<PermissionGuardedHostServices>(m_host, permissions);
         lp.instance->initialize(guard.get());
         m_permGuards.push_back(std::move(guard));
     } catch (const std::exception &e) {
@@ -243,24 +248,29 @@ void PluginManager::initializeAll(QObject *services)
 
 void PluginManager::shutdownAll()
 {
+    // Call shutdown() on each plugin to stop services (clangd, GDB, etc.)
+    // but do NOT call unload() here. Plugin DLLs may still have live QWidget
+    // subclasses parented to the MainWindow dock system; unloading the DLL
+    // while those widgets exist invalidates their vtable pointers and causes
+    // heap corruption when MainWindow's destructor later destroys its children.
+    // The OS will unload all DLLs cleanly after process exit.
     for (const LoadedPlugin &lp : m_loaded) {
         try {
             lp.instance->shutdown();
         } catch (...) {
         }
-        lp.loader->unload();
     }
     m_loaded.clear();
     m_deferred.clear();
 
-    // Shutdown C ABI plugins.
+    // Shutdown C ABI plugins — call shutdown fn but skip unload() for the
+    // same reason: the bridge object may hold Qt widgets still alive.
     for (LoadedCAbiPlugin &cp : m_cabiLoaded) {
         auto shutdownFn = reinterpret_cast<ExShutdownFn>(
             cp.library->resolve("ex_plugin_shutdown"));
         if (shutdownFn) shutdownFn();
-        cp.library->unload();
         cp.bridge.reset();
-        cp.library.reset();
+        // cp.library->unload() intentionally omitted — see comment above.
     }
     m_cabiLoaded.clear();
 
@@ -464,6 +474,27 @@ int PluginManager::activateByLanguageProfile(const QString &languageId)
                 m_contributions->registerManifest(lp.instance->info().id,
                                                   lp.manifest, lp.instance);
             ++activated;
+        }
+    }
+
+    m_deferred = remaining;
+    return activated;
+}
+
+int PluginManager::activateByPluginId(const QString &pluginId)
+{
+    if (pluginId.isEmpty())
+        return 0;
+
+    int activated = 0;
+    QVector<DeferredPlugin> remaining;
+
+    for (const DeferredPlugin &dp : m_deferred) {
+        if (dp.loaded.manifest.id == pluginId) {
+            activatePlugin(dp.loaded);
+            ++activated;
+        } else {
+            remaining.push_back(dp);
         }
     }
 

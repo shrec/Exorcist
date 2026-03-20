@@ -3,6 +3,10 @@
     "name": "C/C++ Language Support",
     "version": "1.0.0",
     "description": "Clangd-based language intelligence for C and C++ (completion, hover, diagnostics, go-to-definition, find references, rename).",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "language",
     "activationEvents": [
         "workspaceContains:CMakeLists.txt",
         "workspaceContains:Makefile",
@@ -26,6 +30,189 @@
                 "extensions": [".cpp", ".cxx", ".cc", ".h", ".hpp", ".hxx", ".inl", ".mm"],
                 "mimeTypes": ["text/x-c++src"],
                 "lspCommand": "clangd"
+            }
+        ],
+        "views": [
+            {
+                "id": "CppWorkspaceDock",
+                "title": "C++ Workspace",
+                "location": "sidebar-right",
+                "defaultVisible": true,
+                "priority": 8
+            }
+        ],
+        "commands": [
+            {
+                "id": "cpp.goToDefinition",
+                "title": "Go to Definition",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.goToDeclaration",
+                "title": "Go to Declaration",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.findReferences",
+                "title": "Find All References",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.renameSymbol",
+                "title": "Rename Symbol",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.formatDocument",
+                "title": "Format Document",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.switchHeaderSource",
+                "title": "Switch Between Header and Source",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openCompileCommands",
+                "title": "Open compile_commands.json",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.restartLanguageServer",
+                "title": "Restart Language Server",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.showWorkspace",
+                "title": "Open C++ Workspace",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openProject",
+                "title": "Open Project Explorer",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openOutline",
+                "title": "Open Outline",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openReferences",
+                "title": "Open References",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openOutput",
+                "title": "Open Output",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openRun",
+                "title": "Open Run",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openDebug",
+                "title": "Open Debug",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openTests",
+                "title": "Open Test Explorer",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openProblems",
+                "title": "Open Problems",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openSearch",
+                "title": "Open Search",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openTerminal",
+                "title": "Open Terminal",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openGit",
+                "title": "Open Git",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.configureProject",
+                "title": "Configure Project",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.buildProject",
+                "title": "Build Project",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.cleanProject",
+                "title": "Clean Project",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.runProject",
+                "title": "Run Project",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.debugProject",
+                "title": "Debug Project",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.stopSession",
+                "title": "Stop Session",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.discoverTests",
+                "title": "Discover Tests",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.runAllTests",
+                "title": "Run All Tests",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.focusSearch",
+                "title": "Find in Files",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.reindexWorkspace",
+                "title": "Reindex Workspace",
+                "category": "C/C++"
+            },
+            {
+                "id": "cpp.openBuildTerminal",
+                "title": "Open Build Terminal",
+                "category": "C/C++"
+            }
+        ],
+        "keybindings": [
+            {
+                "commandId": "cpp.goToDeclaration",
+                "key": "Ctrl+F12",
+                "when": "editorFocus && resourceLangId == cpp"
+            },
+            {
+                "commandId": "cpp.switchHeaderSource",
+                "key": "Alt+O",
+                "when": "editorFocus"
+            },
+            {
+                "commandId": "cpp.showWorkspace",
+                "key": "Ctrl+Alt+W",
+                "when": "editorFocus && resourceLangId == cpp"
             }
         ]
     }

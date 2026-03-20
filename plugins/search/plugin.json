@@ -1,0 +1,25 @@
+{
+    "id": "org.exorcist.search",
+    "name": "Search",
+    "version": "1.0.0",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "workbench",
+    "description": "Workspace file-content search, indexing, and symbol navigation.",
+    "contributions": {
+        "views": [
+            {
+                "id": "SearchDock",
+                "title": "Search",
+                "location": "sidebar-left",
+                "defaultVisible": false
+            }
+        ],
+        "commands": [
+            { "id": "search.find",         "title": "Find in Files",         "category": "Search", "shortcut": "Ctrl+Shift+F" },
+            { "id": "search.indexWorkspace","title": "Reindex Workspace",     "category": "Search", "shortcut": "" },
+            { "id": "search.gotoSymbol",   "title": "Go to Symbol",          "category": "Search", "shortcut": "Ctrl+T" }
+        ]
+    }
+}

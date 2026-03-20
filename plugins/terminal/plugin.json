@@ -1,0 +1,25 @@
+{
+  "id": "org.exorcist.terminal",
+  "name": "Terminal",
+  "version": "1.0.0",
+  "author": "Exorcist",
+  "license": "MIT",
+  "layer": "cpp-sdk",
+  "category": "workbench",
+  "description": "Integrated terminal emulator with multi-tab PTY support.",
+  "contributions": {
+    "views": [
+      {
+        "id": "TerminalDock",
+        "title": "Terminal",
+        "location": "bottom",
+        "defaultVisible": false
+      }
+    ],
+    "commands": [
+      { "id": "terminal.new",        "title": "Terminal: New Terminal",  "category": "Terminal" },
+      { "id": "terminal.clear",      "title": "Terminal: Clear",         "category": "Terminal" },
+      { "id": "terminal.focus",      "title": "Terminal: Focus Terminal","category": "Terminal" }
+    ]
+  }
+}

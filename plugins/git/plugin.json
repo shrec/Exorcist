@@ -1,0 +1,23 @@
+{
+  "id": "org.exorcist.git",
+  "name": "Git",
+  "version": "1.0.0",
+  "description": "Git source control panel, diff explorer, and merge editor",
+  "author": "Exorcist",
+  "license": "MIT",
+  "layer": "cpp-sdk",
+  "category": "core",
+  "contributions": {
+    "views": [
+      { "id": "GitDock",         "title": "Git",          "location": "sidebar-left" },
+      { "id": "DiffExplorerDock","title": "Diff Explorer","location": "bottom" },
+      { "id": "MergeEditorDock", "title": "Merge Editor", "location": "bottom" }
+    ],
+    "commands": [
+      { "id": "git.stage",                "title": "Stage All Changes",      "category": "Git" },
+      { "id": "git.commit",               "title": "Commit",                 "category": "Git" },
+      { "id": "git.generateCommitMessage","title": "Generate Commit Message", "category": "Git" },
+      { "id": "git.resolveConflicts",     "title": "Resolve Merge Conflicts", "category": "Git" }
+    ]
+  }
+}
