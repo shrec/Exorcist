@@ -4,6 +4,8 @@
     "version": "1.0.0",
     "description": "Sample Lua plugin — registers a greeting command and listens for editor events",
     "author": "Exorcist Team",
+    "license": "MIT",
+    "layer": "lua-jit",
     "permissions": ["commands", "notifications", "logging", "events", "editor.read"],
     "memoryLimit": 8
 }

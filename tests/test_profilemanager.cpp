@@ -4,10 +4,15 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QFile>
 #include <QTemporaryDir>
 
 #include "profile/profilemanifest.h"
 #include "profile/profilemanager.h"
+
+#ifndef EXORCIST_SOURCE_DIR
+#define EXORCIST_SOURCE_DIR ""
+#endif
 
 // ── Test Class ──────────────────────────────────────────────────────────────
 
@@ -25,6 +30,7 @@ private slots:
     void testManifestDetectionRules();
     void testManifestFileContentRule();
     void testManifestDockDefaults();
+    void testManifestDeferredPlugins();
     void testManifestSettings();
 
     // ProfileManager tests
@@ -42,12 +48,17 @@ private slots:
     void testLoadProfilesEmptyDir();
     void testLoadProfilesNonexistentDir();
     void testDetectProfileFileExists();
+    void testDetectProfileRecursiveFileExists();
     void testDetectProfileDirectoryExists();
     void testDetectProfileFileContent();
+    void testDetectProfileRecursiveFileContent();
     void testDetectProfileThreshold();
     void testDetectProfileBestScore();
     void testDetectProfileEmptyPath();
     void testManifestLookup();
+    void testBundledWaveTwoProfilesAreValid();
+    void testEmbeddedMcuBundledProfileDetectsExpandedMarkers();
+    void testEmbeddedLinuxBundledProfileDetectsBuildrootAndYoctoMarkers();
 
 private:
     ProfileManifest makeTestProfile(const QString &id,
@@ -197,6 +208,23 @@ void TestProfileManager::testManifestDockDefaults()
     QCOMPARE(m.dockDefaults.at(0).dockId, QStringLiteral("TerminalDock"));
     QVERIFY(m.dockDefaults.at(0).visible);
     QVERIFY(!m.dockDefaults.at(1).visible);
+}
+
+void TestProfileManager::testManifestDeferredPlugins()
+{
+    QJsonObject obj;
+    obj[QStringLiteral("id")] = QStringLiteral("deferred");
+    obj[QStringLiteral("name")] = QStringLiteral("Deferred Test");
+
+    QJsonArray deferred;
+    deferred.append(QStringLiteral("org.exorcist.build"));
+    deferred.append(QStringLiteral("org.exorcist.debug"));
+    obj[QStringLiteral("deferredPlugins")] = deferred;
+
+    auto m = ProfileManifest::fromJson(obj);
+    QCOMPARE(m.deferredPlugins.size(), 2);
+    QCOMPARE(m.deferredPlugins.at(0), QStringLiteral("org.exorcist.build"));
+    QCOMPARE(m.deferredPlugins.at(1), QStringLiteral("org.exorcist.debug"));
 }
 
 void TestProfileManager::testManifestSettings()
@@ -408,6 +436,36 @@ void TestProfileManager::testDetectProfileFileExists()
              QStringLiteral("cmake-detect"));
 }
 
+void TestProfileManager::testDetectProfileRecursiveFileExists()
+{
+    QTemporaryDir workspace;
+    QVERIFY(workspace.isValid());
+
+    QDir root(workspace.path());
+    QVERIFY(root.mkpath(QStringLiteral("firmware")));
+
+    QFile marker(root.filePath(QStringLiteral("firmware/platformio.ini")));
+    QVERIFY(marker.open(QIODevice::WriteOnly));
+    marker.write("[env:esp32dev]\nplatform = espressif32\n");
+    marker.close();
+
+    ProfileManifest profile;
+    profile.id = QStringLiteral("embedded-recursive");
+    profile.name = QStringLiteral("Embedded Recursive");
+    profile.detectionThreshold = 1;
+
+    ProfileDetectionRule rule;
+    rule.type = ProfileDetectionRule::FileExists;
+    rule.pattern = QStringLiteral("platformio.ini");
+    rule.weight = 2;
+    profile.detectionRules.append(rule);
+
+    ProfileManager mgr(nullptr, this);
+    mgr.registerProfile(profile);
+
+    QCOMPARE(mgr.detectProfile(workspace.path()), QStringLiteral("embedded-recursive"));
+}
+
 void TestProfileManager::testDetectProfileDirectoryExists()
 {
     QTemporaryDir workspace;
@@ -459,6 +517,36 @@ void TestProfileManager::testDetectProfileFileContent()
 
     QCOMPARE(mgr.detectProfile(workspace.path()),
              QStringLiteral("rust-detect"));
+}
+
+void TestProfileManager::testDetectProfileRecursiveFileContent()
+{
+    QTemporaryDir workspace;
+    QVERIFY(workspace.isValid());
+
+    QDir root(workspace.path());
+    QVERIFY(root.mkpath(QStringLiteral("firmware/main")));
+
+    QFile cmake(root.filePath(QStringLiteral("firmware/main/CMakeLists.txt")));
+    QVERIFY(cmake.open(QIODevice::WriteOnly));
+    cmake.write("cmake_minimum_required(VERSION 3.20)\nproject(app)\n# ESP-IDF workspace\n");
+    cmake.close();
+
+    ProfileManifest profile;
+    profile.id = QStringLiteral("idf-recursive");
+    profile.name = QStringLiteral("ESP-IDF Recursive");
+    profile.detectionThreshold = 1;
+
+    ProfileDetectionRule rule;
+    rule.type = ProfileDetectionRule::FileContent;
+    rule.pattern = QStringLiteral("CMakeLists.txt:ESP-IDF");
+    rule.weight = 4;
+    profile.detectionRules.append(rule);
+
+    ProfileManager mgr(nullptr, this);
+    mgr.registerProfile(profile);
+
+    QCOMPARE(mgr.detectProfile(workspace.path()), QStringLiteral("idf-recursive"));
 }
 
 void TestProfileManager::testDetectProfileThreshold()
@@ -557,6 +645,89 @@ void TestProfileManager::testManifestLookup()
     const ProfileManifest *found = mgr.manifest(QStringLiteral("lookup"));
     QVERIFY(found != nullptr);
     QCOMPARE(found->description, QStringLiteral("test description"));
+}
+
+void TestProfileManager::testBundledWaveTwoProfilesAreValid()
+{
+    const QStringList profilePaths = {
+        QStringLiteral(EXORCIST_SOURCE_DIR "/profiles/embedded-mcu.json"),
+        QStringLiteral(EXORCIST_SOURCE_DIR "/profiles/embedded-linux.json"),
+        QStringLiteral(EXORCIST_SOURCE_DIR "/profiles/devops.json"),
+        QStringLiteral(EXORCIST_SOURCE_DIR "/profiles/automation.json"),
+    };
+
+    for (const QString &path : profilePaths) {
+        QFile file(path);
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(path));
+
+        const QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
+        const ProfileManifest manifest = ProfileManifest::fromJson(json);
+        QVERIFY2(manifest.isValid(), qPrintable(path));
+        QVERIFY2(!manifest.requiredPlugins.isEmpty(), qPrintable(path));
+        QVERIFY2(!manifest.detectionRules.isEmpty(), qPrintable(path));
+    }
+}
+
+void TestProfileManager::testEmbeddedMcuBundledProfileDetectsExpandedMarkers()
+{
+    QFile file(QStringLiteral(EXORCIST_SOURCE_DIR "/profiles/embedded-mcu.json"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+
+    const ProfileManifest manifest = ProfileManifest::fromJson(
+        QJsonDocument::fromJson(file.readAll()).object());
+    QVERIFY(manifest.isValid());
+
+    ProfileManager mgr(nullptr, this);
+    mgr.registerProfile(manifest);
+
+    QTemporaryDir pyocdWorkspace;
+    QVERIFY(pyocdWorkspace.isValid());
+    QDir pyocdRoot(pyocdWorkspace.path());
+    QVERIFY(pyocdRoot.mkpath(QStringLiteral("board")));
+    QFile pyocdFile(pyocdRoot.filePath(QStringLiteral("board/pyocd.yaml")));
+    QVERIFY(pyocdFile.open(QIODevice::WriteOnly));
+    pyocdFile.write("target_override: nrf52840\n");
+    pyocdFile.close();
+    QCOMPARE(mgr.detectProfile(pyocdWorkspace.path()), QStringLiteral("embedded-mcu"));
+
+    QTemporaryDir openocdWorkspace;
+    QVERIFY(openocdWorkspace.isValid());
+    QDir openocdRoot(openocdWorkspace.path());
+    QVERIFY(openocdRoot.mkpath(QStringLiteral("debug")));
+    QFile openocdFile(openocdRoot.filePath(QStringLiteral("debug/openocd-rp2040.cfg")));
+    QVERIFY(openocdFile.open(QIODevice::WriteOnly));
+    openocdFile.write("source [find interface/cmsis-dap.cfg]\n");
+    openocdFile.close();
+    QCOMPARE(mgr.detectProfile(openocdWorkspace.path()), QStringLiteral("embedded-mcu"));
+}
+
+void TestProfileManager::testEmbeddedLinuxBundledProfileDetectsBuildrootAndYoctoMarkers()
+{
+    QFile file(QStringLiteral(EXORCIST_SOURCE_DIR "/profiles/embedded-linux.json"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+
+    const ProfileManifest manifest = ProfileManifest::fromJson(
+        QJsonDocument::fromJson(file.readAll()).object());
+    QVERIFY(manifest.isValid());
+
+    ProfileManager mgr(nullptr, this);
+    mgr.registerProfile(manifest);
+
+    QTemporaryDir buildrootWorkspace;
+    QVERIFY(buildrootWorkspace.isValid());
+    QDir buildrootRoot(buildrootWorkspace.path());
+    QVERIFY(buildrootRoot.mkpath(QStringLiteral("board/buildroot")));
+    QCOMPARE(mgr.detectProfile(buildrootWorkspace.path()), QStringLiteral("embedded-linux"));
+
+    QTemporaryDir yoctoWorkspace;
+    QVERIFY(yoctoWorkspace.isValid());
+    QDir yoctoRoot(yoctoWorkspace.path());
+    QVERIFY(yoctoRoot.mkpath(QStringLiteral("layers/meta-demo/conf")));
+    QFile bblayers(yoctoRoot.filePath(QStringLiteral("layers/meta-demo/conf/bblayers.conf")));
+    QVERIFY(bblayers.open(QIODevice::WriteOnly));
+    bblayers.write("BBLAYERS ?= \"${TOPDIR}/../meta-demo\"\n");
+    bblayers.close();
+    QCOMPARE(mgr.detectProfile(yoctoWorkspace.path()), QStringLiteral("embedded-linux"));
 }
 
 QTEST_MAIN(TestProfileManager)

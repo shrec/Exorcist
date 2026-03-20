@@ -20,7 +20,7 @@ class ILanguageIndexer;
 // Built-in indexers are registered for C++, TypeScript/JS, and Python.
 // Additional languages can be added via registerLanguageIndexer().
 //
-// Public API mirrors the Python 12-step pipeline:
+// Public API mirrors the Python 18-step pipeline:
 //   1. scanFiles          — walk filesystem, index source files
 //   2. parseAll           — extract classes, methods, includes
 //   3. buildImplMap       — header↔source implementation pairing
@@ -33,6 +33,13 @@ class ILanguageIndexer;
 //  10. scanTestCases      — test method inventory (via indexers)
 //  11. scanCMakeTargets   — CMake add_executable/library/test targets
 //  12. buildFtsIndex      — FTS5 full-text search population
+//  13. buildCallGraph     — function-level call edges
+//  14. scanXmlBindings    — XML→code symbol bindings + config validation
+//  15. scanRuntimeEntrypoints — dynamic loading (QPluginLoader, dlopen, lua)
+//  16. buildSymbolAliases — typo/alias detection via edit distance
+//  17. buildReachability  — BFS reachability from known entry points
+//  18. buildHotspotScores — per-file coupling × coverage × crash-risk score
+//  19. buildSemanticTags — semantic labels for files/classes/functions
 
 class CodeGraphIndexer
 {
@@ -55,6 +62,15 @@ public:
     int scanTestCases(QSqlDatabase &db);
     int scanCMakeTargets(QSqlDatabase &db);
     int buildFtsIndex(QSqlDatabase &db, bool hasFts5);
+
+    // ── Analysis passes (steps 13-18) ──
+    int buildCallGraph(QSqlDatabase &db);
+    int scanXmlBindings(QSqlDatabase &db);
+    int scanRuntimeEntrypoints(QSqlDatabase &db);
+    int buildSymbolAliases(QSqlDatabase &db);
+    int buildReachability(QSqlDatabase &db);
+    int buildHotspotScores(QSqlDatabase &db);
+    int buildSemanticTags(QSqlDatabase &db);
 
     CodeGraphStats fullRebuild(QSqlDatabase &db, bool hasFts5);
 

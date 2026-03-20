@@ -17,3 +17,4 @@ PluginManager::~PluginManager() = default;
 void PluginManager::setPluginDisabled(const QString &, bool) {}
 bool PluginManager::isPluginDisabled(const QString &) const { return false; }
 int  PluginManager::activateByEvent(const QString &) { return 0; }
+int  PluginManager::activateByPluginId(const QString &) { return 0; }

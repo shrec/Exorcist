@@ -15,9 +15,15 @@ public:
     explicit ClangdManager(QObject *parent = nullptr);
     ~ClangdManager() override;
 
-    void start(const QString &workspaceRoot, const QStringList &args = {});
+    void start(const QString &workspaceRoot, const QStringList &extraArgs = {});
     void stop();
 
+    /// Stop clangd and restart it after a short delay.
+    void restart();
+
+    bool isRunning() const;
+    QString workspaceRoot() const { return m_workspaceRoot; }
+    QString compileCommandsDir() const;
     LspTransport *transport() const { return m_transport; }
 
 signals:
@@ -27,7 +33,11 @@ signals:
     void messageReceived(const LspMessage &message);
 
 private:
-    QProcess *m_process;
-    QString m_workspaceRoot;
+    /// Find the directory containing compile_commands.json.
+    /// Returns empty string if not found.
+    QString findCompileCommandsDir(const QString &workspaceRoot) const;
+
+    QProcess     *m_process;
+    QString       m_workspaceRoot;
     LspTransport *m_transport;
 };

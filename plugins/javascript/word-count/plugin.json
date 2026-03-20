@@ -4,6 +4,8 @@
     "version": "1.0.0",
     "description": "Shows word/line/character count for the current selection or file",
     "author": "Exorcist Team",
+    "license": "MIT",
+    "layer": "dsl",
     "permissions": ["commands", "notifications", "editor.read"],
     "memoryLimit": 8
 }

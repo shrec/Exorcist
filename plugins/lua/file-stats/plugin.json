@@ -4,6 +4,8 @@
     "version": "1.0.0",
     "description": "Displays comprehensive file statistics — line counts, language detection, encoding info.",
     "author": "Exorcist Team",
+    "license": "MIT",
+    "layer": "lua-jit",
     "entry": "main.lua",
     "permissions": [
         "commands",

@@ -60,6 +60,8 @@ private slots:
     void onReferencesResult(const QString &uri, const QJsonArray &locations);
     void onRenameResult(const QString &uri, const QJsonObject &workspaceEdit);
     void onDocumentSymbolsResult(const QString &uri, const QJsonArray &symbols);
+    void onCodeActionResult(const QString &uri, int line, int character,
+                            const QJsonArray &actions);
     void onCompletionAccepted(const QString &insertText,
                               const QString &filterText);
     void sendDocumentSymbols();
@@ -67,6 +69,7 @@ private slots:
 private:
     void sendDidChange();
     void triggerCompletion();
+    void requestCodeActions();
     bool isCompletionTrigger(QChar ch) const;
     bool isFormatOnTypeTrigger(QChar ch) const;
 
@@ -87,6 +90,7 @@ private:
     int              m_hoverCol  = -1;
     bool             m_opened     = false;
     QString          m_completionPrefix;
+    QJsonArray       m_currentDiagnostics;  // latest diagnostics for m_uri
 
 signals:
     void navigateToLocation(const QString &filePath, int line, int character);

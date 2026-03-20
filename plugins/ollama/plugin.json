@@ -5,7 +5,10 @@
     "description": "Local LLM provider via Ollama HTTP API — run models on your own hardware.",
     "author": "Exorcist",
     "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "ai",
     "activationEvents": ["*"],
+    "requestedPermissions": ["NetworkAccess"],
     "contributions": {
         "settings": [
             {

@@ -4,8 +4,11 @@
 #include "../../core/ifilesystem.h"
 
 #include <functional>
+#include <memory>
 
 #include <QHash>
+
+struct TransactionStore;
 
 // Shared path-resolution helper for all filesystem tools.
 // Turns a workspace-relative path into an absolute one.
@@ -58,6 +61,7 @@ public:
     explicit WriteFileTool(IFileSystem *fs);
 
     void setWorkspaceRoot(const QString &root) { m_workspaceRoot = root; }
+    void setTransactionStore(std::shared_ptr<TransactionStore> store) { m_txStore = std::move(store); }
 
     ToolSpec spec() const override;
     ToolExecResult invoke(const QJsonObject &args) override;
@@ -65,6 +69,7 @@ public:
 private:
     IFileSystem *m_fs;
     QString      m_workspaceRoot;
+    std::shared_ptr<TransactionStore> m_txStore;
 };
 
 // ── OverwriteFileTool ─────────────────────────────────────────────────────────
@@ -77,6 +82,7 @@ public:
     explicit OverwriteFileTool(IFileSystem *fs);
 
     void setWorkspaceRoot(const QString &root) { m_workspaceRoot = root; }
+    void setTransactionStore(std::shared_ptr<TransactionStore> store) { m_txStore = std::move(store); }
 
     ToolSpec spec() const override;
     ToolExecResult invoke(const QJsonObject &args) override;
@@ -84,6 +90,7 @@ public:
 private:
     IFileSystem *m_fs;
     QString      m_workspaceRoot;
+    std::shared_ptr<TransactionStore> m_txStore;
 };
 
 // ── UndoFileEditTool ──────────────────────────────────────────────────────────

@@ -12,13 +12,29 @@ SymbolOutlinePanel::SymbolOutlinePanel(QWidget *parent)
       m_tree(new QTreeWidget(this))
 {
     m_filter->setPlaceholderText(tr("Filter symbols…"));
+    m_filter->setStyleSheet(QStringLiteral(
+        "QLineEdit { background: #3c3c3c; color: #d4d4d4; border: 1px solid #555558;"
+        "  padding: 3px 6px; font-size: 12px; }"
+        "QLineEdit:focus { border-color: #007acc; }"
+    ));
+
     m_tree->setHeaderHidden(true);
     m_tree->setIndentation(14);
     m_tree->setUniformRowHeights(true);
+    m_tree->setStyleSheet(QStringLiteral(
+        "QTreeWidget { background: #1e1e1e; color: #d4d4d4; border: none; font-size: 12px; }"
+        "QTreeWidget::item { padding: 2px 0; border: none; }"
+        "QTreeWidget::item:hover { background: #2a2d2e; }"
+        "QTreeWidget::item:selected { background: #094771; color: #ffffff; }"
+        "QScrollBar:vertical { background: #1e1e1e; width: 10px; border: none; }"
+        "QScrollBar::handle:vertical { background: #424242; min-height: 20px; border-radius: 5px; }"
+        "QScrollBar::handle:vertical:hover { background: #686868; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+    ));
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
-    layout->setSpacing(2);
+    layout->setSpacing(4);
     layout->addWidget(m_filter);
     layout->addWidget(m_tree, 1);
 

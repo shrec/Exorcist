@@ -91,6 +91,14 @@ This document is the project's spine. Every major decision must align with it.
 - Every non-trivial public API gets a test.
 - The codebase must be readable by a new contributor without a tour guide.
 
+## 15) Developer Pain First
+
+- Exorcist exists to reduce developer pain, not to accumulate fashionable features.
+- Features must justify their cost by removing friction from real workflows.
+- Practicality beats novelty when the two conflict.
+- Shared pain points are solved once in shared infrastructure, not re-solved in every plugin.
+- Developer-friendly plugin authoring is part of the product, not a side concern.
+
 ---
 
 ## Performance Budget (hard targets)

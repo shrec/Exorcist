@@ -5,6 +5,8 @@
     "description": "GitHub Copilot AI assistant — code completion, chat, and agent support via Copilot API.",
     "author": "Exorcist",
     "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "ai",
     "activationEvents": ["*"],
     "requestedPermissions": ["NetworkAccess"],
     "contributions": {

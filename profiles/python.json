@@ -7,12 +7,20 @@
 
     "requiredPlugins": [
         "org.exorcist.python-language",
-        "org.exorcist.testing"
+        "org.exorcist.testing",
+        "org.exorcist.debug",
+        "org.exorcist.git",
+        "org.exorcist.terminal",
+        "org.exorcist.search"
     ],
     "optionalPlugins": [
         "org.exorcist.build"
     ],
     "disabledPlugins": [],
+    "deferredPlugins": [
+        "org.exorcist.debug",
+        "org.exorcist.testing"
+    ],
 
     "detection": [
         { "type": "fileExists", "pattern": "requirements.txt", "weight": 3 },
@@ -26,8 +34,14 @@
 
     "dockDefaults": [
         { "id": "ProjectDock", "visible": true },
+        { "id": "SearchDock", "visible": false },
+        { "id": "GitDock", "visible": false },
         { "id": "TerminalDock", "visible": true },
-        { "id": "ProblemsDock", "visible": true }
+        { "id": "ProblemsDock", "visible": true },
+        { "id": "OutputDock", "visible": false },
+        { "id": "RunDock", "visible": false },
+        { "id": "DebugDock", "visible": false },
+        { "id": "TestExplorerDock", "visible": true }
     ],
 
     "settings": {

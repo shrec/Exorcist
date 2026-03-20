@@ -4,6 +4,9 @@
     "version": "1.0.0",
     "description": "CTest-based test discovery, execution, and explorer panel",
     "author": "Exorcist Team",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "core",
     "activationEvents": [
         "workspaceContains:CTestTestfile.cmake",
         "workspaceContains:CMakeLists.txt"
@@ -19,11 +22,13 @@
         "commands": [
             {
                 "id": "testing.discover",
-                "title": "Discover Tests"
+                "title": "Discover Tests",
+                "category": "Test"
             },
             {
                 "id": "testing.runAll",
-                "title": "Run All Tests"
+                "title": "Run All Tests",
+                "category": "Test"
             }
         ]
     }

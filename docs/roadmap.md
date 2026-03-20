@@ -1,5 +1,17 @@
 # Exorcist — Roadmap
 
+This file remains the historical execution log of delivered phases.
+
+Current canonical roadmap for ongoing reorganization and the 20 target
+development templates:
+
+- [template-roadmap.md](template-roadmap.md)
+
+Current canonical architecture/plugin standards:
+
+- [system-model.md](system-model.md)
+- [plugin-model.md](plugin-model.md)
+
 Self-hosting goal: Exorcist should be able to build and develop itself.
 Priority rule: **typing never blocks** — all background work must be async/cancelable.
 

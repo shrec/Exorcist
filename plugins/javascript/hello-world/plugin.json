@@ -4,6 +4,8 @@
     "version": "1.0.0",
     "description": "Sample JavaScript plugin — registers a greeting command and listens for editor events",
     "author": "Exorcist Team",
+    "license": "MIT",
+    "layer": "dsl",
     "permissions": ["commands", "notifications", "logging", "events", "editor.read"],
     "memoryLimit": 8
 }

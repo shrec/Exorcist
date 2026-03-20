@@ -12,6 +12,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
 endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Concurrent Sql Svg)
+find_package(Qt6 QUIET COMPONENTS SerialPort)
 
 option(EXORCIST_USE_LLVM "Enable LLVM integration stubs" OFF)
 option(EXORCIST_DEPLOY_QT "Run windeployqt after build on Windows" ON)
@@ -179,6 +180,26 @@ add_subdirectory(components)
 
 enable_testing()
 add_subdirectory(tests)
+
+# ── Source Graph reindex after build ─────────────────────────────────────────
+option(EXORCIST_REINDEX_AFTER_BUILD "Run source_graph incremental reindex after build" ON)
+if(EXORCIST_REINDEX_AFTER_BUILD)
+    find_program(PYTHON_EXE python3 python)
+    if(PYTHON_EXE)
+        set(SOURCE_GRAPH_SCRIPT "${CMAKE_SOURCE_DIR}/tools/source_graph_kit/source_graph.py")
+        if(EXISTS "${SOURCE_GRAPH_SCRIPT}")
+            add_custom_target(source_graph_reindex ALL
+                COMMAND ${CMAKE_COMMAND} -E env PYTHONIOENCODING=utf-8
+                        ${PYTHON_EXE} "${SOURCE_GRAPH_SCRIPT}" build -i
+                WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+                COMMENT "Incremental source graph reindex..."
+                USES_TERMINAL
+            )
+            # Run after all real targets are built
+            add_dependencies(source_graph_reindex exorcist)
+        endif()
+    endif()
+endif()
 
 # ── CPack packaging ──────────────────────────────────────────────────────────
 set(CPACK_PACKAGE_NAME "Exorcist")

@@ -5,6 +5,8 @@
     "version": "1.0.0",
     "description": "Example HTML-based JS plugin with UI rendered via Ultralight",
     "author": "Exorcist Team",
+    "license": "MIT",
+    "layer": "dsl",
     "htmlEntry": "ui/index.html",
     "permissions": ["commands", "notifications", "workspace.read", "editor.read"],
     "contributions": {
@@ -12,7 +14,7 @@
             {
                 "id": "HelloHtmlPanel",
                 "title": "Hello HTML",
-                "location": "right",
+                "location": "sidebar-right",
                 "defaultVisible": true
             }
         ]

@@ -1,10 +1,12 @@
 #include "testdiscoveryservice.h"
 
+#include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDir>
 #include <QFileInfo>
+#include <QUuid>
 
 TestDiscoveryService::TestDiscoveryService(QObject *parent)
     : QObject(parent)
@@ -68,6 +70,14 @@ void TestDiscoveryService::parseDiscoveryOutput(const QByteArray &json)
                 item.args.append(cmdArr[i].toString());
         }
 
+        // Extract WORKING_DIRECTORY property if present
+        const QJsonArray props = obj.value(QStringLiteral("properties")).toArray();
+        for (const QJsonValue &pv : props) {
+            const QJsonObject p = pv.toObject();
+            if (p.value(QStringLiteral("name")).toString() == QStringLiteral("WORKING_DIRECTORY"))
+                item.workingDirectory = p.value(QStringLiteral("value")).toString();
+        }
+
         m_tests.append(item);
     }
 }
@@ -123,20 +133,48 @@ void TestDiscoveryService::runNextTest()
     item.status = TestItem::Running;
     emit testStarted(idx);
 
-    QProcess proc;
-    proc.setWorkingDirectory(m_buildDir);
-    proc.start(item.command, item.args);
+    const QString wd = item.workingDirectory.isEmpty() ? m_buildDir : item.workingDirectory;
 
-    if (!proc.waitForFinished(120000)) {
+    const QString outFile = QDir::tempPath()
+        + QStringLiteral("/exorcist_test_%1.txt")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces).left(8));
+    const QString outArg  = QDir::toNativeSeparators(outFile) + QStringLiteral(",txt");
+
+    QStringList args = item.args;
+    if (!args.contains(QStringLiteral("-o")))
+        args << QStringLiteral("-o") << outArg;
+
+    QProcess proc;
+    proc.setWorkingDirectory(wd);
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start(item.command, args);
+
+    if (!proc.waitForStarted(5000)) {
         item.status = TestItem::Failed;
-        item.output = tr("Test timed out after 120 seconds");
+        item.output = tr("Test failed to start: %1").arg(proc.errorString());
         emit testFinished(idx);
         runNextTest();
         return;
     }
 
-    item.output = QString::fromUtf8(proc.readAllStandardOutput())
-                + QString::fromUtf8(proc.readAllStandardError());
+    if (!proc.waitForFinished(120000)) {
+        proc.kill();
+        item.status = TestItem::Failed;
+        item.output = tr("Test timed out after 120 seconds");
+        QFile::remove(outFile);
+        emit testFinished(idx);
+        runNextTest();
+        return;
+    }
+
+    QFile f(outFile);
+    if (f.open(QIODevice::ReadOnly)) {
+        item.output = QString::fromUtf8(f.readAll());
+        f.close();
+        QFile::remove(outFile);
+    } else {
+        item.output = QString::fromUtf8(proc.readAll());
+    }
     item.status = (proc.exitCode() == 0) ? TestItem::Passed : TestItem::Failed;
 
     // Try to parse duration from Qt Test output (e.g. "Totals: ... 123ms")

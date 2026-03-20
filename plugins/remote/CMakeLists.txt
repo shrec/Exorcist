@@ -19,6 +19,7 @@ add_library(remote_plugin SHARED
 target_link_libraries(remote_plugin PRIVATE
     Qt6::Widgets
     plugin_common
+    exorcist
 )
 
 target_include_directories(remote_plugin PRIVATE

@@ -7,13 +7,17 @@
 
     "requiredPlugins": [
         "org.exorcist.js-language",
-        "org.exorcist.web-tools"
+        "org.exorcist.web-tools",
+        "org.exorcist.git",
+        "org.exorcist.terminal",
+        "org.exorcist.search"
     ],
     "optionalPlugins": [
         "org.exorcist.build",
         "org.exorcist.testing"
     ],
     "disabledPlugins": [],
+    "deferredPlugins": [],
 
     "detection": [
         { "type": "fileExists", "pattern": "package.json", "weight": 2 },
@@ -29,8 +33,12 @@
 
     "dockDefaults": [
         { "id": "ProjectDock", "visible": true },
+        { "id": "SearchDock", "visible": false },
+        { "id": "GitDock", "visible": false },
         { "id": "TerminalDock", "visible": true },
-        { "id": "ProblemsDock", "visible": true }
+        { "id": "ProblemsDock", "visible": true },
+        { "id": "OutputDock", "visible": false },
+        { "id": "RunDock", "visible": false }
     ],
 
     "settings": {

@@ -9,12 +9,21 @@
         "org.exorcist.cpp-language",
         "org.exorcist.build",
         "org.exorcist.debug",
-        "org.exorcist.testing"
+        "org.exorcist.testing",
+        "org.exorcist.git",
+        "org.exorcist.terminal",
+        "org.exorcist.search"
     ],
     "optionalPlugins": [
         "org.exorcist.github"
     ],
     "disabledPlugins": [],
+    "deferredPlugins": [
+        "org.exorcist.cpp-language",
+        "org.exorcist.build",
+        "org.exorcist.debug",
+        "org.exorcist.testing"
+    ],
 
     "detection": [
         { "type": "fileExists", "pattern": "CMakeLists.txt", "weight": 3 },
@@ -28,18 +37,24 @@
 
     "dockDefaults": [
         { "id": "ProjectDock", "visible": true },
+        { "id": "CppWorkspaceDock", "visible": true },
         { "id": "SearchDock", "visible": false },
         { "id": "GitDock", "visible": false },
         { "id": "TerminalDock", "visible": true },
         { "id": "OutlineDock", "visible": true },
         { "id": "ProblemsDock", "visible": true },
-        { "id": "OutputDock", "visible": false }
+        { "id": "OutputDock", "visible": true },
+        { "id": "RunDock", "visible": true },
+        { "id": "DebugDock", "visible": true },
+        { "id": "TestExplorerDock", "visible": true }
     ],
 
     "settings": {
         "editor.tabSize": 4,
         "editor.insertSpaces": true,
         "editor.formatOnSave": false,
-        "build.defaultTarget": "all"
+        "build.defaultTarget": "all",
+        "build.buildOnSave": false,
+        "build.autoConfigure": true
     }
 }

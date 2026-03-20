@@ -60,6 +60,10 @@ public:
     /// matches files in the given workspace root directory.
     int activateByWorkspace(const QString &workspaceRoot);
 
+    /// Activate a specific deferred plugin by manifest ID.
+    /// Returns the number of newly activated plugins.
+    int activateByPluginId(const QString &pluginId);
+
     void shutdownAll();
 
     const QStringList &errors() const;

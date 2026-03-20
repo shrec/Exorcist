@@ -1,6 +1,6 @@
 #pragma once
 
-#include "idebugadapter.h"
+#include "sdk/idebugadapter.h"
 
 #include <QAbstractItemModel>
 #include <QList>

@@ -10,6 +10,7 @@ add_library(github_plugin SHARED
 target_link_libraries(github_plugin PRIVATE
     Qt6::Widgets
     plugin_common
+    exorcist
 )
 
 target_include_directories(github_plugin PRIVATE

@@ -1,15 +1,14 @@
 #pragma once
 
 #include <QObject>
-#include "plugininterface.h"
 #include "plugin/iviewcontributor.h"
+#include "plugin/workbenchpluginbase.h"
 
 class GdbMiAdapter;
 class DebugPanel;
-class IHostServices;
 class IDebugService;
 
-class DebugPlugin : public QObject, public IPlugin, public IViewContributor
+class DebugPlugin : public QObject, public WorkbenchPluginBase, public IViewContributor
 {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID EXORCIST_PLUGIN_IID)
@@ -18,16 +17,17 @@ class DebugPlugin : public QObject, public IPlugin, public IViewContributor
 public:
     explicit DebugPlugin(QObject *parent = nullptr);
 
-    // IPlugin
     PluginInfo info() const override;
-    bool initialize(IHostServices *host) override;
-    void shutdown() override;
 
     // IViewContributor
     QWidget *createView(const QString &viewId, QWidget *parent) override;
 
 private:
-    IHostServices  *m_host           = nullptr;
+    bool initializePlugin() override;
+    void shutdownPlugin() override;
+    void registerCommands();
+    void installMenusAndToolBar();
+
     GdbMiAdapter   *m_adapter        = nullptr;
     DebugPanel     *m_panel          = nullptr;
     IDebugService  *m_debugService   = nullptr;

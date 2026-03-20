@@ -158,7 +158,15 @@ void BridgeClient::launchBridge()
         return;
     }
 
-    if (!QProcess::startDetached(bridgePath, {})) {
+    // Auto-quit after 5 minutes with no IDE clients.
+    // When Exorcist closes, its socket disconnects; the idle timer then starts
+    // and ExoBridge exits cleanly — no orphan process left in Task Manager.
+    const QStringList bridgeArgs{
+        QStringLiteral("--idle-timeout"),
+        QStringLiteral("300"),
+    };
+
+    if (!QProcess::startDetached(bridgePath, bridgeArgs)) {
         qWarning("[BridgeClient] Failed to launch ExoBridge");
         m_state = State::Disconnected;
         emit connectionFailed(tr("Failed to launch ExoBridge"));

@@ -10,14 +10,20 @@ Usage:
     # Creates tools/codegraph.db
 """
 
+import hashlib
 import os
 import re
 import sqlite3
+import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "tools" / "codegraph.db"
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # Directories to scan
 SCAN_DIRS = [
@@ -128,6 +134,9 @@ RE_CMAKE_ADD_EXEC = re.compile(r'add_executable\s*\(\s*(\S+)', re.MULTILINE)
 RE_CMAKE_ADD_LIB = re.compile(r'add_library\s*\(\s*(\S+)', re.MULTILINE)
 RE_CMAKE_ADD_TEST = re.compile(r'add_test\s*\(\s*(?:NAME\s+)?(\S+)', re.MULTILINE)
 
+# Function call invocation — used for call graph (bare name followed by open-paren)
+RE_FUNC_CALL = re.compile(r'\b([A-Za-z_]\w{2,})\s*\(')
+
 
 def create_db(conn):
     """Create the schema."""
@@ -149,6 +158,14 @@ def create_db(conn):
         DROP TABLE IF EXISTS services;
         DROP TABLE IF EXISTS test_cases;
         DROP TABLE IF EXISTS cmake_targets;
+        DROP TABLE IF EXISTS call_graph;
+        DROP TABLE IF EXISTS xml_bindings;
+        DROP TABLE IF EXISTS config_issues;
+        DROP TABLE IF EXISTS runtime_entrypoints;
+        DROP TABLE IF EXISTS symbol_aliases;
+        DROP TABLE IF EXISTS reachability;
+        DROP TABLE IF EXISTS hotspot_scores;
+        DROP TABLE IF EXISTS semantic_tags;
 
         CREATE TABLE files (
             id          INTEGER PRIMARY KEY,
@@ -275,17 +292,24 @@ def create_db(conn):
 
         -- Function/method index with exact line ranges
         CREATE TABLE function_index (
-            id              INTEGER PRIMARY KEY,
-            file_id         INTEGER REFERENCES files(id),
-            name            TEXT NOT NULL,
-            qualified_name  TEXT DEFAULT '',
-            params          TEXT DEFAULT '',
-            return_type     TEXT DEFAULT '',
-            start_line      INTEGER NOT NULL,
-            end_line        INTEGER NOT NULL,
-            line_count      INTEGER DEFAULT 0,
-            is_method       INTEGER DEFAULT 0,
-            class_name      TEXT DEFAULT ''
+            id                INTEGER PRIMARY KEY,
+            file_id           INTEGER REFERENCES files(id),
+            name              TEXT NOT NULL,
+            qualified_name    TEXT DEFAULT '',
+            params            TEXT DEFAULT '',
+            return_type       TEXT DEFAULT '',
+            start_line        INTEGER NOT NULL,
+            end_line          INTEGER NOT NULL,
+            line_count        INTEGER DEFAULT 0,
+            is_method         INTEGER DEFAULT 0,
+            class_name        TEXT DEFAULT '',
+            hot_path          INTEGER DEFAULT 0,
+            ct_sensitive      INTEGER DEFAULT 0,
+            gpu_candidate     INTEGER DEFAULT 0,
+            batchable         INTEGER DEFAULT 0,
+            recently_modified INTEGER DEFAULT 0,
+            body_hash         TEXT    DEFAULT '',
+            duplicate_group   TEXT    DEFAULT ''
         );
 
         -- Unified relationship edges
@@ -350,7 +374,242 @@ def create_db(conn):
         CREATE INDEX idx_test_cases_file ON test_cases(file_id);
         CREATE INDEX idx_cmake_targets_file ON cmake_targets(file_id);
         CREATE INDEX idx_file_summaries_cat ON file_summaries(category);
+
+        -- ── Call graph: function-to-function call edges ────────────────────
+        CREATE TABLE call_graph (
+            id          INTEGER PRIMARY KEY,
+            caller_file INTEGER REFERENCES files(id),
+            caller_func TEXT NOT NULL,
+            callee_func TEXT NOT NULL,
+            callee_file INTEGER,
+            line_num    INTEGER DEFAULT 0
+        );
+
+        -- ── XML → C++ symbol bindings ──────────────────────────────────
+        CREATE TABLE xml_bindings (
+            id           INTEGER PRIMARY KEY,
+            xml_file     INTEGER REFERENCES files(id),
+            element      TEXT NOT NULL,
+            attribute    TEXT DEFAULT '',
+            value        TEXT DEFAULT '',
+            bound_symbol TEXT DEFAULT '',
+            bound_file   INTEGER,
+            binding_type TEXT DEFAULT 'unresolved',
+            line_num     INTEGER DEFAULT 0
+        );
+
+        -- ── Config / asset validation issues ───────────────────────────
+        CREATE TABLE config_issues (
+            id         INTEGER PRIMARY KEY,
+            xml_file   INTEGER REFERENCES files(id),
+            issue_type TEXT NOT NULL,
+            element    TEXT DEFAULT '',
+            attribute  TEXT DEFAULT '',
+            value      TEXT DEFAULT '',
+            message    TEXT NOT NULL,
+            line_num   INTEGER DEFAULT 0,
+            severity   TEXT DEFAULT 'warning'
+        );
+
+        -- ── Runtime loading entrypoints ────────────────────────────────
+        CREATE TABLE runtime_entrypoints (
+            id          INTEGER PRIMARY KEY,
+            file_id     INTEGER REFERENCES files(id),
+            loader_type TEXT NOT NULL,
+            target      TEXT NOT NULL,
+            line_num    INTEGER DEFAULT 0
+        );
+
+        -- ── Symbol aliases: typo / rename-drift detection ─────────────────
+        CREATE TABLE symbol_aliases (
+            id            INTEGER PRIMARY KEY,
+            symbol_a      TEXT NOT NULL,
+            file_a        INTEGER,
+            symbol_b      TEXT NOT NULL,
+            file_b        INTEGER,
+            edit_distance INTEGER DEFAULT 0,
+            alias_type    TEXT DEFAULT 'similar'
+        );
+
+        -- ── Reachability: BFS from program entrypoints ───────────────────
+        CREATE TABLE reachability (
+            id            INTEGER PRIMARY KEY,
+            file_id       INTEGER REFERENCES files(id),
+            symbol        TEXT NOT NULL,
+            symbol_type   TEXT DEFAULT 'function',
+            is_reachable  INTEGER DEFAULT 1,
+            reachable_via TEXT DEFAULT '',
+            dead_reason   TEXT DEFAULT ''
+        );
+
+        -- ── Hotspot scores: coupling × coverage-gap × crash-risk ──────────────
+        CREATE TABLE hotspot_scores (
+            id               INTEGER PRIMARY KEY,
+            file_id          INTEGER REFERENCES files(id) UNIQUE,
+            coupling_in      INTEGER DEFAULT 0,
+            coupling_out     INTEGER DEFAULT 0,
+            has_tests        INTEGER DEFAULT 0,
+            crash_indicators INTEGER DEFAULT 0,
+            hotspot_score    REAL    DEFAULT 0.0,
+            risk_factors     TEXT    DEFAULT ''
+        );
+
+        CREATE TABLE semantic_tags (
+            id          INTEGER PRIMARY KEY,
+            file_id     INTEGER REFERENCES files(id),
+            entity_type TEXT NOT NULL,
+            entity_name TEXT NOT NULL,
+            line_num    INTEGER DEFAULT 0,
+            tag         TEXT NOT NULL,
+            tag_value   TEXT DEFAULT '',
+            confidence  INTEGER DEFAULT 100,
+            source      TEXT DEFAULT 'heuristic',
+            evidence    TEXT DEFAULT '',
+            UNIQUE(file_id, entity_type, entity_name, tag, tag_value)
+        );
+
+        CREATE INDEX idx_call_graph_caller   ON call_graph(caller_file);
+        CREATE INDEX idx_call_graph_callee   ON call_graph(callee_func);
+        CREATE INDEX idx_xml_bindings_file   ON xml_bindings(xml_file);
+        CREATE INDEX idx_xml_bindings_type   ON xml_bindings(binding_type);
+        CREATE INDEX idx_config_issues_file  ON config_issues(xml_file);
+        CREATE INDEX idx_runtime_ep_file     ON runtime_entrypoints(file_id);
+        CREATE INDEX idx_aliases_a           ON symbol_aliases(symbol_a);
+        CREATE INDEX idx_aliases_dist        ON symbol_aliases(edit_distance);
+        CREATE INDEX idx_reachability_file   ON reachability(file_id);
+        CREATE INDEX idx_reachability_reach  ON reachability(is_reachable);
+        CREATE INDEX idx_hotspot_score       ON hotspot_scores(hotspot_score);
+        CREATE INDEX idx_semantic_tags_file  ON semantic_tags(file_id);
+        CREATE INDEX idx_semantic_tags_tag   ON semantic_tags(tag);
+        CREATE INDEX idx_semantic_tags_entity ON semantic_tags(entity_type, entity_name);
+
+        -- ── Function-level AI metadata (summary, flags, hash) ─────────────
+        CREATE TABLE function_summary (
+            id                INTEGER PRIMARY KEY,
+            file_id           INTEGER REFERENCES files(id),
+            symbol            TEXT NOT NULL,
+            qualified_symbol  TEXT DEFAULT '',
+            summary           TEXT DEFAULT '',
+            category          TEXT DEFAULT '',
+            batchable         INTEGER DEFAULT 0,
+            gpu_candidate     INTEGER DEFAULT 0,
+            ct_sensitive      INTEGER DEFAULT 0,
+            recently_modified INTEGER DEFAULT 0,
+            body_hash         TEXT DEFAULT '',
+            last_updated      TEXT DEFAULT '',
+            UNIQUE(file_id, symbol)
+        );
+
+        -- ── Symbol slices: signature + critical lines (low-token context) ──
+        CREATE TABLE symbol_slices (
+            id                   INTEGER PRIMARY KEY,
+            file_id              INTEGER REFERENCES files(id),
+            symbol               TEXT NOT NULL,
+            signature            TEXT DEFAULT '',
+            critical_lines       TEXT DEFAULT '',
+            slice_token_estimate INTEGER DEFAULT 0,
+            full_token_estimate  INTEGER DEFAULT 0,
+            UNIQUE(file_id, symbol)
+        );
+
+        -- ── Optimization knowledge patterns ────────────────────────────────
+        CREATE TABLE optimization_patterns (
+            id              INTEGER PRIMARY KEY,
+            pattern_name    TEXT UNIQUE NOT NULL,
+            description     TEXT DEFAULT '',
+            gain            TEXT DEFAULT 'unknown',
+            risk            TEXT DEFAULT 'low',
+            applicable_when TEXT DEFAULT '',
+            example_symbol  TEXT DEFAULT ''
+        );
+
+        -- ── Git delta: recently modified symbols ───────────────────────────
+        CREATE TABLE git_delta (
+            id            INTEGER PRIMARY KEY,
+            file_id       INTEGER REFERENCES files(id),
+            symbol        TEXT DEFAULT '',
+            commit_hash   TEXT DEFAULT '',
+            changed_at    TEXT DEFAULT '',
+            diff_snippet  TEXT DEFAULT '',
+            lines_added   INTEGER DEFAULT 0,
+            lines_removed INTEGER DEFAULT 0
+        );
+
+        CREATE INDEX idx_funcidx_hot_path    ON function_index(hot_path);
+        CREATE INDEX idx_funcidx_ct_sens     ON function_index(ct_sensitive);
+        CREATE INDEX idx_funcidx_body_hash   ON function_index(body_hash);
+        CREATE INDEX idx_func_summary_file   ON function_summary(file_id);
+        CREATE INDEX idx_func_summary_sym    ON function_summary(symbol);
+        CREATE INDEX idx_func_summary_flags  ON function_summary(gpu_candidate, batchable);
+        CREATE INDEX idx_symbol_slices_file  ON symbol_slices(file_id);
+        CREATE INDEX idx_symbol_slices_sym   ON symbol_slices(symbol);
+        CREATE INDEX idx_git_delta_file      ON git_delta(file_id);
+
+        -- ── Composite analysis scores (hotness × complexity × fan × gpu × ct) ──
+        CREATE TABLE IF NOT EXISTS analysis_scores (
+            id                 INTEGER PRIMARY KEY,
+            file_id            INTEGER REFERENCES files(id),
+            symbol_name        TEXT NOT NULL,
+            file_path          TEXT NOT NULL,
+            hotness_score      INTEGER DEFAULT 0,
+            complexity_score   INTEGER DEFAULT 0,
+            fanin_score        INTEGER DEFAULT 0,
+            fanout_score       INTEGER DEFAULT 0,
+            optimization_score INTEGER DEFAULT 0,
+            gpu_score          INTEGER DEFAULT 0,
+            ct_risk_score      INTEGER DEFAULT 0,
+            audit_gap_score    INTEGER DEFAULT 0,
+            overall_priority   INTEGER DEFAULT 0,
+            reasons            TEXT DEFAULT '',
+            UNIQUE(file_id, symbol_name)
+        );
+
+        -- ── AI task queue: auto-generated bottleneck tasks ────────────────────
+        CREATE TABLE IF NOT EXISTS ai_tasks (
+            id          INTEGER PRIMARY KEY,
+            file_id     INTEGER REFERENCES files(id),
+            task_type   TEXT NOT NULL,
+            symbol_name TEXT NOT NULL,
+            file_path   TEXT NOT NULL,
+            prompt      TEXT NOT NULL,
+            status      TEXT DEFAULT 'pending',
+            priority    INTEGER DEFAULT 0,
+            created_at  TEXT DEFAULT ''
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_analysis_priority ON analysis_scores(overall_priority DESC);
+        CREATE INDEX IF NOT EXISTS idx_analysis_file     ON analysis_scores(file_id);
+        CREATE INDEX IF NOT EXISTS idx_analysis_gpu      ON analysis_scores(gpu_score DESC);
+        CREATE INDEX IF NOT EXISTS idx_analysis_ct_risk  ON analysis_scores(ct_risk_score DESC);
+        CREATE INDEX IF NOT EXISTS idx_ai_tasks_status   ON ai_tasks(status);
+        CREATE INDEX IF NOT EXISTS idx_ai_tasks_priority ON ai_tasks(priority DESC);
     """)
+
+    # Create v_bottleneck_queue view (references analysis_scores + file_summaries)
+    try:
+        conn.execute("DROP VIEW IF EXISTS v_bottleneck_queue")
+        conn.execute("""
+            CREATE VIEW v_bottleneck_queue AS
+            SELECT
+                a.symbol_name,
+                a.file_path,
+                a.hotness_score,
+                a.complexity_score,
+                a.fanin_score,
+                a.fanout_score,
+                a.gpu_score,
+                a.ct_risk_score,
+                a.audit_gap_score,
+                a.overall_priority,
+                a.reasons,
+                COALESCE(fs.summary, '') AS summary
+            FROM analysis_scores a
+            LEFT JOIN files f ON a.file_id = f.id
+            LEFT JOIN file_summaries fs ON fs.file_id = f.id
+            ORDER BY a.overall_priority DESC, a.hotness_score DESC
+        """)
+    except Exception as e:
+        print(f"  Warning: v_bottleneck_queue view: {e}")
 
     # FTS5 full-text search (optional — requires FTS5 extension)
     try:
@@ -826,6 +1085,70 @@ _SKIP_KEYWORDS = frozenset({
 })
 
 
+def _insert_semantic_tag(conn, file_id, entity_type, entity_name, line_num,
+                         tag, tag_value="", confidence=100,
+                         source="heuristic", evidence=""):
+    conn.execute(
+        "INSERT OR IGNORE INTO semantic_tags "
+        "(file_id, entity_type, entity_name, line_num, tag, tag_value, confidence, source, evidence) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (file_id, entity_type, entity_name, line_num, tag, tag_value, confidence, source, evidence)
+    )
+
+
+def _infer_semantic_tags(path, lang, subsystem, content, entity_name=""):
+    lower_path = path.lower()
+    lower_content = content.lower()
+    lower_name = entity_name.lower()
+    tags = [f"lang:{lang}", "layer:semantic"]
+    if subsystem:
+        tags.append(f"subsystem:{subsystem}")
+
+    def add_if(cond, value):
+        if cond:
+            tags.append(value)
+
+    add_if("/plugin" in lower_path or subsystem.startswith("plugin-"), "semantic:plugin")
+    add_if("/agent/" in lower_path or "agent" in lower_name, "semantic:agent")
+    add_if("/build/" in lower_path or "build" in lower_name, "semantic:build")
+    add_if("/debug/" in lower_path or "debug" in lower_name, "semantic:debug")
+    add_if("/test" in lower_path or lower_name.startswith("test"), "semantic:test")
+    add_if("/search/" in lower_path or "search" in lower_name, "semantic:search")
+    add_if("/git/" in lower_path or "git" in lower_name, "semantic:git")
+    add_if("/terminal/" in lower_path or "terminal" in lower_name, "semantic:terminal")
+    add_if("/project/" in lower_path or "project" in lower_name, "semantic:project")
+    add_if("/profile/" in lower_path or "profile" in lower_name, "semantic:profile")
+    add_if("/dock/" in lower_path or "dock" in lower_name, "semantic:docking")
+    add_if("/ui/" in lower_path or "widget" in lower_name or "panel" in lower_name or "dialog" in lower_name, "semantic:ui")
+    add_if("/codegraph/" in lower_path or "index" in lower_name or "graph" in lower_name or "query" in lower_name, "semantic:analysis")
+    add_if("registerservice" in lower_content or "serviceregistry" in lower_content, "semantic:service-registry")
+    add_if("q_object" in lower_content or "signals:" in lower_content or "slots:" in lower_content, "semantic:qt")
+    add_if("qprocess" in lower_content or "start(" in lower_content, "semantic:process")
+    add_if("command" in lower_content or "command" in lower_name, "semantic:command")
+    add_if("network" in lower_content or "qnetwork" in lower_content, "security:network-surface")
+    add_if("auth" in lower_content or "token" in lower_content, "security:auth-surface")
+    add_if("permission" in lower_content or "secure" in lower_content or "security" in lower_content, "security:sensitive")
+    add_if("async" in lower_content or "qtconcurrent" in lower_content or "qtimer::singleshot" in lower_content, "performance:async")
+
+    # Exorcist-native architecture tags
+    add_if(lower_path in ("src/mainwindow.cpp", "src/mainwindow.h"), "architecture:shell")
+    add_if("/bootstrap/" in lower_path, "architecture:bootstrap")
+    add_if("/sdk/" in lower_path or "ihostservices" in lower_name or lower_name.startswith("i"), "architecture:sdk-boundary")
+    add_if("/core/" in lower_path, "architecture:core-interface")
+    add_if("/component/" in lower_path or "componentregistry" in lower_content or "component" in lower_name, "architecture:shared-component")
+    add_if("/settings/" in lower_path or "/profile/" in lower_path or "sharedservicesbootstrap" in lower_path, "architecture:shared-service")
+    add_if("/plugin/" in lower_path and "workbenchpluginbase" in lower_name, "architecture:base-plugin")
+    add_if(subsystem.startswith("plugin-") or lower_path.startswith("plugins/"), "architecture:plugin-domain")
+    add_if("workbenchpluginbase" in lower_content or "plugin" in lower_name, "architecture:plugin-owned")
+    add_if("idockmanager" in lower_content or "imenumanager" in lower_content or "itoolbarmanager" in lower_content or "istatusbarmanager" in lower_content, "ui:workbench-surface")
+    add_if("addmenucommand" in lower_content or "createmenu" in lower_content or "imenumanager" in lower_content, "ui:menu-owner")
+    add_if("createtoolbar" in lower_content or "itoolbarmanager" in lower_content, "ui:toolbar-owner")
+    add_if("dock(" in lower_content or "showdock" in lower_content or "idockmanager" in lower_content, "ui:dock-owner")
+    add_if("iprofilemanager" in lower_content or "loadprofilesfromdirectory" in lower_content or "profilemanager" in lower_name, "workspace:profile-activation")
+    add_if("projecttemplate" in lower_name or "projecttemplateregistry" in lower_content, "workspace:template-system")
+    return sorted(set(tags))
+
+
 def extract_cpp_functions(content):
     """Extract C++ function/method definitions with line ranges."""
     lines = content.split('\n')
@@ -960,16 +1283,51 @@ def build_function_index(conn):
         else:
             continue
 
+        src_lines = content.split('\n')
         for f in funcs:
+            body_lines = src_lines[max(0, f['start_line'] - 1):f['end_line']]
+            body_text = '\n'.join(body_lines)
+            body_hash = hashlib.sha256(
+                body_text.encode('utf-8', errors='replace')
+            ).hexdigest()[:16]
+
+            lower_body = body_text.lower()
+            lower_name = f['name'].lower()
+            hot_path = 1 if any(kw in lower_name for kw in (
+                'multiply', 'hash', 'compute', 'encode', 'decode',
+                'compress', 'encrypt', 'decrypt', 'sign', 'verify',
+                'inverse', 'reduce', 'square', 'double', 'add',
+            )) or any(kw in lower_body for kw in (
+                'loop', '__builtin', 'simd', 'vectorize', 'unroll',
+            )) else 0
+            ct_sensitive = 1 if any(kw in lower_body or kw in lower_name for kw in (
+                'auth', 'token', 'password', 'secret', 'key',
+                'nonce', 'hmac', 'aes', 'rsa', 'ecdsa', 'sha256',
+                'cert', 'privkey', 'signing', 'ctcheck',
+            )) else 0
+            gpu_candidate = 1 if any(kw in lower_body or kw in lower_name for kw in (
+                'parallel', 'vectorize', 'opencl', 'cuda',
+                'batch_mul', 'batch_inv', 'batch_',
+                'fft', 'ntt', 'convolution', 'matmul',
+            )) else 0
+            batchable = 1 if (
+                (f['end_line'] - f['start_line'] + 1) > 4
+                and any(kw in lower_body for kw in ('for (', 'for(', 'while (', 'while(',
+                                                     'foreach', 'std::for_each', '.begin()'))
+            ) else 0
+
             conn.execute(
-                "INSERT INTO function_index (file_id, name, qualified_name, params, "
-                "return_type, start_line, end_line, line_count, is_method, class_name) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO function_index "
+                "(file_id, name, qualified_name, params, return_type, "
+                "start_line, end_line, line_count, is_method, class_name, "
+                "hot_path, ct_sensitive, gpu_candidate, batchable, body_hash) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (file_id, f['name'], f.get('qualified_name', f['name']),
                  f.get('params', ''), f.get('return_type', ''),
                  f['start_line'], f['end_line'],
                  f['end_line'] - f['start_line'] + 1,
-                 f.get('is_method', 0), f.get('class_name', ''))
+                 f.get('is_method', 0), f.get('class_name', ''),
+                 hot_path, ct_sensitive, gpu_candidate, batchable, body_hash)
             )
             count += 1
 
@@ -1528,6 +1886,116 @@ def print_summary(conn):
 
     print("\n" + "=" * 70)
 
+    # ── Enhanced analysis summary ─────────────────────────────────────────
+    call_edges = conn.execute(
+        "SELECT COUNT(*) FROM call_graph"
+    ).fetchone()[0]
+    xml_binds = conn.execute(
+        "SELECT COUNT(*) FROM xml_bindings"
+    ).fetchone()[0]
+    xml_resolved = conn.execute(
+        "SELECT COUNT(*) FROM xml_bindings WHERE binding_type != 'unresolved'"
+    ).fetchone()[0]
+    cfg_issues = conn.execute(
+        "SELECT COUNT(*) FROM config_issues"
+    ).fetchone()[0]
+    cfg_errors = conn.execute(
+        "SELECT COUNT(*) FROM config_issues WHERE severity = 'error'"
+    ).fetchone()[0]
+    rt_eps = conn.execute(
+        "SELECT COUNT(*) FROM runtime_entrypoints"
+    ).fetchone()[0]
+    rt_dynamic = conn.execute(
+        "SELECT COUNT(*) FROM runtime_entrypoints WHERE loader_type = 'dynamic'"
+    ).fetchone()[0]
+    typos_only = conn.execute(
+        "SELECT COUNT(*) FROM symbol_aliases WHERE alias_type IN ('typo','likely_typo')"
+    ).fetchone()[0]
+    all_aliases = conn.execute(
+        "SELECT COUNT(*) FROM symbol_aliases"
+    ).fetchone()[0]
+    dead_funcs = conn.execute(
+        "SELECT COUNT(*) FROM reachability WHERE is_reachable = 0 AND dead_reason = 'no-caller'"
+    ).fetchone()[0]
+    total_funcs = conn.execute(
+        "SELECT COUNT(*) FROM reachability"
+    ).fetchone()[0]
+    top_hotspots = conn.execute(
+        "SELECT f.path, h.hotspot_score, h.risk_factors "
+        "FROM hotspot_scores h JOIN files f ON h.file_id = f.id "
+        "ORDER BY h.hotspot_score DESC LIMIT 8"
+    ).fetchall()
+
+    print(f"\n  Enhanced Analysis:")
+    print(f"    {'Call graph edges:':<30} {call_edges}")
+    print(f"    {'XML bindings:':<30} {xml_binds}  "
+          f"(resolved: {xml_resolved}, unresolved: {xml_binds - xml_resolved})")
+    print(f"    {'Config issues:':<30} {cfg_issues}  (errors: {cfg_errors})")
+    print(f"    {'Runtime load entrypoints:':<30} {rt_eps}  "
+          f"(dynamic/variable: {rt_dynamic})")
+    print(f"    {'Symbol aliases:':<30} {all_aliases}  (typos: {typos_only})")
+    print(f"    {'Potentially dead functions:':<30} {dead_funcs} / {total_funcs}")
+
+    if top_hotspots:
+        print(f"\n  Top Hotspot Files (coupling \u00d7 no-tests \u00d7 crash-risk):")
+        print(f"  {'File':<45} {'Score':>6}  Risk factors")
+        print(f"  {'-'*45} {'-'*6}  {'-'*40}")
+        for p, sc, rf in top_hotspots:
+            short = p.split('/')[-1]
+            print(f"  {short:<45} {sc:>6.1f}  {(rf or '')[:55]}")
+
+    if typos_only:
+        print(f"\n  Likely Typos / Rename Drift (edit-distance \u2264 2):")
+        rows = conn.execute(
+            "SELECT sa.symbol_a, sa.symbol_b, sa.edit_distance, "
+            "fa.path, fb.path "
+            "FROM symbol_aliases sa "
+            "LEFT JOIN files fa ON sa.file_a = fa.id "
+            "LEFT JOIN files fb ON sa.file_b = fb.id "
+            "WHERE sa.alias_type IN ('typo','likely_typo') "
+            "ORDER BY sa.edit_distance, sa.symbol_a LIMIT 20"
+        ).fetchall()
+        for a, b, dist, pa, pb in rows:
+            fa_short = (pa or '?').split('/')[-1]
+            fb_short = (pb or '?').split('/')[-1]
+            print(f"    {a:<30} vs  {b:<30}  dist={dist}  "
+                  f"({fa_short} / {fb_short})")
+
+    # ── AI intelligence layer stats ────────────────────────────────────────
+    _ai_tables = [
+        ('function_summary',     'Function summaries'),
+        ('symbol_slices',        'Symbol slices'),
+        ('analysis_scores',      'Analysis scores'),
+        ('ai_tasks',             'AI tasks (pending)'),
+        ('git_delta',            'Git delta entries'),
+        ('optimization_patterns','Optimization patterns'),
+    ]
+    ai_found = False
+    for tbl, label in _ai_tables:
+        try:
+            n = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+            if not ai_found:
+                print(f"\n  AI Intelligence Layer:")
+                ai_found = True
+            print(f"    {label:<28s}: {n}")
+        except Exception:
+            pass
+
+    try:
+        top_bns = conn.execute(
+            "SELECT symbol_name, overall_priority, reasons "
+            "FROM analysis_scores ORDER BY overall_priority DESC LIMIT 8"
+        ).fetchall()
+        if top_bns:
+            print(f"\n  Top Bottleneck Candidates:")
+            print(f"  {'Symbol':<45} {'Priority':>8}  Reasons")
+            print(f"  {'-'*45} {'-'*8}  {'-'*40}")
+            for sym, pri, rs in top_bns:
+                short = sym.split('::')[-1] if '::' in sym else sym
+                print(f"  {short:<45} {pri:>8}  {(rs or '')[:45]}")
+    except Exception:
+        pass
+
     # Actionable gap report
     print_gap_report(conn)
 
@@ -1647,54 +2115,1150 @@ def print_gap_report(conn):
     print("=" * 70)
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# Enhanced analyses: call graph, XML bindings, runtime loaders,
+#                    symbol aliases, reachability, hotspot scores
+# ══════════════════════════════════════════════════════════════════════════
+
+def _levenshtein(a, b):
+    """Wagner-Fischer edit distance between two strings."""
+    if a == b:
+        return 0
+    if len(a) < len(b):
+        a, b = b, a
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for ca in a:
+        curr = [prev[0] + 1]
+        for j, cb in enumerate(b):
+            curr.append(min(prev[j + 1] + 1, curr[j] + 1,
+                            prev[j] + (0 if ca == cb else 1)))
+        prev = curr
+    return prev[-1]
+
+
+def build_call_graph(conn):
+    """Build a function-level call graph by scanning every function body.
+
+    For each function in function_index, scan its source lines for calls to
+    other known functions and record an edge in call_graph.
+    """
+    # All known function names (>= 4 chars, skip control-flow keywords)
+    known_names = set()
+    name_to_fid = {}
+    for name, fid in conn.execute(
+        "SELECT name, file_id FROM function_index WHERE length(name) >= 4"
+    ):
+        if name not in _SKIP_KEYWORDS:
+            known_names.add(name)
+            name_to_fid.setdefault(name, fid)
+
+    # Group function records by source file to read each file once
+    file_funcs = {}
+    for fid, qname, fname, start, end in conn.execute(
+        "SELECT file_id, qualified_name, name, start_line, end_line "
+        "FROM function_index WHERE length(name) >= 4"
+    ):
+        file_funcs.setdefault(fid, []).append((qname, fname, start, end))
+
+    file_paths = dict(conn.execute(
+        "SELECT id, path FROM files WHERE lang = 'cpp'"
+    ))
+
+    count = 0
+    for file_id, funcs in file_funcs.items():
+        path = file_paths.get(file_id)
+        if not path:
+            continue
+        try:
+            src_lines = (ROOT / path).read_text(
+                encoding='utf-8', errors='replace'
+            ).split('\n')
+        except Exception:
+            continue
+
+        for qname, fname, start, end in funcs:
+            body = '\n'.join(src_lines[max(0, start - 1):end])
+            seen_callees = set()
+            for m in RE_FUNC_CALL.finditer(body):
+                callee = m.group(1)
+                if (callee in known_names
+                        and callee != fname
+                        and callee not in seen_callees
+                        and callee not in _SKIP_KEYWORDS):
+                    seen_callees.add(callee)
+                    line_off = body[:m.start()].count('\n')
+                    conn.execute(
+                        "INSERT INTO call_graph "
+                        "(caller_file, caller_func, callee_func, callee_file, line_num) "
+                        "VALUES (?,?,?,?,?)",
+                        (file_id, qname, callee,
+                         name_to_fid.get(callee), start + line_off)
+                    )
+                    count += 1
+
+    conn.commit()
+    print(f"  Built {count} call graph edges")
+
+
+def scan_xml_bindings(conn):
+    """Bind XML element/attribute values to C++ symbols; detect config issues.
+
+    For every .xml file:
+      - Resolves attribute values and text content to known C++ class/function names.
+      - Flags duplicate id= / name= attributes (duplicate_id, duplicate_name).
+      - Records unresolved type=/kind=/handler=/state= values for manual review.
+    """
+    # Collect known C++ symbols -> file_id
+    known_syms = {}
+    for name, fid in conn.execute("SELECT name, file_id FROM classes"):
+        known_syms[name] = fid
+    for name, fid in conn.execute(
+        "SELECT DISTINCT name, file_id FROM function_index WHERE is_method = 0"
+    ):
+        known_syms.setdefault(name, fid)
+
+    xml_files = conn.execute(
+        "SELECT id, path FROM files WHERE ext = '.xml'"
+    ).fetchall()
+
+    _TYPED_ATTRS = frozenset({
+        'type', 'kind', 'handler', 'state', 'action',
+        'class', 'baseClass', 'transition', 'event', 'command',
+    })
+
+    bind_count = 0
+    issue_count = 0
+
+    for file_id, path in xml_files:
+        full_path = ROOT / path
+        try:
+            tree = ET.parse(str(full_path))
+            root_elem = tree.getroot()
+        except Exception:
+            continue
+
+        seen_ids = {}    # id_value -> tag
+        seen_names = set()
+
+        def _walk(elem):
+            nonlocal bind_count, issue_count
+            tag = elem.tag.split('}')[-1]   # strip XML namespace
+            attribs = elem.attrib
+
+            # Duplicate id detection
+            eid = attribs.get('id') or attribs.get('Id') or attribs.get('ID')
+            if eid:
+                if eid in seen_ids:
+                    conn.execute(
+                        "INSERT INTO config_issues "
+                        "(xml_file, issue_type, element, attribute, value, message, severity) "
+                        "VALUES (?,?,?,?,?,?,?)",
+                        (file_id, 'duplicate_id', tag, 'id', eid,
+                         f"Duplicate id='{eid}' in <{tag}>", 'error')
+                    )
+                    issue_count += 1
+                seen_ids[eid] = tag
+
+            # Duplicate name detection
+            ename = attribs.get('name') or attribs.get('Name')
+            if ename:
+                key = f"{tag}:{ename}"
+                if key in seen_names:
+                    conn.execute(
+                        "INSERT INTO config_issues "
+                        "(xml_file, issue_type, element, attribute, value, message, severity) "
+                        "VALUES (?,?,?,?,?,?,?)",
+                        (file_id, 'duplicate_name', tag, 'name', ename,
+                         f"Duplicate name='{ename}' in <{tag}>", 'warning')
+                    )
+                    issue_count += 1
+                seen_names.add(key)
+
+            # Bind attribute values to known C++ symbols
+            for attr, val in attribs.items():
+                if val in known_syms:
+                    conn.execute(
+                        "INSERT INTO xml_bindings "
+                        "(xml_file, element, attribute, value, "
+                        "bound_symbol, bound_file, binding_type) VALUES (?,?,?,?,?,?,?)",
+                        (file_id, tag, attr, val, val,
+                         known_syms[val], 'symbol_ref')
+                    )
+                    bind_count += 1
+                elif attr in _TYPED_ATTRS:
+                    # Record unresolved type/handler references for review
+                    conn.execute(
+                        "INSERT INTO xml_bindings "
+                        "(xml_file, element, attribute, value, "
+                        "bound_symbol, binding_type) VALUES (?,?,?,?,?,?)",
+                        (file_id, tag, attr, val, '', 'unresolved')
+                    )
+                    bind_count += 1
+
+            # Text body may reference a symbol
+            if elem.text and elem.text.strip():
+                txt = elem.text.strip()
+                if txt in known_syms:
+                    conn.execute(
+                        "INSERT INTO xml_bindings "
+                        "(xml_file, element, attribute, value, "
+                        "bound_symbol, bound_file, binding_type) VALUES (?,?,?,?,?,?,?)",
+                        (file_id, tag, '_text', txt, txt,
+                         known_syms[txt], 'text_ref')
+                    )
+                    bind_count += 1
+
+            for child in elem:
+                _walk(child)
+
+        _walk(root_elem)
+
+    conn.commit()
+    print(f"  XML analysis: {bind_count} bindings, {issue_count} config issues "
+          f"in {len(xml_files)} XML files")
+
+
+def scan_runtime_entrypoints(conn):
+    """Detect where the program loads files, plugins, or scripts at runtime."""
+    patterns = [
+        (re.compile(r'QPluginLoader\b[^;{]*?["\']([^"\']{3,})["\']'),
+         'QPluginLoader'),
+        (re.compile(r'QFile\s+\w+\s*\(\s*["\']([^"\']{3,})["\']'),
+         'QFile'),
+        (re.compile(r'\.load\s*\(\s*["\']([^"\']{3,})["\']'),
+         'load()'),
+        (re.compile(
+            r'\b(?:loadFile|loadFrom|readFrom|loadPlugin|loadScript|loadLua)'
+            r'\s*\(\s*["\']([^"\']{3,})["\']'),
+         'loader-func'),
+        # Variable-based loads: QPluginLoader p(m_path)
+        (re.compile(
+            r'(?:QPluginLoader|loadPlugin|loadLua|loadScript)\s*[\({]\s*'
+            r'(m_\w+|\w+[Pp]ath|\w+[Ff]ile)\b'),
+         'dynamic'),
+    ]
+
+    count = 0
+    for file_id, path in conn.execute(
+        "SELECT id, path FROM files WHERE lang = 'cpp'"
+    ):
+        try:
+            content = (ROOT / path).read_text(encoding='utf-8', errors='replace')
+        except Exception:
+            continue
+        for pat, label in patterns:
+            for m in pat.finditer(content):
+                line_num = content[:m.start()].count('\n') + 1
+                conn.execute(
+                    "INSERT INTO runtime_entrypoints "
+                    "(file_id, loader_type, target, line_num) VALUES (?,?,?,?)",
+                    (file_id, label, m.group(1), line_num)
+                )
+                count += 1
+
+    conn.commit()
+    print(f"  Found {count} runtime loading entrypoints")
+
+
+def build_symbol_aliases(conn):
+    """Detect similarly-named symbols (potential typos or rename drift).
+
+    Uses Levenshtein edit distance grouped by first-3-char prefix to keep
+    the comparison O(n) in practice while catching 1-2 char differences.
+    """
+    # Class names from project source
+    classes = list(conn.execute(
+        "SELECT c.name, f.id FROM classes c JOIN files f ON c.file_id = f.id "
+        "WHERE length(c.name) >= 5 "
+        "AND (f.path LIKE 'src/%' OR f.path LIKE 'plugins/%')"
+    ))
+    # Free functions (not methods)
+    funcs = list(conn.execute(
+        "SELECT DISTINCT fi.name, fi.file_id FROM function_index fi "
+        "WHERE fi.is_method = 0 AND length(fi.name) >= 6"
+    ))
+
+    count = 0
+
+    def _check_group(items):
+        nonlocal count
+        n = len(items)
+        for i in range(n):
+            a, fa = items[i]
+            for j in range(i + 1, n):
+                b, fb = items[j]
+                if a == b or fa == fb:
+                    continue
+                if abs(len(a) - len(b)) > 3:
+                    continue
+                dist = _levenshtein(a, b)
+                if dist == 0 or dist > 3:
+                    continue
+                if dist == 1:
+                    atype = 'typo'
+                elif dist == 2 and len(a) > 7:
+                    atype = 'likely_typo'
+                else:
+                    atype = 'similar'
+                conn.execute(
+                    "INSERT INTO symbol_aliases "
+                    "(symbol_a, file_a, symbol_b, file_b, edit_distance, alias_type) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (a, fa, b, fb, dist, atype)
+                )
+                count += 1
+
+    # Group by first 3 lowercase chars to limit O(n²) scope
+    cls_groups = {}
+    for name, fid in classes:
+        cls_groups.setdefault(name[:3].lower(), []).append((name, fid))
+    for grp in cls_groups.values():
+        _check_group(grp)
+
+    fn_groups = {}
+    for name, fid in funcs:
+        fn_groups.setdefault(name[:3].lower(), []).append((name, fid))
+    for grp in fn_groups.values():
+        _check_group(grp)
+
+    conn.commit()
+    typos = conn.execute(
+        "SELECT COUNT(*) FROM symbol_aliases "
+        "WHERE alias_type IN ('typo', 'likely_typo')"
+    ).fetchone()[0]
+    print(f"  Found {count} symbol aliases ({typos} potential typos)")
+
+
+def build_reachability(conn):
+    """BFS reachability analysis starting from known program entrypoints.
+
+    Marks every function in function_index as reachable or unreachable.
+    Functions with no path from any entrypoint are flagged as 'no-caller'.
+    Qt slots (on*), tests, and plugin lifecycle methods are treated as
+    implicitly reachable (not flagged dead).
+    """
+    ENTRY_NAMES = frozenset({
+        'main', 'initialize', 'shutdown', 'createView', 'info',
+        'execute', 'run', 'start', 'stop', 'load', 'unload',
+        'create', 'instance', 'getInstance', 'setup', 'init',
+        'cleanup', 'reset', 'update', 'process',
+    })
+
+    # Build adjacency: bare_caller -> {bare_callee}
+    adj = {}
+    for caller, callee in conn.execute(
+        "SELECT caller_func, callee_func FROM call_graph"
+    ):
+        bare_caller = caller.split('::')[-1]
+        adj.setdefault(bare_caller, set()).add(callee)
+
+    # All functions: qualified_name -> file_id
+    all_funcs = dict(conn.execute(
+        "SELECT qualified_name, file_id FROM function_index"
+    ))
+
+    # bare_name -> [qualified_names]
+    bare_to_qual = {}
+    for qn in all_funcs:
+        bare_to_qual.setdefault(qn.split('::')[-1], []).append(qn)
+
+    # BFS
+    reachable = set()
+    queue = []
+    for qn in all_funcs:
+        if qn.split('::')[-1] in ENTRY_NAMES:
+            if qn not in reachable:
+                reachable.add(qn)
+                queue.append(qn)
+
+    head = 0
+    while head < len(queue):
+        curr = queue[head]
+        head += 1
+        for callee_bare in adj.get(curr.split('::')[-1], set()):
+            for qn in bare_to_qual.get(callee_bare, []):
+                if qn not in reachable:
+                    reachable.add(qn)
+                    queue.append(qn)
+
+    # Build rows
+    rows = []
+    for qn, fid in all_funcs.items():
+        bare = qn.split('::')[-1]
+        if qn in reachable:
+            rows.append((fid, qn, 'function', 1, 'entry-chain', ''))
+        elif bare.startswith('test') or bare.startswith('Test'):
+            rows.append((fid, qn, 'function', 1, 'test-runner', ''))
+        elif bare.startswith('on') or bare.startswith('On'):
+            # Qt slots are reachable via signal/slot (not in call graph)
+            rows.append((fid, qn, 'function', 1, 'slot-candidate', ''))
+        else:
+            rows.append((fid, qn, 'function', 0, '', 'no-caller'))
+
+    conn.executemany(
+        "INSERT INTO reachability "
+        "(file_id, symbol, symbol_type, is_reachable, reachable_via, dead_reason) "
+        "VALUES (?,?,?,?,?,?)",
+        rows
+    )
+    conn.commit()
+    dead = sum(1 for r in rows if r[3] == 0)
+    print(f"  Reachability: {len(reachable)} reachable, "
+          f"{dead} potentially unreachable functions")
+
+
+def build_hotspot_scores(conn):
+    """Score every C++ source file on three axes:
+      - coupling_score   : sum of include in-degree + out-degree (normalised)
+      - coverage_gap     : 1.0 if no test edge points here, else 0.0
+      - crash_risk_score : count of crash-prone patterns (bare new/delete,
+                           unguarded casts, FIXME/HACK, heavy pointer use)
+
+    hotspot_score = (coupling*0.35 + coverage_gap*0.40 + crash_risk*0.25) * 100
+    """
+    CRASH_PATTERNS = [
+        (re.compile(r'dynamic_cast<[^>]+>\s*\([^)]+\)\s*->'), 'unguarded-cast'),
+        (re.compile(r'\bnew\s+\w+'),                           'bare-new'),
+        (re.compile(r'\bdelete\s+\w+'),                        'bare-delete'),
+        (re.compile(r'//\s*(?:FIXME|HACK|XXX)\b'),             'tech-debt'),
+        (re.compile(r'\bstatic_cast<\w+\s*\*>'),               'ptr-cast'),
+    ]
+
+    count = 0
+    for file_id, path in conn.execute(
+        "SELECT id, path FROM files WHERE lang = 'cpp' "
+        "AND path NOT LIKE 'tests/%'"
+    ):
+        cin = conn.execute(
+            "SELECT COUNT(*) FROM edges "
+            "WHERE target_file=? AND edge_type='includes'", (file_id,)
+        ).fetchone()[0]
+        cout = conn.execute(
+            "SELECT COUNT(*) FROM edges "
+            "WHERE source_file=? AND edge_type='includes'", (file_id,)
+        ).fetchone()[0]
+        has_tests = conn.execute(
+            "SELECT COUNT(*) FROM edges "
+            "WHERE target_file=? AND edge_type='tests'", (file_id,)
+        ).fetchone()[0]
+
+        crash_score = 0
+        risk_tags = []
+        try:
+            content = (ROOT / path).read_text(encoding='utf-8', errors='replace')
+            raw_deref = len(re.findall(r'\w\s*->', content))
+            if raw_deref > 40:
+                crash_score += 2
+                risk_tags.append(f'heavy-deref:{raw_deref}')
+            elif raw_deref > 15:
+                crash_score += 1
+            for pat, tag in CRASH_PATTERNS:
+                hits = len(pat.findall(content))
+                if hits:
+                    crash_score += min(hits, 3)
+                    risk_tags.append(f'{tag}:{hits}')
+        except Exception:
+            pass
+
+        coupling = cin + cout
+        norm_c    = min(coupling / 25.0, 1.0)
+        norm_cov  = 0.0 if has_tests else 1.0
+        norm_risk = min(crash_score / 10.0, 1.0)
+        score     = round(
+            (norm_c * 0.35 + norm_cov * 0.40 + norm_risk * 0.25) * 100, 1
+        )
+
+        if score > 5 or crash_score > 0:
+            conn.execute(
+                "INSERT INTO hotspot_scores "
+                "(file_id, coupling_in, coupling_out, has_tests, "
+                "crash_indicators, hotspot_score, risk_factors) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (file_id, cin, cout, 1 if has_tests else 0,
+                 crash_score, score, ', '.join(risk_tags))
+            )
+            count += 1
+
+    conn.commit()
+    top = conn.execute(
+        "SELECT f.path, h.hotspot_score, h.risk_factors "
+        "FROM hotspot_scores h JOIN files f ON h.file_id = f.id "
+        "ORDER BY h.hotspot_score DESC LIMIT 5"
+    ).fetchall()
+    print(f"  Scored {count} files; top hotspots:")
+    for p, sc, rf in top:
+        short = p.split('/')[-1]
+        print(f"    {short:<42} score={sc:>5.1f}  {(rf or '')[:55]}")
+
+
+def build_semantic_tags(conn):
+    """Attach semantic/security/performance/audit tags to files, classes, and functions."""
+    count = 0
+    rows = conn.execute(
+        "SELECT id, path, lang, subsystem FROM files ORDER BY path"
+    ).fetchall()
+
+    for file_id, path, lang, subsystem in rows:
+        try:
+            content = (ROOT / path).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            content = ""
+
+        for tag_value in _infer_semantic_tags(path, lang, subsystem, content, Path(path).name):
+            tag, _, value = tag_value.partition(":")
+            _insert_semantic_tag(conn, file_id, "file", path, 0, tag, value, 85, "heuristic", path)
+            count += 1
+
+        is_project_owned = path.startswith(("src/", "plugins/", "server/"))
+        if is_project_owned:
+            metric = conn.execute(
+                "SELECT coupling_in, coupling_out, has_tests, crash_indicators, hotspot_score "
+                "FROM hotspot_scores WHERE file_id = ?",
+                (file_id,)
+            ).fetchone()
+            if metric:
+                has_tests = bool(metric[2])
+                crash_indicators = int(metric[3] or 0)
+                hotspot_score = float(metric[4] or 0.0)
+                _insert_semantic_tag(
+                    conn, file_id, "file", path, 0, "audit",
+                    "unit-covered" if has_tests else "uncovered", 90, "derived", "hotspot_scores"
+                )
+                count += 1
+                if hotspot_score >= 8.0:
+                    _insert_semantic_tag(conn, file_id, "file", path, 0, "performance",
+                                         "hot-path", 95, "derived", "hotspot_scores")
+                    count += 1
+                if crash_indicators > 0:
+                    _insert_semantic_tag(conn, file_id, "file", path, 0, "security",
+                                         "fragile", 80, "derived", "hotspot_scores")
+                    count += 1
+
+            if conn.execute("SELECT COUNT(*) FROM runtime_entrypoints WHERE file_id = ?", (file_id,)).fetchone()[0] > 0:
+                _insert_semantic_tag(conn, file_id, "file", path, 0, "runtime",
+                                     "entrypoint", 90, "derived", "runtime_entrypoints")
+                count += 1
+            if conn.execute("SELECT COUNT(*) FROM services WHERE file_id = ?", (file_id,)).fetchone()[0] > 0:
+                _insert_semantic_tag(conn, file_id, "file", path, 0, "architecture",
+                                     "service-participant", 85, "derived", "services")
+                count += 1
+
+        class_rows = conn.execute(
+            "SELECT name, line_num FROM classes WHERE file_id = ?",
+            (file_id,)
+        ).fetchall()
+        for name, line_num in class_rows:
+            for tag_value in _infer_semantic_tags(path, lang, subsystem, "", name):
+                tag, _, value = tag_value.partition(":")
+                _insert_semantic_tag(conn, file_id, "class", name, line_num or 0,
+                                     tag, value, 75, "heuristic", name)
+                count += 1
+
+        func_rows = conn.execute(
+            "SELECT qualified_name, start_line FROM function_index WHERE file_id = ?",
+            (file_id,)
+        ).fetchall()
+        for qualified_name, start_line in func_rows:
+            for tag_value in _infer_semantic_tags(path, lang, subsystem, "", qualified_name):
+                tag, _, value = tag_value.partition(":")
+                _insert_semantic_tag(conn, file_id, "function", qualified_name, start_line or 0,
+                                     tag, value, 65, "heuristic", qualified_name)
+                count += 1
+
+    conn.commit()
+    print(f"  Built {count} semantic tags")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# AI-context optimisation builders (steps 20-26)
+# ══════════════════════════════════════════════════════════════════════════
+
+def build_git_delta(conn):
+    """Populate git_delta with files touched in the last 20 commits."""
+    try:
+        result = subprocess.run(
+            ['git', 'log', '--name-only', '--format=', '-20'],
+            capture_output=True, text=True, cwd=str(ROOT), timeout=15
+        )
+        if result.returncode != 0:
+            print("  git log unavailable, skipping git_delta")
+            return
+
+        changed_paths = set()
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line:
+                changed_paths.add(line.replace('\\', '/'))
+
+        count = 0
+        for rel_path in changed_paths:
+            row = conn.execute(
+                "SELECT id FROM files WHERE path = ?", (rel_path,)
+            ).fetchone()
+            if not row:
+                continue
+            file_id = row[0]
+
+            diff_result = subprocess.run(
+                ['git', 'diff', 'HEAD~1', '--', rel_path],
+                capture_output=True, text=True, cwd=str(ROOT), timeout=10
+            )
+            snippet = diff_result.stdout[:500] if diff_result.returncode == 0 else ''
+            added   = sum(1 for l in snippet.splitlines()
+                          if l.startswith('+') and not l.startswith('+++'))
+            removed = sum(1 for l in snippet.splitlines()
+                          if l.startswith('-') and not l.startswith('---'))
+            conn.execute(
+                "INSERT OR IGNORE INTO git_delta "
+                "(file_id, changed_at, diff_snippet, lines_added, lines_removed) "
+                "VALUES (?,datetime('now'),?,?,?)",
+                (file_id, snippet[:400], added, removed)
+            )
+            conn.execute(
+                "UPDATE function_index SET recently_modified = 1 WHERE file_id = ?",
+                (file_id,)
+            )
+            count += 1
+
+        conn.commit()
+        print(f"  git_delta: {count} recently modified files tracked")
+    except FileNotFoundError:
+        print("  git not found, skipping git_delta")
+    except Exception as e:
+        print(f"  git_delta warning: {e}")
+
+
+def detect_duplicate_functions(conn):
+    """Detect functions with identical body hashes (copy-paste / divergent clones)."""
+    dupes = conn.execute(
+        "SELECT body_hash, COUNT(*) AS cnt "
+        "FROM function_index "
+        "WHERE body_hash != '' AND length(body_hash) > 4 "
+        "GROUP BY body_hash HAVING cnt > 1"
+    ).fetchall()
+
+    count = 0
+    for body_hash, _ in dupes:
+        first = conn.execute(
+            "SELECT qualified_name FROM function_index "
+            "WHERE body_hash = ? LIMIT 1", (body_hash,)
+        ).fetchone()
+        group_label = first[0] if first else body_hash[:8]
+        conn.execute(
+            "UPDATE function_index SET duplicate_group = ? WHERE body_hash = ?",
+            (group_label, body_hash)
+        )
+        count += 1
+
+    conn.commit()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM function_index WHERE duplicate_group != ''"
+    ).fetchone()[0]
+    print(f"  Duplicate detection: {count} groups, {total} functions flagged")
+
+
+def build_symbol_slices(conn):
+    """Build symbol slices: signature + up to 12 critical lines per function.
+
+    A 'slice' is a compact, low-token representation of a function that an AI
+    can reason about without reading the full body (~80-90% token reduction).
+    """
+    rows = conn.execute(
+        "SELECT fi.file_id, fi.qualified_name, fi.start_line, fi.end_line, f.path "
+        "FROM function_index fi JOIN files f ON fi.file_id = f.id "
+        "WHERE fi.line_count > 0"
+    ).fetchall()
+
+    _CRITICAL_KW = (
+        'for ', 'while ', 'if (', 'if(', 'return ',
+        '*=', '/=', '+=', '-=', 'assert', 'Q_ASSERT',
+        'VERIFY', 'CHECK', 'emit ', '->', 'throw ',
+    )
+    count = 0
+    for file_id, qname, start, end, path in rows:
+        try:
+            src_lines = (ROOT / path).read_text(
+                encoding='utf-8', errors='replace'
+            ).split('\n')
+        except Exception:
+            continue
+
+        body_lines = src_lines[max(0, start - 1):end]
+        if not body_lines:
+            continue
+
+        signature = body_lines[0].strip()
+        critical = []
+        for ln in body_lines[1:]:
+            stripped = ln.strip()
+            if stripped and any(kw in stripped for kw in _CRITICAL_KW):
+                critical.append(stripped[:120])
+                if len(critical) >= 12:
+                    break
+        critical_text = '\n'.join(critical)
+
+        slice_tokens = (
+            len(signature.split())
+            + sum(len(l.split()) for l in critical)
+        ) * 2  # rough token estimate (words × 2)
+        full_tokens = sum(len(l.split()) for l in body_lines) * 2
+
+        conn.execute(
+            "INSERT OR REPLACE INTO symbol_slices "
+            "(file_id, symbol, signature, critical_lines, "
+            "slice_token_estimate, full_token_estimate) "
+            "VALUES (?,?,?,?,?,?)",
+            (file_id, qname, signature, critical_text, slice_tokens, full_tokens)
+        )
+        count += 1
+
+    conn.commit()
+    print(f"  Built {count} symbol slices")
+
+
+def build_function_summaries(conn):
+    """Build per-function metadata: inferred category, flags, recently_modified."""
+    rows = conn.execute(
+        "SELECT fi.file_id, fi.qualified_name, fi.name, "
+        "fi.hot_path, fi.ct_sensitive, fi.gpu_candidate, "
+        "fi.batchable, fi.recently_modified, fi.body_hash, f.path "
+        "FROM function_index fi JOIN files f ON fi.file_id = f.id"
+    ).fetchall()
+
+    # Paths touched in git_delta  → recently modified
+    recent_paths = set(
+        r[0] for r in conn.execute(
+            "SELECT DISTINCT f.path FROM git_delta gd "
+            "JOIN files f ON gd.file_id = f.id"
+        )
+    )
+
+    count = 0
+    for (file_id, qname, fname, hot, ct, gpu,
+         batch, recently_mod, bhash, path) in rows:
+
+        if path in recent_paths:
+            recently_mod = 1
+
+        lower = fname.lower()
+        if any(k in lower for k in ('test', 'bench', 'mock', 'stub', 'fake')):
+            category = 'test'
+        elif any(k in lower for k in ('init', 'setup', 'create', 'build', 'construct')):
+            category = 'init'
+        elif any(k in lower for k in ('verify', 'check', 'validate', 'assert')):
+            category = 'validation'
+        elif gpu:
+            category = 'compute-gpu'
+        elif hot:
+            category = 'compute-hot'
+        elif ct:
+            category = 'compute-ct'
+        elif batch:
+            category = 'compute-batch'
+        elif any(k in lower for k in ('parse', 'encode', 'decode', 'serialize')):
+            category = 'serialization'
+        elif any(k in lower for k in ('get', 'set', 'load', 'store', 'read', 'write')):
+            category = 'accessor'
+        else:
+            category = 'general'
+
+        conn.execute(
+            "INSERT OR REPLACE INTO function_summary "
+            "(file_id, symbol, qualified_symbol, category, "
+            "batchable, gpu_candidate, ct_sensitive, recently_modified, "
+            "body_hash, last_updated) "
+            "VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))",
+            (file_id, fname, qname, category,
+             batch, gpu, ct, recently_mod, bhash or '')
+        )
+        count += 1
+
+    conn.commit()
+    print(f"  Built {count} function summaries")
+
+
+def build_optimization_patterns(conn):
+    """Seed the optimization_patterns table with known performance patterns."""
+    patterns = [
+        ("batch_inversion",
+         "Montgomery batch inversion avoids per-element modular inverse",
+         "100-1000x vs per-element modinv", "low",
+         "batchable=1 AND ct_sensitive=0", "secp256k1_fe_inv_all_var"),
+        ("montgomery_ladder",
+         "Constant-time scalar mult via Montgomery ladder",
+         "CT compliance", "medium",
+         "ct_sensitive=1 AND name LIKE '%scalar_mul%'", "secp256k1_ecmult_const"),
+        ("CIOS_multiplication",
+         "Coarsely Integrated Operand Scanning for modular mult",
+         "30-40% vs schoolbook", "medium",
+         "name LIKE '%mul%' AND name LIKE '%field%'", "secp256k1_fe_mul"),
+        ("precomputed_windowed",
+         "Precomputed table with wNAF for fixed-base multiplication",
+         "5-10x vs variable-base", "low",
+         "name LIKE '%ecmult_gen%'", "secp256k1_ecmult_gen"),
+        ("vectorized_sha256",
+         "SIMD SHA256 using 4/8-way parallelism",
+         "4-8x throughput", "low",
+         "name LIKE '%sha256%' AND batchable=1", ""),
+        ("straus_shamir",
+         "Strauss-Shamir trick for multi-scalar multiplication",
+         "2x vs consecutive ecmult", "low",
+         "fanin_score > 3 AND name LIKE '%ecmult%'", "secp256k1_ecmult"),
+        ("lazy_normalization",
+         "Delay field normalization to reduce normalize calls",
+         "10-20% in multi-op sequences", "low",
+         "name LIKE '%normalize%' OR name LIKE '%reduce%'", ""),
+        ("endomorphism_split",
+         "GLV endomorphism for 2x faster scalar decomposition",
+         "25-50% scalar mult speedup", "medium",
+         "name LIKE '%scalar%' AND ct_sensitive=1", ""),
+        ("gpu_batch_verify",
+         "GPU-parallel batch signature verification",
+         "50-200x for large batches", "medium",
+         "batchable=1 AND gpu_candidate=1 AND name LIKE '%verify%'", ""),
+        ("simd_field_ops",
+         "SIMD-parallel field arithmetic using AVX2/NEON",
+         "2-4x field throughput", "medium",
+         "name LIKE '%field%' AND hot_path=1", ""),
+        ("ntt_polynomial",
+         "Number Theoretic Transform for polynomial multiplication",
+         "n log n vs n^2", "medium",
+         "name LIKE '%poly%' AND batchable=1", ""),
+        ("precompute_lookup_table",
+         "Precomputed lookup tables for fixed-window scalar mult",
+         "3-5x vs double-and-add", "low",
+         "name LIKE '%ecmult%' AND batchable=0", ""),
+    ]
+    count = 0
+    for pat in patterns:
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO optimization_patterns "
+                "(pattern_name, description, gain, risk, applicable_when, example_symbol) "
+                "VALUES (?,?,?,?,?,?)",
+                pat
+            )
+            count += 1
+        except Exception:
+            pass
+    conn.commit()
+    print(f"  Seeded {count} optimization patterns")
+
+
+def build_analysis_scores(conn):
+    """Compute composite analysis scores for every indexed function.
+
+    Scores (all unitless integers):
+      hotness_score    — size × name × file-hotspot × recency
+      complexity_score — branch + loop + nesting depth
+      fanin_score      — weighted call-graph in-degree
+      fanout_score     — call-graph out-degree
+      gpu_score        — batchability + loop density + name hints
+      ct_risk_score    — CT sensitivity + complexity + secret indicators
+      audit_gap_score  — hot/CT function with no test coverage
+      overall_priority — weighted composite (balanced mode)
+    """
+    rows = conn.execute(
+        "SELECT fi.file_id, fi.qualified_name, fi.name, "
+        "fi.start_line, fi.end_line, fi.line_count, "
+        "fi.hot_path, fi.ct_sensitive, fi.gpu_candidate, "
+        "fi.batchable, fi.recently_modified, f.path "
+        "FROM function_index fi JOIN files f ON fi.file_id = f.id "
+        "WHERE fi.line_count > 0"
+    ).fetchall()
+
+    fan_in_map: dict = {}
+    fan_out_map: dict = {}
+    for callee, cnt in conn.execute(
+        "SELECT callee_func, COUNT(*) FROM call_graph GROUP BY callee_func"
+    ):
+        fan_in_map[callee] = cnt
+    for caller, cnt in conn.execute(
+        "SELECT caller_func, COUNT(*) FROM call_graph GROUP BY caller_func"
+    ):
+        fan_out_map[caller] = cnt
+
+    file_hotspot: dict = dict(conn.execute(
+        "SELECT file_id, hotspot_score FROM hotspot_scores"
+    ))
+    tested_files: set = set(
+        r[0] for r in conn.execute(
+            "SELECT DISTINCT target_file FROM edges WHERE edge_type='tests'"
+        )
+    )
+
+    batch_rows = []
+    for (file_id, qname, fname, start, end, lc,
+         hot, ct, gpu, batch, recently_mod, path) in rows:
+
+        lower_name = fname.lower()
+        try:
+            src_lines = (ROOT / path).read_text(
+                encoding='utf-8', errors='replace'
+            ).split('\n')
+            body = '\n'.join(src_lines[max(0, start - 1):end])
+        except Exception:
+            body = ''
+        lower_body = body.lower()
+
+        # ── Hotness ──
+        hotness = 0
+        if lc > 80:   hotness += 3
+        elif lc > 40: hotness += 2
+        elif lc > 15: hotness += 1
+        if hot: hotness += 5
+        if any(k in lower_name for k in (
+            'mul', 'verify', 'scan', 'hash', 'batch',
+            'point', 'field', 'scalar', 'sign',
+        )):
+            hotness += 3
+        if file_hotspot.get(file_id, 0) >= 8: hotness += 2
+        if recently_mod:                       hotness += 2
+
+        # ── Complexity ──
+        complexity = (
+            lower_body.count(' if ') + lower_body.count('\nif ')
+            + (lower_body.count('for (') + lower_body.count('for(')) * 2
+            + (lower_body.count('while (') + lower_body.count('while(')) * 2
+            + lower_body.count('switch (') * 2
+        )
+        depth = max_depth = 0
+        for ch in body:
+            if ch == '{':
+                depth += 1
+                max_depth = max(max_depth, depth)
+            elif ch == '}':
+                depth = max(0, depth - 1)
+        complexity += max(0, max_depth - 2) * 2
+
+        # ── Fan metrics ──
+        bare = qname.split('::')[-1]
+        fan_in  = fan_in_map.get(bare, 0) + fan_in_map.get(qname, 0)
+        fan_out = fan_out_map.get(bare, 0) + fan_out_map.get(qname, 0)
+        fan_in_score  = min(fan_in * 2, 15)
+        fan_out_score = min(fan_out, 10)
+
+        # ── GPU score ──
+        gpu_score = 0
+        if batch: gpu_score += 4
+        if gpu:   gpu_score += 4
+        if any(k in lower_name for k in (
+            'batch', 'scan', 'verify', 'ntt', 'fft', 'matmul',
+        )):
+            gpu_score += 3
+        if lower_body.count('for (') + lower_body.count('for(') >= 2:
+            gpu_score += 2
+        if fan_in >= 3: gpu_score += 2
+        if ct:          gpu_score -= 1   # extra care, not a disqualifier
+
+        # ── CT risk ──
+        ct_risk = 0
+        if ct: ct_risk += 5
+        if any(k in lower_name for k in ('secret', 'privkey', 'hmac', 'aes')):
+            ct_risk += 3
+        if complexity > 10:          ct_risk += 2
+        if recently_mod and ct:      ct_risk += 3
+
+        # ── Audit gap ──
+        has_tests = file_id in tested_files
+        audit_gap = 0
+        if not has_tests:              audit_gap += 3
+        if hotness >= 5 and not has_tests: audit_gap += 3
+        if ct and not has_tests:       audit_gap += 4
+
+        # ── Composite scores ──
+        opt_score = hotness * 2 + fan_in_score + gpu_score * 2 - ct_risk
+        overall   = (
+            hotness * 4
+            + fan_in_score * 2
+            + gpu_score * 3
+            + audit_gap * 3
+            - ct_risk * 2
+        )
+
+        reasons_parts = []
+        if hotness >= 7:    reasons_parts.append(f"hot:{hotness}")
+        if fan_in >= 4:     reasons_parts.append(f"fanin:{fan_in}")
+        if gpu_score >= 6:  reasons_parts.append(f"gpu:{gpu_score}")
+        if complexity >= 8: reasons_parts.append(f"complex:{complexity}")
+        if ct_risk >= 5:    reasons_parts.append(f"ct_risk:{ct_risk}")
+        if audit_gap >= 5:  reasons_parts.append(f"audit_gap:{audit_gap}")
+        if recently_mod:    reasons_parts.append("recent")
+        if not reasons_parts: reasons_parts.append("baseline")
+
+        batch_rows.append((
+            file_id, qname, path,
+            hotness, complexity, fan_in_score, fan_out_score,
+            opt_score, gpu_score, ct_risk, audit_gap, overall,
+            ','.join(reasons_parts)
+        ))
+
+    conn.executemany(
+        "INSERT OR REPLACE INTO analysis_scores "
+        "(file_id, symbol_name, file_path, "
+        "hotness_score, complexity_score, fanin_score, fanout_score, "
+        "optimization_score, gpu_score, ct_risk_score, audit_gap_score, "
+        "overall_priority, reasons) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        batch_rows
+    )
+    conn.commit()
+
+    top5 = conn.execute(
+        "SELECT symbol_name, overall_priority, reasons "
+        "FROM analysis_scores ORDER BY overall_priority DESC LIMIT 5"
+    ).fetchall()
+    print(f"  Scored {len(batch_rows)} functions; top 5:")
+    for sym, pri, rs in top5:
+        short = sym.split('::')[-1] if '::' in sym else sym
+        print(f"    {short:<45} priority={pri:>4}  [{(rs or '')[:50]}]")
+
+
+def build_ai_task_queue(conn):
+    """Auto-generate AI reasoning tasks for top-priority bottleneck candidates."""
+    conn.execute("DELETE FROM ai_tasks WHERE status='pending'")
+
+    top = conn.execute(
+        "SELECT file_id, symbol_name, file_path, "
+        "hotness_score, gpu_score, ct_risk_score, audit_gap_score, "
+        "overall_priority, reasons "
+        "FROM analysis_scores "
+        "WHERE overall_priority > 10 "
+        "ORDER BY overall_priority DESC LIMIT 30"
+    ).fetchall()
+
+    count = 0
+    for (fid, sym, fpath, hot, gpu, ct_risk, audit_gap, pri, reasons) in top:
+        if ct_risk >= 8:
+            task_type = 'ct_review'
+            prompt = (
+                f"Review `{sym}` for constant-time compliance. "
+                f"Check for branches on secrets, variable-time ops, and timing leaks. "
+                f"Reasons: {reasons}"
+            )
+        elif gpu >= 8:
+            task_type = 'gpu_candidate'
+            prompt = (
+                f"Analyse `{sym}` for GPU offload potential. "
+                f"Evaluate loop structure, data parallelism, and memory layout. "
+                f"Reasons: {reasons}"
+            )
+        elif audit_gap >= 6:
+            task_type = 'audit_expand'
+            prompt = (
+                f"Write comprehensive tests for `{sym}`. "
+                f"Cover edge cases, error paths, and boundary conditions. "
+                f"Priority={pri}, file={fpath}"
+            )
+        else:
+            task_type = 'optimize'
+            prompt = (
+                f"Identify performance improvements for `{sym}`. "
+                f"Focus on: algorithmic complexity, SIMD, cache efficiency, "
+                f"batch processing. Hotness={hot}, reasons={reasons}"
+            )
+
+        conn.execute(
+            "INSERT INTO ai_tasks "
+            "(file_id, task_type, symbol_name, file_path, "
+            "prompt, status, priority, created_at) "
+            "VALUES (?,?,?,?,?,'pending',?,datetime('now'))",
+            (fid, task_type, sym, fpath, prompt, pri)
+        )
+        count += 1
+
+    conn.commit()
+    print(f"  Generated {count} AI tasks")
+
+
 def main():
     print(f"Building code graph: {DB_PATH}")
     print(f"Project root: {ROOT}")
-
-    if DB_PATH.exists():
-        DB_PATH.unlink()
 
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
 
-    print("\n[1/12] Creating schema...")
+    print("\n[1/26] Creating schema...")
     create_db(conn)
 
-    print("[2/12] Scanning files...")
+    print("[2/26] Scanning files...")
     scan_files(conn)
 
-    print("[3/12] Parsing code structure...")
+    print("[3/26] Parsing code structure...")
     parse_all(conn)
 
-    print("[4/12] Building implementation map...")
+    print("[4/26] Building implementation map...")
     build_impl_map(conn)
 
-    print("[5/12] Building subsystem graph...")
+    print("[5/26] Building subsystem graph...")
     build_subsystem_graph(conn)
 
-    print("[6/12] Detecting feature status...")
+    print("[6/26] Detecting feature status...")
     detect_features(conn)
 
-    print("[7/12] Building function index...")
+    print("[7/26] Building function index...")
     build_function_index(conn)
 
-    print("[8/12] Building file summaries...")
+    print("[8/26] Building file summaries...")
     build_file_summaries(conn)
 
-    print("[9/12] Building unified edges...")
+    print("[9/26] Building unified edges...")
     build_edges(conn)
 
-    print("[10/12] Scanning Qt connections, services, tests...")
+    print("[10/26] Scanning Qt connections, services, tests...")
     scan_qt_connections(conn)
     scan_services(conn)
     scan_test_cases(conn)
 
-    print("[11/12] Scanning CMake targets...")
+    print("[11/26] Scanning CMake targets...")
     scan_cmake_targets(conn)
 
-    print("[12/12] Building FTS5 search index...")
+    print("[12/26] Building call graph (function-level)...")
+    build_call_graph(conn)
+
+    print("[13/26] Scanning XML bindings and validating configs...")
+    scan_xml_bindings(conn)
+
+    print("[14/26] Scanning runtime loading entrypoints...")
+    scan_runtime_entrypoints(conn)
+
+    print("[15/26] Building symbol alias map (typo detection)...")
+    build_symbol_aliases(conn)
+
+    print("[16/26] Building reachability graph...")
+    build_reachability(conn)
+
+    print("[17/26] Scoring hotspot files...")
+    build_hotspot_scores(conn)
+
+    print("[18/26] Building semantic tags...")
+    build_semantic_tags(conn)
+
+    print("[19/26] Building FTS5 search index...")
     build_fts_index(conn)
+
+    print("[20/26] Tracking git delta (recently modified files)...")
+    build_git_delta(conn)
+
+    print("[21/26] Detecting duplicate functions...")
+    detect_duplicate_functions(conn)
+
+    print("[22/26] Building symbol slices (AI context)...")
+    build_symbol_slices(conn)
+
+    print("[23/26] Building function summaries...")
+    build_function_summaries(conn)
+
+    print("[24/26] Seeding optimization patterns...")
+    build_optimization_patterns(conn)
+
+    print("[25/26] Computing analysis scores (bottleneck ranking)...")
+    build_analysis_scores(conn)
+
+    print("[26/26] Generating AI task queue...")
+    build_ai_task_queue(conn)
 
     print_summary(conn)
 

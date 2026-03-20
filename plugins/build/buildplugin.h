@@ -2,8 +2,8 @@
 
 #include <QObject>
 
-#include "plugininterface.h"
 #include "plugin/iviewcontributor.h"
+#include "plugin/workbenchpluginbase.h"
 
 class ToolchainManager;
 class CMakeIntegration;
@@ -15,7 +15,7 @@ class BuildSystemService;
 class KitManager;
 class IDebugAdapter;
 
-class BuildPlugin : public QObject, public IPlugin, public IViewContributor
+class BuildPlugin : public QObject, public WorkbenchPluginBase, public IViewContributor
 {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID EXORCIST_PLUGIN_IID)
@@ -23,8 +23,6 @@ class BuildPlugin : public QObject, public IPlugin, public IViewContributor
 
 public:
     PluginInfo info() const override;
-    bool initialize(IHostServices *host) override;
-    void shutdown() override;
 
     // IViewContributor
     QWidget *createView(const QString &viewId, QWidget *parent) override;
@@ -40,10 +38,12 @@ public:
     void setWorkingDir(const QString &dir);
 
 private:
+    bool initializePlugin() override;
+    void shutdownPlugin() override;
+    void registerCommands();
+    void installMenus();
     void wireConnections();
     void wireDebugAdapter();
-
-    IHostServices *m_host = nullptr;
 
     ToolchainManager      *m_toolchainMgr = nullptr;
     KitManager            *m_kitMgr       = nullptr;

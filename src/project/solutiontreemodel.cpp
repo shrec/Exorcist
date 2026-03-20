@@ -246,12 +246,14 @@ QVariant SolutionTreeModel::data(const QModelIndex &index, int role) const
     }
 
     if (role == Qt::DisplayRole) {
-        if (node->kind == TreeNode::File && m_gitService) {
-            const QChar sc = m_gitService->statusChar(node->path);
-            if (!sc.isNull() && sc != QLatin1Char(' '))
-                return QStringLiteral("%1  %2").arg(node->name, sc);
-        }
         return node->name;
+    }
+
+    if (role == Qt::ToolTipRole) {
+        if (node->kind == TreeNode::File || node->kind == TreeNode::Dir ||
+            node->kind == TreeNode::Project)
+            return node->path;
+        return {};
     }
 
     if (role == Qt::DecorationRole) {
@@ -261,7 +263,8 @@ QVariant SolutionTreeModel::data(const QModelIndex &index, int role) const
         return m_iconProvider.icon(QFileIconProvider::Folder);
     }
 
-    if (role == Qt::ForegroundRole && node->kind == TreeNode::File) {
+    if (role == Qt::ForegroundRole &&
+        (node->kind == TreeNode::File || node->kind == TreeNode::Dir)) {
         const QColor color = gitColorForPath(node->path);
         if (color.isValid()) {
             return QBrush(color);
@@ -311,12 +314,15 @@ bool SolutionTreeModel::hasChildren(const QModelIndex &parent) const
     TreeNode *node = nodeFromIndex(parent);
     if (!node)
         return false;
-    if (node->kind == TreeNode::Root ||
-        node->kind == TreeNode::Solution ||
-        node->kind == TreeNode::Project ||
-        node->kind == TreeNode::Dir)
-        return true;
-    return !node->children.empty();
+    // For nodes that have already been fetched, report the actual child count.
+    // For not-yet-fetched container nodes, assume they might have children so
+    // the expand arrow is shown until the user opens them.
+    if (node->childrenFetched)
+        return !node->children.empty();
+    return (node->kind == TreeNode::Root ||
+            node->kind == TreeNode::Solution ||
+            node->kind == TreeNode::Project ||
+            node->kind == TreeNode::Dir);
 }
 
 QString SolutionTreeModel::filePath(const QModelIndex &index) const
@@ -338,8 +344,23 @@ bool SolutionTreeModel::isDir(const QModelIndex &index) const
 
 void SolutionTreeModel::refreshGitOverlays()
 {
-    beginResetModel();
-    endResetModel();
+    // Refresh only the display data for fetched nodes — preserves expanded state.
+    emitDataChangedForFetchedNodes(m_root.get());
+}
+
+void SolutionTreeModel::emitDataChangedForFetchedNodes(TreeNode *node)
+{
+    if (!node) return;
+    for (const auto &child : node->children) {
+        if (child->kind == TreeNode::File || child->kind == TreeNode::Dir) {
+            const QModelIndex idx = indexForNode(child.get());
+            if (idx.isValid())
+                emit dataChanged(idx, idx,
+                                 {Qt::DisplayRole, Qt::ForegroundRole, Qt::DecorationRole});
+        }
+        if (child->childrenFetched)
+            emitDataChangedForFetchedNodes(child.get());
+    }
 }
 
 void SolutionTreeModel::rebuildFromSolution()
@@ -552,10 +573,11 @@ QColor SolutionTreeModel::gitColorForPath(const QString &path) const
     }
 
     const QChar status = m_gitService->statusChar(path);
-    if (status == 'A') return QColor(80, 200, 120);
-    if (status == 'M') return QColor(230, 170, 60);
-    if (status == 'D') return QColor(220, 80, 80);
-    if (status == '?') return QColor(140, 140, 140);
+    // VS2022 git decoration colors
+    if (status == 'A') return QColor(0x73, 0xc9, 0x91); // added    — green
+    if (status == 'M') return QColor(0xe2, 0xc0, 0x8d); // modified  — amber
+    if (status == 'D') return QColor(0xf1, 0x4c, 0x4c); // deleted   — red
+    if (status == '?') return QColor(0x84, 0x84, 0x84); // untracked — grey
     return QColor();
 }
 

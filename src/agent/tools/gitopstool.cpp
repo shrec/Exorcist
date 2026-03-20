@@ -16,6 +16,13 @@ ToolSpec GitOpsTool::spec() const
         "  commit — Commit staged changes. Args: {message: \"...\"}\n"
         "  branch — Create/list/delete branches. Args: {name?, delete?, list?}\n"
         "  checkout — Switch branch or restore files. Args: {target: \"branch-or-file\"}\n"
+        "  merge — Merge a branch into current. Args: {branch, message?}\n"
+        "  rebase — Rebase current branch onto another. Args: {branch}\n"
+        "  pull — Pull from remote. Args: {remote?: \"origin\", branch?}\n"
+        "  push — Push current branch to remote (no force). Args: {remote?: \"origin\", branch?, setUpstream?}\n"
+        "  remote — List/show remotes. Args: {action: \"list\"|\"show\", name?}\n"
+        "  status — Show working tree status. Args: {}\n"
+        "  diff — Show diff. Args: {staged?, filePath?, commitA?, commitB?}\n"
         "  stash — Stash/pop working changes. Args: {action: \"push\"|\"pop\"|\"list\"|\"drop\"}\n"
         "  blame — Show line-by-line authorship. Args: {filePath, startLine?, endLine?}\n"
         "  log — Browse commit history. Args: {count?: 10, filePath?, author?, "
@@ -23,10 +30,9 @@ ToolSpec GitOpsTool::spec() const
         "  tag — Create/list tags. Args: {name?, message?, list?}\n"
         "  cherry_pick — Cherry-pick a commit. Args: {commitHash}\n"
         "  reset — Unstage files (soft). Args: {files: [\"path\"]}\n\n"
-        "Dangerous operations (force push, hard reset, branch -D) are blocked. "
-        "Use commit frequently to create checkpoints during complex work.");
+        "Force push and hard reset are blocked.");
     s.permission  = AgentToolPermission::SafeMutate;
-    s.timeoutMs   = 30000;
+    s.timeoutMs   = 60000;
     s.inputSchema = QJsonObject{
         {QStringLiteral("type"), QStringLiteral("object")},
         {QStringLiteral("properties"), QJsonObject{
@@ -37,6 +43,13 @@ ToolSpec GitOpsTool::spec() const
                     QStringLiteral("commit"),
                     QStringLiteral("branch"),
                     QStringLiteral("checkout"),
+                    QStringLiteral("merge"),
+                    QStringLiteral("rebase"),
+                    QStringLiteral("pull"),
+                    QStringLiteral("push"),
+                    QStringLiteral("remote"),
+                    QStringLiteral("status"),
+                    QStringLiteral("diff"),
                     QStringLiteral("stash"),
                     QStringLiteral("blame"),
                     QStringLiteral("log"),
@@ -50,7 +63,42 @@ ToolSpec GitOpsTool::spec() const
             {QStringLiteral("message"), QJsonObject{
                 {QStringLiteral("type"), QStringLiteral("string")},
                 {QStringLiteral("description"),
-                 QStringLiteral("Commit/tag message.")}
+                 QStringLiteral("Commit/tag/merge message.")}
+            }},
+            {QStringLiteral("branch"), QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("string")},
+                {QStringLiteral("description"),
+                 QStringLiteral("Branch name for merge/rebase/pull/push.")}
+            }},
+            {QStringLiteral("remote"), QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("string")},
+                {QStringLiteral("description"),
+                 QStringLiteral("Remote name (default: 'origin') for pull/push/remote.")}
+            }},
+            {QStringLiteral("setUpstream"), QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("boolean")},
+                {QStringLiteral("description"),
+                 QStringLiteral("Set upstream tracking ref when pushing (git push -u).")}
+            }},
+            {QStringLiteral("staged"), QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("boolean")},
+                {QStringLiteral("description"),
+                 QStringLiteral("Show staged diff (git diff --cached).")}
+            }},
+            {QStringLiteral("commitA"), QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("string")},
+                {QStringLiteral("description"),
+                 QStringLiteral("First commit ref for diff range.")}
+            }},
+            {QStringLiteral("commitB"), QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("string")},
+                {QStringLiteral("description"),
+                 QStringLiteral("Second commit ref for diff range.")}
+            }},
+            {QStringLiteral("action"), QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("string")},
+                {QStringLiteral("description"),
+                 QStringLiteral("Sub-action for stash (push/pop/list/drop) or remote (list/show).")}
             }},
             {QStringLiteral("files"), QJsonObject{
                 {QStringLiteral("type"), QStringLiteral("array")},
@@ -63,7 +111,7 @@ ToolSpec GitOpsTool::spec() const
             {QStringLiteral("filePath"), QJsonObject{
                 {QStringLiteral("type"), QStringLiteral("string")},
                 {QStringLiteral("description"),
-                 QStringLiteral("File path for blame/log.")}
+                 QStringLiteral("File path for blame/log/diff.")}
             }},
             {QStringLiteral("name"), QJsonObject{
                 {QStringLiteral("type"), QStringLiteral("string")},
@@ -74,11 +122,6 @@ ToolSpec GitOpsTool::spec() const
                 {QStringLiteral("type"), QStringLiteral("string")},
                 {QStringLiteral("description"),
                  QStringLiteral("Checkout target (branch name or file path).")}
-            }},
-            {QStringLiteral("action"), QJsonObject{
-                {QStringLiteral("type"), QStringLiteral("string")},
-                {QStringLiteral("description"),
-                 QStringLiteral("Stash action: push, pop, list, drop.")}
             }},
             {QStringLiteral("commitHash"), QJsonObject{
                 {QStringLiteral("type"), QStringLiteral("string")},
@@ -137,12 +180,6 @@ ToolExecResult GitOpsTool::invoke(const QJsonObject &args)
     if (operation.isEmpty())
         return {false, {}, {}, QStringLiteral("'operation' is required.")};
 
-    // Safety: block destructive operations
-    if (operation == QLatin1String("push"))
-        return {false, {}, {},
-                QStringLiteral("Push is not allowed from the agent. "
-                               "Use the terminal or IDE git panel.")};
-
     const GitResult result = m_executor(operation, args);
 
     if (!result.ok)
@@ -153,7 +190,7 @@ ToolExecResult GitOpsTool::invoke(const QJsonObject &args)
     if (text.isEmpty())
         text = QStringLiteral("git %1: OK").arg(operation);
 
-    // Truncate large output (blame, log)
+    // Truncate large output (blame, log, diff)
     if (text.size() > 30000) {
         text.truncate(30000);
         text += QStringLiteral("\n... (truncated)");

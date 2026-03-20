@@ -20,12 +20,52 @@ TerminalPanel::TerminalPanel(QWidget *parent)
     m_tabs->setTabsClosable(true);
     m_tabs->setMovable(true);
     m_tabs->setDocumentMode(true);
+    m_tabs->setStyleSheet(QStringLiteral(
+        "QTabWidget::pane {"
+        "  background: #1e1e1e;"
+        "  border: none;"
+        "  border-top: 1px solid #3e3e42;"
+        "}"
+        "QTabBar {"
+        "  background: #252526;"
+        "}"
+        "QTabBar::tab {"
+        "  background: #2d2d30;"
+        "  color: #9d9d9d;"
+        "  padding: 5px 14px;"
+        "  border: none;"
+        "  border-right: 1px solid #1e1e1e;"
+        "  font-size: 12px;"
+        "}"
+        "QTabBar::tab:selected {"
+        "  background: #1e1e1e;"
+        "  color: #ffffff;"
+        "  border-top: 1px solid #007acc;"
+        "}"
+        "QTabBar::tab:hover:!selected {"
+        "  background: #3e3e42;"
+        "  color: #cccccc;"
+        "}"
+        "QTabBar::close-button {"
+        "  image: url(:/icons/close-tab.svg);"
+        "  subcontrol-position: right;"
+        "}"
+        "QTabBar::close-button:hover {"
+        "  background: #5a1d1d;"
+        "  border-radius: 2px;"
+        "}"
+    ));
 
     // "+" button to add new terminals
     auto *addBtn = new QToolButton(this);
     addBtn->setText(QStringLiteral("+"));
     addBtn->setAutoRaise(true);
     addBtn->setToolTip(tr("New Terminal"));
+    addBtn->setStyleSheet(QStringLiteral(
+        "QToolButton { color: #9d9d9d; background: #2d2d30; border: none;"
+        "  padding: 4px 8px; font-size: 14px; }"
+        "QToolButton:hover { color: #ffffff; background: #3e3e42; }"
+    ));
     m_tabs->setCornerWidget(addBtn, Qt::TopRightCorner);
 
     connect(addBtn, &QToolButton::clicked, this, [this]() { addTerminal(); });

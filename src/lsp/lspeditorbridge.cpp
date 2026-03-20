@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QKeySequence>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -82,6 +83,8 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
             this, &LspEditorBridge::onRenameResult);
     connect(m_client, &LspClient::documentSymbolsResult,
             this, &LspEditorBridge::onDocumentSymbolsResult);
+    connect(m_client, &LspClient::codeActionResult,
+            this, &LspEditorBridge::onCodeActionResult);
 
     // Completion popup
     connect(m_completion, &CompletionPopup::itemAccepted,
@@ -168,6 +171,14 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
     connect(formatAction, &QAction::triggered,
             this, &LspEditorBridge::formatDocument);
     editor->addAction(formatAction);
+
+    // Ctrl+. → code actions (quick-fixes, refactors)
+    auto *codeActionAction = new QAction(editor);
+    codeActionAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Period));
+    codeActionAction->setShortcutContext(Qt::WidgetShortcut);
+    connect(codeActionAction, &QAction::triggered,
+            this, &LspEditorBridge::requestCodeActions);
+    editor->addAction(codeActionAction);
 
     // Send initial open notification, then request symbols
     if (m_client->isInitialized()) {
@@ -384,6 +395,7 @@ void LspEditorBridge::onDiagnosticsPublished(const QString &uri,
                                              const QJsonArray &diags)
 {
     if (uri != m_uri) return;
+    m_currentDiagnostics = diags;
     m_editor->setDiagnostics(diags);
 }
 
@@ -498,4 +510,67 @@ void LspEditorBridge::requestSymbols()
 void LspEditorBridge::sendDocumentSymbols()
 {
     m_client->requestDocumentSymbols(m_uri);
+}
+
+void LspEditorBridge::requestCodeActions()
+{
+    const QTextCursor cur = m_editor->textCursor();
+    const int line = cur.blockNumber();
+    const int col  = cur.positionInBlock();
+
+    // Collect diagnostics whose range overlaps the cursor line
+    QJsonArray relevantDiags;
+    for (const QJsonValue &v : std::as_const(m_currentDiagnostics)) {
+        const QJsonObject d    = v.toObject();
+        const QJsonObject range = d["range"].toObject();
+        const int startLine    = range["start"].toObject()["line"].toInt();
+        const int endLine      = range["end"].toObject()["line"].toInt();
+        if (line >= startLine && line <= endLine)
+            relevantDiags.append(d);
+    }
+
+    m_client->requestCodeAction(m_uri, line, col, line, col, relevantDiags);
+}
+
+void LspEditorBridge::onCodeActionResult(const QString &uri, int /*line*/,
+                                         int /*character*/,
+                                         const QJsonArray &actions)
+{
+    if (uri != m_uri || actions.isEmpty()) return;
+
+    auto *menu = new QMenu(m_editor);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+
+    for (const QJsonValue &v : actions) {
+        const QJsonObject action = v.isObject() ? v.toObject()
+                                                : v.toObject(); // Command or CodeAction
+        const QString title = action["title"].toString();
+        if (title.isEmpty()) continue;
+
+        QAction *item = menu->addAction(title);
+
+        // Capture the edit or command for this action
+        const QJsonObject edit    = action["edit"].toObject();
+        const QJsonObject command = action["command"].toObject();
+
+        connect(item, &QAction::triggered, this, [this, edit, command]() {
+            if (!edit.isEmpty()) {
+                emit workspaceEditReady(edit);
+            } else if (!command.isEmpty()) {
+                // Fallback: re-request with command execution not yet supported
+                qWarning("LspEditorBridge: code action command execution not yet supported");
+            }
+        });
+    }
+
+    if (menu->isEmpty()) {
+        delete menu;
+        return;
+    }
+
+    // Show just below the cursor
+    const QRect curRect = m_editor->cursorRect();
+    const QPoint globalPos = m_editor->viewport()->mapToGlobal(
+        curRect.bottomLeft());
+    menu->popup(globalPos);
 }

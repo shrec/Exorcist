@@ -8,16 +8,30 @@
     "requiredPlugins": [
         "org.exorcist.cpp-language",
         "org.exorcist.embedded-tools",
-        "org.exorcist.debug"
+        "org.exorcist.debug",
+        "org.exorcist.git",
+        "org.exorcist.terminal",
+        "org.exorcist.search"
     ],
     "optionalPlugins": [
         "org.exorcist.serial-monitor",
         "org.exorcist.build"
     ],
     "disabledPlugins": [],
+    "deferredPlugins": [
+        "org.exorcist.cpp-language",
+        "org.exorcist.embedded-tools",
+        "org.exorcist.debug"
+    ],
 
     "detection": [
         { "type": "fileExists", "pattern": "platformio.ini", "weight": 5 },
+        { "type": "fileExists", "pattern": "west.yml", "weight": 4 },
+        { "type": "fileExists", "pattern": "sdkconfig", "weight": 4 },
+        { "type": "fileExists", "pattern": "pyocd.yaml", "weight": 4 },
+        { "type": "fileExists", "pattern": "pyocd.yml", "weight": 4 },
+        { "type": "fileExists", "pattern": "openocd.cfg", "weight": 4 },
+        { "type": "fileExists", "pattern": "openocd*.cfg", "weight": 4 },
         { "type": "fileExists", "pattern": "*.ioc", "weight": 4 },
         { "type": "fileContent", "pattern": "Makefile:arm-none-eabi", "weight": 4 },
         { "type": "fileContent", "pattern": "CMakeLists.txt:ESP-IDF", "weight": 4 },
@@ -27,9 +41,13 @@
 
     "dockDefaults": [
         { "id": "ProjectDock", "visible": true },
+        { "id": "SearchDock", "visible": false },
+        { "id": "GitDock", "visible": false },
         { "id": "TerminalDock", "visible": true },
+        { "id": "ProblemsDock", "visible": true },
         { "id": "SerialMonitorDock", "visible": true },
-        { "id": "OutputDock", "visible": true }
+        { "id": "OutputDock", "visible": true },
+        { "id": "DebugDock", "visible": false }
     ],
 
     "settings": {

@@ -753,7 +753,9 @@ QString GitService::toRelativePath(const QString &absPath) const
 
 void GitService::resetWatcher()
 {
-    m_watcher->removePaths(m_watcher->files());
+    const QStringList watched = m_watcher->files();
+    if (!watched.isEmpty())
+        m_watcher->removePaths(watched);
     if (!m_isRepo || m_gitRoot.isEmpty()) {
         // Unwatch from bridge if applicable
         if (m_bridgeClient && !m_gitRoot.isEmpty()) {

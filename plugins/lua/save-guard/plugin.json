@@ -4,6 +4,8 @@
     "version": "1.0.0",
     "description": "Tracks save activity and highlights TODO/FIXME markers on save.",
     "author": "Exorcist Team",
+    "license": "MIT",
+    "layer": "lua-jit",
     "entry": "main.lua",
     "permissions": [
         "commands",

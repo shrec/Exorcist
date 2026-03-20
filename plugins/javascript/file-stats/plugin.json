@@ -4,6 +4,8 @@
     "version": "1.0.0",
     "description": "Shows file count and workspace information",
     "author": "Exorcist Team",
+    "license": "MIT",
+    "layer": "dsl",
     "permissions": ["commands", "notifications", "workspace.read"],
     "memoryLimit": 8
 }

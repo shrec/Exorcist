@@ -102,13 +102,33 @@ void LspClient::initialize(const QString &workspaceRoot)
     textDocumentCaps["documentSymbol"] = QJsonObject{
         {"hierarchicalDocumentSymbolSupport", true},
     };
+    textDocumentCaps["codeAction"] = QJsonObject{
+        {"codeActionLiteralSupport", QJsonObject{
+            {"codeActionKind", QJsonObject{
+                {"valueSet", QJsonArray{
+                    "", "quickfix", "refactor", "refactor.extract",
+                    "refactor.inline", "refactor.rewrite",
+                    "source", "source.organizeImports",
+                }},
+            }},
+        }},
+    };
 
     QJsonObject params{
         {"processId",  static_cast<int>(QCoreApplication::applicationPid())},
         {"rootUri",    rootUri},
         {"capabilities", QJsonObject{
             {"textDocument", textDocumentCaps},
-            {"workspace",    QJsonObject{{"applyEdit", false}}},
+            {"workspace", QJsonObject{
+                {"applyEdit", false},
+                {"symbol", QJsonObject{
+                    {"symbolKind", QJsonObject{
+                        {"valueSet", QJsonArray{1,2,3,4,5,6,7,8,9,10,
+                                               11,12,13,14,15,16,17,18,19,20,
+                                               21,22,23,24,25,26}},
+                    }},
+                }},
+            }},
         }},
         {"clientInfo", QJsonObject{
             {"name",    "Exorcist"},
@@ -299,6 +319,34 @@ void LspClient::requestDocumentSymbols(const QString &uri)
     m_pending[id] = {"textDocument/documentSymbol", uri, 0, 0};
 }
 
+void LspClient::requestCodeAction(const QString &uri,
+                                  int startLine, int startChar,
+                                  int endLine,   int endChar,
+                                  const QJsonArray &diagnostics)
+{
+    if (!m_initialized) return;
+    const int id = sendRequest("textDocument/codeAction", QJsonObject{
+        {"textDocument", QJsonObject{{"uri", uri}}},
+        {"range", QJsonObject{
+            {"start", QJsonObject{{"line", startLine}, {"character", startChar}}},
+            {"end",   QJsonObject{{"line", endLine},   {"character", endChar}}},
+        }},
+        {"context", QJsonObject{
+            {"diagnostics", diagnostics},
+        }},
+    });
+    m_pending[id] = {"textDocument/codeAction", uri, startLine, startChar};
+}
+
+void LspClient::requestWorkspaceSymbols(const QString &query)
+{
+    if (!m_initialized) return;
+    const int id = sendRequest("workspace/symbol", QJsonObject{
+        {"query", query},
+    });
+    m_pending[id] = {"workspace/symbol", {}, 0, 0};
+}
+
 // ── Message dispatch ──────────────────────────────────────────────────────────
 
 void LspClient::onMessageReceived(const LspMessage &msg)
@@ -409,6 +457,12 @@ void LspClient::handleResponse(int id, const QJsonValue &result,
     }
     else if (req.method == "textDocument/documentSymbol") {
         emit documentSymbolsResult(req.uri, result.toArray());
+    }
+    else if (req.method == "textDocument/codeAction") {
+        emit codeActionResult(req.uri, req.line, req.character, result.toArray());
+    }
+    else if (req.method == "workspace/symbol") {
+        emit workspaceSymbolsResult(result.toArray());
     }
 }
 

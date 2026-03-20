@@ -1,6 +1,6 @@
 # Code Graph — Codebase Intelligence Engine
 
-SQLite-based code intelligence that indexes the entire workspace. Provides structural understanding of files, classes, functions, imports, relationships, and framework-specific patterns.
+SQLite-based code intelligence that indexes the entire workspace. Provides structural understanding of files, classes, functions, imports, relationships, framework-specific patterns, and a semantic metadata layer for reasoning-oriented queries.
 
 ## Architecture
 
@@ -19,8 +19,8 @@ CodeGraphIndexer (orchestrator)
 | Type | File | Purpose |
 |------|------|---------|
 | `CodeGraphDb` | `codegraphdb.h/.cpp` | SQLite database wrapper — open, schema creation, FTS5 detection |
-| `CodeGraphIndexer` | `codegraphindexer.h/.cpp` | 12-step pipeline orchestrator — dispatches to language indexers |
-| `CodeGraphQuery` | `codegraphquery.h/.cpp` | Query API — project summary, function lookup, file context (JSON) |
+| `CodeGraphIndexer` | `codegraphindexer.h/.cpp` | Multi-step pipeline orchestrator — dispatches to language indexers and derives semantic tags |
+| `CodeGraphQuery` | `codegraphquery.h/.cpp` | Query API — project summary, function lookup, file context, semantic tags (JSON) |
 | `ILanguageIndexer` | `ilanguageindexer.h` | Pure virtual interface for language-specific parsing |
 | `CppLanguageIndexer` | `cpplanguageindexer.h/.cpp` | C/C++ indexer (classes, includes, Qt connect/services/QTest) |
 | `TsLanguageIndexer` | `tslanguageindexer.h/.cpp` | TypeScript/JS indexer (imports, classes, Jest/Mocha tests) |
@@ -41,6 +41,7 @@ CodeGraphIndexer (orchestrator)
 | `CodeGraphConnectionInfo` | Qt signal/slot connection (sender, signal, receiver, slot) |
 | `CodeGraphServiceRef` | ServiceRegistry register/resolve call |
 | `CodeGraphTestCase` | Test method (class, method, line) |
+| `CodeGraphSemanticTag` | Semantic/security/performance/audit tag attached to a file, class, or function |
 
 ## ILanguageIndexer Interface
 
@@ -77,7 +78,7 @@ public:
 | `TsLanguageIndexer` | TypeScript, JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` | ES imports, `extends`/`implements`, Jest `test()`/`it()`, Mocha `describe()` |
 | `PythonLanguageIndexer` | Python | `.py` | Indentation-based scope, `import`/`from`, `pytest` (`test_` prefix) |
 
-## Database Schema (18 Tables)
+## Database Schema
 
 | Table | Contents |
 |-------|----------|
@@ -98,9 +99,53 @@ public:
 | `services` | ServiceRegistry register/resolve calls |
 | `test_cases` | QTest/Jest/pytest test methods |
 | `cmake_targets` | CMake build targets (executable, library, plugin, test) |
+| `semantic_tags` | Derived semantic/security/performance/audit/runtime tags for files, classes, functions |
 | `fts_index` | FTS5 full-text search index |
 
-## Indexing Pipeline (12 Steps)
+## Semantic Tag Layer
+
+The graph now derives first-class semantic tags with four practical reasoning layers:
+
+- `semantic:*` for domain/workbench role classification such as `semantic:build`, `semantic:ui`, `semantic:analysis`
+- `security:*` for sensitive surfaces such as `security:auth-surface`, `security:sensitive`, `security:fragile`
+- `performance:*` for reasoning hints such as `performance:async`, `performance:hot-path`
+- `audit:*` for lightweight coverage hints such as `audit:unit-covered`, `audit:uncovered`
+
+Tags are attached to:
+
+- files
+- classes
+- functions
+
+Each tag stores:
+
+- entity type/name
+- line number
+- tag and value
+- confidence
+- source/evidence
+
+This gives the graph a reasoning-oriented layer without hardcoding domain logic into every query.
+
+Project-native tags now also describe Exorcist architecture directly, for example:
+
+- `architecture:shell`
+- `architecture:bootstrap`
+- `architecture:shared-service`
+- `architecture:shared-component`
+- `architecture:base-plugin`
+- `architecture:plugin-domain`
+- `architecture:sdk-boundary`
+- `ui:workbench-surface`
+- `ui:menu-owner`
+- `ui:toolbar-owner`
+- `ui:dock-owner`
+- `workspace:profile-activation`
+- `workspace:template-system`
+
+This makes the graph useful for architecture reasoning, not just code lookup.
+
+## Indexing Pipeline
 
 1. **scanFiles** — Walk workspace, insert file records, detect language
 2. **parseAll** — Dispatch to `ILanguageIndexer::parseFile()` per language
@@ -113,7 +158,14 @@ public:
 9. **scanServices** — Find `registerService`/`resolveService` calls
 10. **scanTestCases** — Find test methods (QTest/Jest/pytest)
 11. **scanCMakeTargets** — Parse CMakeLists.txt for targets
-12. **buildFtsIndex** — Populate FTS5 full-text search
+12. **buildCallGraph** — Build function-level call graph
+13. **scanXmlBindings** — Scan XML/code bindings
+14. **scanRuntimeEntrypoints** — Detect dynamic/runtime loading entry points
+15. **buildSymbolAliases** — Detect likely aliases/typos
+16. **buildReachability** — Compute reachable vs potentially dead functions
+17. **buildHotspotScores** — Score risk/coupling/test gaps
+18. **buildSemanticTags** — Derive semantic/security/performance/audit tags
+19. **buildFtsIndex** — Populate FTS5 full-text search
 
 ## Query API
 
@@ -122,8 +174,10 @@ public:
 | Method | Purpose |
 |--------|---------|
 | `projectSummary()` | Overview: file/class/function counts, top subsystems |
-| `functionQuery(name)` | Find functions by name with file path and line ranges |
-| `contextQuery(fileOrClass)` | Full context: summary, deps, rdeps, functions, tests |
+| `functions(target)` | Find functions by file or class with line ranges |
+| `context(target)` | Full context: summary, deps, rdeps, functions, tests, semantic tags |
+| `semanticTags(target)` | All semantic tags for a file/class target |
+| `searchByTag(tag)` | Find entities by semantic tag or tag value |
 
 ## Python Tools (`tools/`)
 
@@ -132,7 +186,7 @@ Companion Python scripts for offline analysis:
 | Tool | Purpose |
 |------|---------|
 | `build_codegraph.py` | Full rebuild of `tools/codegraph.db` |
-| `query_graph.py` | Interactive queries (context, search, functions, edges) |
+| `query_graph.py` | Interactive queries (context, search, functions, edges, tags, tagsearch) |
 | `gap_report.py` | Feature gaps, header-only violations, orphans |
 | `find_class.py` | Quick class/file/method lookup |
 | `check_deps.py` | Impact analysis before editing a file |

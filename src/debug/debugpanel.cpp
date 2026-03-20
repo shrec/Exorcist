@@ -1,5 +1,5 @@
 #include "debugpanel.h"
-#include "idebugadapter.h"
+#include "sdk/idebugadapter.h"
 #include "watchtreemodel.h"
 #include "quickwatchdialog.h"
 
@@ -35,8 +35,17 @@ DebugPanel::DebugPanel(QWidget *parent)
         "padding: 2px 8px; color: #808080; font-size: 11px;"));
     root->addWidget(m_statusLabel);
 
-    // Tabs
+    // Tabs — VS2022 dark style
     m_tabs = new QTabWidget(this);
+    m_tabs->setStyleSheet(QStringLiteral(
+        "QTabWidget::pane { background: #1e1e1e; border: none; border-top: 1px solid #3e3e42; }"
+        "QTabBar { background: #252526; }"
+        "QTabBar::tab { background: #2d2d30; color: #9d9d9d; padding: 4px 12px;"
+        "  border: none; border-right: 1px solid #1e1e1e; font-size: 12px; }"
+        "QTabBar::tab:selected { background: #1e1e1e; color: #ffffff;"
+        "  border-top: 1px solid #007acc; }"
+        "QTabBar::tab:hover:!selected { background: #3e3e42; color: #cccccc; }"
+    ));
     root->addWidget(m_tabs, 1);
 
     setupCallStackTab();
@@ -56,12 +65,13 @@ void DebugPanel::setupToolBar()
     m_toolbar->setIconSize(QSize(16, 16));
     m_toolbar->setMovable(false);
     m_toolbar->setStyleSheet(QStringLiteral(
-        "QToolBar { background: #2d2d2d; border-bottom: 1px solid #3c3c3c; "
+        "QToolBar { background: #2d2d30; border-bottom: 1px solid #3e3e42; "
         "spacing: 2px; padding: 2px; }"
-        "QToolButton { color: #d4d4d4; padding: 3px 6px; border: none; "
-        "border-radius: 3px; font-size: 13px; }"
+        "QToolButton { color: #d4d4d4; padding: 3px 8px; border: none; "
+        "border-radius: 2px; font-size: 13px; }"
         "QToolButton:hover { background: #3e3e42; }"
-        "QToolButton:disabled { color: #555555; }"));
+        "QToolButton:pressed { background: #094771; }"
+        "QToolButton:disabled { color: #555558; }"));
 
     m_actLaunch   = m_toolbar->addAction(tr("\u25B6 Launch"));
     m_actContinue = m_toolbar->addAction(tr("\u25B6 Continue"));
@@ -80,6 +90,22 @@ void DebugPanel::setupToolBar()
     connect(m_actStop,     &QAction::triggered, this, &DebugPanel::onStopClicked);
 }
 
+// ── Shared stylesheet for debug table views ───────────────────────────────────
+
+static const char *kDebugTableStyle =
+    "QTableWidget { background: #1e1e1e; color: #d4d4d4; border: none;"
+    "  gridline-color: #2d2d30; font-size: 12px;"
+    "  alternate-background-color: #252526; }"
+    "QTableWidget::item { padding: 2px 4px; border: none; }"
+    "QTableWidget::item:selected { background: #094771; color: #ffffff; }"
+    "QHeaderView::section { background: #252526; color: #858585; border: none;"
+    "  border-right: 1px solid #3e3e42; border-bottom: 1px solid #3e3e42;"
+    "  padding: 3px 6px; font-size: 11px; }"
+    "QScrollBar:vertical { background: #1e1e1e; width: 10px; border: none; }"
+    "QScrollBar::handle:vertical { background: #424242; min-height: 20px; border-radius: 5px; }"
+    "QScrollBar::handle:vertical:hover { background: #686868; }"
+    "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }";
+
 // ── Call Stack Tab ────────────────────────────────────────────────────────────
 
 void DebugPanel::setupCallStackTab()
@@ -94,8 +120,10 @@ void DebugPanel::setupCallStackTab()
     m_callStackTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_callStackTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_callStackTable->verticalHeader()->hide();
+    m_callStackTable->setAlternatingRowColors(true);
     m_callStackTable->setColumnWidth(0, 30);
     m_callStackTable->setColumnWidth(1, 200);
+    m_callStackTable->setStyleSheet(QLatin1String(kDebugTableStyle));
 
     connect(m_callStackTable, &QTableWidget::cellDoubleClicked,
             this, &DebugPanel::onCallStackDoubleClicked);
@@ -127,9 +155,10 @@ void DebugPanel::setupLocalsTab()
         "QTreeView { background: #1e1e1e; color: #d4d4d4; border: none; "
         "font-family: 'Consolas','Courier New',monospace; font-size: 12px; "
         "alternate-background-color: #252526; }"
-        "QTreeView::item:selected { background: #264f78; }"
-        "QHeaderView::section { background: #2d2d2d; color: #d4d4d4; "
-        "border: 1px solid #3c3c3c; padding: 3px; font-size: 11px; }"));
+        "QTreeView::item:selected { background: #094771; color: #ffffff; }"
+        "QHeaderView::section { background: #252526; color: #858585; border: none;"
+        "  border-right: 1px solid #3e3e42; border-bottom: 1px solid #3e3e42;"
+        "  padding: 3px 6px; font-size: 11px; }"));
 
     connect(m_localsView, &QTreeView::customContextMenuRequested,
             this, &DebugPanel::onLocalsContextMenu);
@@ -152,8 +181,10 @@ void DebugPanel::setupBreakpointsTab()
     m_breakpointsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_breakpointsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_breakpointsTable->verticalHeader()->hide();
+    m_breakpointsTable->setAlternatingRowColors(true);
     m_breakpointsTable->setColumnWidth(0, 60);
     m_breakpointsTable->setColumnWidth(1, 250);
+    m_breakpointsTable->setStyleSheet(QLatin1String(kDebugTableStyle));
 
     lay->addWidget(m_breakpointsTable);
     m_tabs->addTab(w, tr("Breakpoints"));
@@ -198,9 +229,10 @@ void DebugPanel::setupWatchTab()
         "QTreeView { background: #1e1e1e; color: #d4d4d4; border: 1px solid #3c3c3c; "
         "font-family: 'Consolas','Courier New',monospace; font-size: 12px; "
         "alternate-background-color: #252526; }"
-        "QTreeView::item:selected { background: #264f78; }"
-        "QHeaderView::section { background: #2d2d2d; color: #d4d4d4; "
-        "border: 1px solid #3c3c3c; padding: 3px; font-size: 11px; }"));
+        "QTreeView::item:selected { background: #094771; color: #ffffff; }"
+        "QHeaderView::section { background: #252526; color: #858585; border: none;"
+        "  border-right: 1px solid #3e3e42; border-bottom: 1px solid #3e3e42;"
+        "  padding: 3px 6px; font-size: 11px; }"));
 
     connect(m_watchView, &QTreeView::customContextMenuRequested,
             this, &DebugPanel::onWatchContextMenu);

@@ -7,6 +7,8 @@
 #include <QStringList>
 #include <QVariant>
 
+#include "sdk/pluginpermission.h"
+
 // ── Plugin Manifest ───────────────────────────────────────────────────────────
 //
 // Declarative description of everything a plugin contributes to the IDE.
@@ -36,7 +38,18 @@ struct MenuContribution
         MainMenuFile,
         MainMenuEdit,
         MainMenuView,
+        MainMenuGit,
+        MainMenuProject,
+        MainMenuSelection,
+        MainMenuBuild,
+        MainMenuDebug,
+        MainMenuTest,
+        MainMenuAnalyze,
+        MainMenuRun,
+        MainMenuTerminal,
         MainMenuTools,
+        MainMenuExtensions,
+        MainMenuWindow,
         MainMenuHelp,
         EditorContextMenu,
         ExplorerContextMenu,
@@ -210,6 +223,7 @@ struct PluginManifest
     // ── Activation ────────────────────────────────────────────────────────
     QStringList activationEvents;  // when to load/activate
     QList<PluginDependency> dependencies;
+    QList<PluginPermission> requestedPermissions;
 
     // ── Contributions ─────────────────────────────────────────────────────
     QList<CommandContribution>     commands;

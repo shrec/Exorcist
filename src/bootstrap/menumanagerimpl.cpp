@@ -5,6 +5,34 @@
 #include <QMenu>
 #include <QMenuBar>
 
+namespace {
+
+int menuOrder(IMenuManager::MenuLocation location)
+{
+    switch (location) {
+    case IMenuManager::File:       return 10;
+    case IMenuManager::Edit:       return 20;
+    case IMenuManager::View:       return 30;
+    case IMenuManager::Git:        return 40;
+    case IMenuManager::Project:    return 50;
+    case IMenuManager::Build:      return 60;
+    case IMenuManager::Debug:      return 70;
+    case IMenuManager::Test:       return 80;
+    case IMenuManager::Analyze:    return 90;
+    case IMenuManager::Run:        return 100;
+    case IMenuManager::Terminal:   return 110;
+    case IMenuManager::Tools:      return 120;
+    case IMenuManager::Extensions: return 130;
+    case IMenuManager::Window:     return 140;
+    case IMenuManager::Help:       return 150;
+    case IMenuManager::Selection:  return 160;
+    case IMenuManager::Custom:     return 1000;
+    }
+    return 1000;
+}
+
+} // namespace
+
 MenuManagerImpl::MenuManagerImpl(QMainWindow *window, QObject *parent)
     : QObject(parent)
     , m_window(window)
@@ -129,7 +157,22 @@ QMenu *MenuManagerImpl::ensureMenu(MenuLocation location)
     if (it != m_standardMenus.end())
         return it.value();
 
-    auto *m = m_menuBar->addMenu(menuTitle(location));
+    auto *m = new QMenu(menuTitle(location), m_menuBar);
+
+    QAction *before = nullptr;
+    const int order = menuOrder(location);
+    for (auto existing = m_standardMenus.cbegin(); existing != m_standardMenus.cend(); ++existing) {
+        if (menuOrder(existing.key()) > order) {
+            before = existing.value()->menuAction();
+            break;
+        }
+    }
+
+    if (before)
+        m_menuBar->insertMenu(before, m);
+    else
+        m_menuBar->addMenu(m);
+
     m_standardMenus.insert(location, m);
     return m;
 }
@@ -140,10 +183,18 @@ QString MenuManagerImpl::menuTitle(MenuLocation location) const
     case File:      return tr("&File");
     case Edit:      return tr("&Edit");
     case View:      return tr("&View");
+    case Git:       return tr("&Git");
+    case Project:   return tr("&Project");
     case Selection: return tr("&Selection");
+    case Build:     return tr("&Build");
+    case Debug:     return tr("&Debug");
+    case Test:      return tr("&Test");
+    case Analyze:   return tr("&Analyze");
     case Run:       return tr("&Run");
     case Terminal:  return tr("&Terminal");
     case Tools:     return tr("&Tools");
+    case Extensions:return tr("E&xtensions");
+    case Window:    return tr("&Window");
     case Help:      return tr("&Help");
     case Custom:    return tr("Custom");
     }

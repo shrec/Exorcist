@@ -52,6 +52,26 @@ AgentController::~AgentController()
         m_store->recordSessionEnd(m_session->id());
 }
 
+void AgentController::setMaxToolPermission(AgentToolPermission p)
+{
+    m_maxPermission = p;
+    // Keep ToolApprovalService in sync — its m_maxAutoLevel is the authoritative
+    // threshold when m_approvalService is set. Without this, switching to Agent
+    // mode (Dangerous) still left the service at SafeMutate, causing run_in_terminal
+    // to demand confirmation every call.
+    if (m_approvalService)
+        m_approvalService->setMaxAutoApproveLevel(p);
+}
+
+void AgentController::setToolApprovalService(ToolApprovalService *svc)
+{
+    m_approvalService = svc;
+    // Sync current permission level so the service isn't stuck at its
+    // default (SafeMutate) when the controller was already configured.
+    if (svc)
+        svc->setMaxAutoApproveLevel(m_maxPermission);
+}
+
 void AgentController::setToolConfirmationCallback(ConfirmToolFn fn)
 {
     m_confirmFn = fn;

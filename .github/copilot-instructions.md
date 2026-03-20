@@ -6,54 +6,49 @@ Exorcist is a fast, lightweight, cross-platform Qt 6–based open-source IDE tar
 
 The editor must always stay **lightweight**. Users who don't need a module must never pay its memory or startup cost. The modular plugin system gives users maximum freedom to compose exactly the environment they need — enable what they use, disable everything else. No wasted resources, no unnecessary complexity.
 
-See [docs/core-philosophy.md](docs/core-philosophy.md) for the full Core IDE vs Core Plugins philosophy, activation model, and performance principles.
-See [docs/development-principles.md](docs/development-principles.md) for the 10 development principles that guide how the project evolves.
+Project motto: build a developer-friendly space that stays practical, uses minimal resources, and directly neutralizes real developer pain points.
+
+This motto is enforceable, not decorative:
+
+- If a feature does not reduce real developer friction, question whether it should exist.
+- If a feature increases idle memory, startup cost, or background activity for users who did not ask for it, move it behind plugin activation, lazy loading, or shared infrastructure.
+- If a workflow pain point appears in multiple plugins, fix it once in a shared base/service/component instead of duplicating the workaround.
+- If a design is harder for plugin authors than it needs to be, keep simplifying the SDK and base layers until the standard path is obvious.
+
+See [../docs/core-philosophy.md](../docs/core-philosophy.md) for the full Core IDE vs Core Plugins philosophy, activation model, and performance principles.
+See [../docs/development-principles.md](../docs/development-principles.md) for the 10 development principles that guide how the project evolves.
 
 ## Architecture
 
-- **Interface-first design**: All core systems (`IFileSystem`, `IProcess`, `ITerminal`, `INetwork`) are abstract interfaces in `src/core/`. Never depend on concrete implementations outside the core layer.
-- **Plugin-first extension model**: New features belong in plugins unless they are fundamental OS abstractions. Plugins load via `QPluginLoader` and receive services through `ServiceRegistry`.
+- **Shell/container-first design**: The IDE shell is a container and bridge host, not a feature owner. `src/` should expose regions, lifecycle orchestration, contracts, and bridge access, not concrete subsystem workflows.
+- **Interface-first design**: Core host surfaces (`IFileSystem`, `IProcess`, `ITerminal`, `INetwork`, `IHostServices`, dock/menu/toolbar/status interfaces) are abstract contracts. Never depend on concrete implementations across boundaries.
+- **Plugin-first extension model**: Concrete feature systems belong in plugins. If a behavior has its own workflow, runtime state, commands, menus, toolbars, docks, status UI, or provider lifecycle, the default owner is a plugin.
 - **Service registry for loose coupling**: Services are registered/resolved by string key. Plugins must not reference each other directly — communicate through services.
 - **AI as a plugin**: AI providers implement `IAIProvider` (see `src/aiinterface.h`). Core code must never hard-code an AI backend.
-- **Layered architecture**: Core abstractions → Plugin system → UI layer. Dependencies flow downward only.
+- **Layered architecture**: Shell/container → shared contracts/bridge services → shared services/components/base plugin layer → domain plugins. Dependencies flow downward through contracts only.
 
-See [docs/plugin_api.md](docs/plugin_api.md) for plugin development and [docs/ai.md](docs/ai.md) for AI integration strategy.
+See [../docs/plugin_api.md](../docs/plugin_api.md) for plugin development and [../docs/ai.md](../docs/ai.md) for AI integration strategy.
 
 ## Core vs Plugin Boundary (STRICT)
 
-The IDE executable (`src/`) contains everything required for a fully functional code editor — editor, language services, terminal, build, search, source control, and project management. These core subsystems expose **interfaces** so that plugins can interact with any part of the IDE. Plugins are optional extensions that users can enable or disable at runtime.
+The IDE executable is the **host container**. Its responsibility is to provide abstract host surfaces, lifecycle orchestration, shared bridge access, and reusable platform primitives. It must not become the concrete owner of feature systems. Plugins are the feature owners and should manage their systems end to end.
 
 ### What belongs in `src/` (Core)
 
-The core IDE — all subsystems below ship as one executable and work together:
+`src/` exists to host, abstract, bridge, and reuse. It is not where feature ownership should accumulate.
 
 | Layer | Contents | Examples |
 |-------|----------|---------|
-| **App shell** | Window, tabs, dock framework, menus, status bar | `mainwindow.*`, `main.cpp` |
-| **Editor** | Text editing, syntax highlighting, piece table | `editor/` |
-| **Language Intelligence** | LSP client, Clangd manager, completion, hover, diagnostics | `lsp/` |
-| **Terminal** | Terminal emulator (ConPTY/PTY), VT100+ emulation | `terminal/` |
-| **Build System** | Task runner, build profiles, problem matchers | `build/` |
-| **Source Control** | Git integration, blame, diff, staging | `git/` |
-| **Search** | Workspace search, file search, regex search | `search/` |
-| **Code Graph** | SQLite code intelligence — file/class/function indexing with line ranges, edges, Qt connections, services, tests, CMake targets, FTS5 | `codegraph/` |
-| **Project** | Solution/project tree model, workspace management | `project/` |
-| **MCP** | Model Context Protocol client for tool servers | `mcp/` |
-| **Debug** | Debug adapter framework, GDB/MI, breakpoints, debug panel | `debug/` |
-| **Remote / SSH** | SSH connections, remote FS browse, multi-arch probing, rsync, remote build | `remote/` |
-| **Core abstractions** | OS interfaces, file system, process, network | `core/`, `plugininterface.h`, `aiinterface.h` |
-| **Plugin system** | Plugin loader, service registry | `pluginmanager.*`, `serviceregistry.*` |
-| **UI framework** | Command palette, theme engine, keymap | `commandpalette.*`, `thememanager.*`, `ui/` |
-| **Logger** | Application logging | `logger.*` |
-| **Agent framework** | Agent orchestrator, controller, interfaces, tools, chat UI | `agent/` (runtime + interfaces, **no providers**) |
+| **App shell / container** | Window frame, layout host, dock/menu/toolbar/status regions, session/workspace lifecycle | `mainwindow.*`, `main.cpp`, bootstrap adapters |
+| **Core abstractions and contracts** | OS interfaces, SDK boundaries, host interfaces, service contracts | `core/`, `plugininterface.h`, `aiinterface.h`, `sdk/` |
+| **Plugin runtime** | Plugin loader, service registry, activation/profile orchestration | `pluginmanager.*`, `serviceregistry.*`, `profile/` |
+| **Shared bridge access** | IPC client, shared-resource bridge wiring, cross-instance service access | `src/process/`, bridge bootstraps |
+| **Shared services** | Reusable non-visual logic that is workspace-agnostic or feature-agnostic | logging, settings, persistence, command routing, shared diagnostics/session primitives |
+| **Shared components** | Reusable visual building blocks with no domain ownership | dock framework, generic explorers, output/log viewers, reusable UI primitives |
+| **Base plugin layer** | Standard helpers for plugins to own their feature surfaces consistently | `WorkbenchPluginBase`, `LanguageWorkbenchPluginBase` |
 | **ExoBridge** | Shared daemon — MCP servers, git watch, auth tokens | `server/`, `src/process/` |
 
-Each core subsystem exposes interfaces (registered in `ServiceRegistry`) so plugins can:
-- Query diagnostics, request completions, trigger formatting (via LSP interfaces)
-- Read terminal output, run commands (via terminal interfaces)
-- Get git status, diffs, blame (via git interfaces)
-- Access search results, file listings (via search interfaces)
-- Read build output, trigger builds (via build interfaces)
+Concrete systems such as language workflows, build/debug/testing flows, provider runtimes, remote/devops tooling, AI integrations, and feature-specific workbench UI belong in plugins even when bundled. If a concrete system currently lives in `src/`, treat that as migration debt unless it is acting as a reusable host surface or abstract shared primitive.
 
 ### ExoBridge — Shared Resource Boundary (STRICT)
 
@@ -90,12 +85,14 @@ Each core subsystem exposes interfaces (registered in `ServiceRegistry`) so plug
 
 ### What belongs in `plugins/` (Modular)
 
-Optional extensions that users can install, enable, or disable independently:
+Plugins are the concrete feature owners. They may be bundled or third-party, but ownership does not change: plugins define, activate, render, and manage their feature systems end to end.
 
 | Category | Plugin | Status |
 |----------|--------|--------|
-| **AI Providers** | Copilot, Claude, Codex, Ollama, BYOK | ✅ Already plugins |
-| **Future extensions** | Additional language servers, debuggers, formatters, linters, themes, etc. | Designed as plugins from the start |
+| **Language systems** | C/C++, Rust, Python, JS/TS, Go, future language packs | Plugin-owned |
+| **Tooling systems** | Build, debug, test, format, lint, VCS, analysis, remote/devops | Plugin-owned |
+| **Providers / integrations** | Copilot, Claude, Codex, Ollama, BYOK, GitHub, databases, containers | Plugin-owned |
+| **Feature workbenches** | Any concrete workflow UI, runtime, commands, docks, status surfaces | Plugin-owned |
 
 ### Core Plugins (Bundled but Optional)
 
@@ -115,7 +112,7 @@ Core Plugins are official plugins bundled with the IDE that provide extended fun
 
 **Zero-cost guarantee:** disabled plugins consume 0 CPU, 0 background threads, 0 RAM.
 
-See [docs/core-philosophy.md](docs/core-philosophy.md) for the full philosophy.
+See [../docs/core-philosophy.md](../docs/core-philosophy.md) for the full philosophy.
 
 ### Rules
 
@@ -125,7 +122,14 @@ See [docs/core-philosophy.md](docs/core-philosophy.md) for the full philosophy.
 4. **Plugin-provided UI.** Plugins can contribute dock widgets, settings pages, toolbar items, and menu actions through extension interfaces (`IAgentSettingsPageProvider`, etc.).
 5. **Graceful absence.** The IDE must launch and function as a text editor even if zero plugins are loaded. No crashes, no missing features beyond what the plugins provide.
 6. **One plugin, one directory.** Each plugin has its own directory under `plugins/` with its own `CMakeLists.txt`. Shared utilities go in `plugins/common/`.
-7. **Core subsystems are not plugins.** Editor, LSP, terminal, git, build, search, project, and MCP are integral parts of the IDE. They live in `src/` and are always available. New features in these areas go directly into `src/`.
+7. **The shell is not a feature owner.** `src/` may host contracts, bridges, and reusable shared primitives, but concrete workflows in language/build/debug/test/search/git/remote/AI domains must default to plugins, not core.
+8. **Documentation and manifests are the source of truth.** When deciding UI ownership, activation, placement, or lifecycle, follow `docs/core-philosophy.md`, `docs/architecture.md`, `docs/plugin_api.md`, and the plugin manifest model before making any code change. If implementation and docs diverge, align the implementation to the documented architecture unless explicitly told otherwise.
+9. **No cross-plugin copy-paste for shared behavior.** If the same workflow/helper/service access pattern appears in two or more plugins, the default action is to extract or extend a shared base class, shared service, or shared component before adding a third copy.
+10. **Language/tooling plugins must inherit a shared plugin base.** C++, C#, Rust, Python, JS/TS, and similar workbench-facing plugins must build on the common base layer for standard IDE tooling access. Do not hand-roll repeated access to project tree, terminal, search, diagnostics, status, dock visibility, workspace path, or command plumbing in each plugin.
+11. **Keep plugin classes thin.** Concrete plugins are for domain-specific behavior only. Standard workbench helpers, common lifecycle glue, standard dock/tool access, and repeated service lookup patterns belong in the base layer or shared services, not in each plugin implementation.
+12. **When in doubt, extract downward, not outward.** If functionality is common to many plugins, first consider `WorkbenchPluginBase`, a dedicated abstract plugin base, or `plugins/common/`. Do not solve a design gap by duplicating code into C++, C#, Rust, Python, and other plugins independently.
+13. **Agent enforcement rule.** The agent must treat repeated plugin boilerplate as an architectural bug, not as acceptable implementation detail. Before adding repeated menu/toolbar/service/dock/workspace code to a second or third plugin, stop and extract a reusable layer.
+14. **Bridge-first rule for shared resources.** Cross-instance or workspace-agnostic resources must be reached through bridge interfaces. Core owns the bridge surface; plugins consume it through contracts.
 
 ## Code Style
 
@@ -181,7 +185,7 @@ cmake --build build           # Build
 
 - Only required dependency: **Qt 6 Widgets**.
 - Optional dependency stubs: `EXORCIST_USE_LLVM` CMake option.
-- New dependencies must be MIT/BSD/public-domain compatible. Update [docs/dependencies.md](docs/dependencies.md) when adding any.
+- New dependencies must be MIT/BSD/public-domain compatible. Update [../docs/dependencies.md](../docs/dependencies.md) when adding any.
 
 ## Testing (STRICT — TDD)
 
@@ -216,11 +220,11 @@ Documentation is **not optional** and must be maintained **alongside** implement
 ### Rules
 
 1. **Document as you go.** Every new subsystem, interface, or significant feature must have corresponding documentation updated **in the same work session** it was implemented. No "we'll document it later."
-2. **Roadmap reflects reality.** When a phase or feature is completed, [docs/roadmap.md](docs/roadmap.md) must be updated immediately to mark it done and briefly describe what was delivered.
-3. **Architecture doc stays current.** When a new subsystem is added to `src/` (e.g., `debug/`, `agent/`), [docs/architecture.md](docs/architecture.md) must be updated with the new layer, its purpose, and its key interfaces.
+2. **Roadmap reflects reality.** When a phase or feature is completed, [../docs/roadmap.md](../docs/roadmap.md) must be updated immediately to mark it done and briefly describe what was delivered.
+3. **Architecture doc stays current.** When a new subsystem is added to `src/` (e.g., `debug/`, `agent/`), [../docs/architecture.md](../docs/architecture.md) must be updated with the new layer, its purpose, and its key interfaces.
 4. **New subsystem = new doc.** Any new major subsystem (debug, agent platform, project brain, etc.) gets its own `docs/<subsystem>.md` describing: purpose, architecture, key types/interfaces, usage, and extension points.
-5. **Plugin API changes are documented.** Any new extension interface (`IAgentSettingsPageProvider`, `IDebugAdapter`, etc.) must be reflected in [docs/plugin_api.md](docs/plugin_api.md).
-6. **Dependencies tracked.** New third-party dependencies (even header-only) must be added to [docs/dependencies.md](docs/dependencies.md) with license info.
+5. **Plugin API changes are documented.** Any new extension interface (`IAgentSettingsPageProvider`, `IDebugAdapter`, etc.) must be reflected in [../docs/plugin_api.md](../docs/plugin_api.md).
+6. **Dependencies tracked.** New third-party dependencies (even header-only) must be added to [../docs/dependencies.md](../docs/dependencies.md) with license info.
 7. **Doc structure:** Keep docs concise and scannable. Use tables for type inventories, code blocks for interface signatures, and bullet lists for rules. Write in English (code comments) or Georgian (design rationale) — be consistent within each file.
 
 ### What to document
@@ -240,7 +244,7 @@ Documentation is **not optional** and must be maintained **alongside** implement
 - One interface, one header. Implementation in a separate `.cpp` with matching name (`ifilesystem.h` → `qtfilesystem.cpp`).
 - Keep `main.cpp` minimal: app setup, theme, plugin loading, window show.
 - Dock widgets in `MainWindow` are placeholders until a plugin replaces them.
-- Follow the phased roadmap in [docs/roadmap.md](docs/roadmap.md) — do not skip phases.
+- Follow the phased roadmap in [../docs/roadmap.md](../docs/roadmap.md) — do not skip phases.
 - Commit messages: imperative mood, max 72 chars subject (`Add file search`, not `Added file search`).
 - No `using namespace` in headers. Acceptable in `.cpp` files for `Qt` namespaces only.
 
@@ -412,11 +416,36 @@ $env:PYTHONIOENCODING="utf-8"; python tools/build_codegraph.py
 
 `MainWindow` is a **bare container** — a window frame that hosts the dock layout, menu bar, status bar, and central editor area. **All instruments, toolbars, dock panels, and development tools are owned and managed by their respective plugins**, never by MainWindow directly.
 
+### Firmware Model (STRICT)
+
+Treat the IDE like **firmware / BIOS** and plugins like the **operating system layer**:
+
+- `src/` provides the container, shared interfaces, dock regions, menu bar, toolbar host, status bar host, command routing, and bridges to shared services.
+- `src/` does **not** decide what concrete toolbars, menus, status widgets, or plugin workflows exist.
+- Plugins decide what UI they contribute, where it appears, when it becomes visible, and how their internal environment behaves.
+- Shared infrastructure and shared resources come from the IDE core and ExoBridge; feature-specific behavior lives inside the plugin that owns that feature.
+
+### Manifest-Driven UI Ownership (STRICT)
+
+The plugin manifest and host interfaces define UI ownership boundaries:
+
+- A plugin may place menu items into the menu bar through `IMenuManager`.
+- A plugin may create toolbars through `IToolBarManager`.
+- A plugin may create/show/hide dock panels through `IDockManager` and `IViewContributor`.
+- A plugin may publish status items through `IStatusBarManager`.
+- A plugin may register commands and then surface them through its own menus/toolbars/context menus.
+
+Therefore:
+
+- `MainWindow` must only expose **regions and interfaces**, never plugin-specific menu contents or toolbar contents.
+- If a feature needs a menu, toolbar, dock, or status UI, the default implementation belongs in the owning plugin, not in `MainWindow`.
+- If an agent is unsure where UI logic belongs, the default answer is: **put the concrete UI ownership in the plugin and keep only the hosting/bridge layer in core**.
+
 ### What MainWindow MAY do
 
 | Action | Example |
 |--------|---------|
-| **Host the dock/toolbar/menu infrastructure** | Create `DockManager`, provide `IToolBarManager` adapter |
+| **Host the dock/toolbar/menu/status infrastructure** | Create `DockManager`, provide `IToolBarManager`/`IMenuManager`/`IStatusBarManager` adapters |
 | **Show core-subsystem docks on workspace open** | ProjectDock, GitDock, TerminalDock, AIDock, ProblemsDock |
 | **Wire editor-level signals** | `navigateToSource` → open file, `debugStopped` → highlight line |
 | **Route keyboard shortcuts** | Ctrl+B → build command, F5 → debug command (via CommandService) |
@@ -427,9 +456,11 @@ $env:PYTHONIOENCODING="utf-8"; python tools/build_codegraph.py
 | Violation | Why it's wrong | Correct approach |
 |-----------|---------------|-----------------|
 | **Create or add plugin toolbars** | MainWindow doesn't know what plugins exist | Plugin calls `host->toolbars()->createToolBar()` + `addWidget()` |
+| **Populate plugin-owned menus** | Menu content is feature ownership, not shell ownership | Plugin contributes actions/submenus through `host->menus()` or manifest menus |
 | **Show plugin-contributed docks** | OutputDock, RunDock, DebugDock belong to their plugins | Plugin calls `host->docks()->showPanel()` in `initialize()` or on signal |
 | **Connect plugin signals to dock visibility** | `connect(toolbar, buildRequested, showOutputDock)` couples MainWindow to plugin internals | Plugin wires its own signals → `host->docks()->showPanel()` |
 | **Include plugin headers** | `#include "build/buildtoolbar.h"` in MainWindow | Never. Plugin headers are invisible to core |
+| **Populate plugin-owned status bar UI** | Status content belongs to the feature that emits it | Plugin publishes its own status items through `host->statusBar()` |
 | **Register plugin widgets as services for MainWindow to consume** | `registerService("buildToolbar", widget)` then MainWindow grabs it | Plugin adds its own toolbar via `IToolBarManager` |
 
 ### Plugin Self-Service Model
@@ -439,12 +470,18 @@ Every plugin manages its own UI lifecycle through `IHostServices`:
 ```cpp
 bool MyPlugin::initialize(IHostServices *host) override
 {
+  // ✅ Plugin creates or contributes its own menu entries
+  host->menus()->createMenu("myPlugin", tr("My Plugin"));
+
     // ✅ Plugin creates its own toolbar
     host->toolbars()->createToolBar("myTool", tr("My Tool"));
     host->toolbars()->addWidget("myTool", m_toolbar);
 
     // ✅ Plugin shows its own dock on activation
     host->docks()->showPanel("MyDock");
+
+  // ✅ Plugin contributes its own status item
+  host->statusBar()->addText("myPlugin.status", tr("Ready"));
 
     // ✅ Plugin wires its own signals → dock visibility
     connect(m_toolbar, &MyToolbar::actionTriggered, this, [host]() {
@@ -454,6 +491,32 @@ bool MyPlugin::initialize(IHostServices *host) override
     return true;
 }
 ```
+
+### Shared Plugin Base Rule (STRICT)
+
+For plugin authoring, the preferred layering is:
+
+1. `IHostServices` and SDK interfaces define the hard boundary.
+2. `WorkbenchPluginBase` or a more specialized abstract plugin base provides reusable standard behavior.
+3. Concrete plugins implement only feature-specific behavior.
+
+This means:
+
+- The agent must prefer extending the shared base layer over duplicating the same host-service boilerplate across plugins.
+- Standard IDE capabilities such as project tree access, workspace root access, terminal access, search/progress/status hooks, standard dock toggling, and command wiring must be surfaced through shared reusable plugin infrastructure.
+- Language plugins should converge on a dedicated abstract language-plugin base when they share common workbench tooling behavior.
+- The base layer must stay generic and reusable. It must not hard-code one concrete plugin's domain behavior.
+
+### Anti-Duplication Enforcement (STRICT)
+
+The following are treated as architecture violations unless there is an explicit user instruction otherwise:
+
+- Copying the same `host()->workspace()`, `host()->editor()`, `host()->notifications()`, `host()->docks()`, or `host()->commands()` plumbing into multiple plugins when a base/helper can hold it.
+- Re-implementing the same project-tree, standard dock, or standard command wiring logic in multiple language plugins.
+- Adding a new plugin that bypasses the shared base layer for standard workbench behavior.
+- Fixing a bug in one plugin by editing only that plugin when the same defect source exists in sibling plugins and belongs in a shared base/helper.
+
+When the agent detects one of these patterns, the expected action is to refactor toward the shared base layer first, or to explicitly state why extraction is not appropriate.
 
 ### Available Plugin UI Interfaces
 
@@ -469,5 +532,6 @@ bool MyPlugin::initialize(IHostServices *host) override
 ### Enforcement
 
 - **Code review check:** Any PR that adds plugin-specific wiring to MainWindow (toolbar creation, dock showPanel for plugin docks, signal connections to plugin objects) **must be rejected**.
+- **Code review check:** Any PR that adds plugin-owned menu content, toolbar content, dock behavior, or status bar content directly to `MainWindow` **must be rejected** unless it is pure host/container infrastructure.
 - **Grep check:** `grep -rn "showDock.*OutputDock\|showDock.*RunDock\|showDock.*DebugDock" src/mainwindow.cpp` must return 0 results.
 - **Include check:** `grep -rn "#include.*plugins/" src/` must return 0 results.

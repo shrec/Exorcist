@@ -22,3 +22,6 @@ for optional acceleration; nothing is bundled yet.
 ## LLVM
 LLVM is used for future language tooling integration. It is optional for now.
 Enable with `-DEXORCIST_USE_LLVM=ON` and set `LLVM_DIR` if needed.
+
+## Qt Modules
+- `Qt6::SerialPort` is optional. When present, the bundled serial monitor plugin enables direct port enumeration, connect/disconnect, and text I/O. When absent, the plugin falls back to external monitor commands such as `platformio device monitor`.

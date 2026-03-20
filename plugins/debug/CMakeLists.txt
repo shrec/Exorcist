@@ -3,12 +3,12 @@ add_library(debug_plugin SHARED
     debugplugin.cpp
     gdbmiadapter.h
     gdbmiadapter.cpp
-    debugpanel.h
-    debugpanel.cpp
-    watchtreemodel.h
-    watchtreemodel.cpp
-    quickwatchdialog.h
-    quickwatchdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/debug/debugpanel.h
+    ${CMAKE_SOURCE_DIR}/src/debug/debugpanel.cpp
+    ${CMAKE_SOURCE_DIR}/src/debug/watchtreemodel.h
+    ${CMAKE_SOURCE_DIR}/src/debug/watchtreemodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/debug/quickwatchdialog.h
+    ${CMAKE_SOURCE_DIR}/src/debug/quickwatchdialog.cpp
 )
 
 target_link_libraries(debug_plugin PRIVATE Qt6::Widgets plugin_common exorcist)

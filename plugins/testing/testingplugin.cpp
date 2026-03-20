@@ -4,8 +4,10 @@
 #include "testexplorerpanel.h"
 #include "testrunnerservice.h"
 
-#include "sdk/ihostservices.h"
 #include "sdk/ibuildsystem.h"
+#include "sdk/icommandservice.h"
+#include "core/idockmanager.h"
+#include "core/imenumanager.h"
 
 PluginInfo TestingPlugin::info() const
 {
@@ -18,40 +20,24 @@ PluginInfo TestingPlugin::info() const
     };
 }
 
-bool TestingPlugin::initialize(IHostServices *host)
+bool TestingPlugin::initializePlugin()
 {
-    m_host = host;
-
     m_discoverySvc = new TestDiscoveryService(this);
     m_panel        = new TestExplorerPanel(nullptr);
     m_panel->setDiscoveryService(m_discoverySvc);
 
     m_runnerSvc = new TestRunnerService(m_discoverySvc, this);
-    m_host->registerService(QStringLiteral("testRunner"), m_runnerSvc);
+    registerService(QStringLiteral("testRunner"), m_runnerSvc);
 
-    // Wire build directory from IBuildSystem service (if available)
-    auto *buildSys = host->service<IBuildSystem>(QStringLiteral("buildSystem"));
-    if (buildSys) {
-        const QString buildDir = buildSys->buildDirectory();
-        if (!buildDir.isEmpty()) {
-            m_discoverySvc->setBuildDirectory(buildDir);
-            m_discoverySvc->discoverTests();
-        }
+    wireBuildSystem();
+    registerCommands();
+    installMenusAndToolBar();
 
-        // Re-discover when build finishes (new tests may appear)
-        connect(buildSys, &IBuildSystem::buildFinished,
-                this, [this](bool success, int) {
-            if (success && !m_discoverySvc->buildDirectory().isEmpty())
-                m_discoverySvc->discoverTests();
-        });
-
-        // Re-discover when configure finishes (may change test list)
-        connect(buildSys, &IBuildSystem::configureFinished,
-                this, [this](bool success, const QString &) {
-            if (success && !m_discoverySvc->buildDirectory().isEmpty())
-                m_discoverySvc->discoverTests();
-        });
-    }
+    connect(m_discoverySvc, &TestDiscoveryService::discoveryFinished,
+            this, [this]() {
+        if (!m_discoverySvc->tests().isEmpty())
+            showPanel(QStringLiteral("TestExplorerDock"));
+    });
 
     return true;
 }
@@ -65,4 +51,72 @@ QWidget *TestingPlugin::createView(const QString &viewId, QWidget *parent)
     return nullptr;
 }
 
-#include "testingplugin.moc"
+void TestingPlugin::registerCommands()
+{
+    auto *cmds = commands();
+    if (!cmds)
+        return;
+
+    cmds->registerCommand(QStringLiteral("testing.discover"), tr("Discover Tests"), [this]() {
+        showPanel(QStringLiteral("TestExplorerDock"));
+        if (m_discoverySvc)
+            m_discoverySvc->discoverTests();
+    });
+
+    cmds->registerCommand(QStringLiteral("testing.runAll"), tr("Run All Tests"), [this]() {
+        showPanel(QStringLiteral("TestExplorerDock"));
+
+        if (!m_discoverySvc)
+            return;
+
+        if (m_discoverySvc->tests().isEmpty())
+            m_discoverySvc->discoverTests();
+        m_discoverySvc->runAllTests();
+    });
+}
+
+void TestingPlugin::installMenusAndToolBar()
+{
+    createToolBar(QStringLiteral("testing"), tr("Test"));
+    addToolBarCommands(QStringLiteral("testing"), {
+        {tr("Discover"), QStringLiteral("testing.discover")},
+        {tr("Run All"), QStringLiteral("testing.runAll")},
+    }, this);
+
+    addMenuCommands(IMenuManager::Test, {
+        {tr("&Discover Tests"), QStringLiteral("testing.discover")},
+        {tr("&Run All Tests"), QStringLiteral("testing.runAll")},
+    }, this);
+}
+
+void TestingPlugin::wireBuildSystem()
+{
+    auto *buildSys = service<IBuildSystem>(QStringLiteral("buildSystem"));
+    if (!buildSys)
+        return;
+
+    const QString buildDir = buildSys->buildDirectory();
+    if (!buildDir.isEmpty()) {
+        m_discoverySvc->setBuildDirectory(buildDir);
+        m_discoverySvc->discoverTests();
+    }
+
+    connect(buildSys, &IBuildSystem::buildFinished,
+            this, [this](bool success, int) {
+        if (success && !m_discoverySvc->buildDirectory().isEmpty())
+            m_discoverySvc->discoverTests();
+    });
+
+    connect(buildSys, &IBuildSystem::configureFinished,
+            this, [this, buildSys](bool success, const QString &) {
+        if (!success)
+            return;
+
+        const QString buildDir = buildSys->buildDirectory();
+        if (!buildDir.isEmpty())
+            m_discoverySvc->setBuildDirectory(buildDir);
+
+        if (!m_discoverySvc->buildDirectory().isEmpty())
+            m_discoverySvc->discoverTests();
+    });
+}

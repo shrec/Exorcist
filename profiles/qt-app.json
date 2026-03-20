@@ -9,13 +9,21 @@
         "org.exorcist.cpp-language",
         "org.exorcist.build",
         "org.exorcist.debug",
-        "org.exorcist.qt-tools"
+        "org.exorcist.qt-tools",
+        "org.exorcist.git",
+        "org.exorcist.terminal",
+        "org.exorcist.search"
     ],
     "optionalPlugins": [
         "org.exorcist.testing",
         "org.exorcist.github"
     ],
     "disabledPlugins": [],
+    "deferredPlugins": [
+        "org.exorcist.cpp-language",
+        "org.exorcist.build",
+        "org.exorcist.debug"
+    ],
 
     "detection": [
         { "type": "fileContent", "pattern": "CMakeLists.txt:find_package\\(Qt", "weight": 5 },
@@ -28,10 +36,15 @@
 
     "dockDefaults": [
         { "id": "ProjectDock", "visible": true },
+        { "id": "SearchDock", "visible": false },
+        { "id": "GitDock", "visible": false },
         { "id": "TerminalDock", "visible": true },
         { "id": "OutlineDock", "visible": true },
         { "id": "ProblemsDock", "visible": true },
-        { "id": "OutputDock", "visible": false }
+        { "id": "OutputDock", "visible": false },
+        { "id": "RunDock", "visible": false },
+        { "id": "DebugDock", "visible": false },
+        { "id": "TestExplorerDock", "visible": false }
     ],
 
     "settings": {

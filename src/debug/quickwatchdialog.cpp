@@ -1,6 +1,6 @@
 #include "quickwatchdialog.h"
 #include "watchtreemodel.h"
-#include "idebugadapter.h"
+#include "sdk/idebugadapter.h"
 
 #include <QHBoxLayout>
 #include <QHeaderView>

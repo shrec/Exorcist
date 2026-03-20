@@ -4,6 +4,8 @@
     "version": "1.0.0",
     "description": "Insert timestamps, separators, and file headers via commands.",
     "author": "Exorcist Team",
+    "license": "MIT",
+    "layer": "lua-jit",
     "entry": "main.lua",
     "permissions": [
         "commands",

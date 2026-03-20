@@ -23,6 +23,14 @@ Modes:
   python tools/query_graph.py tests                # Test case inventory
   python tools/query_graph.py connections           # Qt signal/slot connections
   python tools/query_graph.py targets              # CMake build targets
+  python tools/query_graph.py tags [target]        # Semantic/security/perf/audit tags
+  python tools/query_graph.py tagsearch <tag>      # Find entities by semantic tag or value
+  python tools/query_graph.py bottlenecks [n]      # Top AI bottleneck candidates (default 20)
+  python tools/query_graph.py slice <symbol>       # Symbol slice: signature + critical lines
+  python tools/query_graph.py callchain <func>     # Call graph: callers + callees tree
+  python tools/query_graph.py aitasks [type]       # AI task queue (all or by type)
+  python tools/query_graph.py duplicates           # Duplicate function body groups
+  python tools/query_graph.py patterns             # Optimization pattern library
   python tools/query_graph.py sql "<query>"        # Run arbitrary SQL
 """
 
@@ -31,6 +39,14 @@ import sys
 from pathlib import Path
 
 DB = Path(__file__).resolve().parent / 'codegraph.db'
+PROJECT_OWNED_FILTER = (
+    "f.path LIKE 'src/%' OR f.path LIKE 'plugins/%' OR f.path LIKE 'server/%' "
+    "OR f.path LIKE 'tests/%' OR f.path LIKE 'tools/%' OR f.path LIKE 'profiles/%' "
+    "OR f.path LIKE 'docs/%'"
+)
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
 def _table_exists(conn, name):
@@ -45,6 +61,13 @@ def get_conn():
         print(f"Error: {DB} not found. Run: python tools/build_codegraph.py")
         sys.exit(1)
     return sqlite3.connect(str(DB))
+
+
+def _semantic_search_clause(raw_tag):
+    if ':' in raw_tag:
+        tag, value = raw_tag.split(':', 1)
+        return "(st.tag = ? AND COALESCE(st.tag_value, '') = ?)", (tag, value)
+    return "(st.tag = ? OR COALESCE(st.tag_value, '') = ?)", (raw_tag, raw_tag)
 
 
 def cmd_features(conn):
@@ -206,6 +229,72 @@ def cmd_sql(conn, query):
         print(f"SQL error: {e}")
 
 
+def cmd_tags(conn, target=None):
+    if not _table_exists(conn, 'semantic_tags'):
+        print("Semantic tags not available. Rebuild with: python tools/build_codegraph.py")
+        return
+    if target:
+        is_file_like = '.' in target or '/' in target or '\\' in target
+        if is_file_like:
+            row = conn.execute(
+                "SELECT id, path FROM files WHERE path = ? OR path LIKE ?",
+                (target, f'%{target}%')
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT f.id, f.path FROM classes c JOIN files f ON c.file_id = f.id WHERE c.name = ?",
+                (target,)
+            ).fetchone()
+            if not row:
+                row = conn.execute(
+                    "SELECT id, path FROM files WHERE path LIKE ?",
+                    (f'%{target}%',)
+                ).fetchone()
+        if not row:
+            print(f"Not found: '{target}'")
+            return
+        rows = conn.execute(
+            "SELECT entity_type, entity_name, line_num, tag, tag_value, confidence "
+            "FROM semantic_tags WHERE file_id = ? "
+            "ORDER BY entity_type, tag, tag_value, entity_name",
+            (row[0],)
+        ).fetchall()
+        print(f"══ Semantic Tags: {row[1]} ══")
+    else:
+        rows = conn.execute(
+            "SELECT f.path, entity_type, entity_name, line_num, tag, tag_value, confidence "
+            "FROM semantic_tags st JOIN files f ON st.file_id = f.id "
+            "WHERE f.path NOT LIKE 'ReserchRepos/%' "
+            f"ORDER BY CASE WHEN {PROJECT_OWNED_FILTER} THEN 0 ELSE 1 END, "
+            "f.path, entity_type, tag, tag_value LIMIT 300"
+        ).fetchall()
+        print("══ Semantic Tags (first 300) ══")
+    for r in rows:
+        if target:
+            print(f"  [{r[0]:<8}] {r[3]}:{r[4] or '-':<22} conf={r[5]:>3}  {r[1]} @L{r[2]}")
+        else:
+            print(f"  {r[0]} :: [{r[1]}] {r[4]}:{r[5] or '-'}  {r[2]} @L{r[3]} conf={r[6]}")
+
+
+def cmd_tagsearch(conn, tag):
+    if not _table_exists(conn, 'semantic_tags'):
+        print("Semantic tags not available. Rebuild with: python tools/build_codegraph.py")
+        return
+    where_clause, params = _semantic_search_clause(tag)
+    rows = conn.execute(
+        "SELECT f.path, entity_type, entity_name, line_num, tag, tag_value, confidence "
+        "FROM semantic_tags st JOIN files f ON st.file_id = f.id "
+        f"WHERE {where_clause} "
+        "AND f.path NOT LIKE 'ReserchRepos/%' "
+        f"ORDER BY CASE WHEN {PROJECT_OWNED_FILTER} THEN 0 ELSE 1 END, "
+        "confidence DESC, f.path LIMIT 100",
+        params
+    ).fetchall()
+    print(f"══ Tag Search: {tag} ({len(rows)}) ══")
+    for r in rows:
+        print(f"  {r[0]} :: [{r[1]}] {r[4]}:{r[5] or '-'}  {r[2]} @L{r[3]} conf={r[6]}")
+
+
 def cmd_context(conn, target):
     """Full context for a file or class: summary + deps + rdeps + tests + functions."""
     is_file_like = '.' in target or '/' in target or '\\' in target
@@ -347,6 +436,18 @@ def cmd_context(conn, target):
             for s in svcs:
                 icon = '>>' if s[1] == 'register' else '<<'
                 print(f"    {icon} {s[0]} ({s[1]}, L{s[2]})")
+
+    if _table_exists(conn, 'semantic_tags'):
+        tags = conn.execute(
+            "SELECT entity_type, entity_name, line_num, tag, tag_value, confidence "
+            "FROM semantic_tags WHERE file_id = ? "
+            "ORDER BY entity_type, tag, tag_value, entity_name",
+            (file_id,)
+        ).fetchall()
+        if tags:
+            print(f"\n  ── Semantic Tags ({len(tags)}) ──")
+            for t in tags[:80]:
+                print(f"    [{t[0]:<8}] {t[3]}:{t[4] or '-':<22} conf={t[5]:>3}  {t[1]} @L{t[2]}")
 
 
 def cmd_search(conn, query):
@@ -524,6 +625,9 @@ def cmd_project_summary(conn):
     if _table_exists(conn, 'cmake_targets'):
         targets = conn.execute("SELECT COUNT(*) FROM cmake_targets").fetchone()[0]
         print(f"  CMake Targets:  {targets}")
+    if _table_exists(conn, 'semantic_tags'):
+        tag_count = conn.execute("SELECT COUNT(*) FROM semantic_tags").fetchone()[0]
+        print(f"  Semantic Tags:  {tag_count}")
 
     if _table_exists(conn, 'edges'):
         print(f"\n  Edge Types:")
@@ -628,6 +732,222 @@ def cmd_targets_query(conn):
         print(f"  [{r[1]:10s}] {r[0]:<30s} L{r[2]:<5d} {r[3]}")
 
 
+def cmd_bottlenecks(conn, n=20):
+    """Show top AI bottleneck candidates from analysis_scores."""
+    if not _table_exists(conn, 'analysis_scores'):
+        print("analysis_scores not available. Rebuild with: python tools/build_codegraph.py")
+        return
+    try:
+        limit = int(n)
+    except (TypeError, ValueError):
+        limit = 20
+
+    rows = conn.execute(
+        "SELECT symbol_name, file_path, hotness_score, complexity_score, "
+        "fanin_score, gpu_score, ct_risk_score, audit_gap_score, "
+        "overall_priority, reasons "
+        "FROM analysis_scores ORDER BY overall_priority DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    if not rows:
+        print("No analysis scores found — rebuild the graph first.")
+        return
+
+    print(f"\u2550\u2550 Top {limit} Bottleneck Candidates \u2550\u2550")
+    print(f"  {'Symbol':<40} {'Pri':>4} {'Hot':>4} {'GPU':>4} {'CT':>4} {'Gap':>4}  Reasons")
+    print(f"  {'\u2500'*40} {'\u2500'*4} {'\u2500'*4} {'\u2500'*4} {'\u2500'*4} {'\u2500'*4}  {'\u2500'*40}")
+    for r in rows:
+        sym   = r[0].split('::')[-1] if '::' in r[0] else r[0]
+        print(f"  {sym:<40} {r[8]:>4} {r[2]:>4} {r[5]:>4} {r[6]:>4} {r[7]:>4}  {(r[9] or '')[:40]}")
+    print(f"\n  Use: python tools/query_graph.py slice <symbol>  to get the code slice")
+
+
+def cmd_slice(conn, symbol):
+    """Show symbol slice: signature + critical lines (low-token context)."""
+    if not _table_exists(conn, 'symbol_slices'):
+        print("symbol_slices not available. Rebuild with: python tools/build_codegraph.py")
+        return
+
+    row = conn.execute(
+        "SELECT ss.symbol, ss.signature, ss.critical_lines, "
+        "ss.slice_token_estimate, ss.full_token_estimate, f.path "
+        "FROM symbol_slices ss JOIN files f ON ss.file_id = f.id "
+        "WHERE ss.symbol LIKE ? OR ss.symbol LIKE ? "
+        "ORDER BY length(ss.symbol) LIMIT 1",
+        (symbol, f'%::{symbol}')
+    ).fetchone()
+    if not row:
+        print(f"No slice found for '{symbol}'")
+        return
+
+    sym, sig, critical, slice_tok, full_tok, path = row
+    savings = round((1 - slice_tok / max(full_tok, 1)) * 100)
+    print(f"\u2550\u2550 Slice: {sym} \u2550\u2550")
+    print(f"  File:            {path}")
+    print(f"  Token estimate:  slice={slice_tok}  full={full_tok}  savings={savings}%")
+    print(f"\n  Signature:")
+    print(f"    {sig}")
+    if critical:
+        print(f"\n  Critical lines:")
+        for ln in critical.split('\n'):
+            print(f"    {ln}")
+
+    # Also show metadata flags if available
+    if _table_exists(conn, 'function_summary'):
+        meta = conn.execute(
+            "SELECT category, batchable, gpu_candidate, ct_sensitive, recently_modified "
+            "FROM function_summary WHERE qualified_symbol LIKE ? OR symbol LIKE ? LIMIT 1",
+            (f'%{symbol}%', f'%{symbol}%')
+        ).fetchone()
+        if meta:
+            flags = []
+            if meta[1]: flags.append('batchable')
+            if meta[2]: flags.append('gpu_candidate')
+            if meta[3]: flags.append('ct_sensitive')
+            if meta[4]: flags.append('recently_modified')
+            print(f"\n  Category: {meta[0]}  Flags: {', '.join(flags) or 'none'}")
+
+
+def cmd_callchain(conn, func):
+    """Show call graph: callers and callees for a function."""
+    if not _table_exists(conn, 'call_graph'):
+        print("call_graph not available. Rebuild with: python tools/build_codegraph.py")
+        return
+
+    callees = conn.execute(
+        "SELECT DISTINCT cg.callee_func, f.path "
+        "FROM call_graph cg LEFT JOIN files f ON cg.callee_file = f.id "
+        "WHERE cg.caller_func LIKE ? OR cg.caller_func LIKE ? "
+        "ORDER BY cg.callee_func",
+        (func, f'%::{func}')
+    ).fetchall()
+
+    callers = conn.execute(
+        "SELECT DISTINCT cg.caller_func, f.path "
+        "FROM call_graph cg LEFT JOIN files f ON cg.caller_file = f.id "
+        "WHERE cg.callee_func = ? OR cg.callee_func LIKE ? "
+        "ORDER BY cg.caller_func",
+        (func, f'%::{func}')
+    ).fetchall()
+
+    print(f"\u2550\u2550 Call Chain: {func} \u2550\u2550")
+    if callers:
+        print(f"\n  Called by ({len(callers)}):")
+        for f_name, path in callers:
+            print(f"    \u2190 {f_name:<45}  {path or '?'}")
+    else:
+        print(f"\n  Called by: (none found — may be an entrypoint)")
+
+    if callees:
+        print(f"\n  Calls ({len(callees)}):")
+        for f_name, path in callees:
+            print(f"    \u2192 {f_name:<45}  {path or '?'}")
+    else:
+        print(f"\n  Calls: (none found)")
+
+    # Show analysis score if available
+    if _table_exists(conn, 'analysis_scores'):
+        score = conn.execute(
+            "SELECT overall_priority, hotness_score, gpu_score, ct_risk_score, reasons "
+            "FROM analysis_scores WHERE symbol_name LIKE ? OR symbol_name LIKE ? LIMIT 1",
+            (func, f'%::{func}')
+        ).fetchone()
+        if score:
+            print(f"\n  Analysis: priority={score[0]}  hot={score[1]}  "
+                  f"gpu={score[2]}  ct_risk={score[3]}  [{score[4]}]")
+
+
+def cmd_aitasks(conn, task_type=None):
+    """Show AI task queue."""
+    if not _table_exists(conn, 'ai_tasks'):
+        print("ai_tasks not available. Rebuild with: python tools/build_codegraph.py")
+        return
+
+    if task_type:
+        rows = conn.execute(
+            "SELECT task_type, symbol_name, file_path, priority, status, prompt "
+            "FROM ai_tasks WHERE task_type = ? ORDER BY priority DESC",
+            (task_type,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT task_type, symbol_name, file_path, priority, status, prompt "
+            "FROM ai_tasks ORDER BY priority DESC"
+        ).fetchall()
+
+    if not rows:
+        print("No AI tasks found — rebuild the graph first.")
+        return
+
+    print(f"\u2550\u2550 AI Task Queue ({len(rows)}) \u2550\u2550")
+    _type_icons = {
+        'optimize': '[OPT]', 'gpu_candidate': '[GPU]',
+        'ct_review': '[CT!]', 'audit_expand': '[TST]',
+    }
+    for r in rows:
+        icon = _type_icons.get(r[0], '[???]')
+        sym = r[1].split('::')[-1] if '::' in r[1] else r[1]
+        print(f"  {icon} {sym:<40} pri={r[3]:>4}  [{r[4]}]")
+        print(f"       {r[5][:100]}")
+        print()
+
+    types = conn.execute(
+        "SELECT task_type, COUNT(*) FROM ai_tasks GROUP BY task_type"
+    ).fetchall()
+    print(f"  Types: " + '  '.join(f"{t}: {c}" for t, c in types))
+
+
+def cmd_duplicates(conn):
+    """Show duplicate function body groups."""
+    if not _table_exists(conn, 'function_index'):
+        print("function_index not available. Rebuild with: python tools/build_codegraph.py")
+        return
+
+    groups = conn.execute(
+        "SELECT DISTINCT duplicate_group FROM function_index "
+        "WHERE duplicate_group != '' ORDER BY duplicate_group"
+    ).fetchall()
+    if not groups:
+        print("No duplicate function bodies detected.")
+        return
+
+    print(f"\u2550\u2550 Duplicate Function Groups ({len(groups)}) \u2550\u2550")
+    for (group,) in groups:
+        members = conn.execute(
+            "SELECT fi.qualified_name, f.path, fi.line_count "
+            "FROM function_index fi JOIN files f ON fi.file_id = f.id "
+            "WHERE fi.duplicate_group = ? ORDER BY f.path",
+            (group,)
+        ).fetchall()
+        print(f"\n  Group: {group}")
+        for qn, path, lc in members:
+            print(f"    {qn:<50}  {lc:>4}L  {path}")
+
+
+def cmd_patterns(conn):
+    """Show optimization pattern library."""
+    if not _table_exists(conn, 'optimization_patterns'):
+        print("optimization_patterns not available. Rebuild with: python tools/build_codegraph.py")
+        return
+
+    rows = conn.execute(
+        "SELECT pattern_name, gain, risk, description, applicable_when, example_symbol "
+        "FROM optimization_patterns ORDER BY gain DESC, pattern_name"
+    ).fetchall()
+    if not rows:
+        print("No optimization patterns found.")
+        return
+
+    print(f"\u2550\u2550 Optimization Patterns ({len(rows)}) \u2550\u2550")
+    for name, gain, risk, desc, when, ex in rows:
+        print(f"\n  [{risk.upper():6s}] {name}")
+        print(f"    Gain : {gain}")
+        print(f"    Desc : {desc}")
+        print(f"    When : {when}")
+        if ex:
+            print(f"    Ex   : {ex}")
+
+
 def cmd_overview(conn):
     """Full overview."""
     cmd_features(conn)
@@ -697,6 +1017,22 @@ def main():
         cmd_connections_query(conn)
     elif args[0] == 'targets':
         cmd_targets_query(conn)
+    elif args[0] == 'tags':
+        cmd_tags(conn, ' '.join(args[1:]) if len(args) > 1 else None)
+    elif args[0] == 'tagsearch' and len(args) > 1:
+        cmd_tagsearch(conn, ' '.join(args[1:]))
+    elif args[0] == 'bottlenecks':
+        cmd_bottlenecks(conn, args[1] if len(args) > 1 else 20)
+    elif args[0] == 'slice' and len(args) > 1:
+        cmd_slice(conn, args[1])
+    elif args[0] == 'callchain' and len(args) > 1:
+        cmd_callchain(conn, args[1])
+    elif args[0] == 'aitasks':
+        cmd_aitasks(conn, args[1] if len(args) > 1 else None)
+    elif args[0] == 'duplicates':
+        cmd_duplicates(conn)
+    elif args[0] == 'patterns':
+        cmd_patterns(conn)
     elif args[0] == 'sql' and len(args) > 1:
         cmd_sql(conn, ' '.join(args[1:]))
     else:

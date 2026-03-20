@@ -11,6 +11,7 @@
 #include <QVBoxLayout>
 #include <QApplication>
 #include <QEvent>
+#include <QTimer>
 
 namespace exdock {
 
@@ -32,6 +33,11 @@ void DockToolBarManager::installAreas()
 
     // Track main window resize to reposition
     m_mainWindow->installEventFilter(this);
+
+    // Deferred first pass — fires after the event loop starts and the window
+    // has its real geometry (avoids zero-size areas when toolbars are created
+    // during plugin init before the first resize event).
+    QTimer::singleShot(0, this, &DockToolBarManager::repositionAreas);
 }
 
 void DockToolBarManager::repositionAreas()
@@ -99,8 +105,11 @@ DockToolBar *DockToolBarManager::createToolBar(const QString &id,
 
     bar->setLocked(m_allLocked);
 
+    // Add to the DockToolBarArea overlay (this also re-parents bar to the
+    // band container and calls bar->show()).
     m_areas[edge]->addToolBar(bar, band, position);
 
+    repositionAreas();
     emit toolBarCreated(bar);
     return bar;
 }
@@ -123,6 +132,7 @@ bool DockToolBarManager::removeToolBar(const QString &id)
     }
 
     m_toolBars.remove(id);
+    repositionAreas();
     emit toolBarRemoved(id);
     bar->deleteLater();
     return true;
@@ -263,8 +273,16 @@ void DockToolBarManager::restoreState(const QJsonObject &state)
 
 bool DockToolBarManager::eventFilter(QObject *watched, QEvent *event)
 {
-    if (watched == m_mainWindow && event->type() == QEvent::Resize) {
-        repositionAreas();
+    if (watched == m_mainWindow) {
+        const QEvent::Type t = event->type();
+        if (t == QEvent::Resize || t == QEvent::Show) {
+            repositionAreas();
+        } else if (t == QEvent::LayoutRequest) {
+            // Defer via singleShot to break potential re-entrancy:
+            // LayoutRequest can fire recursively when setGeometry() is
+            // called on child DockToolBarArea widgets inside repositionAreas().
+            QTimer::singleShot(0, this, &DockToolBarManager::repositionAreas);
+        }
     }
     return QObject::eventFilter(watched, event);
 }

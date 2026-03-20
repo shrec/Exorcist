@@ -37,7 +37,6 @@
 #include "tools/navigationtools.h"
 #include "tools/formatcodetool.h"
 #include "tools/refactortool.h"
-#include "tools/gitopstool.h"
 #include "tools/askusertool.h"
 #include "tools/editorcontexttool.h"
 #include "tools/changeimpacttool.h"
@@ -66,6 +65,8 @@
 #include "tools/treesitterquerytool.h"
 #include "tools/dashboardtools.h"
 #include "tools/dockertools.h"
+#include "tools/securitytools.h"
+#include "tools/transactiontool.h"
 #include "ui/agentuibus.h"
 #include "diagnosticsnotifier.h"
 #include "terminalsessionmanager.h"
@@ -154,8 +155,23 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
 
     m_toolRegistry->registerTool(std::make_unique<ReadFileTool>(m_fileSystem));
     m_toolRegistry->registerTool(std::make_unique<ListFilesTool>(m_fileSystem));
-    m_toolRegistry->registerTool(std::make_unique<WriteFileTool>(m_fileSystem));
-    m_toolRegistry->registerTool(std::make_unique<OverwriteFileTool>(m_fileSystem));
+
+    // ── Atomic transaction support wired into write tools ─────────────────
+    auto txStore = std::make_shared<TransactionStore>();
+    {
+        auto writeTool = std::make_unique<WriteFileTool>(m_fileSystem);
+        writeTool->setTransactionStore(txStore);
+        m_toolRegistry->registerTool(std::move(writeTool));
+    }
+    {
+        auto overwriteTool = std::make_unique<OverwriteFileTool>(m_fileSystem);
+        overwriteTool->setTransactionStore(txStore);
+        m_toolRegistry->registerTool(std::move(overwriteTool));
+    }
+    m_toolRegistry->registerTool(std::make_unique<BeginTransactionTool>(txStore));
+    m_toolRegistry->registerTool(std::make_unique<CommitTransactionTool>(txStore));
+    m_toolRegistry->registerTool(std::make_unique<RollbackTransactionTool>(txStore));
+
     m_toolRegistry->registerTool(std::make_unique<ApplyPatchTool>(m_fileSystem));
 
     // ── Undo file edits (snapshot rollback) ──────────────────────────────
@@ -311,12 +327,6 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
     if (m_callbacks.refactorer) {
         m_toolRegistry->registerTool(std::make_unique<RefactorTool>(
             m_callbacks.refactorer));
-    }
-
-    // ── Git operations tool ───────────────────────────────────────────────
-    if (m_callbacks.gitExecutor) {
-        m_toolRegistry->registerTool(std::make_unique<GitOpsTool>(
-            m_callbacks.gitExecutor));
     }
 
     // ── Ask user tool ─────────────────────────────────────────────────────
@@ -513,6 +523,20 @@ void AgentPlatformBootstrap::registerCoreTools(const QString &workspaceRoot)
         m_toolRegistry->registerTool(std::make_unique<CompleteDashboardMissionTool>(m_uiBus));
     }
 
+    // ── Secure key storage tools ──────────────────────────────────────────
+    if (m_callbacks.secureKeyStorer && m_callbacks.secureKeyGetter) {
+        m_toolRegistry->registerTool(std::make_unique<StoreSecretTool>(
+            m_callbacks.secureKeyStorer));
+        m_toolRegistry->registerTool(std::make_unique<GetSecretTool>(
+            m_callbacks.secureKeyGetter));
+        m_toolRegistry->registerTool(std::make_unique<ListSecretsTool>(
+            m_callbacks.secureKeyLister));
+        if (m_callbacks.secureKeyDeleter) {
+            m_toolRegistry->registerTool(std::make_unique<DeleteSecretTool>(
+                m_callbacks.secureKeyDeleter));
+        }
+    }
+
     setWorkspaceRoot(workspaceRoot);
 }
 
@@ -523,29 +547,26 @@ void AgentPlatformBootstrap::registerPluginProviders(PluginManager *pluginManage
     }
 
     for (QObject *obj : pluginManager->pluginObjects()) {
-        auto *agentPlugin = qobject_cast<IAgentPlugin *>(obj);
-        if (!agentPlugin) {
-            continue;
+        // ── AI provider plugins (IAgentPlugin) ────────────────────────
+        if (auto *agentPlugin = qobject_cast<IAgentPlugin *>(obj)) {
+            const auto providers = agentPlugin->createProviders(m_orchestrator);
+            for (IAgentProvider *provider : providers) {
+                m_orchestrator->registerProvider(provider);
+                if (m_providerRegistry)
+                    m_providerRegistry->registerProvider(provider);
+            }
+
+            if (auto *importer = qobject_cast<IChatSessionImporter *>(obj))
+                m_sessionImporters.append(importer);
+
+            if (auto *auth = qobject_cast<IProviderAuthIntegration *>(obj))
+                m_authIntegrations.append(auth);
+
+            if (auto *settings = qobject_cast<IAgentSettingsPageProvider *>(obj))
+                m_settingsPages.append(settings);
         }
 
-        const auto providers = agentPlugin->createProviders(m_orchestrator);
-        for (IAgentProvider *provider : providers) {
-            m_orchestrator->registerProvider(provider);
-            if (m_providerRegistry)
-                m_providerRegistry->registerProvider(provider);
-        }
-
-        // ── Discover plugin extension interfaces ──────────────────────
-        if (auto *importer = qobject_cast<IChatSessionImporter *>(obj))
-            m_sessionImporters.append(importer);
-
-        if (auto *auth = qobject_cast<IProviderAuthIntegration *>(obj))
-            m_authIntegrations.append(auth);
-
-        if (auto *settings = qobject_cast<IAgentSettingsPageProvider *>(obj))
-            m_settingsPages.append(settings);
-
-        // ── Discover tool plugins ───────────────────────────────────
+        // ── Agent tool plugins (IAgentToolPlugin) — any plugin may implement ──
         if (auto *toolPlugin = qobject_cast<IAgentToolPlugin *>(obj)) {
             auto tools = toolPlugin->createTools();
             for (auto &tool : tools) {

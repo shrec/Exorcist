@@ -5,6 +5,8 @@
     "description": "Bring Your Own Key — connect any OpenAI-compatible endpoint as an AI provider.",
     "author": "Exorcist",
     "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "ai",
     "activationEvents": ["*"],
     "requestedPermissions": ["NetworkAccess"],
     "contributions": {

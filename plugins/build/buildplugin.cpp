@@ -10,14 +10,14 @@
 #include "toolchainmanager.h"
 
 #include "sdk/idebugadapter.h"
-#include "sdk/ihostservices.h"
 #include "sdk/ilaunchservice.h"
-#include "sdk/inotificationservice.h"
-#include "sdk/iworkspaceservice.h"
+#include "sdk/icommandservice.h"
 #include "core/idockmanager.h"
+#include "core/imenumanager.h"
 #include "core/itoolbarmanager.h"
 #include "sdk/ibuildsystem.h"
 
+#include <QAction>
 #include <QFileInfo>
 
 // ── LaunchServiceAdapter ─────────────────────────────────────────────────────
@@ -97,10 +97,8 @@ PluginInfo BuildPlugin::info() const
     };
 }
 
-bool BuildPlugin::initialize(IHostServices *host)
+bool BuildPlugin::initializePlugin()
 {
-    m_host = host;
-
     // Create build subsystem objects
     m_toolchainMgr = new ToolchainManager(this);
     m_kitMgr       = new KitManager(m_toolchainMgr, this);
@@ -124,53 +122,50 @@ bool BuildPlugin::initialize(IHostServices *host)
 
     // Create and register IBuildSystem service
     m_buildSvc = new BuildSystemService(m_cmake, this);
-    m_host->registerService(QStringLiteral("buildSystem"), m_buildSvc);
+    registerService(QStringLiteral("buildSystem"), m_buildSvc);
 
     // Register ILaunchService
     auto *launchSvc = new LaunchServiceAdapter(m_launcher, this);
-    m_host->registerService(QStringLiteral("launchService"), launchSvc);
+    registerService(QStringLiteral("launchService"), launchSvc);
 
     // Register kit manager
-    m_host->registerService(QStringLiteral("kitManager"), m_kitMgr);
+    registerService(QStringLiteral("kitManager"), m_kitMgr);
 
     // ── Add toolbar via IToolBarManager (plugin-owned, not MainWindow) ──
-    if (auto *tbMgr = m_host->toolbars()) {
-        tbMgr->createToolBar(QStringLiteral("build"), tr("Build"));
-        tbMgr->addWidget(QStringLiteral("build"), m_toolbar);
-    }
+    createToolBar(QStringLiteral("build"), tr("Build"));
+    addToolBarWidget(QStringLiteral("build"), m_toolbar);
+
+    registerCommands();
+    installMenus();
 
     // ── Auto-show docks ──
     // Plugin owns its own UI lifecycle: docks are shown by the plugin
     // itself, never by MainWindow. This works regardless of trigger source
     // (toolbar button, Run menu, command palette, keybinding).
-    if (auto *dockMgr = m_host->docks()) {
-        // Show Output dock when plugin activates for a build workspace
-        dockMgr->showPanel(QStringLiteral("OutputDock"));
+    // Show Output dock when plugin activates for a build workspace
+    showPanel(QStringLiteral("OutputDock"));
 
-        // Show Output dock when any build/configure output arrives
-        connect(m_buildSvc, &IBuildSystem::buildOutput, this, [dockMgr](const QString &, bool) {
-            dockMgr->showPanel(QStringLiteral("OutputDock"));
-        });
+    // Show Output dock when any build/configure output arrives
+    connect(m_buildSvc, &IBuildSystem::buildOutput, this, [this](const QString &, bool) {
+        showPanel(QStringLiteral("OutputDock"));
+    });
 
-        // Show Run dock when a non-debug process starts
-        connect(m_launcher, &DebugLaunchController::processStarted,
-                this, [dockMgr]() {
-            dockMgr->showPanel(QStringLiteral("RunDock"));
-        });
-    }
+    // Show Run dock when a non-debug process starts
+    connect(m_launcher, &DebugLaunchController::processStarted,
+            this, [this]() {
+        showPanel(QStringLiteral("RunDock"));
+    });
 
     // Register OutputPanel for ProblemsPanel integration
-    m_host->registerService(QStringLiteral("outputPanel"), m_output);
+    registerService(QStringLiteral("outputPanel"), m_output);
 
     // Register RunLaunchPanel for workspace change notifications
-    m_host->registerService(QStringLiteral("runPanel"), m_runPanel);
+    registerService(QStringLiteral("runPanel"), m_runPanel);
 
     // Set working directory from workspace
-    if (m_host->workspace()) {
-        const QString root = m_host->workspace()->rootPath();
-        if (!root.isEmpty())
-            setWorkingDir(root);
-    }
+    const QString root = workspaceRoot();
+    if (!root.isEmpty())
+        setWorkingDir(root);
 
     // Auto-detect kits (async)
     m_kitMgr->detectKits();
@@ -178,7 +173,7 @@ bool BuildPlugin::initialize(IHostServices *host)
     return true;
 }
 
-void BuildPlugin::shutdown()
+void BuildPlugin::shutdownPlugin()
 {
     // Views are owned by dock manager (parented away from us) — nothing to do.
 }
@@ -198,10 +193,94 @@ QWidget *BuildPlugin::createView(const QString &viewId, QWidget *parent)
 
 // ── Internal ─────────────────────────────────────────────────────────────────
 
+void BuildPlugin::registerCommands()
+{
+    auto *cmds = commands();
+    if (!cmds)
+        return;
+
+    cmds->registerCommand(QStringLiteral("build.configure"), tr("Configure"), [this]() {
+        if (m_cmake)
+            m_cmake->configure();
+    });
+
+    cmds->registerCommand(QStringLiteral("build.build"), tr("Build"), [this]() {
+        if (m_cmake)
+            m_cmake->build();
+    });
+
+    cmds->registerCommand(QStringLiteral("build.clean"), tr("Clean"), [this]() {
+        if (m_cmake)
+            m_cmake->clean();
+    });
+
+    cmds->registerCommand(QStringLiteral("build.run"), tr("Run Without Debugging"), [this]() {
+        const QString exe = m_toolbar ? m_toolbar->selectedTarget() : QString();
+        if (exe.isEmpty())
+            return;
+
+        DebugLaunchConfig cfg;
+        cfg.executable = exe;
+        cfg.workingDir = m_workingDir;
+        m_launcher->startWithoutDebugging(cfg);
+    });
+
+    cmds->registerCommand(QStringLiteral("build.debug"), tr("Start Debugging"), [this]() {
+        if (m_debugAdapter && m_debugAdapter->isRunning()) {
+            m_debugAdapter->continueExecution();
+            return;
+        }
+
+        const QString exe = m_toolbar ? m_toolbar->selectedTarget() : QString();
+        if (exe.isEmpty())
+            return;
+
+        DebugLaunchConfig cfg;
+        cfg.executable = exe;
+        cfg.workingDir = m_workingDir;
+        m_launcher->startDebugging(cfg);
+    });
+
+    cmds->registerCommand(QStringLiteral("build.stop"), tr("Stop"), [this]() {
+        if (m_launcher)
+            m_launcher->stopDebugging();
+    });
+}
+
+void BuildPlugin::installMenus()
+{
+    auto *menuMgr = menus();
+    if (!menuMgr)
+        return;
+
+    addMenuCommand(IMenuManager::Build, tr("&Configure"),
+                   QStringLiteral("build.configure"), this,
+                   QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C));
+    addMenuCommand(IMenuManager::Build, tr("&Build"),
+                   QStringLiteral("build.build"), this,
+                   QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B));
+    addMenuCommand(IMenuManager::Build, tr("C&lean"),
+                   QStringLiteral("build.clean"), this);
+
+    addMenuSeparator(IMenuManager::Build);
+
+    addMenuCommand(IMenuManager::Debug, tr("Start &Debugging"),
+                   QStringLiteral("build.debug"), this,
+                   QKeySequence(Qt::Key_F5));
+    addMenuCommand(IMenuManager::Debug, tr("Run &Without Debugging"),
+                   QStringLiteral("build.run"), this,
+                   QKeySequence(Qt::CTRL | Qt::Key_F5));
+
+    addMenuSeparator(IMenuManager::Debug);
+
+    addMenuCommand(IMenuManager::Debug, tr("&Stop"),
+                   QStringLiteral("build.stop"), this,
+                   QKeySequence(Qt::SHIFT | Qt::Key_F5));
+}
+
 void BuildPlugin::wireDebugAdapter()
 {
-    if (!m_host) return;
-    auto *adapter = qobject_cast<IDebugAdapter *>(m_host->queryService(QStringLiteral("debugAdapter")));
+    auto *adapter = qobject_cast<IDebugAdapter *>(queryService(QStringLiteral("debugAdapter")));
     if (!adapter) return;
 
     m_debugAdapter = adapter;
@@ -267,8 +346,7 @@ void BuildPlugin::wireConnections()
     // ── Launch errors → notification ─────────────────────────────────────
     connect(m_launcher, &DebugLaunchController::launchError,
             this, [this](const QString &msg) {
-        if (m_host && m_host->notifications())
-            m_host->notifications()->info(tr("Launch error: %1").arg(msg));
+        showInfo(tr("Launch error: %1").arg(msg));
     });
 }
 

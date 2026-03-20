@@ -29,10 +29,18 @@ public:
         File,
         Edit,
         View,
+        Git,
+        Project,
         Selection,
+        Build,
+        Debug,
+        Test,
+        Analyze,
         Run,
         Terminal,
         Tools,
+        Extensions,
+        Window,
         Help,
         Custom     ///< Plugin-defined top-level menu
     };

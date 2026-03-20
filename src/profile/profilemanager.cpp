@@ -10,6 +10,62 @@
 #include <QRegularExpression>
 #include <QSettings>
 
+namespace {
+
+bool workspaceHasFileMatch(const QString &workspacePath, const QString &pattern)
+{
+    const QDir root(workspacePath);
+    const QStringList directMatches = root.entryList({pattern}, QDir::Files | QDir::Dirs);
+    if (!directMatches.isEmpty())
+        return true;
+
+    QDirIterator it(workspacePath,
+                    {pattern},
+                    QDir::Files | QDir::Dirs | QDir::NoSymLinks,
+                    QDirIterator::Subdirectories);
+    return it.hasNext();
+}
+
+bool workspaceHasDirectory(const QString &workspacePath, const QString &pattern)
+{
+    const QDir root(workspacePath);
+    if (root.exists(pattern))
+        return true;
+
+    QDirIterator it(workspacePath,
+                    {pattern},
+                    QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks,
+                    QDirIterator::Subdirectories);
+    return it.hasNext();
+}
+
+bool workspaceFileContentMatches(const QString &workspacePath,
+                                 const QString &filePattern,
+                                 const QString &regex)
+{
+    const QRegularExpression re(regex);
+    if (!re.isValid())
+        return false;
+
+    QDirIterator it(workspacePath,
+                    {filePattern},
+                    QDir::Files | QDir::NoSymLinks,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        QFile f(it.next());
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+            continue;
+
+        const QString content = QString::fromUtf8(f.readAll());
+        if (re.match(content).hasMatch())
+            return true;
+    }
+
+    return false;
+}
+
+}
+
 ProfileManager::ProfileManager(PluginManager *pluginMgr, QObject *parent)
     : QObject(parent)
     , m_pluginMgr(pluginMgr)
@@ -74,11 +130,14 @@ bool ProfileManager::activateProfile(const QString &profileId)
             m_pluginMgr->setPluginDisabled(pluginId, false);
     }
 
+    if (m_pluginMgr) {
+        for (const QString &pluginId : profile.deferredPlugins)
+            m_pluginMgr->activateByPluginId(pluginId);
+    }
+
     // Activate plugins by workspace detection events
     if (m_pluginMgr) {
-        for (const QString &pluginId : profile.requiredPlugins)
-            m_pluginMgr->activateByEvent(
-                QStringLiteral("onProfile:") + profileId);
+        m_pluginMgr->activateByEvent(QStringLiteral("onProfile:") + profileId);
     }
 
     // Persist active profile
@@ -166,37 +225,27 @@ int ProfileManager::scoreWorkspace(const ProfileManifest &profile,
                                    const QString &workspacePath) const
 {
     int totalScore = 0;
-    const QDir root(workspacePath);
 
     for (const auto &rule : profile.detectionRules) {
         switch (rule.type) {
         case ProfileDetectionRule::FileExists: {
-            // Glob match against root directory files
-            const QStringList matches = root.entryList(
-                {rule.pattern}, QDir::Files | QDir::Dirs);
-            if (!matches.isEmpty())
+            if (workspaceHasFileMatch(workspacePath, rule.pattern))
                 totalScore += rule.weight;
             break;
         }
         case ProfileDetectionRule::DirectoryExists: {
-            if (root.exists(rule.pattern))
+            if (workspaceHasDirectory(workspacePath, rule.pattern))
                 totalScore += rule.weight;
             break;
         }
         case ProfileDetectionRule::FileContent: {
-            // pattern = "filename:regex" — check first line of file
+            // pattern = "filename:regex" — recursively scan matching files
             const int colonIdx = rule.pattern.indexOf(QLatin1Char(':'));
             if (colonIdx < 0)
                 break;
             const QString fileName = rule.pattern.left(colonIdx);
             const QString regex = rule.pattern.mid(colonIdx + 1);
-            const QString filePath = root.filePath(fileName);
-            QFile f(filePath);
-            if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
-                break;
-            const QString firstLine = QString::fromUtf8(f.readLine(4096));
-            const QRegularExpression re(regex);
-            if (re.match(firstLine).hasMatch())
+            if (workspaceFileContentMatches(workspacePath, fileName, regex))
                 totalScore += rule.weight;
             break;
         }

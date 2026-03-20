@@ -18,23 +18,35 @@ ProblemsPanel::ProblemsPanel(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(2);
 
-    // Toolbar
-    auto *toolbar = new QHBoxLayout;
-    toolbar->setContentsMargins(4, 2, 4, 2);
+    // VS2022 dark toolbar background
+    auto *toolbarWidget = new QWidget;
+    toolbarWidget->setFixedHeight(30);
+    toolbarWidget->setStyleSheet(QStringLiteral(
+        "QWidget { background: #2d2d30; }"
+        "QComboBox { background: #3f3f46; color: #d4d4d4; border: 1px solid #555558;"
+        "  padding: 1px 6px; font-size: 12px; }"
+        "QComboBox::drop-down { border: none; width: 16px; }"
+        "QComboBox QAbstractItemView { background: #252526; color: #d4d4d4;"
+        "  selection-background-color: #094771; border: 1px solid #555558; }"
+        "QLabel { color: #9d9d9d; font-size: 12px; background: transparent; }"
+    ));
+    auto *toolbarInner = new QHBoxLayout(toolbarWidget);
+    toolbarInner->setContentsMargins(6, 2, 6, 2);
+    toolbarInner->setSpacing(6);
 
     m_filterCombo = new QComboBox;
     m_filterCombo->addItem(tr("All"),      -1);
     m_filterCombo->addItem(tr("Errors"),    static_cast<int>(ProblemEntry::Error));
     m_filterCombo->addItem(tr("Warnings"),  static_cast<int>(ProblemEntry::Warning));
     m_filterCombo->addItem(tr("Info"),      static_cast<int>(ProblemEntry::Info));
-    toolbar->addWidget(m_filterCombo);
-
-    toolbar->addStretch();
+    m_filterCombo->setFixedWidth(90);
+    toolbarInner->addWidget(m_filterCombo);
+    toolbarInner->addStretch();
 
     m_countLabel = new QLabel;
-    toolbar->addWidget(m_countLabel);
+    toolbarInner->addWidget(m_countLabel);
 
-    layout->addLayout(toolbar);
+    layout->addWidget(toolbarWidget);
 
     // Tree
     m_tree = new QTreeWidget;
@@ -45,8 +57,36 @@ ProblemsPanel::ProblemsPanel(QWidget *parent)
     m_tree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_tree->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     m_tree->header()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
-    m_tree->setAlternatingRowColors(true);
     m_tree->setRootIsDecorated(false);
+    m_tree->setUniformRowHeights(true);
+    m_tree->setStyleSheet(QStringLiteral(
+        "QTreeWidget {"
+        "  background: #1e1e1e;"
+        "  color: #d4d4d4;"
+        "  border: none;"
+        "  font-size: 12px;"
+        "}"
+        "QTreeWidget::item { padding: 2px 0; border: none; }"
+        "QTreeWidget::item:alternate { background: #252526; }"
+        "QTreeWidget::item:hover { background: #2a2d2e; }"
+        "QTreeWidget::item:selected {"
+        "  background: #094771; color: #ffffff;"
+        "}"
+        "QHeaderView::section {"
+        "  background: #252526;"
+        "  color: #858585;"
+        "  border: none;"
+        "  border-right: 1px solid #3e3e42;"
+        "  border-bottom: 1px solid #3e3e42;"
+        "  padding: 3px 6px;"
+        "  font-size: 11px;"
+        "}"
+        "QScrollBar:vertical { background: #1e1e1e; width: 10px; border: none; }"
+        "QScrollBar::handle:vertical { background: #424242; min-height: 20px; border-radius: 5px; }"
+        "QScrollBar::handle:vertical:hover { background: #686868; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+    ));
+    m_tree->setAlternatingRowColors(true);
     layout->addWidget(m_tree);
 
     connect(m_filterCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -190,11 +230,11 @@ void ProblemsPanel::rebuildTree()
     m_countLabel->setText(tr("%1 errors, %2 warnings").arg(errors).arg(warnings));
 
     if (errors > 0)
-        m_countLabel->setStyleSheet(QStringLiteral("color: #e74c3c; font-weight: bold;"));
+        m_countLabel->setStyleSheet(QStringLiteral("color: #f14c4c; font-weight: bold;"));
     else if (warnings > 0)
-        m_countLabel->setStyleSheet(QStringLiteral("color: #f39c12; font-weight: bold;"));
+        m_countLabel->setStyleSheet(QStringLiteral("color: #e2c08d; font-weight: bold;"));
     else
-        m_countLabel->setStyleSheet(QStringLiteral("color: #2ecc71;"));
+        m_countLabel->setStyleSheet(QStringLiteral("color: #73c991;"));
 }
 
 QIcon ProblemsPanel::severityIcon(ProblemEntry::Severity sev) const

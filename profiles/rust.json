@@ -9,10 +9,18 @@
         "org.exorcist.rust-language",
         "org.exorcist.build",
         "org.exorcist.debug",
-        "org.exorcist.testing"
+        "org.exorcist.testing",
+        "org.exorcist.git",
+        "org.exorcist.terminal",
+        "org.exorcist.search"
     ],
     "optionalPlugins": [],
     "disabledPlugins": [],
+    "deferredPlugins": [
+        "org.exorcist.build",
+        "org.exorcist.debug",
+        "org.exorcist.testing"
+    ],
 
     "detection": [
         { "type": "fileExists", "pattern": "Cargo.toml", "weight": 5 },
@@ -23,9 +31,14 @@
 
     "dockDefaults": [
         { "id": "ProjectDock", "visible": true },
+        { "id": "SearchDock", "visible": false },
+        { "id": "GitDock", "visible": false },
         { "id": "TerminalDock", "visible": true },
         { "id": "ProblemsDock", "visible": true },
-        { "id": "OutputDock", "visible": false }
+        { "id": "OutputDock", "visible": false },
+        { "id": "RunDock", "visible": false },
+        { "id": "DebugDock", "visible": false },
+        { "id": "TestExplorerDock", "visible": true }
     ],
 
     "settings": {

@@ -3,6 +3,9 @@
     "name":        "Debug",
     "version":     "1.0.0",
     "description": "GDB/MI debug adapter, debug panel, watch tree, quick watch dialog",
+    "author":      "Exorcist",
+    "license":     "MIT",
+    "layer":       "cpp-sdk",
     "category":    "core",
     "activationEvents": [
         "workspaceContains:CMakeLists.txt",
@@ -18,12 +21,12 @@
             }
         ],
         "commands": [
-            { "id": "debug.launch",    "title": "Launch Debugger" },
-            { "id": "debug.continue",  "title": "Continue Execution" },
-            { "id": "debug.stepOver",  "title": "Step Over" },
-            { "id": "debug.stepInto",  "title": "Step Into" },
-            { "id": "debug.stepOut",   "title": "Step Out" },
-            { "id": "debug.terminate", "title": "Terminate Debug Session" }
+            { "id": "debug.launch",    "title": "Launch Debugger", "category": "Debug" },
+            { "id": "debug.continue",  "title": "Continue Execution", "category": "Debug" },
+            { "id": "debug.stepOver",  "title": "Step Over", "category": "Debug" },
+            { "id": "debug.stepInto",  "title": "Step Into", "category": "Debug" },
+            { "id": "debug.stepOut",   "title": "Step Out", "category": "Debug" },
+            { "id": "debug.terminate", "title": "Terminate Debug Session", "category": "Debug" }
         ]
     }
 }

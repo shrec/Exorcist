@@ -7,7 +7,17 @@
     "license": "MIT",
     "layer": "cpp-sdk",
     "activationEvents": [
-        "onView:RemoteDock"
+        "onProfile:embedded-linux",
+        "workspaceContains:buildroot",
+        "workspaceContains:yocto",
+        "workspaceContains:rootfs",
+        "workspaceContains:bblayers.conf",
+        "workspaceContains:local.conf",
+        "workspaceContains:*.bb",
+        "workspaceContains:*.bbappend",
+        "onView:RemoteDock",
+        "onCommand:remote.showExplorer",
+        "onCommand:remote.connect"
     ],
     "contributions": {
         "views": [
@@ -20,6 +30,11 @@
             }
         ],
         "commands": [
+            {
+                "id": "remote.showExplorer",
+                "title": "Show Remote Explorer",
+                "category": "Remote"
+            },
             {
                 "id": "remote.connect",
                 "title": "Connect to Remote Host",

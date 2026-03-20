@@ -5,6 +5,8 @@
     "description": "OpenAI Codex / GPT AI assistant — chat and agent support via OpenAI API.",
     "author": "Exorcist",
     "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "ai",
     "activationEvents": ["*"],
     "requestedPermissions": ["NetworkAccess"],
     "contributions": {

@@ -23,4 +23,10 @@ public:
 
     /// Open a new empty terminal tab.
     virtual void openTerminal() = 0;
+
+    /// Get the currently selected text from the active terminal view.
+    virtual QString selectedText() const = 0;
+
+    /// Set the working directory for the active terminal tab.
+    virtual void setWorkingDirectory(const QString &dir) = 0;
 };

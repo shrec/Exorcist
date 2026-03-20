@@ -29,6 +29,23 @@ SearchPanel::SearchPanel(SearchService *service, QWidget *parent)
       m_results(new QTreeWidget(this)),
       m_statusLabel(new QLabel(this))
 {
+    // VS2022 dark theme
+    setStyleSheet(QStringLiteral(
+        "SearchPanel { background: #1e1e1e; }"
+        "QLineEdit { background: #3c3c3c; color: #d4d4d4; border: 1px solid #555558;"
+        "  padding: 3px 6px; font-size: 12px; }"
+        "QLineEdit:focus { border-color: #007acc; }"
+        "QCheckBox { color: #d4d4d4; font-size: 12px; spacing: 4px; }"
+        "QCheckBox::indicator { width: 14px; height: 14px;"
+        "  background: #3c3c3c; border: 1px solid #555558; }"
+        "QCheckBox::indicator:checked { background: #007acc; border-color: #007acc; }"
+        "QPushButton { color: #d4d4d4; background: #3c3c3c; border: 1px solid #555558;"
+        "  padding: 3px 12px; font-size: 12px; }"
+        "QPushButton:hover { background: #3e3e42; border-color: #007acc; }"
+        "QPushButton:pressed { background: #094771; }"
+        "QLabel { color: #858585; font-size: 11px; background: transparent; }"
+    ));
+
     // ── Search input row ──────────────────────────────────────────────────
     m_input->setPlaceholderText(tr("Search pattern..."));
     m_input->setClearButtonEnabled(true);
@@ -62,6 +79,20 @@ SearchPanel::SearchPanel(SearchService *service, QWidget *parent)
     m_results->setRootIsDecorated(true);
     m_results->setUniformRowHeights(true);
     m_results->setAlternatingRowColors(true);
+    m_results->setStyleSheet(QStringLiteral(
+        "QTreeWidget { background: #1e1e1e; color: #d4d4d4; border: none; font-size: 12px; }"
+        "QTreeWidget::item { padding: 2px 0; border: none; }"
+        "QTreeWidget::item:alternate { background: #252526; }"
+        "QTreeWidget::item:hover { background: #2a2d2e; }"
+        "QTreeWidget::item:selected { background: #094771; color: #ffffff; }"
+        "QHeaderView::section { background: #252526; color: #858585; border: none;"
+        "  border-right: 1px solid #3e3e42; border-bottom: 1px solid #3e3e42;"
+        "  padding: 3px 6px; font-size: 11px; }"
+        "QScrollBar:vertical { background: #1e1e1e; width: 10px; border: none; }"
+        "QScrollBar::handle:vertical { background: #424242; min-height: 20px; border-radius: 5px; }"
+        "QScrollBar::handle:vertical:hover { background: #686868; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+    ));
 
     // ── Status bar ────────────────────────────────────────────────────────
     m_statusLabel->setText(tr("Ready"));

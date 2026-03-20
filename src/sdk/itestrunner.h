@@ -18,6 +18,7 @@ struct TestItem
     int     index = -1;
     QString command;
     QStringList args;
+    QString workingDirectory;
     enum Status { Unknown, Running, Passed, Failed, Skipped };
     Status  status = Unknown;
     QString output;

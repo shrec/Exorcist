@@ -67,6 +67,16 @@ public:
                        const QString &newName);
     void requestDocumentSymbols(const QString &uri);
 
+    // Request code actions (quick-fixes, refactors) for a range in a document.
+    // diagnostics: the diagnostics covering the range (may be empty for refactor).
+    void requestCodeAction(const QString &uri,
+                           int startLine, int startChar,
+                           int endLine,   int endChar,
+                           const QJsonArray &diagnostics = {});
+
+    // Search workspace symbols by query string (empty → all symbols).
+    void requestWorkspaceSymbols(const QString &query);
+
     // ── Helpers ───────────────────────────────────────────────────────────
     // Convert a local file path to a LSP URI: file:///C:/...
     static QString pathToUri(const QString &path);
@@ -89,6 +99,9 @@ signals:
     void referencesResult(const QString &uri, const QJsonArray &locations);
     void renameResult(const QString &uri, const QJsonObject &workspaceEdit);
     void documentSymbolsResult(const QString &uri, const QJsonArray &symbols);
+    void codeActionResult(const QString &uri, int line, int character,
+                          const QJsonArray &actions);
+    void workspaceSymbolsResult(const QJsonArray &symbols);
 
     // Push notifications from the server (no request needed)
     void diagnosticsPublished(const QString &uri, const QJsonArray &diagnostics);

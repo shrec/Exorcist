@@ -12,9 +12,23 @@ ReferencesPanel::ReferencesPanel(QWidget *parent)
       m_header(new QLabel(tr("References"), this)),
       m_list(new QListWidget(this))
 {
+    m_header->setStyleSheet(QStringLiteral(
+        "QLabel { color: #858585; font-size: 11px; padding: 4px 4px 2px 4px; }"));
+
+    m_list->setStyleSheet(QStringLiteral(
+        "QListWidget { background: #1e1e1e; color: #d4d4d4; border: none; font-size: 12px; }"
+        "QListWidget::item { padding: 3px 6px; border: none; }"
+        "QListWidget::item:hover { background: #2a2d2e; }"
+        "QListWidget::item:selected { background: #094771; color: #ffffff; }"
+        "QScrollBar:vertical { background: #1e1e1e; width: 10px; border: none; }"
+        "QScrollBar::handle:vertical { background: #424242; min-height: 20px; border-radius: 5px; }"
+        "QScrollBar::handle:vertical:hover { background: #686868; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+    ));
+
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(4, 4, 4, 4);
-    layout->setSpacing(2);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
     layout->addWidget(m_header);
     layout->addWidget(m_list, 1);
 

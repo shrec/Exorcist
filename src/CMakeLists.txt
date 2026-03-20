@@ -44,20 +44,6 @@ add_executable(exorcist WIN32
     editor/textbuffer.h
     editor/piecetablebuffer.cpp
     editor/piecetablebuffer.h
-    search/searchquery.h
-    search/searchmatch.h
-    search/searchindex.cpp
-    search/searchindex.h
-    search/searchpanel.cpp
-    search/searchpanel.h
-    search/searchworker.cpp
-    search/searchworker.h
-    search/searchservice.cpp
-    search/searchservice.h
-    search/workspaceindexer.cpp
-    search/workspaceindexer.h
-    search/symbolindex.cpp
-    search/symbolindex.h
     codegraph/codegraphtypes.h
     codegraph/codegraphdb.h
     codegraph/codegraphdb.cpp
@@ -77,6 +63,8 @@ add_executable(exorcist WIN32
     lsp/lspmessage.h
     lsp/lsptransport.cpp
     lsp/lsptransport.h
+    lsp/processlanguageserver.h
+    lsp/processlanguageserver.cpp
     lsp/processlsptransport.cpp
     lsp/processlsptransport.h
     lsp/lspclient.cpp
@@ -105,12 +93,6 @@ add_executable(exorcist WIN32
     project/newprojectwizard.h
     git/gitservice.cpp
     git/gitservice.h
-    git/gitpanel.cpp
-    git/gitpanel.h
-    git/diffexplorerpanel.h
-    git/diffexplorerpanel.cpp
-    git/mergeeditor.h
-    git/mergeeditor.cpp
 
     editor/symboloutlinepanel.cpp
     editor/symboloutlinepanel.h
@@ -118,16 +100,6 @@ add_executable(exorcist WIN32
     editor/multicursorengine.cpp
     editor/vimhandler.h
     editor/vimhandler.cpp
-    terminal/terminalscreen.cpp
-    terminal/terminalscreen.h
-    terminal/ptybackend.cpp
-    terminal/ptybackend.h
-    terminal/terminalview.cpp
-    terminal/terminalview.h
-    terminal/terminalwidget.cpp
-    terminal/terminalwidget.h
-    terminal/terminalpanel.cpp
-    terminal/terminalpanel.h
     agent/iagentplugin.h
     agent/iagentsettingspageprovider.h
     agent/ichatsessionimporter.h
@@ -140,6 +112,8 @@ add_executable(exorcist WIN32
     bootstrap/bridgebootstrap.h
     bootstrap/aiservicesbootstrap.h
     bootstrap/aiservicesbootstrap.cpp
+    bootstrap/dockbootstrap.h
+    bootstrap/dockbootstrap.cpp
     bootstrap/statusbarmanager.h
     bootstrap/statusbarmanager.cpp
     bootstrap/dockmanageradapter.h
@@ -152,6 +126,16 @@ add_executable(exorcist WIN32
     bootstrap/statusbarmanageradapter.cpp
     bootstrap/workspacemanagerimpl.h
     bootstrap/workspacemanagerimpl.cpp
+    bootstrap/workbenchcommandbootstrap.h
+    bootstrap/workbenchcommandbootstrap.cpp
+    bootstrap/workbenchstatebootstrap.h
+    bootstrap/workbenchstatebootstrap.cpp
+    bootstrap/sharedservicesbootstrap.h
+    bootstrap/sharedservicesbootstrap.cpp
+    bootstrap/templateservicesbootstrap.h
+    bootstrap/templateservicesbootstrap.cpp
+    bootstrap/workbenchservicesbootstrap.h
+    bootstrap/workbenchservicesbootstrap.cpp
     profile/profilemanifest.h
     profile/profilemanifest.cpp
     profile/profilemanager.h
@@ -241,6 +225,10 @@ add_executable(exorcist WIN32
     agent/tools/refactortool.cpp
     agent/tools/gitopstool.h
     agent/tools/gitopstool.cpp
+    agent/tools/securitytools.h
+    agent/tools/securitytools.cpp
+    agent/tools/transactiontool.h
+    agent/tools/transactiontool.cpp
     agent/tools/askusertool.h
     agent/tools/askusertool.cpp
     agent/tools/editorcontexttool.h
@@ -485,8 +473,6 @@ add_executable(exorcist WIN32
     agent/citationmanager.cpp
     mcp/mcpservermanager.h
     mcp/mcpservermanager.cpp
-    search/workspacechunkindex.h
-    search/workspacechunkindex.cpp
     agent/modelconfigwidget.h
     agent/modelconfigwidget.cpp
     agent/contextinspector.h
@@ -524,10 +510,6 @@ add_executable(exorcist WIN32
     agent/ui/dashboardjsbridge.cpp
     agent/tools/dashboardtools.h
     agent/tools/dashboardtools.cpp
-    search/embeddingindex.h
-    search/embeddingindex.cpp
-    search/gitignorefilter.h
-    search/regexsearchengine.h
     agent/chat/chatcontentpart.h
     agent/chat/chatinputwidget.cpp
     agent/chat/chatinputwidget.h
@@ -551,12 +533,20 @@ add_executable(exorcist WIN32
     sdk/iterminalservice.h
     sdk/idiagnosticsservice.h
     sdk/itaskservice.h
+    sdk/taskserviceimpl.h
+    sdk/taskserviceimpl.cpp
     sdk/ibuildsystem.h
     sdk/ilaunchservice.h
     sdk/itestrunner.h
     sdk/idebugadapter.h
     sdk/idebugservice.h
     sdk/ilspservice.h
+    sdk/isearchservice.h
+    sdk/isearchservice.cpp
+    search/symbolindex.h
+    search/symbolindex.cpp
+    search/workspacechunkindex.h
+    search/workspacechunkindex.cpp
     sdk/ihostservices.h
     sdk/hostservices.cpp
     sdk/hostservices.h
@@ -566,6 +556,10 @@ add_executable(exorcist WIN32
     sdk/permissionguard.cpp
     plugin/pluginmanifest.cpp
     plugin/pluginmanifest.h
+    plugin/workbenchpluginbase.h
+    plugin/workbenchpluginbase.cpp
+    plugin/languageworkbenchpluginbase.h
+    plugin/languageworkbenchpluginbase.cpp
     plugin/icommandhandler.h
     plugin/iviewcontributor.h
     plugin/icompletioncontributor.h

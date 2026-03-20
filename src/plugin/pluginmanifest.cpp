@@ -1,6 +1,48 @@
 #include "pluginmanifest.h"
 
 #include <QJsonArray>
+#include <optional>
+
+namespace {
+
+QString permissionToString(PluginPermission permission)
+{
+    switch (permission) {
+    case PluginPermission::FilesystemRead:  return QStringLiteral("FilesystemRead");
+    case PluginPermission::FilesystemWrite: return QStringLiteral("FilesystemWrite");
+    case PluginPermission::TerminalExecute: return QStringLiteral("TerminalExecute");
+    case PluginPermission::GitRead:         return QStringLiteral("GitRead");
+    case PluginPermission::GitWrite:        return QStringLiteral("GitWrite");
+    case PluginPermission::NetworkAccess:   return QStringLiteral("NetworkAccess");
+    case PluginPermission::DiagnosticsRead: return QStringLiteral("DiagnosticsRead");
+    case PluginPermission::WorkspaceRead:   return QStringLiteral("WorkspaceRead");
+    case PluginPermission::WorkspaceWrite:  return QStringLiteral("WorkspaceWrite");
+    case PluginPermission::AgentToolInvoke: return QStringLiteral("AgentToolInvoke");
+    }
+    return {};
+}
+
+std::optional<PluginPermission> permissionFromString(const QString &value)
+{
+    static const QHash<QString, PluginPermission> permissions = {
+        {QStringLiteral("FilesystemRead"),  PluginPermission::FilesystemRead},
+        {QStringLiteral("FilesystemWrite"), PluginPermission::FilesystemWrite},
+        {QStringLiteral("TerminalExecute"), PluginPermission::TerminalExecute},
+        {QStringLiteral("GitRead"),         PluginPermission::GitRead},
+        {QStringLiteral("GitWrite"),        PluginPermission::GitWrite},
+        {QStringLiteral("NetworkAccess"),   PluginPermission::NetworkAccess},
+        {QStringLiteral("DiagnosticsRead"), PluginPermission::DiagnosticsRead},
+        {QStringLiteral("WorkspaceRead"),   PluginPermission::WorkspaceRead},
+        {QStringLiteral("WorkspaceWrite"),  PluginPermission::WorkspaceWrite},
+        {QStringLiteral("AgentToolInvoke"), PluginPermission::AgentToolInvoke},
+    };
+    const auto it = permissions.find(value);
+    if (it == permissions.end())
+        return std::nullopt;
+    return it.value();
+}
+
+} // namespace
 
 // ── JSON parsing helpers ──────────────────────────────────────────────────────
 
@@ -42,7 +84,18 @@ static MenuContribution parseMenu(const QJsonObject &o)
         {QStringLiteral("file"),            MenuContribution::MainMenuFile},
         {QStringLiteral("edit"),            MenuContribution::MainMenuEdit},
         {QStringLiteral("view"),            MenuContribution::MainMenuView},
+        {QStringLiteral("git"),             MenuContribution::MainMenuGit},
+        {QStringLiteral("project"),         MenuContribution::MainMenuProject},
+        {QStringLiteral("selection"),       MenuContribution::MainMenuSelection},
+        {QStringLiteral("build"),           MenuContribution::MainMenuBuild},
+        {QStringLiteral("debug"),           MenuContribution::MainMenuDebug},
+        {QStringLiteral("test"),            MenuContribution::MainMenuTest},
+        {QStringLiteral("analyze"),         MenuContribution::MainMenuAnalyze},
+        {QStringLiteral("run"),             MenuContribution::MainMenuRun},
+        {QStringLiteral("terminal"),        MenuContribution::MainMenuTerminal},
         {QStringLiteral("tools"),           MenuContribution::MainMenuTools},
+        {QStringLiteral("extensions"),      MenuContribution::MainMenuExtensions},
+        {QStringLiteral("window"),          MenuContribution::MainMenuWindow},
         {QStringLiteral("help"),            MenuContribution::MainMenuHelp},
         {QStringLiteral("editorContext"),    MenuContribution::EditorContextMenu},
         {QStringLiteral("explorerContext"),  MenuContribution::ExplorerContextMenu},
@@ -65,10 +118,16 @@ static ViewContribution parseView(const QJsonObject &o)
     v.priority       = o[QLatin1String("priority")].toInt(50);
 
     static const QHash<QString, ViewContribution::Location> locs = {
+        {QStringLiteral("left"),         ViewContribution::SidebarLeft},
         {QStringLiteral("sidebarLeft"),  ViewContribution::SidebarLeft},
+        {QStringLiteral("sidebar-left"), ViewContribution::SidebarLeft},
+        {QStringLiteral("right"),        ViewContribution::SidebarRight},
         {QStringLiteral("sidebarRight"), ViewContribution::SidebarRight},
+        {QStringLiteral("sidebar-right"), ViewContribution::SidebarRight},
         {QStringLiteral("bottomPanel"),  ViewContribution::BottomPanel},
+        {QStringLiteral("bottom"),       ViewContribution::BottomPanel},
         {QStringLiteral("topPanel"),     ViewContribution::TopPanel},
+        {QStringLiteral("top"),          ViewContribution::TopPanel},
     };
     v.location = locs.value(o[QLatin1String("location")].toString(),
                             ViewContribution::BottomPanel);
@@ -216,10 +275,13 @@ PluginManifest PluginManifest::fromJson(const QJsonObject &obj)
 
     // Layer
     static const QHash<QString, PluginLayer> layers = {
-        {QStringLiteral("cpp"),    PluginLayer::CppSdk},
-        {QStringLiteral("cabi"),   PluginLayer::CAbi},
-        {QStringLiteral("lua"),    PluginLayer::LuaJit},
-        {QStringLiteral("dsl"),    PluginLayer::Dsl},
+        {QStringLiteral("cpp"),        PluginLayer::CppSdk},
+        {QStringLiteral("cpp-sdk"),    PluginLayer::CppSdk},
+        {QStringLiteral("cabi"),       PluginLayer::CAbi},
+        {QStringLiteral("c-abi"),      PluginLayer::CAbi},
+        {QStringLiteral("lua"),        PluginLayer::LuaJit},
+        {QStringLiteral("lua-jit"),    PluginLayer::LuaJit},
+        {QStringLiteral("dsl"),        PluginLayer::Dsl},
     };
     m.layer = layers.value(obj[QLatin1String("layer")].toString(),
                            PluginLayer::CppSdk);
@@ -232,6 +294,11 @@ PluginManifest PluginManifest::fromJson(const QJsonObject &obj)
     // Activation (parse before inference so onLanguage: events are available)
     for (const auto &v : obj[QLatin1String("activationEvents")].toArray())
         m.activationEvents << v.toString();
+    for (const auto &v : obj[QLatin1String("requestedPermissions")].toArray()) {
+        const auto permission = permissionFromString(v.toString());
+        if (permission.has_value())
+            m.requestedPermissions << permission.value();
+    }
 
     // If languageIds not explicitly declared, infer from language contributions
     // and activation events.
@@ -317,7 +384,7 @@ QJsonObject PluginManifest::toJson() const
         obj[QLatin1String("languageIds")] = arr;
     }
 
-    static const char *layerNames[] = {"cpp", "cabi", "lua", "dsl"};
+    static const char *layerNames[] = {"cpp-sdk", "c-abi", "lua-jit", "dsl"};
     obj[QLatin1String("layer")] = QString::fromLatin1(
         layerNames[static_cast<int>(layer)]);
 
@@ -325,6 +392,13 @@ QJsonObject PluginManifest::toJson() const
         QJsonArray arr;
         for (const auto &e : activationEvents) arr << e;
         obj[QLatin1String("activationEvents")] = arr;
+    }
+
+    if (!requestedPermissions.isEmpty()) {
+        QJsonArray arr;
+        for (const auto permission : requestedPermissions)
+            arr << permissionToString(permission);
+        obj[QLatin1String("requestedPermissions")] = arr;
     }
 
     if (!dependencies.isEmpty()) {

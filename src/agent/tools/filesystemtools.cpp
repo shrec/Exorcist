@@ -1,4 +1,5 @@
 #include "filesystemtools.h"
+#include "transactiontool.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -200,6 +201,18 @@ ToolExecResult WriteFileTool::invoke(const QJsonObject &args)
 
     const QString path = FsToolUtil::resolve(rawPath, m_workspaceRoot);
 
+    // Snapshot for transaction before first write
+    if (m_txStore && m_txStore->active) {
+        QFile f(path);
+        if (f.open(QIODevice::ReadOnly)) {
+            m_txStore->recordIfNew(path, f.readAll());
+            f.close();
+        } else {
+            // File doesn't exist yet — record empty so rollback deletes it
+            m_txStore->recordIfNew(path, QByteArray{});
+        }
+    }
+
     // Create parent directories if they don't exist
     QDir().mkpath(QFileInfo(path).absolutePath());
 
@@ -262,6 +275,17 @@ ToolExecResult OverwriteFileTool::invoke(const QJsonObject &args)
         return {false, {}, {}, QStringLiteral("Missing required parameter: path")};
 
     const QString path = FsToolUtil::resolve(rawPath, m_workspaceRoot);
+
+    // Snapshot for transaction before first write
+    if (m_txStore && m_txStore->active) {
+        QFile f(path);
+        if (f.open(QIODevice::ReadOnly)) {
+            m_txStore->recordIfNew(path, f.readAll());
+            f.close();
+        } else {
+            m_txStore->recordIfNew(path, QByteArray{});
+        }
+    }
 
     QDir().mkpath(QFileInfo(path).absolutePath());
 

@@ -6,7 +6,10 @@
     "category": "minimal",
 
     "requiredPlugins": [],
-    "optionalPlugins": [],
+    "optionalPlugins": [
+        "org.exorcist.terminal",
+        "org.exorcist.search"
+    ],
     "disabledPlugins": [
         "org.exorcist.cpp-language",
         "org.exorcist.build",
@@ -15,6 +18,7 @@
         "org.exorcist.github",
         "org.exorcist.remote"
     ],
+    "deferredPlugins": [],
 
     "detection": [],
     "detectionThreshold": 999,
@@ -22,7 +26,11 @@
     "dockDefaults": [
         { "id": "ProjectDock", "visible": true },
         { "id": "SearchDock", "visible": false },
-        { "id": "TerminalDock", "visible": false }
+        { "id": "GitDock", "visible": false },
+        { "id": "TerminalDock", "visible": false },
+        { "id": "ProblemsDock", "visible": false },
+        { "id": "OutputDock", "visible": false },
+        { "id": "RunDock", "visible": false }
     ],
 
     "settings": {

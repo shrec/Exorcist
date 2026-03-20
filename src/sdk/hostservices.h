@@ -7,9 +7,9 @@
 #include "sdk/iviewservice.h"
 #include "sdk/inotificationservice.h"
 #include "sdk/igitservice.h"
-#include "sdk/iterminalservice.h"
 #include "sdk/idiagnosticsservice.h"
 #include "sdk/itaskservice.h"
+#include "sdk/taskserviceimpl.h"
 
 #include <QHash>
 #include <QJsonArray>
@@ -174,26 +174,6 @@ private:
     GitService *m_git;
 };
 
-// ── Terminal Service ─────────────────────────────────────────────────────────
-
-class TerminalPanel;
-
-class TerminalServiceImpl : public QObject, public ITerminalService
-{
-    Q_OBJECT
-
-public:
-    explicit TerminalServiceImpl(TerminalPanel *terminal, QObject *parent = nullptr);
-
-    void runCommand(const QString &command) override;
-    void sendInput(const QString &text) override;
-    QString recentOutput(int maxLines) const override;
-    void openTerminal() override;
-
-private:
-    TerminalPanel *m_terminal;
-};
-
 // ── Diagnostics Service ──────────────────────────────────────────────────────
 
 class DiagnosticsServiceImpl : public QObject, public IDiagnosticsService
@@ -201,7 +181,7 @@ class DiagnosticsServiceImpl : public QObject, public IDiagnosticsService
     Q_OBJECT
 
 public:
-    explicit DiagnosticsServiceImpl(MainWindow *window, QObject *parent = nullptr);
+    explicit DiagnosticsServiceImpl(QObject *parent = nullptr);
 
     QList<SDKDiagnostic> diagnostics() const override;
     QList<SDKDiagnostic> diagnosticsForFile(const QString &filePath) const override;
@@ -212,22 +192,7 @@ public slots:
     void onDiagnosticsPublished(const QString &uri, const QJsonArray &diags);
 
 private:
-    MainWindow *m_window;
     QHash<QString, QList<SDKDiagnostic>> m_cache;
-};
-
-// ── Task Service ─────────────────────────────────────────────────────────────
-
-class TaskServiceImpl : public QObject, public ITaskService
-{
-    Q_OBJECT
-
-public:
-    explicit TaskServiceImpl(QObject *parent = nullptr);
-
-    void runTask(const QString &taskId) override;
-    void cancelTask(const QString &taskId) override;
-    bool isTaskRunning(const QString &taskId) const override;
 };
 
 // ── Host Services (root) ─────────────────────────────────────────────────────
@@ -240,10 +205,10 @@ public:
     explicit HostServices(MainWindow *window, QObject *parent = nullptr);
 
     /// Deferred initialization — called after MainWindow subsystems are created.
-    void initSubsystemServices(IFileSystem *fs, GitService *git, TerminalPanel *terminal);
+    void initSubsystemServices(IFileSystem *fs, GitService *git);
 
     /// Set the ServiceRegistry instance for dynamic service registration.
-    void setServiceRegistry(ServiceRegistry *reg) { m_registry = reg; }
+    void setServiceRegistry(ServiceRegistry *reg);
 
     ICommandService *commands() override;
     IWorkspaceService *workspace() override;
@@ -291,7 +256,6 @@ private:
     std::unique_ptr<ViewServiceImpl>          m_views;
     std::unique_ptr<NotificationServiceImpl>  m_notifications;
     std::unique_ptr<GitServiceImpl>           m_git;
-    std::unique_ptr<TerminalServiceImpl>      m_terminal;
     std::unique_ptr<DiagnosticsServiceImpl>   m_diagnostics;
     std::unique_ptr<TaskServiceImpl>          m_tasks;
 

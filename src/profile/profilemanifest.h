@@ -2,8 +2,9 @@
 
 /// ProfileManifest — Data structures for profile.json files.
 ///
-/// A profile.json defines a development environment template:
+/// A profile.json defines a workspace capability profile:
 /// - Which plugins to activate
+/// - Which deferred plugins should be force-activated on manual profile switch
 /// - File detection rules for auto-activation
 /// - Default settings overrides
 /// - UI layout preferences (dock visibility defaults)
@@ -21,9 +22,9 @@
 struct ProfileDetectionRule
 {
     enum Type {
-        FileExists,      // workspace contains a file matching glob
-        FileContent,     // a file's first line matches regex
-        DirectoryExists, // workspace contains a directory
+        FileExists,      // workspace contains a file matching glob, recursively
+        FileContent,     // a matching file's content matches regex, recursively
+        DirectoryExists, // workspace contains a directory, recursively
     };
     Type    type = FileExists;
     QString pattern;   // glob or regex depending on type
@@ -63,6 +64,10 @@ struct ProfileManifest
 
     /// Plugin IDs that should be explicitly disabled in this profile.
     QStringList disabledPlugins;
+
+    /// Deferred plugin IDs that should be activated when this profile is chosen
+    /// even if their manifests normally wait on lazy activation events.
+    QStringList deferredPlugins;
 
     // ── Workspace detection ───────────────────────────────────────────
     /// Rules for auto-detecting this profile from workspace files.

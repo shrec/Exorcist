@@ -4,6 +4,8 @@
     "version": "1.0.0",
     "description": "Shows word/line/character counts for the current selection or file",
     "author": "Exorcist Team",
+    "license": "MIT",
+    "layer": "lua-jit",
     "permissions": ["commands", "notifications", "editor.read", "workspace.read", "logging"],
     "memoryLimit": 8
 }

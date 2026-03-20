@@ -50,6 +50,35 @@ target_link_libraries(test_thememanager PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_thememanager PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ThemeManager COMMAND test_thememanager)
 
+# ── WorkbenchPluginBase tests ────────────────────────────────────────────────
+add_executable(test_workbenchpluginbase
+    test_workbenchpluginbase.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugin/workbenchpluginbase.cpp
+    ${CMAKE_SOURCE_DIR}/src/plugin/languageworkbenchpluginbase.cpp
+    ${CMAKE_SOURCE_DIR}/src/lsp/processlanguageserver.cpp
+    ${CMAKE_SOURCE_DIR}/src/lsp/lspclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/lsp/lsptransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/lsp/processlsptransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/sdk/ibuildsystem.h
+    ${CMAKE_SOURCE_DIR}/src/sdk/idebugservice.h
+    ${CMAKE_SOURCE_DIR}/src/sdk/ilaunchservice.h
+    ${CMAKE_SOURCE_DIR}/src/sdk/ilspservice.h
+    ${CMAKE_SOURCE_DIR}/src/sdk/isearchservice.h
+    ${CMAKE_SOURCE_DIR}/src/sdk/itestrunner.h
+    ${CMAKE_SOURCE_DIR}/plugins/cpp-language/cpplanguageplugin.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/cpp-language/cpplanguageplugin.h
+    ${CMAKE_SOURCE_DIR}/plugins/cpp-language/clangdmanager.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/cpp-language/clangdmanager.h
+    ${CMAKE_SOURCE_DIR}/plugins/cpp-language/cppworkspacepanel.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/cpp-language/cppworkspacepanel.h
+)
+target_link_libraries(test_workbenchpluginbase PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_workbenchpluginbase PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/plugins/cpp-language
+)
+add_test(NAME WorkbenchPluginBase COMMAND test_workbenchpluginbase)
+
 # ── LuaScriptEngine tests ─────────────────────────────────────────────────────
 add_executable(test_luascriptengine
     test_luascriptengine.cpp
@@ -78,6 +107,24 @@ target_link_libraries(test_lspclient PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_lspclient PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME LspClient COMMAND test_lspclient)
 
+# ── ProcessLanguageServer tests ───────────────────────────────────────────────
+add_executable(test_processlanguageserver
+    test_processlanguageserver.cpp
+    ${CMAKE_SOURCE_DIR}/src/lsp/processlanguageserver.cpp
+    ${CMAKE_SOURCE_DIR}/src/lsp/processlanguageserver.h
+    ${CMAKE_SOURCE_DIR}/src/lsp/lspclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/lsp/lspclient.h
+    ${CMAKE_SOURCE_DIR}/src/lsp/lsptransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/lsp/lsptransport.h
+    ${CMAKE_SOURCE_DIR}/src/lsp/lspmessage.h
+    ${CMAKE_SOURCE_DIR}/src/lsp/processlsptransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/lsp/processlsptransport.h
+    ${CMAKE_SOURCE_DIR}/src/sdk/ilspservice.h
+)
+target_link_libraries(test_processlanguageserver PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_processlanguageserver PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ProcessLanguageServer COMMAND test_processlanguageserver)
+
 # ── SearchWorker tests ─────────────────────────────────────────────────────────
 add_executable(test_searchworker
     test_searchworker.cpp
@@ -101,6 +148,38 @@ add_executable(test_outputpanel
 target_link_libraries(test_outputpanel PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_outputpanel PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME OutputPanel COMMAND test_outputpanel)
+
+# ── Embedded panel tests ──────────────────────────────────────────────────────
+add_executable(test_embeddedpanels
+    test_embeddedpanels.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/embedded-tools/embeddedcommandresolver.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/embedded-tools/embeddedcommandresolver.h
+    ${CMAKE_SOURCE_DIR}/plugins/embedded-tools/embeddedtoolspanel.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/embedded-tools/embeddedtoolspanel.h
+    ${CMAKE_SOURCE_DIR}/plugins/serial-monitor/serialmonitorcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/serial-monitor/serialmonitorcontroller.h
+    ${CMAKE_SOURCE_DIR}/plugins/serial-monitor/serialmonitorpanel.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/serial-monitor/serialmonitorpanel.h
+)
+target_link_libraries(test_embeddedpanels PRIVATE Qt6::Test Qt6::Widgets)
+if(TARGET Qt6::SerialPort)
+    target_link_libraries(test_embeddedpanels PRIVATE Qt6::SerialPort)
+    target_compile_definitions(test_embeddedpanels PRIVATE EXORCIST_HAS_QT_SERIALPORT)
+endif()
+target_include_directories(test_embeddedpanels PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/plugins/embedded-tools
+    ${CMAKE_SOURCE_DIR}/plugins/serial-monitor
+)
+
+if(WIN32)
+    add_custom_command(TARGET test_embeddedpanels POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:test_embeddedpanels> $<TARGET_RUNTIME_DLLS:test_embeddedpanels>
+        COMMAND_EXPAND_LISTS
+    )
+endif()
+
+add_test(NAME EmbeddedPanels COMMAND test_embeddedpanels)
 
 # ── ToolRegistry tests ─────────────────────────────────────────────────────────
 add_executable(test_toolregistry
@@ -451,6 +530,7 @@ add_executable(test_pluginmanifest
 )
 target_link_libraries(test_pluginmanifest PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_pluginmanifest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(test_pluginmanifest PRIVATE EXORCIST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME PluginManifest COMMAND test_pluginmanifest)
 
 # ── PluginSuspend tests ───────────────────────────────────────────────────────
@@ -541,6 +621,19 @@ target_include_directories(test_jspluginruntime PRIVATE
     ${CMAKE_SOURCE_DIR}/src/sdk
     ${CMAKE_SOURCE_DIR}/src
 )
+
+# ── Ultralight widget tests ───────────────────────────────────────────────────
+add_executable(test_ultralightwidget
+    test_ultralightwidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/chat/ultralight/ultralightengine.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/chat/ultralight/ultralightengine.h
+    ${CMAKE_SOURCE_DIR}/src/agent/chat/ultralight/ultralightwidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/agent/chat/ultralight/ultralightwidget.h
+)
+target_link_libraries(test_ultralightwidget PRIVATE Qt6::Test Qt6::Widgets ultralight-sdk)
+target_include_directories(test_ultralightwidget PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(test_ultralightwidget PRIVATE EXORCIST_HAS_ULTRALIGHT)
+add_test(NAME UltralightWidget COMMAND test_ultralightwidget)
 
 # ── CodeGraph tests ───────────────────────────────────────────────────────────
 add_executable(test_codegraph
@@ -640,7 +733,19 @@ add_executable(test_profilemanager
 )
 target_link_libraries(test_profilemanager PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_profilemanager PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(test_profilemanager PRIVATE EXORCIST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME ProfileManager COMMAND test_profilemanager)
+
+# ── TaskService tests ─────────────────────────────────────────────────────────
+add_executable(test_taskservice
+    test_taskservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/sdk/ibuildsystem.h
+    ${CMAKE_SOURCE_DIR}/src/sdk/taskserviceimpl.cpp
+    ${CMAKE_SOURCE_DIR}/src/serviceregistry.cpp
+)
+target_link_libraries(test_taskservice PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_taskservice PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME TaskService COMMAND test_taskservice)
 
 # ── Kit tests ──────────────────────────────────────────────────────────────────
 add_executable(test_kit
@@ -668,6 +773,18 @@ add_executable(test_projecttemplates
 target_link_libraries(test_projecttemplates PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_projecttemplates PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ProjectTemplates COMMAND test_projecttemplates)
+
+# ── Template services bootstrap tests ──────────────────────────────────────────
+add_executable(test_templateservicesbootstrap
+    test_templateservicesbootstrap.cpp
+    ${CMAKE_SOURCE_DIR}/src/bootstrap/templateservicesbootstrap.cpp
+    ${CMAKE_SOURCE_DIR}/src/project/projecttemplateregistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/project/builtintemplateprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/serviceregistry.cpp
+)
+target_link_libraries(test_templateservicesbootstrap PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(test_templateservicesbootstrap PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME TemplateServicesBootstrap COMMAND test_templateservicesbootstrap)
 
 # ── Solution tree model tests ──────────────────────────────────────────────────
 add_executable(test_solutiontreemodel
@@ -700,3 +817,4 @@ endif()
 
 # Deploy Ultralight DLLs for JsPluginRuntime tests
 ultralight_deploy_runtime(test_jspluginruntime)
+ultralight_deploy_runtime(test_ultralightwidget)

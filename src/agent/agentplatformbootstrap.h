@@ -16,7 +16,6 @@
 #include "tools/buildtools.h"
 #include "tools/formatcodetool.h"
 #include "tools/refactortool.h"
-#include "tools/gitopstool.h"
 #include "tools/askusertool.h"
 #include "tools/editorcontexttool.h"
 #include "tools/changeimpacttool.h"
@@ -97,9 +96,6 @@ public:
         // Refactoring (LSP)
         RefactorTool::Refactorer        refactorer;
 
-        // Git operations
-        GitOpsTool::GitExecutor         gitExecutor;
-
         // User interaction
         AskUserTool::UserPrompter       userPrompter;
 
@@ -153,6 +149,12 @@ public:
 
         // Code completion (LSP)
         CodeCompletionTool::CompletionGetter completionGetter;
+
+        // Secure key storage
+        std::function<bool(const QString &, const QString &)> secureKeyStorer;
+        std::function<QString(const QString &)>               secureKeyGetter;
+        std::function<QStringList()>                           secureKeyLister;
+        std::function<bool(const QString &)>                  secureKeyDeleter;
     };
 
     explicit AgentPlatformBootstrap(AgentOrchestrator *orchestrator,

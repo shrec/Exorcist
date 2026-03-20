@@ -81,14 +81,17 @@ void DockArea::insertDockWidget(int index, ExDockWidget *widget)
     index = qBound(0, index, static_cast<int>(m_widgets.size()));
 
     widget->setDockArea(this);
-    widget->setParent(m_stack);
-    widget->show();
 
-    // Insert into containers BEFORE setState to prevent reentrant duplicates.
-    // setState emits stateChanged, which can trigger signal chains that
-    // re-enter pinDock/addDockWidget. The m_widgets.contains guard only
-    // works if the widget is already in the list.
+    // Guard against reentrant insertions BEFORE any signals fire.
+    // setState (below) emits stateChanged which can trigger signal chains
+    // that re-enter pinDock/addDockWidget; the m_widgets.contains() guard
+    // at the top only works if the widget is already in the list.
     m_widgets.insert(index, widget);
+
+    // Let QStackedWidget own the reparenting — calling setParent(m_stack)
+    // manually before insertWidget caused a show() on a widget that had not
+    // yet been registered with the layout, which produced a second native
+    // HWND reconstruction and corrupted Qt's widget state on Windows.
     m_stack->insertWidget(index, widget);
     m_tabBar->insertTab(index, widget->title());
 

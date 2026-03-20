@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "core/ifilesystem.h"
+#include "core/idockmanager.h"
 #include "pluginmanager.h"
 #include "serviceregistry.h"
 #include "agent/tools/buildtools.h"
@@ -16,11 +17,8 @@
 namespace exdock { class ExDockWidget; class DockManager; }
 class QDialog;
 class EditorView;
-class SearchService;
-class SearchPanel;
 class ProjectManager;
 class GitService;
-class GitPanel;
 class AgentOrchestrator;
 class ChatPanelWidget;
 class AgentController;
@@ -31,11 +29,8 @@ class ContextBuilder;
 class AgentPlatformBootstrap;
 class ReferencesPanel;
 class SymbolOutlinePanel;
-class TerminalPanel;
 class InlineCompletionEngine;
 class NextEditEngine;
-class WorkspaceIndexer;
-class SymbolIndex;
 class InlineChatWidget;
 class QuickChatDialog;
 class RequestLogPanel;
@@ -45,15 +40,13 @@ class MemoryBrowserPanel;
 class McpClient;
 class McpPanel;
 class PluginGalleryPanel;
-class ThemeManager;
 class ThemeGalleryPanel;
 class DiffViewerPanel;
 class ProposedEditPanel;
 class OutputPanel;
 class RunLaunchPanel;
-class FileWatchService;
-class KeymapManager;
 class SecureKeyStorage;
+class WorkbenchServicesBootstrap;
 class ModelRegistry;
 class NetworkMonitor;
 class WorkspaceChunkIndex;
@@ -62,6 +55,7 @@ class HostServices;
 class ContributionRegistry;
 class StatusBarManager;
 class AIServicesBootstrap;
+class DockBootstrap;
 class WelcomeWidget;
 class QStackedWidget;
 
@@ -91,7 +85,12 @@ private:
     void setupUi();
     void setupMenus();
     void setupToolBar();
+    void updateMenuBarVisibility(bool editing);
     void createDockWidgets();
+    void registerShellDock(const QString &id, const QString &title,
+                           QWidget *widget, IDockManager::Area area,
+                           bool startVisible = false);
+    void setShellDockVisible(const QString &id, bool visible);
     void openNewTab();
     void openFileFromIndex(const QModelIndex &index);
     void openFolder(const QString &path = {});
@@ -112,9 +111,7 @@ private:
     void showTabContextMenu(int tabIndex, const QPoint &globalPos);
 
     EditorManager    *m_editorMgr;
-    SearchPanel      *m_searchPanel;
     GitService       *m_gitService;
-    GitPanel         *m_gitPanel;
 
     /// Shorthand for m_dockManager->dockWidget(id).
     exdock::ExDockWidget *dock(const QString &id) const;
@@ -126,14 +123,12 @@ private:
     std::unique_ptr<PluginManager>            m_pluginManager;
     std::unique_ptr<ServiceRegistry>            m_services;
     std::unique_ptr<IFileSystem>     m_fileSystem;
-    SearchService    *m_searchService;
     AgentOrchestrator *m_agentOrchestrator;
     ChatPanelWidget  *m_chatPanel;
     PromptVariableResolver *m_promptResolver;
     AgentPlatformBootstrap *m_agentPlatform = nullptr;
     ReferencesPanel  *m_referencesPanel;
     SymbolOutlinePanel *m_symbolPanel;
-    TerminalPanel   *m_terminal;
     InlineCompletionEngine *m_inlineEngine;
     InlineChatWidget       *m_inlineChat = nullptr;
     QuickChatDialog         *m_quickChat  = nullptr;
@@ -145,14 +140,11 @@ private:
     class NextEditEngine     *m_nesEngine      = nullptr;
     McpClient               *m_mcpClient         = nullptr;
     McpPanel                *m_mcpPanel          = nullptr;
-    ThemeManager             *m_themeManager      = nullptr;
     DiffViewerPanel          *m_diffViewer        = nullptr;
     ProposedEditPanel         *m_proposedEditPanel = nullptr;
-    WorkspaceIndexer         *m_workspaceIndexer = nullptr;
-    SymbolIndex              *m_symbolIndex      = nullptr;
-    FileWatchService         *m_fileWatcher = nullptr;
     AIServicesBootstrap      *m_aiServices = nullptr;
-    KeymapManager            *m_keymapManager = nullptr;
+    WorkbenchServicesBootstrap *m_workbenchServices = nullptr;
+    DockBootstrap            *m_dockBootstrap = nullptr;
     exdock::DockManager       *m_dockManager = nullptr;
     QStackedWidget             *m_centralStack = nullptr;
     WelcomeWidget              *m_welcome = nullptr;

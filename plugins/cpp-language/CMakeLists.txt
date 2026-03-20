@@ -3,6 +3,8 @@ add_library(cpp_language_plugin SHARED
     cpplanguageplugin.cpp
     clangdmanager.h
     clangdmanager.cpp
+    cppworkspacepanel.h
+    cppworkspacepanel.cpp
 )
 
 target_link_libraries(cpp_language_plugin PRIVATE

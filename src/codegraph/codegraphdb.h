@@ -6,7 +6,7 @@
 // ── CodeGraphDb ──────────────────────────────────────────────────────────────
 // SQLite database layer for the Code Graph.
 // Manages connection lifecycle and schema creation.
-// Schema mirrors tools/build_codegraph.py (18 tables + FTS5).
+// Schema mirrors tools/build_codegraph.py, including semantic tags and FTS5.
 //
 // Usage:
 //   CodeGraphDb db;

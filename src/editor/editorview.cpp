@@ -254,7 +254,8 @@ EditorView::EditorView(QWidget *parent)
             this, [this]() {
                 document()->markContentsDirty(0, document()->characterCount());
                 viewport()->update();
-                m_lineNumberArea->update();
+                if (m_lineNumberArea)
+                    m_lineNumberArea->update();
             });
 
     m_vimHandler = std::make_unique<VimHandler>(this, this);
@@ -294,7 +295,8 @@ void EditorView::updateFoldRegions()
     if (m_foldingEngine) {
         m_foldingEngine->setLanguageId(m_languageId);
         m_foldingEngine->update();
-        m_lineNumberArea->update();
+        if (m_lineNumberArea)
+            m_lineNumberArea->update();
     }
 }
 
@@ -364,6 +366,8 @@ int EditorView::lineNumberAreaWidth() const
 
 void EditorView::updateLineNumberAreaWidth(int)
 {
+    if (!m_lineNumberArea)
+        return;
     const int w = lineNumberAreaWidth();
     const int rightMargin = (m_minimap && m_minimap->isVisible()) ? m_minimap->width() : 0;
     setViewportMargins(w, 0, rightMargin, 0);
@@ -375,6 +379,8 @@ void EditorView::updateLineNumberAreaWidth(int)
 
 void EditorView::updateLineNumberArea(const QRect &rect, int dy)
 {
+    if (!m_lineNumberArea)
+        return;
     if (dy) {
         m_lineNumberArea->scroll(0, dy);
     } else {
@@ -390,6 +396,8 @@ void EditorView::resizeEvent(QResizeEvent *event)
 {
     QPlainTextEdit::resizeEvent(event);
 
+    if (!m_lineNumberArea)
+        return;
     const QRect cr = contentsRect();
     m_lineNumberArea->setGeometry(QRect(cr.left(), cr.top(),
                                         lineNumberAreaWidth(), cr.height()));
@@ -926,6 +934,8 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
         }
 
         block = block.next();
+        if (!block.isValid())
+            break;
         top    = bottom;
         bottom = top + qRound(blockBoundingRect(block).height());
         ++blockNumber;
@@ -964,7 +974,7 @@ void EditorView::handleScroll(int)
 
 void EditorView::repositionFindBar()
 {
-    if (!m_findBar->isVisible()) {
+    if (!m_findBar || !m_findBar->isVisible()) {
         return;
     }
     const QRect vp = viewport()->geometry();
@@ -1146,20 +1156,23 @@ void EditorView::clearNesLine()
 void EditorView::setDiffRanges(const QList<DiffRange> &ranges)
 {
     m_diffRanges = ranges;
-    m_lineNumberArea->update();
+    if (m_lineNumberArea)
+        m_lineNumberArea->update();
 }
 
 void EditorView::clearDiffRanges()
 {
     m_diffRanges.clear();
-    m_lineNumberArea->update();
+    if (m_lineNumberArea)
+        m_lineNumberArea->update();
 }
 
 void EditorView::setBlameData(const QHash<int, BlameInfo> &blameByLine)
 {
     m_blameData = blameByLine;
     updateLineNumberAreaWidth(0);
-    m_lineNumberArea->update();
+    if (m_lineNumberArea)
+        m_lineNumberArea->update();
 }
 
 void EditorView::clearBlameData()
@@ -1167,14 +1180,16 @@ void EditorView::clearBlameData()
     m_blameData.clear();
     m_showBlame = false;
     updateLineNumberAreaWidth(0);
-    m_lineNumberArea->update();
+    if (m_lineNumberArea)
+        m_lineNumberArea->update();
 }
 
 void EditorView::setBlameVisible(bool visible)
 {
     m_showBlame = visible;
     updateLineNumberAreaWidth(0);
-    m_lineNumberArea->update();
+    if (m_lineNumberArea)
+        m_lineNumberArea->update();
 }
 
 // ── LSP: Format / apply text edits ───────────────────────────────────────────

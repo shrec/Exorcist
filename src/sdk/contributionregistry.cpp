@@ -1,6 +1,8 @@
 #include "contributionregistry.h"
 #include "hostservices.h"
 
+#include "../core/imenumanager.h"
+#include "../bootstrap/menumanagerimpl.h"
 #include "../mainwindow.h"
 #include "../plugininterface.h"
 #include "../plugin/icommandhandler.h"
@@ -221,42 +223,77 @@ void ContributionRegistry::registerMenus(const QString &pluginId,
 
 QMenu *ContributionRegistry::menuForLocation(MenuContribution::Location loc) const
 {
+    if (!m_window)
+        return nullptr;
+
+    auto mapLocation = [](MenuContribution::Location location) -> std::optional<IMenuManager::MenuLocation> {
+        switch (location) {
+        case MenuContribution::MainMenuFile:       return IMenuManager::File;
+        case MenuContribution::MainMenuEdit:       return IMenuManager::Edit;
+        case MenuContribution::MainMenuView:       return IMenuManager::View;
+        case MenuContribution::MainMenuGit:        return IMenuManager::Git;
+        case MenuContribution::MainMenuProject:    return IMenuManager::Project;
+        case MenuContribution::MainMenuSelection:  return IMenuManager::Selection;
+        case MenuContribution::MainMenuBuild:      return IMenuManager::Build;
+        case MenuContribution::MainMenuDebug:      return IMenuManager::Debug;
+        case MenuContribution::MainMenuTest:       return IMenuManager::Test;
+        case MenuContribution::MainMenuAnalyze:    return IMenuManager::Analyze;
+        case MenuContribution::MainMenuRun:        return IMenuManager::Run;
+        case MenuContribution::MainMenuTerminal:   return IMenuManager::Terminal;
+        case MenuContribution::MainMenuTools:      return IMenuManager::Tools;
+        case MenuContribution::MainMenuExtensions: return IMenuManager::Extensions;
+        case MenuContribution::MainMenuWindow:     return IMenuManager::Window;
+        case MenuContribution::MainMenuHelp:       return IMenuManager::Help;
+        default:                                   return std::nullopt;
+        }
+    };
+
+    const auto mapped = mapLocation(loc);
+    if (!mapped.has_value())
+        return nullptr;
+
+    for (QObject *child : m_window->children()) {
+        auto *menuMgr = qobject_cast<MenuManagerImpl *>(child);
+        if (menuMgr)
+            return menuMgr->menu(mapped.value());
+    }
+
     QMenuBar *bar = m_window->menuBar();
-    if (!bar) return nullptr;
+    if (!bar)
+        return nullptr;
 
-    // Find existing menus by title
-    const QList<QAction *> actions = bar->actions();
-    for (QAction *a : actions) {
-        QMenu *menu = a->menu();
-        if (!menu) continue;
+    auto menuTitle = [](IMenuManager::MenuLocation location) -> QString {
+        switch (location) {
+        case IMenuManager::File:       return QObject::tr("&File");
+        case IMenuManager::Edit:       return QObject::tr("&Edit");
+        case IMenuManager::View:       return QObject::tr("&View");
+        case IMenuManager::Git:        return QObject::tr("&Git");
+        case IMenuManager::Project:    return QObject::tr("&Project");
+        case IMenuManager::Selection:  return QObject::tr("&Selection");
+        case IMenuManager::Build:      return QObject::tr("&Build");
+        case IMenuManager::Debug:      return QObject::tr("&Debug");
+        case IMenuManager::Test:       return QObject::tr("&Test");
+        case IMenuManager::Analyze:    return QObject::tr("&Analyze");
+        case IMenuManager::Run:        return QObject::tr("&Run");
+        case IMenuManager::Terminal:   return QObject::tr("&Terminal");
+        case IMenuManager::Tools:      return QObject::tr("&Tools");
+        case IMenuManager::Extensions: return QObject::tr("E&xtensions");
+        case IMenuManager::Window:     return QObject::tr("&Window");
+        case IMenuManager::Help:       return QObject::tr("&Help");
+        case IMenuManager::Custom:     return QObject::tr("Custom");
+        }
+        return {};
+    };
 
-        switch (loc) {
-        case MenuContribution::MainMenuFile:
-            if (menu->title().contains(tr("File"), Qt::CaseInsensitive))
+    const QString wantedTitle = menuTitle(mapped.value());
+    for (QAction *action : bar->actions()) {
+        if (QMenu *menu = action->menu()) {
+            if (menu->title() == wantedTitle)
                 return menu;
-            break;
-        case MenuContribution::MainMenuEdit:
-            if (menu->title().contains(tr("Edit"), Qt::CaseInsensitive))
-                return menu;
-            break;
-        case MenuContribution::MainMenuView:
-            if (menu->title().contains(tr("View"), Qt::CaseInsensitive))
-                return menu;
-            break;
-        case MenuContribution::MainMenuTools:
-            if (menu->title().contains(tr("Tools"), Qt::CaseInsensitive))
-                return menu;
-            break;
-        case MenuContribution::MainMenuHelp:
-            if (menu->title().contains(tr("Help"), Qt::CaseInsensitive))
-                return menu;
-            break;
-        default:
-            break;
         }
     }
 
-    return nullptr;
+    return bar->addMenu(wantedTitle);
 }
 
 // ── Views ────────────────────────────────────────────────────────────────────

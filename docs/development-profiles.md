@@ -1,623 +1,264 @@
-# Exorcist IDE — Top 20 Development Environment Templates
+# Exorcist IDE — Development Profiles and Template Catalog
 
-**Purpose:**
-წინასწარ კონფიგურირებული სამუშაო გარემოს პროფილები (Development Profiles), რომლებიც ავტომატურად ტვირთავს შესაბამის მოდულებს, პლაგინებს და ხელსაწყოებს კონკრეტული ტიპის პროექტებისთვის.
+Canonical rollout/migration reference:
+- [template-roadmap.md](template-roadmap.md)
 
-**Philosophy:**
+This document separates three concepts that were previously mixed together:
 
-```
-IDE Core  = Container
-Profiles  = Capability Packs
-Modules   = Feature DLLs (plugins)
-```
+- `shell`: the IDE container and abstract host surfaces
+- `profile`: a workspace-activated capability pack
+- `template`: a target development environment shape built from shared components and plugins
 
-როცა მომხმარებელი ქმნის ან ხსნის პროექტს, Exorcist IDE ტვირთავს მხოლოდ იმ მოდულებს, რომლებიც კონკრეტულ პროფილს სჭირდება. გამოუყენებელი მოდულები არ იტვირთება — ნულოვანი მეხსიერება, ნულოვანი CPU.
+## Model
 
----
-
-## 1. Embedded / MCU Development
-
-| | |
-|---|---|
-| **Target** | ESP32, ARM Cortex-M, AVR, RISC-V MCU |
-| **Activation** | `platformio.ini`, `.ioc`, `Makefile` with `arm-none-eabi` |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Embedded Project Explorer | პროექტის სტრუქტურა MCU ტარგეტებით |
-| Flash Tool | firmware upload (OpenOCD, esptool, avrdude) |
-| Serial Monitor | UART/USB-Serial კომუნიკაცია |
-| Binary Inspector | .elf / .hex / .bin ანალიზი |
-| Peripheral Viewer | MCU რეგისტრები და პერიფერია (SVD-based) |
-
-### Tools
-
-* OpenOCD — on-chip debugging
-* GDB — debug adapter (ARM, RISC-V)
-* UART terminal — serial I/O
-
-### Optional
-
-* Register viewer — CPU/peripheral register state
-* Memory map inspector — flash/RAM layout visualization
-* Logic analyzer integration — signal timing
-
----
-
-## 2. Embedded Linux / SBC
-
-| | |
-|---|---|
-| **Target** | Raspberry Pi, Milk-V, BeagleBone, ARM Linux boards |
-| **Activation** | `buildroot`, `yocto`, cross-compile toolchain detection |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Remote Deploy | binary upload + restart on target |
-| SSH Terminal | integrated remote shell |
-| System Monitor | CPU/RAM/disk on target device |
-| Cross-Compiler Manager | toolchain selection (aarch64, armhf, riscv64) |
-
-### Tools
-
-* SSH — remote connection
-* SCP/rsync — file transfer
-* Remote GDB — cross-debug
-
----
-
-## 3. C++ Native Development
-
-| | |
-|---|---|
-| **Activation** | `CMakeLists.txt`, `Makefile`, `.cpp`/`.h` files |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| C++ Workspace | project tree, include paths, compile_commands.json |
-| Symbol Navigator | class/function/variable index (CodeGraph) |
-| Header Explorer | include graph visualization |
-| Build Manager | CMake configure/build/clean |
-
-### Tools
-
-* CMake + Ninja — build system
-* GCC / Clang — compilers
-* Clangd — language intelligence (LSP)
-
-### Features
-
-* Code navigation (F12, references, rename)
-* Compile diagnostics (inline errors/warnings)
-* Symbol indexing (CodeGraph SQLite)
-* Header/source switching
-
----
-
-## 4. Rust Development
-
-| | |
-|---|---|
-| **Activation** | `Cargo.toml`, `.rs` files |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Cargo Integration | build, run, test, check, clippy |
-| Crate Explorer | dependency tree browser |
-| Rust Analyzer Integration | LSP client for rust-analyzer |
-
-### Tools
-
-* cargo — build/package manager
-* rustc — compiler
-* rust-analyzer — language server
-
-### Features
-
-* Dependency graph visualization
-* Crate browser with docs
-* Inline type hints
-* Borrow checker diagnostics
-
----
-
-## 5. Systems Programming
-
-| | |
-|---|---|
-| **Target** | Kernels, drivers, bootloaders, low-level runtime |
-| **Activation** | Kernel `Kconfig`, driver `Makefile`, bare-metal `linker.ld` |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Memory Viewer | hex editor with address mapping |
-| Disassembler | inline disassembly (x86, ARM, RISC-V) |
-| Register View | CPU register state during debug |
-| Binary Explorer | ELF/PE section browser |
-| Linker Script Editor | memory layout editing |
-
-### Tools
-
-* GDB with target remote
-* objdump / readelf
-* QEMU (optional emulation)
-
----
-
-## 6. Game Development
-
-| | |
-|---|---|
-| **Activation** | Engine project files, asset directories |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Asset Explorer | textures, models, audio browser |
-| Scene Viewer | 3D/2D scene tree inspector |
-| Shader Editor | GLSL/HLSL with preview |
-| Performance Profiler | frame timing, draw calls |
-
-### Tools
-
-* C++ / scripting runtime
-* Graphics debugger integration
-
-### Optional
-
-* Engine integrations (custom engine support via plugins)
-* Animation timeline
-* Physics debugger
-
----
-
-## 7. Qt Application Development
-
-| | |
-|---|---|
-| **Activation** | `CMakeLists.txt` with `find_package(Qt6)`, `.pro` files, `.ui` files |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Qt Project Explorer | QObject tree, resource browser |
-| Signal/Slot Inspector | connection graph viewer |
-| UI Designer Integration | .ui file preview |
-| Qt Resource Viewer | .qrc resource browser |
-
-### Tools
-
-* CMake / qmake — build
-* MOC automation — meta-object compiler
-* Qt Designer — UI layout
-
-### Features
-
-* Signal/slot connection analysis
-* QML support (optional)
-* Qt documentation integration
-
----
-
-## 8. Python Development
-
-| | |
-|---|---|
-| **Activation** | `requirements.txt`, `pyproject.toml`, `setup.py`, `.py` files |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Virtualenv Manager | venv/conda environment switching |
-| Package Explorer | installed packages browser |
-| Python Debugger | breakpoints, stepping, REPL |
-| Test Runner | pytest/unittest integration |
-
-### Tools
-
-* pip — package manager
-* pytest — test framework
-* Python LSP (Pylance/Pyright)
-
----
-
-## 9. PHP Development
-
-| | |
-|---|---|
-| **Activation** | `composer.json`, `.php` files |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| PHP Project Explorer | namespace/class tree |
-| API Tester | HTTP request builder |
-| Database Browser | MySQL/PostgreSQL viewer |
-| Composer Integration | dependency management |
-
-### Tools
-
-* Composer — package manager
-* PHPUnit — testing
-* Xdebug — debug adapter
-
----
-
-## 10. Web Backend Development
-
-| | |
-|---|---|
-| **Target** | Node.js, Go, Python, PHP, Rust backends |
-| **Activation** | `package.json` (server), `go.mod`, `manage.py`, `composer.json` |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| REST Client | HTTP request builder/runner |
-| API Debugger | request/response inspector |
-| Database Tools | SQL editor, query results, schema browser |
-| Environment Manager | .env file editor, variable viewer |
-
-### Tools
-
-* Language-specific tools (loaded by sub-profile)
-* Docker integration (optional)
-
----
-
-## 11. Web Frontend Development
-
-| | |
-|---|---|
-| **Activation** | `package.json` with frontend deps, `.html`/`.css`/`.jsx`/`.tsx` |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| HTML Preview | live browser preview |
-| CSS Inspector | style analysis |
-| JS Console | browser dev console |
-| Component Explorer | React/Vue/Svelte component tree |
-
-### Tools
-
-* npm / yarn / pnpm — package managers
-* Bundlers (Vite, webpack)
-* Browser DevTools bridge
-
----
-
-## 12. Full Stack Development
-
-| | |
-|---|---|
-| **Activation** | Combined frontend + backend project structure |
-
-### Modules
-
-Combines **Web Backend** (#10) + **Web Frontend** (#11) profiles, plus:
-
-| Module | Purpose |
-|--------|---------|
-| API Testing | endpoint testing with live backend |
-| Container Runner | Docker compose for full stack |
-| Database Integration | schema + data management |
-
----
-
-## 13. Data Engineering
-
-| | |
-|---|---|
-| **Activation** | `.sql` files, database config, ETL scripts |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| SQL Editor | syntax highlighting, autocomplete, execution |
-| Query Profiler | EXPLAIN analysis, performance hints |
-| Data Browser | table/view browser with inline editing |
-| Schema Designer | visual schema editor |
-
-### Tools
-
-* PostgreSQL, MySQL, SQLite clients
-* Data pipeline tools (dbt, Airflow)
-* CSV/Parquet viewer
-
----
-
-## 14. AI / Machine Learning
-
-| | |
-|---|---|
-| **Activation** | `requirements.txt` with ML deps, `.ipynb`, model files |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Model Explorer | neural network architecture viewer |
-| Dataset Viewer | data preview, statistics, sampling |
-| Training Monitor | loss curves, metrics dashboard |
-| Notebook Runner | Jupyter-compatible cell execution |
-
-### Tools
-
-* Python + pip
-* CUDA toolkit detection
-* TensorBoard integration
-
----
-
-## 15. Blockchain Development
-
-| | |
-|---|---|
-| **Activation** | `hardhat.config.js`, `foundry.toml`, `Anchor.toml` |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Wallet Explorer | account/balance viewer |
-| Contract Inspector | ABI browser, state reader |
-| Node Monitor | blockchain node status |
-| Transaction Debugger | tx trace/step viewer |
-
-### Tools
-
-* Solidity / Vyper compiler
-* Foundry / Hardhat
-* Local chain runner (Anvil, Ganache)
-
----
-
-## 16. Security Research
-
-| | |
-|---|---|
-| **Activation** | Manual selection |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Packet Inspector | network traffic analyzer |
-| Binary Analyzer | static analysis, strings, imports |
-| Exploit Workspace | payload builder, shellcode tools |
-| Fuzzer Integration | coverage-guided fuzzing |
-
-### Tools
-
-* GDB — debugging
-* Disassembler — instruction analysis
-* Hex editor — binary patching
-
----
-
-## 17. Reverse Engineering
-
-| | |
-|---|---|
-| **Activation** | Manual selection, binary file open |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Disassembly Viewer | interactive disassembly (x86, ARM, RISC-V) |
-| Symbol Explorer | import/export/string tables |
-| Binary Navigation | section/segment browser |
-| Control Flow Graph | function CFG visualization |
-| Decompiler View | pseudo-C output (optional) |
-
----
-
-## 18. DevOps / Infrastructure
-
-| | |
-|---|---|
-| **Activation** | `Dockerfile`, `docker-compose.yml`, `terraform/`, `ansible/`, `k8s/` |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Container Manager | Docker build/run/logs |
-| Server Monitor | remote host status |
-| Deployment Console | CI/CD pipeline viewer |
-| Config Editor | YAML/TOML/HCL with schema validation |
-
-### Tools
-
-* Docker / Podman
-* SSH
-* Terraform / Ansible (optional)
-
----
-
-## 19. Automation / Scripting
-
-| | |
-|---|---|
-| **Activation** | `.lua` files, shell scripts, `Taskfile.yml` |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Lua Scripting Environment | LuaJIT REPL + script runner |
-| Automation Console | task execution + output |
-| Script Library | reusable script browser |
-
-### Tools
-
-* LuaJIT — fast Lua runtime
-* Shell scripting (bash/PowerShell)
-* Task runner integration
-
----
-
-## 20. Lightweight Text Editing
-
-| | |
-|---|---|
-| **Activation** | Default — when no project is loaded, or explicit selection |
-
-### Modules
-
-| Module | Purpose |
-|--------|---------|
-| Basic Text Editor | syntax highlighting, find/replace |
-| Search | file search, text search |
-| File Browser | simple directory tree |
-
-### NOT loaded
-
-* Language indexing (CodeGraph, LSP)
-* Build system
-* Debug adapter
-* Git integration
-* Terminal
-
-### Goal
-
-**Ultra-fast startup.** ნულოვანი overhead. ტექსტის რედაქტორი მხოლოდ.
-
----
-
-## Profile Activation Model
-
-პროფილები აქტიურდება სამი გზით:
-
-| Method | Description | Example |
-|--------|-------------|---------|
-| **Project Detection** | ფაილების ავტოდეტექცია | `CMakeLists.txt` → C++ Profile |
-| **File Detection** | გახსნილი ფაილის ტიპი | `.rs` → Rust Profile |
-| **Manual Selection** | მომხმარებლის არჩევანი | Command Palette → "Switch Profile" |
-
-### Activation Flow
-
-```
-Open Folder
-  → Scan root files
-  → Match profile rules
-  → Load required modules
-  → Activate UI contributions
+```text
+IDE Shell        = container + interfaces + bridge services
+Shared Layers    = reusable services + reusable components + base plugin helpers
+Profiles         = activation manifests for a workspace
+Templates        = full workbench outcomes assembled from profiles/plugins/components
+Plugins          = the feature owners
 ```
 
-### Example: C++ Profile Activation
+The shell does not own feature workflows. It exposes `IHostServices`,
+`IDockManager`, `IMenuManager`, `IToolBarManager`, `IStatusBarManager`,
+`IWorkspaceManager`, component services, and profile services.
 
-```
-Detect: CMakeLists.txt found
-  → Load: C++ Module
-  → Load: Terminal Module
-  → Load: Search Module
-  → Load: Git Module
-  → Load: Build Module
-  → Load: Debug Module (deferred until first debug)
-  → Skip: Python, Rust, Web, etc.
-```
+Implementation split in core:
 
----
+- `SharedServicesBootstrap` owns workspace settings and profile activation services.
+- `TemplateServicesBootstrap` owns the project template catalog and built-in template provider.
 
-## Module Lifecycle
+## Current vs Target
 
-თითოეული მოდული გადის 4 ფაზას:
+Current bundled profiles in `profiles/`:
 
-### 1. Load
+| Profile | Status | Purpose |
+|---|---|---|
+| `cpp-native` | Implemented | Native C/C++ workbench |
+| `embedded-linux` | Implemented scaffold | Cross-compiled Linux and SBC activation |
+| `embedded-mcu` | Implemented scaffold | MCU-oriented activation |
+| `lightweight` | Implemented | Minimal text-editing mode |
+| `automation` | Implemented scaffold | Task-driven scripting activation |
+| `devops` | Implemented scaffold | Infrastructure and deployment activation |
+| `python` | Implemented | Python-oriented activation |
+| `qt-app` | Implemented | Qt application activation |
+| `rust` | Implemented | Rust-oriented activation |
+| `web-frontend` | Implemented scaffold | Frontend web activation |
 
-```
-→ Load DLL/shared library
-→ Register services in ServiceRegistry
-→ Register commands in CommandService
-→ Expose extension interfaces
-```
+Target catalog:
 
-### 2. Activate
+- 20 workbench templates
+- each template mapped to one or more profiles
+- each profile activates plugins, shared components, dock defaults, menus, toolbars, and settings
+- templates are considered complete only when their full plugin-owned UI and toolchain workflow work end-to-end
 
-```
-→ Create dock panels (via IDockManager)
-→ Create toolbar items (via IToolBarManager)
-→ Add menu entries (via IMenuManager)
-→ Add status bar items (via IStatusBarManager)
-→ Bind to events and signals
-```
+## Activation Contract
 
-### 3. Deactivate
+Profiles activate through:
 
-```
-→ Unbind events
-→ Hide UI elements
-→ Save state to settings
-→ Release active resources
-```
+| Method | Description |
+|---|---|
+| Project detection | root files or folders such as `CMakeLists.txt`, `Cargo.toml`, `pyproject.toml` |
+| File detection | currently opened file types such as `.cpp`, `.rs`, `.py` |
+| Manual switch | command palette or workspace settings |
+| Contextual escalation | extra plugin activation only when a workflow starts, such as debug or deploy |
 
-### 4. Unload
+Activation flow:
 
-```
-→ Release all memory
-→ Destroy UI controls
-→ Unregister services
-→ Unregister commands
-```
-
-**Zero-cost guarantee:** Deactivated/unloaded modules consume 0 CPU, 0 RAM, 0 background threads.
-
----
-
-## Architecture Alignment
-
-```
-┌─────────────────────────────────────────┐
-│              Exorcist IDE               │
-│                                         │
-│  ┌───────────────────────────────────┐  │
-│  │           Core (Container)        │  │
-│  │  Editor │ Terminal │ Search │ Git │  │
-│  │  IDockManager │ IMenuManager     │  │
-│  │  IToolBarManager │ IStatusBar    │  │
-│  │  IWorkspaceManager              │  │
-│  └───────────────────────────────────┘  │
-│                                         │
-│  ┌───────────────────────────────────┐  │
-│  │      Profile (Capability Pack)    │  │
-│  │  profile.json → module list      │  │
-│  │  activation rules                │  │
-│  │  default settings                │  │
-│  └───────────────────────────────────┘  │
-│                                         │
-│  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐  │
-│  │ Mod1 │ │ Mod2 │ │ Mod3 │ │ Mod4 │  │
-│  │Plugin│ │Plugin│ │Plugin│ │Plugin│  │
-│  └──────┘ └──────┘ └──────┘ └──────┘  │
-└─────────────────────────────────────────┘
+```text
+Open workspace
+  -> detect profile score
+  -> activate matching profile
+  -> load required plugins
+   -> force-activate profile-listed deferred plugins when a manual profile switch needs them
+  -> restore plugin-owned docks/toolbars/menus
+  -> apply profile defaults where workspace overrides do not exist
+  -> defer optional plugins until first use
 ```
 
-### Advantages
+## Lifecycle Rules
 
-| Benefit | How |
-|---------|-----|
-| Minimal memory | მხოლოდ საჭირო მოდულები იტვირთება |
-| Fast startup | 20-ივე პროფილი არ იტვირთება — მხოლოდ 1 |
-| Clean architecture | Core = interfaces, Profiles = packs, Modules = plugins |
-| Modular expansion | ახალი პროფილი = ახალი JSON + არსებული მოდულების კომბინაცია |
-| User freedom | მომხმარებელი ირჩევს რა სჭირდება — არაფერი ზედმეტი |
+For every profile/plugin combination:
+
+1. `load`
+   Load plugin binary, register services, commands, manifests, contribution metadata.
+2. `activate`
+   Create plugin-owned docks, menus, toolbars, status entries, event subscriptions.
+3. `deactivate`
+   Unbind events, hide UI, persist state, stop background work.
+4. `unload`
+   Release plugin memory and unregister feature ownership cleanly.
+
+The shell remains alive throughout; feature ownership moves in and out through interfaces.
+
+## Shared Building Blocks
+
+Templates must be composed from these layers instead of copied per plugin:
+
+| Layer | Responsibility |
+|---|---|
+| Shell | window/container lifecycle, docking rails, menu bar, toolbar rails, status bar, workspace/session orchestration |
+| Shared services | settings, profiles, command routing, process helpers, diagnostics aggregation, task/build session primitives, logging |
+| Shared components | project tree, terminal, serial monitor, output viewer, generic explorers, inspectors |
+| Base plugin layer | `WorkbenchPluginBase`-style helpers for commands, menus, toolbars, docks, permissions, lifecycle |
+| Domain plugins | language/build/debug/test/device/web/data/AI/etc. ownership |
+
+## Top 20 Template Catalog
+
+The following 20 templates are the target end state for the workbench.
+
+### 1. Embedded / MCU
+
+- Activation: `platformio.ini`, `.ioc`, embedded cross-toolchain files
+- Required capabilities: project explorer, flash/upload, serial monitor, binary inspector, peripheral/register views
+- Target plugins/components: embedded, build, debug, serial monitor, terminal, project tree
+- Current bundled coverage: `org.exorcist.embedded-tools` provides embedded action entry points, recursive workspace detection and command inference for PlatformIO, ESP-IDF, Zephyr, pyOCD configs, OpenOCD configs, STM32CubeProgrammer flash scripts, and Makefile-driven MCU projects, including PlatformIO environment plus upload/monitor port and baud defaults, pyOCD target-aware flash commands, OpenOCD interface/target-aware summaries, and runnable debug-route commands in the embedded tools panel, with persisted per-workspace flash/monitor command overrides when developers need to replace inferred defaults. `org.exorcist.serial-monitor` provides the monitor dock, persisted port/baud/newline preferences, optional timestamped logs, live serial session controls when `Qt SerialPort` is available, and an external monitor launcher fallback. Advanced device flashing/debug adapters remain follow-up work.
+
+### 2. Embedded Linux / SBC
+
+- Activation: `buildroot`, `yocto`, remote board toolchains
+- Required capabilities: remote deploy, SSH terminal, remote monitor, cross-compiler manager
+- Target plugins/components: remote, build, debug, terminal, project tree
+- Current bundled coverage: `org.exorcist.remote` provides the SSH/remote dock, can activate explicitly for the `embedded-linux` profile, and now also lazy-activates from Buildroot/Yocto/rootfs workspace markers; bundled profile detection covers Buildroot directories plus Yocto-style `bblayers.conf`, `local.conf`, `meta-*`, and recipe markers recursively. Remote deploy/debug workflow depth remains follow-up work.
+
+### 3. C++ Native
+
+- Activation: `CMakeLists.txt`, `Makefile`, `.cpp`, `.h`
+- Required capabilities: code navigation, build, run, debug, tests, symbol graph, include graph
+- Target plugins/components: cpp-language, build, debug, testing, codegraph, terminal, output, project tree
+
+### 4. Rust
+
+- Activation: `Cargo.toml`, `.rs`
+- Required capabilities: cargo build/run/test/check, crate explorer, rust-analyzer, diagnostics
+- Target plugins/components: rust language plugin, build/task integration, testing, terminal
+
+### 5. Systems Programming
+
+- Activation: `linker.ld`, kernel/driver build markers, low-level toolchains
+- Required capabilities: memory view, disassembly, register view, binary explorer, linker-script tooling
+- Target plugins/components: debug, binary tools, build, terminal, project tree
+
+### 6. Game Development
+
+- Activation: engine project markers, asset trees
+- Required capabilities: asset explorer, scene inspector, shader editor, performance/profiling views
+- Target plugins/components: asset tools, build, debug, test, project tree, terminal
+
+### 7. Qt Application Development
+
+- Activation: Qt `find_package`, `.pro`, `.ui`, `.qrc`
+- Required capabilities: QObject/resource explorer, signal-slot inspection, UI preview/designer hooks
+- Target plugins/components: cpp-language, build, debug, qt tools, project tree
+
+### 8. Python
+
+- Activation: `pyproject.toml`, `requirements.txt`, `.venv`, `.py`
+- Required capabilities: interpreter/venv selection, package explorer, debugger, test runner
+- Target plugins/components: python language plugin, terminal, testing, debug, project tree
+
+### 9. PHP
+
+- Activation: `composer.json`, `.php`
+- Required capabilities: namespace/class explorer, composer, debugger, API/database tools
+- Target plugins/components: php language plugin, terminal, testing, API/database tools
+
+### 10. Web Backend
+
+- Activation: `package.json`, `go.mod`, `manage.py`, `composer.json`
+- Required capabilities: REST client, API debugger, environment manager, database tools
+- Target plugins/components: backend language plugins, terminal, testing, database/API components
+
+### 11. Web Frontend
+
+- Activation: frontend `package.json`, `.html`, `.css`, `.jsx`, `.tsx`
+- Required capabilities: preview, console, component explorer, bundler tasks
+- Target plugins/components: web language plugin, terminal, testing, preview tools
+
+### 12. Full Stack
+
+- Activation: frontend + backend markers together
+- Required capabilities: full stack runner, API testing, database integration, container orchestration
+- Target plugins/components: backend + frontend packs, remote/container tools, testing
+
+### 13. Data Engineering
+
+- Activation: SQL roots, dbt/Airflow markers, ETL scripts
+- Required capabilities: SQL editor, profiler, data browser, schema tools
+- Target plugins/components: database plugin, terminal, data viewers
+
+### 14. AI / Machine Learning
+
+- Activation: notebook/model/data markers, ML requirements
+- Required capabilities: environment switching, dataset/model views, notebook execution, training monitor
+- Target plugins/components: python, notebook, terminal, data viewers, profiling
+
+### 15. Blockchain
+
+- Activation: `hardhat.config.*`, `foundry.toml`, `Anchor.toml`
+- Required capabilities: contract explorer, node monitor, transaction/debug tools, wallet views
+- Target plugins/components: blockchain plugin, build/run/debug, terminal
+
+### 16. Security Research
+
+- Activation: manual or lab workspace selection
+- Required capabilities: packet inspection, binary analysis, exploit workspace, fuzzing integration
+- Target plugins/components: binary tools, debug, terminal, remote, dataset/log viewers
+
+### 17. Reverse Engineering
+
+- Activation: binary-first workspace or manual selection
+- Required capabilities: disassembly, symbol explorer, CFG, optional decompiler
+- Target plugins/components: reverse-engineering plugin, binary tools, debug
+
+### 18. DevOps / Infrastructure
+
+- Activation: `Dockerfile`, compose, terraform, ansible, `k8s/`
+- Required capabilities: container manager, deployment console, server monitor, config editor
+- Target plugins/components: remote, container/devops plugin, terminal, logs/output
+
+### 19. Automation / Scripting
+
+- Activation: `.lua`, shell scripts, `Taskfile.yml`
+- Required capabilities: script runner, task console, reusable script library
+- Target plugins/components: Lua/plugin SDK, terminal, task runner
+
+### 20. Lightweight Text Editing
+
+- Activation: default fallback or explicit minimal mode
+- Required capabilities: fast editor, file browser, search
+- Must not load: heavy indexing, language servers, build/debug/test stacks unless explicitly requested
+- Target plugins/components: shell + editor + search + project tree only
+
+## Completion Criteria for a Template
+
+A template is not complete because a JSON profile exists. It is complete only when:
+
+- detection works
+- required plugins activate correctly
+- menus and toolbars are plugin-owned
+- required shared components appear in the correct dock zones
+- build/run/debug/test workflow works where applicable
+- switching away deactivates unneeded capabilities cleanly
+- workspace defaults and user overrides coexist correctly
+
+## Rollout Strategy
+
+The 20 templates should be delivered in waves, not independently:
+
+| Wave | Templates |
+|---|---|
+| Wave 1 | 3 C++ Native, 7 Qt, 8 Python, 4 Rust, 20 Lightweight |
+| Wave 2 | 1 Embedded MCU, 2 Embedded Linux, 18 DevOps, 19 Automation |
+| Wave 3 | 10 Web Backend, 11 Web Frontend, 12 Full Stack, 13 Data Engineering |
+| Wave 4 | 5 Systems, 6 Game Dev, 14 AI/ML, 15 Blockchain |
+| Wave 5 | 16 Security Research, 17 Reverse Engineering, remaining polish and cross-template consistency |
+
+## Standardization Requirements
+
+- The shell must remain a container only.
+- Shared UI must move into shared components instead of being reimplemented in plugins.
+- Shared non-visual logic must move into shared services instead of being copied.
+- Plugins own all visible feature workflows.
+- Profiles select combinations of plugins/components; they do not contain feature logic.
+- External third-party plugins must integrate through the same SDK and ownership rules as bundled plugins.

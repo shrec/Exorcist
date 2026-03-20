@@ -22,32 +22,47 @@ OutputPanel::OutputPanel(QWidget *parent)
     vbox->setContentsMargins(0, 0, 0, 0);
     vbox->setSpacing(0);
 
-    // Toolbar
-    auto *toolbar = new QHBoxLayout;
-    toolbar->setContentsMargins(4, 2, 4, 2);
+    // VS2022-style toolbar
+    auto *toolbarWidget = new QWidget(this);
+    toolbarWidget->setFixedHeight(30);
+    toolbarWidget->setStyleSheet(QStringLiteral(
+        "QWidget { background: #2d2d30; }"
+        "QComboBox { background: #3f3f46; color: #d4d4d4; border: 1px solid #555558;"
+        "  padding: 1px 6px; font-size: 12px; }"
+        "QComboBox::drop-down { border: none; width: 16px; }"
+        "QComboBox QAbstractItemView { background: #252526; color: #d4d4d4;"
+        "  selection-background-color: #094771; border: 1px solid #555558; }"
+        "QPushButton { color: #d4d4d4; background: transparent; border: 1px solid transparent;"
+        "  padding: 2px 10px; font-size: 12px; }"
+        "QPushButton:hover { border-color: #555558; background: #3e3e42; }"
+        "QPushButton:pressed { background: #094771; }"
+        "QPushButton:disabled { color: #555558; }"
+        "QLabel { color: #858585; font-size: 11px; background: transparent; }"
+    ));
+    auto *toolbar = new QHBoxLayout(toolbarWidget);
+    toolbar->setContentsMargins(6, 2, 6, 2);
+    toolbar->setSpacing(4);
 
-    m_profileCombo = new QComboBox(this);
+    m_profileCombo = new QComboBox;
     m_profileCombo->setMinimumWidth(180);
     m_profileCombo->setEditable(true);
     toolbar->addWidget(m_profileCombo);
 
-    m_runBtn = new QPushButton(tr("▶ Run"), this);
-    m_stopBtn = new QPushButton(tr("■ Stop"), this);
-    m_clearBtn = new QPushButton(tr("✕ Clear"), this);
+    m_runBtn = new QPushButton(tr("▶ Run"));
+    m_stopBtn = new QPushButton(tr("■ Stop"));
+    m_clearBtn = new QPushButton(tr("✕ Clear"));
     m_stopBtn->setEnabled(false);
 
     toolbar->addWidget(m_runBtn);
     toolbar->addWidget(m_stopBtn);
     toolbar->addWidget(m_clearBtn);
 
-    m_elapsedLabel = new QLabel(this);
-    m_elapsedLabel->setStyleSheet(QStringLiteral(
-        "QLabel { color: #888; font-size: 11px; padding-left: 8px; }"));
+    m_elapsedLabel = new QLabel;
     toolbar->addWidget(m_elapsedLabel);
 
     toolbar->addStretch();
 
-    vbox->addLayout(toolbar);
+    vbox->addWidget(toolbarWidget);
 
     // Output text
     m_output = new QPlainTextEdit(this);

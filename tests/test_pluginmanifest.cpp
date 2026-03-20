@@ -1,7 +1,12 @@
-#include <QTest>
 #include <QJsonDocument>
+#include <QFile>
+#include <QTest>
 
 #include "plugin/pluginmanifest.h"
+
+#ifndef EXORCIST_SOURCE_DIR
+#define EXORCIST_SOURCE_DIR ""
+#endif
 
 class TestPluginManifest : public QObject
 {
@@ -15,6 +20,7 @@ private slots:
     void testHasContributions();
     void testHasNoContributions();
     void testCommandContribution();
+    void testMenuContributionLocations();
     void testLanguageContribution();
     void testFromJsonMissingFields();
     void testEmptyJson();
@@ -23,6 +29,9 @@ private slots:
     void testIsLanguagePluginAutoInferred();
     void testIsGeneralPlugin();
     void testAutoInferFromActivationEvents();
+    void testWaveOneBundledPluginManifests();
+    void testEmbeddedBundledPluginManifests();
+    void testEmbeddedLinuxRemotePluginManifest();
 };
 
 void TestPluginManifest::testFromJsonBasicFields()
@@ -117,6 +126,31 @@ void TestPluginManifest::testCommandContribution()
     QCOMPARE(manifest.commands[0].id, QStringLiteral("plugin.doThing"));
     QCOMPARE(manifest.commands[0].title, QStringLiteral("Do Thing"));
     QCOMPARE(manifest.commands[0].keybinding, QStringLiteral("Ctrl+T"));
+}
+
+void TestPluginManifest::testMenuContributionLocations()
+{
+    QJsonObject buildMenuJson;
+    buildMenuJson[QStringLiteral("commandId")] = QStringLiteral("build.run");
+    buildMenuJson[QStringLiteral("location")] = QStringLiteral("build");
+
+    QJsonObject windowMenuJson;
+    windowMenuJson[QStringLiteral("commandId")] = QStringLiteral("window.toggleZen");
+    windowMenuJson[QStringLiteral("location")] = QStringLiteral("window");
+
+    QJsonObject json;
+    json[QStringLiteral("id")] = QStringLiteral("menus.test");
+    json[QStringLiteral("name")] = QStringLiteral("Menus Test");
+    json[QStringLiteral("version")] = QStringLiteral("1.0.0");
+
+    QJsonObject contrib;
+    contrib[QStringLiteral("menus")] = QJsonArray{buildMenuJson, windowMenuJson};
+    json[QStringLiteral("contributions")] = contrib;
+
+    const auto manifest = PluginManifest::fromJson(json);
+    QCOMPARE(manifest.menus.size(), 2);
+    QCOMPARE(manifest.menus[0].location, MenuContribution::MainMenuBuild);
+    QCOMPARE(manifest.menus[1].location, MenuContribution::MainMenuWindow);
 }
 
 void TestPluginManifest::testLanguageContribution()
@@ -246,6 +280,89 @@ void TestPluginManifest::testAutoInferFromActivationEvents()
     QVERIFY(manifest.isLanguagePlugin());
     QVERIFY(manifest.languageIds.contains(QStringLiteral("python")));
     QVERIFY(manifest.languageIds.contains(QStringLiteral("jupyter")));
+}
+
+void TestPluginManifest::testWaveOneBundledPluginManifests()
+{
+    struct ManifestExpectation {
+        QString path;
+        QString pluginId;
+        QString category;
+    };
+
+    const QList<ManifestExpectation> manifests = {
+        {QStringLiteral(EXORCIST_SOURCE_DIR "/plugins/python-language/plugin.json"),
+         QStringLiteral("org.exorcist.python-language"),
+         QStringLiteral("language")},
+        {QStringLiteral(EXORCIST_SOURCE_DIR "/plugins/rust-language/plugin.json"),
+         QStringLiteral("org.exorcist.rust-language"),
+         QStringLiteral("language")},
+        {QStringLiteral(EXORCIST_SOURCE_DIR "/plugins/qt-tools/plugin.json"),
+         QStringLiteral("org.exorcist.qt-tools"),
+         QStringLiteral("workbench")},
+    };
+
+    for (const ManifestExpectation &expectation : manifests) {
+        QFile file(expectation.path);
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(expectation.path));
+
+        const QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
+        const PluginManifest manifest = PluginManifest::fromJson(json);
+        QCOMPARE(manifest.id, expectation.pluginId);
+        QCOMPARE(manifest.category, expectation.category);
+        QVERIFY(!manifest.activationEvents.isEmpty());
+    }
+}
+
+void TestPluginManifest::testEmbeddedBundledPluginManifests()
+{
+    struct ManifestExpectation {
+        QString path;
+        QString pluginId;
+    };
+
+    const QList<ManifestExpectation> manifests = {
+        {QStringLiteral(EXORCIST_SOURCE_DIR "/plugins/embedded-tools/plugin.json"),
+         QStringLiteral("org.exorcist.embedded-tools")},
+        {QStringLiteral(EXORCIST_SOURCE_DIR "/plugins/serial-monitor/plugin.json"),
+         QStringLiteral("org.exorcist.serial-monitor")},
+    };
+
+    for (const ManifestExpectation &expectation : manifests) {
+        QFile file(expectation.path);
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(expectation.path));
+
+        const QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
+        const PluginManifest manifest = PluginManifest::fromJson(json);
+        QCOMPARE(manifest.id, expectation.pluginId);
+        QCOMPARE(manifest.category, QStringLiteral("workbench"));
+        QVERIFY(manifest.activationEvents.contains(QStringLiteral("onProfile:embedded-mcu")));
+        QVERIFY(manifest.activationEvents.contains(QStringLiteral("workspaceContains:platformio.ini")));
+        QVERIFY(manifest.activationEvents.contains(QStringLiteral("workspaceContains:west.yml")));
+        QVERIFY(manifest.activationEvents.contains(QStringLiteral("workspaceContains:sdkconfig")));
+        QVERIFY(manifest.activationEvents.contains(QStringLiteral("workspaceContains:pyocd.yaml")));
+        QVERIFY(manifest.activationEvents.contains(QStringLiteral("workspaceContains:openocd*.cfg")));
+        QVERIFY(!manifest.commands.isEmpty());
+        QVERIFY(!manifest.views.isEmpty());
+    }
+}
+
+void TestPluginManifest::testEmbeddedLinuxRemotePluginManifest()
+{
+    QFile file(QStringLiteral(EXORCIST_SOURCE_DIR "/plugins/remote/plugin.json"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+
+    const QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
+    const PluginManifest manifest = PluginManifest::fromJson(json);
+    QCOMPARE(manifest.id, QStringLiteral("org.exorcist.remote"));
+    QVERIFY(manifest.activationEvents.contains(QStringLiteral("onProfile:embedded-linux")));
+    QVERIFY(manifest.activationEvents.contains(QStringLiteral("workspaceContains:buildroot")));
+    QVERIFY(manifest.activationEvents.contains(QStringLiteral("workspaceContains:yocto")));
+    QVERIFY(manifest.activationEvents.contains(QStringLiteral("workspaceContains:bblayers.conf")));
+    QVERIFY(manifest.activationEvents.contains(QStringLiteral("workspaceContains:*.bb")));
+    QVERIFY(manifest.activationEvents.contains(QStringLiteral("onCommand:remote.showExplorer")));
+    QVERIFY(!manifest.views.isEmpty());
+    QVERIFY(!manifest.commands.isEmpty());
 }
 
 QTEST_MAIN(TestPluginManifest)

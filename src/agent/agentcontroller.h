@@ -77,7 +77,8 @@ public:
     void setMaxStepsPerTurn(int n) { m_maxSteps = n; }
 
     AgentToolPermission maxToolPermission() const { return m_maxPermission; }
-    void setMaxToolPermission(AgentToolPermission p) { m_maxPermission = p; }
+    void setMaxToolPermission(AgentToolPermission p);
+    // Declared in .cpp so it can forward to ToolApprovalService
 
     void setSystemPrompt(const QString &prompt) { m_systemPrompt = prompt; }
     void setSessionStore(SessionStore *store) { m_store = store; }
@@ -85,7 +86,7 @@ public:
     /// Set the centralised tool-approval service. When set, the controller
     /// delegates all approval checks to it instead of using its own built-in
     /// m_confirmFn / m_alwaysAllowedTools / m_maxPermission fields.
-    void setToolApprovalService(ToolApprovalService *svc) { m_approvalService = svc; }
+    void setToolApprovalService(ToolApprovalService *svc);
 
     void setBrainContextBuilder(BrainContextBuilder *b) { m_brainBuilder = b; }
 

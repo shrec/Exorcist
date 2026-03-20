@@ -36,6 +36,15 @@ struct CodeGraphStats
     int testCases          = 0;
     int cmakeTargets       = 0;
     int ftsEntries         = 0;
+    int callGraphEdges     = 0;
+    int xmlBindings        = 0;
+    int configIssues       = 0;
+    int runtimeEntrypoints = 0;
+    int symbolAliases      = 0;
+    int reachableFunctions = 0;
+    int deadFunctions      = 0;
+    int hotspotFiles       = 0;
+    int semanticTags       = 0;
 };
 
 // ── Parsed data returned by ILanguageIndexer ─────────────────────────────────
@@ -95,4 +104,77 @@ struct CodeGraphTestCase
     QString className;
     QString methodName;
     int lineNum = 0;
+};
+
+struct CodeGraphSemanticTag
+{
+    QString entityType;
+    QString entityName;
+    QString tag;
+    QString tagValue;
+    QString source;
+    QString evidence;
+    int fileId = 0;
+    int lineNum = 0;
+    int confidence = 0;
+};
+
+// ── AI-context optimisation types ────────────────────────────────────────────
+
+struct CodeGraphFunctionSummary
+{
+    QString symbol;
+    QString qualifiedSymbol;
+    QString category;
+    bool batchable       = false;
+    bool gpuCandidate    = false;
+    bool ctSensitive     = false;
+    bool recentlyModified = false;
+    QString bodyHash;
+};
+
+struct CodeGraphSymbolSlice
+{
+    QString symbol;
+    QString signature;
+    QString criticalLines;
+    int sliceTokenEstimate = 0;
+    int fullTokenEstimate  = 0;
+};
+
+struct CodeGraphAnalysisScore
+{
+    QString symbolName;
+    QString filePath;
+    int hotnessScore     = 0;
+    int complexityScore  = 0;
+    int faninScore       = 0;
+    int fanoutScore      = 0;
+    int gpuScore         = 0;
+    int ctRiskScore      = 0;
+    int auditGapScore    = 0;
+    int overallPriority  = 0;
+    QString reasons;
+};
+
+struct CodeGraphOptimizationPattern
+{
+    QString patternName;
+    QString description;
+    QString gain;
+    QString risk;
+    QString applicableWhen;
+    QString exampleSymbol;
+};
+
+struct CodeGraphAiTask
+{
+    int id             = 0;
+    QString taskType;
+    QString symbolName;
+    QString filePath;
+    QString prompt;
+    QString status;
+    int priority       = 0;
+    QString createdAt;
 };

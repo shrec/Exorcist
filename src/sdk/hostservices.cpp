@@ -13,7 +13,7 @@
 #include "../editor/editorview.h"
 #include "../git/gitservice.h"
 #include "../serviceregistry.h"
-#include "../terminal/terminalpanel.h"
+#include "iterminalservice.h"
 #include "../ui/dock/DockManager.h"
 #include "../ui/dock/DockToolBarManager.h"
 #include "../ui/dock/ExDockWidget.h"
@@ -346,43 +346,10 @@ QStringList GitServiceImpl::branches() const
     return m_git ? m_git->localBranches() : QStringList();
 }
 
-// ── TerminalServiceImpl ──────────────────────────────────────────────────────
-
-TerminalServiceImpl::TerminalServiceImpl(TerminalPanel *terminal, QObject *parent)
-    : QObject(parent)
-    , m_terminal(terminal)
-{
-}
-
-void TerminalServiceImpl::runCommand(const QString &command)
-{
-    if (m_terminal)
-        m_terminal->sendCommand(command);
-}
-
-void TerminalServiceImpl::sendInput(const QString &text)
-{
-    if (m_terminal)
-        m_terminal->sendInput(text);
-}
-
-QString TerminalServiceImpl::recentOutput(int maxLines) const
-{
-    return m_terminal ? m_terminal->recentOutput(maxLines) : QString();
-}
-
-void TerminalServiceImpl::openTerminal()
-{
-    // TerminalPanel manages tabs internally
-    if (m_terminal)
-        m_terminal->sendCommand(QString());
-}
-
 // ── DiagnosticsServiceImpl ───────────────────────────────────────────────────
 
-DiagnosticsServiceImpl::DiagnosticsServiceImpl(MainWindow *window, QObject *parent)
+DiagnosticsServiceImpl::DiagnosticsServiceImpl(QObject *parent)
     : QObject(parent)
-    , m_window(window)
 {
 }
 
@@ -455,30 +422,6 @@ int DiagnosticsServiceImpl::warningCount() const
     return count;
 }
 
-// ── TaskServiceImpl ──────────────────────────────────────────────────────────
-
-TaskServiceImpl::TaskServiceImpl(QObject *parent)
-    : QObject(parent)
-{
-}
-
-void TaskServiceImpl::runTask(const QString &taskId)
-{
-    Q_UNUSED(taskId)
-    // Will be wired to build system in a future phase.
-}
-
-void TaskServiceImpl::cancelTask(const QString &taskId)
-{
-    Q_UNUSED(taskId)
-}
-
-bool TaskServiceImpl::isTaskRunning(const QString &taskId) const
-{
-    Q_UNUSED(taskId)
-    return false;
-}
-
 // ── HostServices (root) ──────────────────────────────────────────────────────
 
 HostServices::HostServices(MainWindow *window, QObject *parent)
@@ -489,16 +432,21 @@ HostServices::HostServices(MainWindow *window, QObject *parent)
     m_editor        = std::make_unique<EditorServiceImpl>(window, this);
     m_views         = std::make_unique<ViewServiceImpl>(window, this);
     m_notifications = std::make_unique<NotificationServiceImpl>(window, this);
-    m_diagnostics   = std::make_unique<DiagnosticsServiceImpl>(window, this);
+    m_diagnostics   = std::make_unique<DiagnosticsServiceImpl>(this);
     m_tasks         = std::make_unique<TaskServiceImpl>(this);
 }
 
-void HostServices::initSubsystemServices(IFileSystem *fs, GitService *git,
-                                          TerminalPanel *terminal)
+void HostServices::initSubsystemServices(IFileSystem *fs, GitService *git)
 {
     m_workspace = std::make_unique<WorkspaceServiceImpl>(m_window, fs, this);
     m_git       = std::make_unique<GitServiceImpl>(git, this);
-    m_terminal  = std::make_unique<TerminalServiceImpl>(terminal, this);
+}
+
+void HostServices::setServiceRegistry(ServiceRegistry *reg)
+{
+    m_registry = reg;
+    if (m_tasks)
+        m_tasks->setServiceRegistry(reg);
 }
 
 ICommandService *HostServices::commands()       { return m_commands.get(); }
@@ -507,7 +455,10 @@ IEditorService *HostServices::editor()          { return m_editor.get(); }
 IViewService *HostServices::views()             { return m_views.get(); }
 INotificationService *HostServices::notifications() { return m_notifications.get(); }
 IGitService *HostServices::git()                { return m_git.get(); }
-ITerminalService *HostServices::terminal()      { return m_terminal.get(); }
+ITerminalService *HostServices::terminal()
+{
+    return m_registry ? dynamic_cast<ITerminalService *>(m_registry->service(QStringLiteral("terminalService"))) : nullptr;
+}
 IDiagnosticsService *HostServices::diagnostics() { return m_diagnostics.get(); }
 ITaskService *HostServices::tasks()             { return m_tasks.get(); }
 

@@ -16,17 +16,31 @@ TestExplorerPanel::TestExplorerPanel(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(2);
 
-    // Toolbar
-    auto *toolbar = new QHBoxLayout;
-    toolbar->setContentsMargins(4, 2, 4, 2);
+    // VS2022-style toolbar
+    static const char *kToolbarStyle =
+        "QWidget { background: #2d2d30; }"
+        "QPushButton {"
+        "  color: #d4d4d4; background: transparent; border: 1px solid transparent;"
+        "  padding: 2px 10px; font-size: 12px;"
+        "}"
+        "QPushButton:hover { border-color: #555558; background: #3e3e42; }"
+        "QPushButton:pressed { background: #094771; }"
+        "QPushButton:disabled { color: #555558; }"
+        "QLabel { color: #9d9d9d; font-size: 12px; background: transparent; }";
 
-    m_runAllBtn = new QPushButton(tr("Run All"));
-    m_runAllBtn->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    auto *toolbarWidget = new QWidget;
+    toolbarWidget->setFixedHeight(30);
+    toolbarWidget->setStyleSheet(QLatin1String(kToolbarStyle));
+
+    auto *toolbar = new QHBoxLayout(toolbarWidget);
+    toolbar->setContentsMargins(6, 2, 6, 2);
+    toolbar->setSpacing(4);
+
+    m_runAllBtn = new QPushButton(tr("▶ Run All"));
     m_runAllBtn->setEnabled(false);
     toolbar->addWidget(m_runAllBtn);
 
-    m_refreshBtn = new QPushButton(tr("Refresh"));
-    m_refreshBtn->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    m_refreshBtn = new QPushButton(tr("↻ Refresh"));
     m_refreshBtn->setEnabled(false);
     toolbar->addWidget(m_refreshBtn);
 
@@ -35,7 +49,7 @@ TestExplorerPanel::TestExplorerPanel(QWidget *parent)
     m_summaryLabel = new QLabel;
     toolbar->addWidget(m_summaryLabel);
 
-    layout->addLayout(toolbar);
+    layout->addWidget(toolbarWidget);
 
     // Tree
     m_tree = new QTreeWidget;
@@ -44,8 +58,27 @@ TestExplorerPanel::TestExplorerPanel(QWidget *parent)
     m_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_tree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_tree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_tree->setAlternatingRowColors(true);
     m_tree->setRootIsDecorated(false);
+    m_tree->setUniformRowHeights(true);
+    m_tree->setStyleSheet(QStringLiteral(
+        "QTreeWidget {"
+        "  background: #1e1e1e; color: #d4d4d4; border: none; font-size: 12px;"
+        "}"
+        "QTreeWidget::item { padding: 3px 0; border: none; }"
+        "QTreeWidget::item:alternate { background: #252526; }"
+        "QTreeWidget::item:hover { background: #2a2d2e; }"
+        "QTreeWidget::item:selected { background: #094771; color: #ffffff; }"
+        "QHeaderView::section {"
+        "  background: #252526; color: #858585; border: none;"
+        "  border-right: 1px solid #3e3e42; border-bottom: 1px solid #3e3e42;"
+        "  padding: 3px 6px; font-size: 11px;"
+        "}"
+        "QScrollBar:vertical { background: #1e1e1e; width: 10px; border: none; }"
+        "QScrollBar::handle:vertical { background: #424242; min-height: 20px; border-radius: 5px; }"
+        "QScrollBar::handle:vertical:hover { background: #686868; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+    ));
+    m_tree->setAlternatingRowColors(true);
     layout->addWidget(m_tree);
 
     connect(m_tree, &QTreeWidget::itemDoubleClicked,
@@ -172,11 +205,11 @@ void TestExplorerPanel::updateSummary()
     m_summaryLabel->setText(tr("%1/%2 passed").arg(passed).arg(total));
 
     if (failed > 0) {
-        m_summaryLabel->setStyleSheet(QStringLiteral("color: #e74c3c; font-weight: bold;"));
+        m_summaryLabel->setStyleSheet(QStringLiteral("color: #f14c4c; font-weight: bold;"));
     } else if (passed == total) {
-        m_summaryLabel->setStyleSheet(QStringLiteral("color: #2ecc71; font-weight: bold;"));
+        m_summaryLabel->setStyleSheet(QStringLiteral("color: #73c991; font-weight: bold;"));
     } else {
-        m_summaryLabel->setStyleSheet({});
+        m_summaryLabel->setStyleSheet(QStringLiteral("color: #9d9d9d;"));
     }
 }
 

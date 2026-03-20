@@ -8,9 +8,11 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QQueue>
 #include <QRegularExpression>
 #include <QSqlQuery>
 #include <QVariant>
+#include <QXmlStreamReader>
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CMake regex patterns (build-system specific, not language-specific)
@@ -41,6 +43,127 @@ static QString readFileContent(const QString &path)
     if (f.size() > 2'000'000)
         return {};
     return QString::fromUtf8(f.readAll());
+}
+
+static void insertSemanticTag(QSqlDatabase &db,
+                              qint64 fileId,
+                              const QString &entityType,
+                              const QString &entityName,
+                              int lineNum,
+                              const QString &tag,
+                              const QString &tagValue,
+                              int confidence,
+                              const QString &source,
+                              const QString &evidence)
+{
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral(
+        "INSERT OR IGNORE INTO semantic_tags "
+        "(file_id, entity_type, entity_name, line_num, tag, tag_value, confidence, source, evidence) "
+        "VALUES (?,?,?,?,?,?,?,?,?)"));
+    q.bindValue(0, fileId);
+    q.bindValue(1, entityType);
+    q.bindValue(2, entityName);
+    q.bindValue(3, lineNum);
+    q.bindValue(4, tag);
+    q.bindValue(5, tagValue);
+    q.bindValue(6, confidence);
+    q.bindValue(7, source);
+    q.bindValue(8, evidence);
+    q.exec();
+}
+
+static QStringList inferSemanticTags(const QString &path,
+                                     const QString &lang,
+                                     const QString &subsystem,
+                                     const QString &content,
+                                     const QString &entityName = {})
+{
+    const QString lowerPath = path.toLower();
+    const QString lowerContent = content.toLower();
+    const QString lowerName = entityName.toLower();
+    QStringList tags;
+
+    tags << QStringLiteral("lang:%1").arg(lang);
+    tags << QStringLiteral("layer:semantic");
+    if (!subsystem.isEmpty())
+        tags << QStringLiteral("subsystem:%1").arg(subsystem);
+
+    auto addIf = [&](bool cond, const char *value) {
+        if (cond)
+            tags << QString::fromLatin1(value);
+    };
+
+    addIf(lowerPath.contains(QStringLiteral("/plugin")) || subsystem.startsWith(QStringLiteral("plugin-")), "semantic:plugin");
+    addIf(lowerPath.contains(QStringLiteral("/agent/")) || lowerName.contains(QStringLiteral("agent")), "semantic:agent");
+    addIf(lowerPath.contains(QStringLiteral("/build/")) || lowerName.contains(QStringLiteral("build")), "semantic:build");
+    addIf(lowerPath.contains(QStringLiteral("/debug/")) || lowerName.contains(QStringLiteral("debug")), "semantic:debug");
+    addIf(lowerPath.contains(QStringLiteral("/test")) || lowerName.startsWith(QStringLiteral("test")), "semantic:test");
+    addIf(lowerPath.contains(QStringLiteral("/search/")) || lowerName.contains(QStringLiteral("search")), "semantic:search");
+    addIf(lowerPath.contains(QStringLiteral("/git/")) || lowerName.contains(QStringLiteral("git")), "semantic:git");
+    addIf(lowerPath.contains(QStringLiteral("/terminal/")) || lowerName.contains(QStringLiteral("terminal")), "semantic:terminal");
+    addIf(lowerPath.contains(QStringLiteral("/project/")) || lowerName.contains(QStringLiteral("project")), "semantic:project");
+    addIf(lowerPath.contains(QStringLiteral("/profile/")) || lowerName.contains(QStringLiteral("profile")), "semantic:profile");
+    addIf(lowerPath.contains(QStringLiteral("/dock/")) || lowerName.contains(QStringLiteral("dock")), "semantic:docking");
+    addIf(lowerPath.contains(QStringLiteral("/ui/")) || lowerName.contains(QStringLiteral("widget")) ||
+          lowerName.contains(QStringLiteral("panel")) || lowerName.contains(QStringLiteral("dialog")), "semantic:ui");
+    addIf(lowerPath.contains(QStringLiteral("/codegraph/")) || lowerName.contains(QStringLiteral("index")) ||
+          lowerName.contains(QStringLiteral("graph")) || lowerName.contains(QStringLiteral("query")), "semantic:analysis");
+    addIf(lowerContent.contains(QStringLiteral("registerservice")) || lowerContent.contains(QStringLiteral("serviceregistry")), "semantic:service-registry");
+    addIf(lowerContent.contains(QStringLiteral("q_object")) || lowerContent.contains(QStringLiteral("signals:")) ||
+          lowerContent.contains(QStringLiteral("slots:")), "semantic:qt");
+    addIf(lowerContent.contains(QStringLiteral("qprocess")) || lowerContent.contains(QStringLiteral("start(")), "semantic:process");
+    addIf(lowerContent.contains(QStringLiteral("command")) || lowerName.contains(QStringLiteral("command")), "semantic:command");
+    addIf(lowerContent.contains(QStringLiteral("network")) || lowerContent.contains(QStringLiteral("qnetwork")), "security:network-surface");
+    addIf(lowerContent.contains(QStringLiteral("auth")) || lowerContent.contains(QStringLiteral("token")), "security:auth-surface");
+    addIf(lowerContent.contains(QStringLiteral("permission")) || lowerContent.contains(QStringLiteral("secure")) ||
+          lowerContent.contains(QStringLiteral("security")), "security:sensitive");
+    addIf(lowerContent.contains(QStringLiteral("async")) || lowerContent.contains(QStringLiteral("qtconcurrent")) ||
+          lowerContent.contains(QStringLiteral("qtimer::singleshot")), "performance:async");
+
+    // Exorcist-native architecture tags
+    addIf(lowerPath == QStringLiteral("src/mainwindow.cpp") || lowerPath == QStringLiteral("src/mainwindow.h"),
+          "architecture:shell");
+    addIf(lowerPath.contains(QStringLiteral("/bootstrap/")), "architecture:bootstrap");
+    addIf(lowerPath.contains(QStringLiteral("/sdk/")) || lowerName.contains(QStringLiteral("ihostservices")) ||
+          lowerName.startsWith(QLatin1Char('i')), "architecture:sdk-boundary");
+    addIf(lowerPath.contains(QStringLiteral("/core/")), "architecture:core-interface");
+    addIf(lowerPath.contains(QStringLiteral("/component/")) || lowerContent.contains(QStringLiteral("componentregistry")) ||
+          lowerName.contains(QStringLiteral("component")), "architecture:shared-component");
+    addIf(lowerPath.contains(QStringLiteral("/settings/")) || lowerPath.contains(QStringLiteral("/profile/")) ||
+          lowerPath.contains(QStringLiteral("sharedservicesbootstrap")), "architecture:shared-service");
+    addIf(lowerPath.contains(QStringLiteral("/plugin/")) && lowerName.contains(QStringLiteral("workbenchpluginbase")),
+          "architecture:base-plugin");
+    addIf(subsystem.startsWith(QStringLiteral("plugin-")) || lowerPath.startsWith(QStringLiteral("plugins/")),
+          "architecture:plugin-domain");
+    addIf(lowerContent.contains(QStringLiteral("workbenchpluginbase")) ||
+          lowerName.contains(QStringLiteral("plugin")), "architecture:plugin-owned");
+    addIf(lowerContent.contains(QStringLiteral("idockmanager")) ||
+          lowerContent.contains(QStringLiteral("imenumanager")) ||
+          lowerContent.contains(QStringLiteral("itoolbarmanager")) ||
+          lowerContent.contains(QStringLiteral("istatusbarmanager")),
+          "ui:workbench-surface");
+    addIf(lowerContent.contains(QStringLiteral("addmenucommand")) ||
+          lowerContent.contains(QStringLiteral("createmenu")) ||
+          lowerContent.contains(QStringLiteral("imenumanager")),
+          "ui:menu-owner");
+    addIf(lowerContent.contains(QStringLiteral("createtoolbar")) ||
+          lowerContent.contains(QStringLiteral("itoolbarmanager")),
+          "ui:toolbar-owner");
+    addIf(lowerContent.contains(QStringLiteral("dock(")) ||
+          lowerContent.contains(QStringLiteral("showdock")) ||
+          lowerContent.contains(QStringLiteral("idockmanager")),
+          "ui:dock-owner");
+    addIf(lowerContent.contains(QStringLiteral("iprofilemanager")) ||
+          lowerContent.contains(QStringLiteral("loadprofilesfromdirectory")) ||
+          lowerName.contains(QStringLiteral("profilemanager")),
+          "workspace:profile-activation");
+    addIf(lowerName.contains(QStringLiteral("projecttemplate")) ||
+          lowerContent.contains(QStringLiteral("projecttemplateregistry")),
+          "workspace:template-system");
+
+    tags.removeDuplicates();
+    return tags;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1124,7 +1247,666 @@ int CodeGraphIndexer::buildFtsIndex(QSqlDatabase &db, bool hasFts5)
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Full rebuild (all 12 steps)
+// Step 13: Build function-level call graph
+// ══════════════════════════════════════════════════════════════════════════════
+
+int CodeGraphIndexer::buildCallGraph(QSqlDatabase &db)
+{
+    // Map: function name → its file_id (first occurrence wins for edge target)
+    QHash<QString, qint64> knownFuncFile;
+    {
+        QSqlQuery q(db);
+        q.exec(QStringLiteral(
+            "SELECT name, file_id FROM function_index GROUP BY name"));
+        while (q.next())
+            knownFuncFile.insert(q.value(0).toString(), q.value(1).toLongLong());
+    }
+
+    static const QRegularExpression RE_CALL(
+        QStringLiteral(R"(\b([A-Za-z_]\w{2,})\s*\()"));
+
+    static const QSet<QString> CALL_SKIP = {
+        QStringLiteral("if"),    QStringLiteral("for"),   QStringLiteral("while"),
+        QStringLiteral("switch"),QStringLiteral("return"),QStringLiteral("catch"),
+        QStringLiteral("sizeof"),QStringLiteral("new"),   QStringLiteral("delete"),
+        QStringLiteral("throw"), QStringLiteral("static_cast"),
+        QStringLiteral("const_cast"), QStringLiteral("dynamic_cast"),
+        QStringLiteral("reinterpret_cast"),
+    };
+
+    int count = 0;
+    QSqlQuery ins(db);
+    ins.prepare(QStringLiteral(
+        "INSERT OR IGNORE INTO call_graph "
+        "(caller_file_id, caller_func, callee_func, callee_file_id, line_num) "
+        "VALUES (?,?,?,?,?)"));
+
+    // Iterate C++ source files that have indexed functions
+    QSqlQuery fileQ(db);
+    fileQ.exec(QStringLiteral(
+        "SELECT DISTINCT f.id, f.path "
+        "FROM function_index fi JOIN files f ON fi.file_id = f.id "
+        "WHERE f.lang = 'cpp' AND f.ext = '.cpp'"));
+
+    while (fileQ.next()) {
+        const qint64 fileId = fileQ.value(0).toLongLong();
+        const QString path  = fileQ.value(1).toString();
+
+        const QString content = readFileContent(m_workspaceRoot + QLatin1Char('/') + path);
+        if (content.isNull()) continue;
+        const QStringList lines = content.split(QLatin1Char('\n'));
+
+        QSqlQuery funcQ(db);
+        funcQ.prepare(QStringLiteral(
+            "SELECT name, start_line, end_line FROM function_index WHERE file_id = ?"));
+        funcQ.bindValue(0, fileId);
+        funcQ.exec();
+
+        while (funcQ.next()) {
+            const QString callerName = funcQ.value(0).toString();
+            const int startLine = qMax(0, funcQ.value(1).toInt() - 1);
+            const int endLine   = qMin(lines.size(), funcQ.value(2).toInt());
+
+            QSet<QString> seen;
+            for (int li = startLine; li < endLine; ++li) {
+                const QString &line = lines[li];
+                if (line.trimmed().startsWith(QLatin1String("//")))
+                    continue;
+
+                auto callIt = RE_CALL.globalMatch(line);
+                while (callIt.hasNext()) {
+                    auto m = callIt.next();
+                    const QString callee = m.captured(1);
+                    if (CALL_SKIP.contains(callee) || callee == callerName)
+                        continue;
+                    if (!knownFuncFile.contains(callee))
+                        continue;
+                    if (seen.contains(callee))
+                        continue;
+                    seen.insert(callee);
+
+                    ins.bindValue(0, fileId);
+                    ins.bindValue(1, callerName);
+                    ins.bindValue(2, callee);
+                    ins.bindValue(3, knownFuncFile.value(callee));
+                    ins.bindValue(4, li + 1);
+                    if (ins.exec()) ++count;
+                }
+            }
+        }
+    }
+
+    m_stats.callGraphEdges = count;
+    return count;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step 14: Scan XML bindings and validate configs
+// ══════════════════════════════════════════════════════════════════════════════
+
+int CodeGraphIndexer::scanXmlBindings(QSqlDatabase &db)
+{
+    // Known symbols for binding resolution
+    QSet<QString> knownSymbols;
+    {
+        QSqlQuery q(db);
+        q.exec(QStringLiteral(
+            "SELECT name FROM classes UNION SELECT name FROM function_index"));
+        while (q.next())
+            knownSymbols.insert(q.value(0).toString());
+    }
+
+    static const QSet<QString> BINDING_ATTRS = {
+        QStringLiteral("class"), QStringLiteral("type"), QStringLiteral("base"),
+        QStringLiteral("slot"),  QStringLiteral("signal"), QStringLiteral("name"),
+    };
+
+    int bindCount = 0, issueCount = 0;
+    QSqlQuery insBinding(db);
+    insBinding.prepare(QStringLiteral(
+        "INSERT INTO xml_bindings "
+        "(xml_file_id, element, attribute, value, bound_symbol, bound_file_id, binding_type) "
+        "VALUES (?,?,?,?,?,?,?)"));
+
+    QSqlQuery insIssue(db);
+    insIssue.prepare(QStringLiteral(
+        "INSERT INTO config_issues "
+        "(xml_file_id, issue_type, element, attribute, value, message, severity) "
+        "VALUES (?,?,?,?,?,?,?)"));
+
+    QSqlQuery xmlFiles(db);
+    xmlFiles.exec(QStringLiteral(
+        "SELECT id, path FROM files WHERE ext IN ('.xml', '.ui', '.qrc')"));
+
+    while (xmlFiles.next()) {
+        const qint64 fileId = xmlFiles.value(0).toLongLong();
+        const QString path  = xmlFiles.value(1).toString();
+        const QString absPath = m_workspaceRoot + QLatin1Char('/') + path;
+
+        QFile f(absPath);
+        if (!f.open(QIODevice::ReadOnly)) continue;
+
+        QXmlStreamReader xml(&f);
+        QHash<QString, int> idCount;
+
+        while (!xml.atEnd()) {
+            xml.readNext();
+            if (!xml.isStartElement()) continue;
+
+            const QString elemName = xml.name().toString();
+            const auto attrs = xml.attributes();
+
+            for (const QXmlStreamAttribute &attr : attrs) {
+                const QString attrName = attr.name().toString();
+                const QString attrVal  = attr.value().toString();
+
+                // Duplicate id/name detection
+                if (attrName == QLatin1String("id") ||
+                    attrName == QLatin1String("name")) {
+                    if (++idCount[attrVal] > 1) {
+                        insIssue.bindValue(0, fileId);
+                        insIssue.bindValue(1, QStringLiteral("duplicate_id"));
+                        insIssue.bindValue(2, elemName);
+                        insIssue.bindValue(3, attrName);
+                        insIssue.bindValue(4, attrVal);
+                        insIssue.bindValue(5,
+                            QStringLiteral("Duplicate %1 '%2'").arg(attrName, attrVal));
+                        insIssue.bindValue(6, QStringLiteral("warning"));
+                        insIssue.exec();
+                        ++issueCount;
+                    }
+                }
+
+                // Symbol binding check
+                if (BINDING_ATTRS.contains(attrName) && !attrVal.isEmpty()) {
+                    const bool bound = knownSymbols.contains(attrVal);
+                    insBinding.bindValue(0, fileId);
+                    insBinding.bindValue(1, elemName);
+                    insBinding.bindValue(2, attrName);
+                    insBinding.bindValue(3, attrVal);
+                    insBinding.bindValue(4, bound ? attrVal : QString());
+                    insBinding.bindValue(5, QVariant(QVariant::Invalid));
+                    insBinding.bindValue(6, bound
+                        ? QStringLiteral("resolved")
+                        : QStringLiteral("unresolved"));
+                    insBinding.exec();
+                    ++bindCount;
+                }
+            }
+        }
+    }
+
+    m_stats.xmlBindings  = bindCount;
+    m_stats.configIssues = issueCount;
+    return bindCount + issueCount;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step 15: Scan runtime loading entrypoints
+// ══════════════════════════════════════════════════════════════════════════════
+
+int CodeGraphIndexer::scanRuntimeEntrypoints(QSqlDatabase &db)
+{
+    static const QRegularExpression RE_QPLUGINLOADER(
+        QStringLiteral(R"(QPluginLoader\s*\(\s*([^)]+)\))"));
+    static const QRegularExpression RE_QLIBRARY(
+        QStringLiteral(R"re(QLibrary\s*\(\s*"([^"]+)")re"));
+    static const QRegularExpression RE_LOAD_SCRIPT(
+        QStringLiteral(R"re(load(?:Lua|Script|File)\s*\(\s*"([^"]+)")re"));
+    static const QRegularExpression RE_DLOPEN(
+        QStringLiteral(R"re(dlopen\s*\(\s*"([^"]+)")re"));
+
+    int count = 0;
+    QSqlQuery ins(db);
+    ins.prepare(QStringLiteral(
+        "INSERT INTO runtime_entrypoints "
+        "(file_id, loader_type, target, line_num) VALUES (?,?,?,?)"));
+
+    QSqlQuery sel(db);
+    sel.exec(QStringLiteral(
+        "SELECT id, path FROM files WHERE ext = '.cpp' AND lang = 'cpp'"));
+
+    while (sel.next()) {
+        const qint64 fileId = sel.value(0).toLongLong();
+        const QString path  = sel.value(1).toString();
+
+        const QString content = readFileContent(m_workspaceRoot + QLatin1Char('/') + path);
+        if (content.isNull()) continue;
+
+        struct Pattern { const QRegularExpression *re; QString loaderType; };
+        const Pattern patterns[] = {
+            {&RE_QPLUGINLOADER, QStringLiteral("QPluginLoader")},
+            {&RE_QLIBRARY,      QStringLiteral("QLibrary")},
+            {&RE_LOAD_SCRIPT,   QStringLiteral("script")},
+            {&RE_DLOPEN,        QStringLiteral("dlopen")},
+        };
+
+        for (const auto &p : patterns) {
+            auto it = p.re->globalMatch(content);
+            while (it.hasNext()) {
+                auto m = it.next();
+                const int lineNum =
+                    content.left(m.capturedStart()).count(QLatin1Char('\n')) + 1;
+                QString target = m.captured(1).trimmed();
+                if (target.startsWith(QLatin1Char('"')))
+                    target = target.mid(1, target.size() - 2);
+
+                ins.bindValue(0, fileId);
+                ins.bindValue(1, p.loaderType);
+                ins.bindValue(2, target);
+                ins.bindValue(3, lineNum);
+                if (ins.exec()) ++count;
+            }
+        }
+    }
+
+    m_stats.runtimeEntrypoints = count;
+    return count;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step 16: Build symbol alias map (typo detection)
+// ══════════════════════════════════════════════════════════════════════════════
+
+static int s_levenshtein(const QString &a, const QString &b)
+{
+    const int m = a.size(), n = b.size();
+    if (m == 0) return n;
+    if (n == 0) return m;
+    if (qAbs(m - n) > 4) return 99; // fast reject: length difference too large
+
+    QVector<int> prev(n + 1), curr(n + 1);
+    for (int j = 0; j <= n; ++j) prev[j] = j;
+
+    for (int i = 1; i <= m; ++i) {
+        curr[0] = i;
+        for (int j = 1; j <= n; ++j) {
+            const int cost = (a[i - 1] == b[j - 1]) ? 0 : 1;
+            curr[j] = qMin(prev[j] + 1,
+                      qMin(curr[j - 1] + 1, prev[j - 1] + cost));
+        }
+        prev = curr;
+    }
+    return prev[n];
+}
+
+int CodeGraphIndexer::buildSymbolAliases(QSqlDatabase &db)
+{
+    struct Symbol { QString name; qint64 fileId; };
+    QHash<QString, QVector<Symbol>> byPrefix; // first-3-char prefix → symbols
+
+    auto addSymbols = [&](const QString &queryStr) {
+        QSqlQuery q(db);
+        q.exec(queryStr);
+        while (q.next()) {
+            const QString name  = q.value(0).toString();
+            const qint64 fileId = q.value(1).toLongLong();
+            if (name.size() < 4) continue;
+            byPrefix[name.left(3).toLower()].append({name, fileId});
+        }
+    };
+    addSymbols(QStringLiteral("SELECT name, file_id FROM classes"));
+    addSymbols(QStringLiteral("SELECT DISTINCT name, file_id FROM function_index"));
+
+    int count = 0;
+    QSqlQuery ins(db);
+    ins.prepare(QStringLiteral(
+        "INSERT OR IGNORE INTO symbol_aliases "
+        "(symbol_a, file_a, symbol_b, file_b, edit_distance, alias_type) "
+        "VALUES (?,?,?,?,?,?)"));
+
+    for (auto groupIt = byPrefix.constBegin(); groupIt != byPrefix.constEnd(); ++groupIt) {
+        const auto &group = groupIt.value();
+        if (group.size() < 2 || group.size() > 200) continue;
+
+        for (int i = 0; i < group.size(); ++i) {
+            for (int j = i + 1; j < group.size(); ++j) {
+                const auto &sa = group[i];
+                const auto &sb = group[j];
+                if (sa.name == sb.name) continue;
+
+                const int dist = s_levenshtein(sa.name, sb.name);
+                if (dist > 3) continue;
+
+                ins.bindValue(0, sa.name);
+                ins.bindValue(1, sa.fileId);
+                ins.bindValue(2, sb.name);
+                ins.bindValue(3, sb.fileId);
+                ins.bindValue(4, dist);
+                ins.bindValue(5, dist <= 2
+                    ? QStringLiteral("typo")
+                    : QStringLiteral("alias"));
+                if (ins.exec()) ++count;
+            }
+        }
+    }
+
+    m_stats.symbolAliases = count;
+    return count;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step 17: Build reachability graph (BFS from entry points)
+// ══════════════════════════════════════════════════════════════════════════════
+
+int CodeGraphIndexer::buildReachability(QSqlDatabase &db)
+{
+    static const QSet<QString> ENTRY_NAMES = {
+        QStringLiteral("main"),    QStringLiteral("initialize"),
+        QStringLiteral("shutdown"),QStringLiteral("initPlugin"),
+        QStringLiteral("create"),  QStringLiteral("instance"),
+        QStringLiteral("load"),    QStringLiteral("unload"),
+        QStringLiteral("start"),   QStringLiteral("stop"),
+        QStringLiteral("run"),     QStringLiteral("exec"),
+        QStringLiteral("init"),    QStringLiteral("setup"),
+    };
+
+    struct FuncInfo { qint64 fileId; bool implicit; };
+    QHash<QString, FuncInfo> allFuncs;
+    {
+        QSqlQuery q(db);
+        q.exec(QStringLiteral("SELECT name, file_id FROM function_index"));
+        while (q.next()) {
+            const QString nm = q.value(0).toString();
+            // Slots (on*), test methods, signals are implicitly reachable via Qt
+            const bool implicit =
+                nm.startsWith(QLatin1String("on")) ||
+                nm.startsWith(QLatin1String("test")) ||
+                nm.startsWith(QLatin1String("Test"));
+            allFuncs.insert(nm, {q.value(1).toLongLong(), implicit});
+        }
+    }
+
+    // Build call-graph adjacency: caller → callees
+    QHash<QString, QVector<QString>> calls;
+    {
+        QSqlQuery q(db);
+        q.exec(QStringLiteral("SELECT caller_func, callee_func FROM call_graph"));
+        while (q.next())
+            calls[q.value(0).toString()].append(q.value(1).toString());
+    }
+
+    // BFS
+    QSet<QString> reachable;
+    QQueue<QString> queue;
+    for (auto it = allFuncs.constBegin(); it != allFuncs.constEnd(); ++it) {
+        const QString &name = it.key();
+        if (ENTRY_NAMES.contains(name) || it.value().implicit) {
+            if (!reachable.contains(name)) {
+                reachable.insert(name);
+                queue.enqueue(name);
+            }
+        }
+    }
+    while (!queue.isEmpty()) {
+        const QString current = queue.dequeue();
+        for (const QString &callee : calls.value(current)) {
+            if (!reachable.contains(callee) && allFuncs.contains(callee)) {
+                reachable.insert(callee);
+                queue.enqueue(callee);
+            }
+        }
+    }
+
+    // Write results
+    QSqlQuery ins(db);
+    ins.prepare(QStringLiteral(
+        "INSERT INTO reachability "
+        "(file_id, symbol, symbol_type, is_reachable, reachable_via, dead_reason) "
+        "VALUES (?,?,?,?,?,?)"));
+
+    int reachCount = 0, deadCount = 0;
+    for (auto it = allFuncs.constBegin(); it != allFuncs.constEnd(); ++it) {
+        const bool reach = reachable.contains(it.key());
+        ins.bindValue(0, it.value().fileId);
+        ins.bindValue(1, it.key());
+        ins.bindValue(2, QStringLiteral("function"));
+        ins.bindValue(3, reach ? 1 : 0);
+        ins.bindValue(4, reach ? QStringLiteral("call_graph") : QString());
+        ins.bindValue(5, reach ? QString() : QStringLiteral("no_call_path"));
+        ins.exec();
+        if (reach) ++reachCount; else ++deadCount;
+    }
+
+    m_stats.reachableFunctions = reachCount;
+    m_stats.deadFunctions      = deadCount;
+    return reachCount + deadCount;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step 18: Score hotspot files (coupling × coverage × crash-risk)
+// ══════════════════════════════════════════════════════════════════════════════
+
+int CodeGraphIndexer::buildHotspotScores(QSqlDatabase &db)
+{
+    static const QRegularExpression RE_BARE_NEW(
+        QStringLiteral(R"(\bnew[\s(])"));
+    static const QRegularExpression RE_BARE_DELETE(
+        QStringLiteral(R"(\bdelete[\s\[])"));
+    static const QRegularExpression RE_PTR_CAST(
+        QStringLiteral(R"(reinterpret_cast|static_cast<\w+\*>)"));
+
+    auto countRe = [](const QRegularExpression &re, const QString &text) -> int {
+        int n = 0;
+        auto it = re.globalMatch(text);
+        while (it.hasNext()) { it.next(); ++n; }
+        return n;
+    };
+
+    int count = 0;
+    QSqlQuery ins(db);
+    ins.prepare(QStringLiteral(
+        "INSERT INTO hotspot_scores "
+        "(file_id, coupling_in, coupling_out, has_tests, "
+        "crash_indicators, hotspot_score, risk_factors) "
+        "VALUES (?,?,?,?,?,?,?)"));
+
+    QSqlQuery sel(db);
+    sel.exec(QStringLiteral(
+        "SELECT id, path FROM files "
+        "WHERE ext = '.cpp' AND lang = 'cpp' AND path LIKE 'src/%'"));
+
+    while (sel.next()) {
+        const qint64 fileId = sel.value(0).toLongLong();
+        const QString path  = sel.value(1).toString();
+
+        // Coupling
+        int couplingIn = 0, couplingOut = 0;
+        {
+            QSqlQuery eq(db);
+            eq.prepare(QStringLiteral(
+                "SELECT "
+                "  (SELECT COUNT(*) FROM edges WHERE target_file=? AND edge_type='includes'),"
+                "  (SELECT COUNT(*) FROM edges WHERE source_file=? AND edge_type='includes')"));
+            eq.bindValue(0, fileId);
+            eq.bindValue(1, fileId);
+            eq.exec();
+            if (eq.next()) {
+                couplingIn  = eq.value(0).toInt();
+                couplingOut = eq.value(1).toInt();
+            }
+        }
+
+        // Has tests?
+        int hasTests = 0;
+        {
+            QSqlQuery tq(db);
+            tq.prepare(QStringLiteral(
+                "SELECT 1 FROM edges WHERE target_file=? AND edge_type='tests' LIMIT 1"));
+            tq.bindValue(0, fileId);
+            tq.exec();
+            hasTests = tq.next() ? 1 : 0;
+        }
+
+        // Crash indicators from file content
+        const QString content = readFileContent(m_workspaceRoot + QLatin1Char('/') + path);
+        if (content.isNull()) continue;
+
+        const int arrowCount = content.count(QLatin1String("->"));
+        const int bareNew    = countRe(RE_BARE_NEW,    content);
+        const int bareDel    = countRe(RE_BARE_DELETE, content);
+        const int ptrCast    = countRe(RE_PTR_CAST,    content);
+        const int crashTotal = arrowCount + bareNew * 3 + bareDel * 3 + ptrCast * 2;
+
+        const double couplingNorm = qMin(1.0, (couplingIn + couplingOut) / 50.0);
+        const double coverageGap  = hasTests ? 0.0 : 1.0;
+        const double crashNorm    = qMin(1.0, crashTotal / 1000.0);
+        const double score =
+            (couplingNorm * 0.35 + coverageGap * 0.40 + crashNorm * 0.25) * 100.0;
+
+        QStringList risks;
+        if (arrowCount > 100)
+            risks << QStringLiteral("heavy-deref:%1").arg(arrowCount);
+        if (bareNew > 0)
+            risks << QStringLiteral("bare-new:%1").arg(bareNew);
+        if (bareDel > 0)
+            risks << QStringLiteral("bare-delete:%1").arg(bareDel);
+        if (ptrCast > 0)
+            risks << QStringLiteral("ptr-cast:%1").arg(ptrCast);
+
+        ins.bindValue(0, fileId);
+        ins.bindValue(1, couplingIn);
+        ins.bindValue(2, couplingOut);
+        ins.bindValue(3, hasTests);
+        ins.bindValue(4, crashTotal);
+        ins.bindValue(5, score);
+        ins.bindValue(6, risks.join(QStringLiteral(", ")));
+        if (ins.exec()) ++count;
+    }
+
+    m_stats.hotspotFiles = count;
+    return count;
+}
+
+int CodeGraphIndexer::buildSemanticTags(QSqlDatabase &db)
+{
+    int count = 0;
+
+    QSqlQuery files(db);
+    files.exec(QStringLiteral("SELECT id, path, lang, subsystem FROM files"));
+    while (files.next()) {
+        const qint64 fileId = files.value(0).toLongLong();
+        const QString path = files.value(1).toString();
+        const QString lang = files.value(2).toString();
+        const QString subsystem = files.value(3).toString();
+        const QString content = readFileContent(m_workspaceRoot + QLatin1Char('/') + path);
+
+        const QStringList tags = inferSemanticTags(path, lang, subsystem, content, QFileInfo(path).fileName());
+        for (const auto &tagValue : tags) {
+            const int sep = tagValue.indexOf(QLatin1Char(':'));
+            const QString tag = sep > 0 ? tagValue.left(sep) : tagValue;
+            const QString value = sep > 0 ? tagValue.mid(sep + 1) : QString();
+            insertSemanticTag(db, fileId, QStringLiteral("file"), path, 0,
+                              tag, value, 85, QStringLiteral("heuristic"), path);
+            ++count;
+        }
+
+        const bool isProjectOwned = path.startsWith(QStringLiteral("src/")) ||
+                                    path.startsWith(QStringLiteral("plugins/")) ||
+                                    path.startsWith(QStringLiteral("server/"));
+
+        if (isProjectOwned) {
+            QSqlQuery metrics(db);
+            metrics.prepare(QStringLiteral(
+                "SELECT coupling_in, coupling_out, has_tests, crash_indicators, hotspot_score "
+                "FROM hotspot_scores WHERE file_id = ?"));
+            metrics.bindValue(0, fileId);
+            metrics.exec();
+            if (metrics.next()) {
+                const bool hasTests = metrics.value(2).toInt() != 0;
+                const int crashIndicators = metrics.value(3).toInt();
+                const double hotspotScore = metrics.value(4).toDouble();
+
+                insertSemanticTag(db, fileId, QStringLiteral("file"), path, 0,
+                                  QStringLiteral("audit"),
+                                  hasTests ? QStringLiteral("unit-covered") : QStringLiteral("uncovered"),
+                                  90, QStringLiteral("derived"), QStringLiteral("hotspot_scores"));
+                ++count;
+
+                if (hotspotScore >= 8.0) {
+                    insertSemanticTag(db, fileId, QStringLiteral("file"), path, 0,
+                                      QStringLiteral("performance"), QStringLiteral("hot-path"),
+                                      95, QStringLiteral("derived"), QStringLiteral("hotspot_scores"));
+                    ++count;
+                }
+                if (crashIndicators > 0) {
+                    insertSemanticTag(db, fileId, QStringLiteral("file"), path, 0,
+                                      QStringLiteral("security"), QStringLiteral("fragile"),
+                                      80, QStringLiteral("derived"), QStringLiteral("hotspot_scores"));
+                    ++count;
+                }
+            }
+
+            QSqlQuery runtime(db);
+            runtime.prepare(QStringLiteral(
+                "SELECT COUNT(*) FROM runtime_entrypoints WHERE file_id = ?"));
+            runtime.bindValue(0, fileId);
+            runtime.exec();
+            if (runtime.next() && runtime.value(0).toInt() > 0) {
+                insertSemanticTag(db, fileId, QStringLiteral("file"), path, 0,
+                                  QStringLiteral("runtime"), QStringLiteral("entrypoint"),
+                                  90, QStringLiteral("derived"), QStringLiteral("runtime_entrypoints"));
+                ++count;
+            }
+
+            QSqlQuery services(db);
+            services.prepare(QStringLiteral(
+                "SELECT COUNT(*) FROM services WHERE file_id = ?"));
+            services.bindValue(0, fileId);
+            services.exec();
+            if (services.next() && services.value(0).toInt() > 0) {
+                insertSemanticTag(db, fileId, QStringLiteral("file"), path, 0,
+                                  QStringLiteral("architecture"), QStringLiteral("service-participant"),
+                                  85, QStringLiteral("derived"), QStringLiteral("services"));
+                ++count;
+            }
+        }
+
+        QSqlQuery classes(db);
+        classes.prepare(QStringLiteral(
+            "SELECT name, line_num FROM classes WHERE file_id = ?"));
+        classes.bindValue(0, fileId);
+        classes.exec();
+        while (classes.next()) {
+            const QString name = classes.value(0).toString();
+            const int lineNum = classes.value(1).toInt();
+            const QStringList classTags = inferSemanticTags(path, lang, subsystem, QString(), name);
+            for (const auto &tagValue : classTags) {
+                const int sep = tagValue.indexOf(QLatin1Char(':'));
+                const QString tag = sep > 0 ? tagValue.left(sep) : tagValue;
+                const QString value = sep > 0 ? tagValue.mid(sep + 1) : QString();
+                insertSemanticTag(db, fileId, QStringLiteral("class"), name, lineNum,
+                                  tag, value, 75, QStringLiteral("heuristic"), name);
+                ++count;
+            }
+        }
+
+        QSqlQuery funcs(db);
+        funcs.prepare(QStringLiteral(
+            "SELECT qualified_name, start_line FROM function_index WHERE file_id = ?"));
+        funcs.bindValue(0, fileId);
+        funcs.exec();
+        while (funcs.next()) {
+            const QString qualifiedName = funcs.value(0).toString();
+            const int lineNum = funcs.value(1).toInt();
+            const QStringList fnTags = inferSemanticTags(path, lang, subsystem, QString(), qualifiedName);
+            for (const auto &tagValue : fnTags) {
+                const int sep = tagValue.indexOf(QLatin1Char(':'));
+                const QString tag = sep > 0 ? tagValue.left(sep) : tagValue;
+                const QString value = sep > 0 ? tagValue.mid(sep + 1) : QString();
+                insertSemanticTag(db, fileId, QStringLiteral("function"), qualifiedName, lineNum,
+                                  tag, value, 65, QStringLiteral("heuristic"), qualifiedName);
+                ++count;
+            }
+        }
+    }
+
+    m_stats.semanticTags = count;
+    return count;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Full rebuild
 // ══════════════════════════════════════════════════════════════════════════════
 
 CodeGraphStats CodeGraphIndexer::fullRebuild(QSqlDatabase &db, bool hasFts5)
@@ -1146,6 +1928,13 @@ CodeGraphStats CodeGraphIndexer::fullRebuild(QSqlDatabase &db, bool hasFts5)
         scanTestCases(db);
         scanCMakeTargets(db);
         buildFtsIndex(db, hasFts5);
+        buildCallGraph(db);
+        scanXmlBindings(db);
+        scanRuntimeEntrypoints(db);
+        buildSymbolAliases(db);
+        buildReachability(db);
+        buildHotspotScores(db);
+        buildSemanticTags(db);
     } catch (...) {
         ok = false;
     }

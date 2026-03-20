@@ -25,6 +25,10 @@ ProfileManifest ProfileManifest::fromJson(const QJsonObject &obj)
     for (const auto &v : dis)
         m.disabledPlugins.append(v.toString());
 
+    const auto deferred = obj.value(QStringLiteral("deferredPlugins")).toArray();
+    for (const auto &v : deferred)
+        m.deferredPlugins.append(v.toString());
+
     // Detection rules
     const auto rules = obj.value(QStringLiteral("detection")).toArray();
     for (const auto &rv : rules) {

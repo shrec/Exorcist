@@ -82,6 +82,7 @@ private:
     TreeNode *findNodeByPath(TreeNode *root, const QString &path) const;
     QModelIndex indexForNode(TreeNode *node) const;
     QColor gitColorForPath(const QString &path) const;
+    void emitDataChangedForFetchedNodes(TreeNode *node);
 
     std::unique_ptr<TreeNode> m_root;
     ProjectManager *m_projectManager;
