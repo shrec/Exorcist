@@ -327,9 +327,19 @@ ChatThinkingWidget::ToolItem *ChatThinkingWidget::addToolItem(const ChatContentP
     confirmLayout->addStretch();
     rowMain->addWidget(item->confirmRow);
 
+    item->toolState = part.toolState;
     m_toolsLayout->addWidget(item->row);
     m_toolItems.append(item);
     m_toolCount++;
+
+    // For live streaming (Queued = tool just dispatched), activate the widget
+    // even when there is no thinking text (tool-only scenario).
+    if (part.toolState == ChatContentPart::ToolState::Queued) {
+        m_activeToolCount++;
+        m_spinnerRow->show();
+        updateBoxStyle(true);
+        updateHeaderText(m_streaming, m_toolCount > 0);
+    }
     updateChainLines();
 
     // Apply initial state (important for session restore — tools arrive
@@ -411,8 +421,27 @@ void ChatThinkingWidget::updateToolState(const QString &callId, const ChatConten
                              .left(1000)));
             item->outputLabel->show();
         }
+
+        // Update active count when a tool transitions out of Queued/Streaming
+        const bool wasActive = (item->toolState == ChatContentPart::ToolState::Queued
+                                || item->toolState == ChatContentPart::ToolState::Streaming);
+        const bool isActive  = (part.toolState == ChatContentPart::ToolState::Queued
+                                || part.toolState == ChatContentPart::ToolState::Streaming);
+        if (wasActive && !isActive)
+            m_activeToolCount = qMax(0, m_activeToolCount - 1);
+        else if (!wasActive && isActive)
+            m_activeToolCount++;
+
+        item->toolState = part.toolState;
         break;
     }
+
+    // Refresh spinner + border + header to reflect current activity level
+    const bool anyActive = m_streaming || m_activeToolCount > 0;
+    m_spinnerRow->setVisible(anyActive);
+    updateBoxStyle(anyActive);
+    updateHeaderText(anyActive, m_toolCount > 0);
+    updateChainLines();
 }
 
 ChatThinkingWidget::ToolItem *ChatThinkingWidget::findToolItem(const QString &callId) const
@@ -452,12 +481,29 @@ void ChatThinkingWidget::updateHeaderStyle(bool expanded)
 
 void ChatThinkingWidget::updateHeaderText(bool streaming, bool hasToolResults)
 {
-    if (streaming)
-        m_headerBtn->setText(QStringLiteral("\u25BC  Thinking\u2026"));
-    else if (hasToolResults || !m_rawText.isEmpty())
+    const bool toolsOnly = m_rawText.isEmpty();
+
+    if (streaming) {
+        if (toolsOnly && m_toolCount > 0) {
+            // Tool-only widget: show running count instead of "Thinking…"
+            const QString label = m_toolCount == 1
+                ? QStringLiteral("\u25BC  Running 1 tool\u2026")
+                : QStringLiteral("\u25BC  Running %1 tools\u2026").arg(m_toolCount);
+            m_headerBtn->setText(label);
+        } else {
+            m_headerBtn->setText(QStringLiteral("\u25BC  Thinking\u2026"));
+        }
+    } else if (hasToolResults && toolsOnly) {
+        // Tool-only widget finished: summarise with count
+        const QString label = m_toolCount == 1
+            ? QStringLiteral("\u25B6  Used 1 tool")
+            : QStringLiteral("\u25B6  Used %1 tools").arg(m_toolCount);
+        m_headerBtn->setText(label);
+    } else if (hasToolResults || !m_rawText.isEmpty()) {
         m_headerBtn->setText(QStringLiteral("\u2713  Thought"));
-    else
+    } else {
         m_headerBtn->setText(QStringLiteral("\u25B6  Thinking"));
+    }
 }
 
 void ChatThinkingWidget::updateChainLines()

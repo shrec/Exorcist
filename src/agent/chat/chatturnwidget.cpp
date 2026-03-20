@@ -321,9 +321,12 @@ void ChatTurnWidget::finishTurn(ChatTurnModel::State state)
 {
     if (m_lastMarkdown)
         m_lastMarkdown->finalize();
-    if (m_lastThinking) {
-        m_lastThinking->finalize();
-        m_lastThinking->setCollapsed(true);
+    // Finalize and collapse every thinking/tool widget, not only the last one.
+    // A multi-step agentic turn may produce several ChatThinkingWidgets
+    // (one per think→tool→think cycle); all should collapse on completion.
+    for (auto *tw : m_thinkingWidgets) {
+        tw->finalize();
+        tw->setCollapsed(true);
     }
     m_turnComplete = (state == ChatTurnModel::State::Complete);
     m_feedbackRow->hide();

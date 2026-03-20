@@ -127,8 +127,8 @@
   God-object pattern აღარ არის — სერვისები განაწილებულია bootstrap-ებში.
 
 - [x] **Test coverage გაფართოება**
-  **17 test targets, 340+ test cases, 17/17 pass.**
-  ახალი ტესტები: lspclient, searchworker, outputpanel, toolregistry, contextbuilder, gitservice, multicursor, projectmanager, terminalscreen, treesitter_highlighter, testdiscovery, problemspanel.
+  **63 test targets, 63/63 pass** (2026-03-20).
+  ახალი ტესტები: lspclient, searchworker, outputpanel, toolregistry, contextbuilder, gitservice, multicursor, projectmanager, terminalscreen, treesitter_highlighter, testdiscovery, problemspanel + many more.
 
 ---
 
@@ -195,25 +195,28 @@
   Exe exports symbols (--export-all-symbols) for plugin linking.
   Project detection activation: CMakeLists.txt, Cargo.toml, Makefile, build.gradle, meson.build.
 
-- [ ] **C2. Testing system plugin-ად გამოტანა**
-  `src/testing/` → `plugins/testing/` — TestDiscoveryService, TestExplorerPanel.
-  Contextual activation — test explorer გახსნაზე.
-  ITestRunner ServiceRegistry registration. Depends on IBuildSystem (for buildDirectory).
+- [x] **C2. Testing system plugin-ად გამოტანა** ✅
+  `plugins/testing/` — TestDiscoveryService, TestExplorerPanel, TestRunnerService.
+  activationEvents: workspaceContains:CTestTestfile.cmake, CMakeLists.txt.
+  ITestRunner ("testRunner") registered via ServiceRegistry. wireBuildSystem() connects IBuildSystem.
+  MainWindow clean: no testing members. Qt test output via -o file.txt,txt (Windows GUI subsystem fix).
 
-- [ ] **C3. Debug system plugin-ად გამოტანა**
-  `src/debug/` → `plugins/debug/` — GdbMiAdapter, DebugPanel, QuickWatchDialog, WatchTreeModel.
-  Contextual activation — F5 / debug start.
-  IDebugAdapter already exists. 6 agent callbacks → service dynamic lookup.
-  MainWindow-დან 2 member removal.
+- [x] **C3. Debug system plugin-ად გამოტანა** ✅
+  `plugins/debug/` — GdbMiAdapter, DebugPanel, DebugServiceBridge as DebugPlugin.
+  activationEvents: workspaceContains:CMakeLists.txt, Makefile, Cargo.toml.
+  IDebugService ("debugService") + IDebugAdapter ("debugAdapter") via ServiceRegistry.
+  Commands: debug.launch, continue, stepOver, stepInto, stepOut, terminate. Full toolbar + menu.
 
-- [ ] **C4. Clangd Manager plugin-ად გამოტანა**
-  `src/lsp/clangdmanager.*` → `plugins/cpp-language/` (or language pack plugin).
-  LspClient რჩება Core-ში (generic protocol). ClangdManager = C++-specific.
-  Project detection: `.cpp`, `.h`, `compile_commands.json`.
+- [x] **C4. Clangd Manager plugin-ად გამოტანა** ✅
+  `plugins/cpp-language/` — ClangdManager, LspClient, LspServiceBridge, CppWorkspacePanel.
+  CppLanguagePlugin owns its own clangd process + LSP stack.
+  LspBootstrap (src/bootstrap/) is dead code — not compiled in src/CMakeLists.txt.
+  ILspService registered; 30+ commands; full build/debug/test/search service wiring.
 
 - [ ] **C5. Language highlighting data plugin-ად გამოტანა**
   `src/editor/languages/` → language pack plugins via ILanguageContributor.
-  ~800 ხაზი ენის მონაცემი Core-დან plugin-ებში გადატანა.
+  ~1365 ხაზი regex-based syntax data Core-დან plugin-ებში გადატანა.
+  HighlighterFactory already plugin-first (s_languageLookup), hard-coded fallback remains.
   Project detection: ფაილის გაფართოების მიხედვით.
 
 ### Phase D: God Object Decomposition
@@ -222,32 +225,37 @@
   Tab/document lifecycle MainWindow-დან ცალკე კლასში.
   m_tabs, tab signals, file open/close/save logic.
 
-- [ ] **D2. DockBootstrap extraction**
-  createDockWidgets() 700+ ხაზი → ცალკე DockBootstrap კლასი.
-  m_dockManager + 14 panel member → DockBootstrap.
-  Lazy panel initialization support.
+- [x] **D2. DockBootstrap extraction** ✅
+  `src/bootstrap/dockbootstrap.cpp/h` — 14 dock panels created via DockBootstrap::initialize().
+  Deps struct: parent, services, dockManager, themeManager, bridgeClient, orchestrator, hostServices, memoryPath.
+  Panel accessors: chatPanel(), symbolPanel(), referencesPanel(), requestLogPanel(), trajectoryPanel(),
+  settingsPanel(), memoryBrowser(), themeGallery(), diffViewer(), proposedEditPanel(), mcpClient(), mcpPanel(), pluginGallery().
+  MainWindow assigns these via m_dockBootstrap->xxx() after initialization.
 
-- [ ] **D3. Target: MainWindow <40 members**
-  A+C extraction: -14 members (117→103)
-  D1+D2 extraction: -24 members (103→79)
-  Lazy panels: -10 members (79→~50)
+- [x] **D3. Target: MainWindow <40 members** ✅
+  Current: **39 members** (below target of 40).
+  Members breakdown: 4 managers, 3 bootstrap pointers, 3 core ptrs, 13 panel aliases from DockBootstrap,
+  4 inline/chat widgets, 5 service/registry pointers, 3 layout widgets, 4 misc.
 
 ### Phase E: Plugin Ecosystem Polish
 
-- [ ] **E1. C++ plugin manifests**
-  AI provider plugins-ს (copilot, claude, codex, ollama, byok) `plugin.json` დამატება.
-  Declarative contributions: activation events, dependencies, settings.
+- [x] **E1. C++ plugin manifests** ✅
+  copilot, claude, codex, ollama, byok — all have plugin.json with activationEvents: ["*"],
+  requestedPermissions: ["NetworkAccess"], and settings contributions (enabled flag per provider).
 
-- [ ] **E2. Plugin Gallery enable/disable**
-  PluginGalleryPanel-ში toggle ღილაკი runtime enable/disable-თვის.
-  Disabled = unloaded, 0 resources.
+- [x] **E2. Plugin Gallery enable/disable** ✅
+  PluginGalleryPanel::onInstalledItemClicked() shows Enable/Disable toggle button.
+  PluginManager::setPluginDisabled()/isPluginDisabled() persist state.
+  Disabled items shown greyed-out with "(disabled)" suffix in list.
 
-- [ ] **E3. Agent tool plugin wiring**
-  IAgentToolPlugin::createTools() discovery and registration during plugin init.
-  Plugins can contribute custom agent tools via this interface.
+- [x] **E3. Agent tool plugin wiring** ✅
+  IAgentToolPlugin discovery loop fixed: was gated behind IAgentPlugin check — now any plugin can implement it.
+  GitPlugin implements IAgentToolPlugin::createTools() → returns GitOpsTool with QPointer<GitService> executor.
+  gitExecutor callback removed from mainwindow.cpp Callbacks struct (~200 lines removed from mainwindow).
+  git_ops tool now owned by the Git plugin, not AgentPlatformBootstrap.
 
 ### Chat & Streaming UX
 
-- [ ] **Text selection/copy** — Ultralight chat panel-ში ტექსტის მონიშვნა და კოპირება
-- [ ] **Stream consolidation** — tool call-ები compact unified stream-ად (VS Code parity)
+- [x] **Text selection/copy** — Ultralight chat panel-ში ტექსტის მონიშვნა და კოპირება: added `::selection` CSS rule so highlights are visible; Ctrl+C and drag-to-select already wired through UltralightWidget + ChatJSBridge
+- [x] **Stream consolidation** — tool call-ები compact unified stream-ად (VS Code parity): wk-box groups tool calls per cycle, auto-collapses on finish; added streaming-step shimmer + spinning icon CSS; fixed wk-box reuse across reasoning cycles
 - [x] **Terminal tool hang fix** — replaced blocking `waitForFinished()` with `QEventLoop`, added `cancelForeground()` + `RunCommandTool::cancel()`

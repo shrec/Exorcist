@@ -55,6 +55,7 @@ public:
         QToolButton     *denyBtn     = nullptr;
         QString          callId;
         QString          toolName;
+        ChatContentPart::ToolState toolState = ChatContentPart::ToolState::Queued;
     };
 
     ToolItem *addToolItem(const ChatContentPart &part);
@@ -86,6 +87,7 @@ private:
 
     QList<ToolItem *> m_toolItems;
     QString           m_rawText;
-    bool              m_streaming  = false;
-    int               m_toolCount  = 0;
+    bool              m_streaming        = false;
+    int               m_toolCount        = 0;
+    int               m_activeToolCount  = 0; // tools in Queued or Streaming state
 };

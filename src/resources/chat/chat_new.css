@@ -103,6 +103,12 @@ html, body {
     -webkit-font-smoothing: antialiased;
 }
 
+/* ── Text selection highlight ─────────────────────────────────────────────── */
+::selection {
+    background-color: var(--selection-bg);
+    color: #ffffff;
+}
+
 /* ── Scrollbar ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: var(--scroll-track); }
@@ -1204,6 +1210,25 @@ html, body {
     font-size: var(--font-size-xs);
     white-space: pre-wrap;
     word-break: break-all;
+}
+
+/* ── Streaming step — animated icon + shimmer text ──────────────────────── */
+.wk-step-streaming .wk-step-icon svg {
+    animation: thinking-spin 1s linear infinite;
+}
+
+.wk-step-streaming .wk-step-text {
+    background: linear-gradient(90deg,
+        var(--fg-secondary) 0%,
+        var(--fg-secondary) 25%,
+        var(--thinking-shimmer) 45%,
+        var(--fg-secondary) 65%,
+        var(--fg-secondary) 100%);
+    background-size: 400% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: chat-thinking-shimmer 2s linear infinite;
 }
 
 /* ── Spinner item at bottom ──────────────────────────────────────────────── */

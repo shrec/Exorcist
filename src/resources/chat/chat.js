@@ -1359,12 +1359,18 @@ var ChatApp = (function() {
         }
         if (!partsEl) return;
 
-        // Tool invocations go into the Working box (VS Code style)
+        // Tool invocations go into the Working box (VS Code style).
+        // Reuse the last wk-box only if it is still the last child
+        // (i.e. no markdown or other content was added after it).
+        // If content appeared after the last box, start a fresh one so
+        // tool calls from different reasoning cycles don't merge visually.
         if (partJson.type === 2 || partJson.type === 'toolInvocation') {
-            var wkBox = partsEl.querySelector('.wk-box');
+            var lastChild = partsEl.lastElementChild;
+            var wkBox = (lastChild && lastChild.classList.contains('wk-box'))
+                ? lastChild : null;
             if (!wkBox) {
                 partsEl.insertAdjacentHTML('beforeend', createWorkingBoxHtml());
-                wkBox = partsEl.querySelector('.wk-box');
+                wkBox = partsEl.lastElementChild;
             }
             var stepsEl = wkBox.querySelector('.wk-steps');
             if (stepsEl) {

@@ -14,6 +14,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QHideEvent>
 #include <QShowEvent>
 #include <QMenu>
 #include <QClipboard>
@@ -121,6 +122,13 @@ UltralightWidget::UltralightWidget(QWidget *parent)
     : QWidget(parent)
 {
     setAttribute(Qt::WA_OpaquePaintEvent);
+    // Allocate a persistent native HWND for this widget.
+    // Without this, Qt tears down and recreates the native window every time
+    // the widget is reparented (e.g. Closed → Docked dock cycle). The second
+    // native-window reconstruction corrupts Qt's internal widget state on
+    // Windows, causing a crash inside QWidget::showEvent (RBP=1, RAX=0xFFFF…).
+    // A stable HWND persists across setParent() calls and avoids the crash.
+    setAttribute(Qt::WA_NativeWindow);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
 
@@ -202,7 +210,7 @@ void UltralightWidget::loadURL(const QString &url)
     ULString ulUrl = toULString(url);
     ulViewLoadURL(m_view, ulUrl);
     ulDestroyString(ulUrl);
-    if (m_tickTimer && !m_tickTimer->isActive())
+    if (m_tickTimer && isVisible() && !m_tickTimer->isActive())
         m_tickTimer->start();
 }
 
@@ -264,6 +272,12 @@ void UltralightWidget::registerJSCallback(const QString &type,
 
 void UltralightWidget::tick()
 {
+    if (!isVisible()) {
+        if (m_tickTimer && m_tickTimer->isActive())
+            m_tickTimer->stop();
+        return;
+    }
+
     ULRenderer renderer = UltralightEngine::instance().renderer();
     if (!renderer || !m_view)
         return;
@@ -419,6 +433,20 @@ void UltralightWidget::showEvent(QShowEvent *event)
                      static_cast<unsigned int>(height()));
         ulViewSetNeedsPaint(m_view, true);
     }
+    // Resume the tick loop — it is paused while the widget is hidden
+    // to avoid driving Ultralight rendering against a hidden paint device.
+    if (m_tickTimer && m_view && !m_tickTimer->isActive())
+        m_tickTimer->start();
+}
+
+void UltralightWidget::hideEvent(QHideEvent *event)
+{
+    QWidget::hideEvent(event);
+    // Pause the tick loop while hidden: no need to render frames that
+    // cannot be displayed, and driving ulUpdate/ulRender on a hidden
+    // widget can trigger size-tracking mismatches that corrupt Qt state.
+    if (m_tickTimer)
+        m_tickTimer->stop();
 }
 
 // ── Mouse Events ─────────────────────────────────────────────────────────────
