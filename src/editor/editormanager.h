@@ -5,6 +5,7 @@
 #include <QString>
 #include <QStringList>
 
+class EditorView;
 class QTabWidget;
 class QTreeView;
 class SolutionTreeModel;
@@ -26,6 +27,11 @@ public:
     SolutionTreeModel *treeModel() const { return m_treeModel; }
     ProjectManager    *projectManager() const { return m_projectManager; }
     BreadcrumbBar     *breadcrumb() const { return m_breadcrumb; }
+
+    /// Returns the EditorView for the currently active tab, or nullptr.
+    EditorView        *currentEditor() const;
+    /// Returns the EditorView at tab index, or nullptr.
+    EditorView        *editorAt(int index) const;
 
     const QString     &currentFolder() const { return m_currentFolder; }
     const QStringList &includePaths() const { return m_includePaths; }

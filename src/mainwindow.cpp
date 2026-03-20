@@ -94,7 +94,9 @@
 #include "mcp/mcptooladapter.h"
 #include "plugin/plugingallerypanel.h"
 #include "plugin/pluginmarketplaceservice.h"
+#include "bootstrap/workbenchservicesbootstrap.h"
 #include "thememanager.h"
+#include "editor/filewatchservice.h"
 #include "editor/diffviewerpanel.h"
 #include "editor/proposededitpanel.h"
 #include "editor/breadcrumbbar.h"
@@ -107,18 +109,17 @@
 #include "ui/aboutdialog.h"
 #include "ui/recentfilesmanager.h"
 #include "ui/themegallerypanel.h"
-#include "ui/keymapmanager.h"
 #include "ui/keymapdialog.h"
 #include "ui/dock/DockManager.h"
 #include "ui/dock/ExDockWidget.h"
 #include "pluginmanager.h"
 #include "serviceregistry.h"
+#include "profile/profilemanager.h"
 #include "core/qtfilesystem.h"
 #include "core/qtprocess.h"
-#include "search/searchpanel.h"
-#include "search/searchservice.h"
-#include "search/workspaceindexer.h"
+#include "sdk/isearchservice.h"
 #include "search/symbolindex.h"
+#include "search/workspacechunkindex.h"
 #include "lsp/lspclient.h"
 #include "lsp/lspeditorbridge.h"
 #include "lsp/referencespanel.h"
@@ -126,18 +127,21 @@
 #include "sdk/ibuildsystem.h"
 #include "sdk/ilaunchservice.h"
 #include "bootstrap/bridgebootstrap.h"
+#include "bootstrap/sharedservicesbootstrap.h"
+#include "bootstrap/templateservicesbootstrap.h"
 #include "process/bridgeclient.h"
 #include "bootstrap/statusbarmanager.h"
 #include "bootstrap/aiservicesbootstrap.h"
+#include "bootstrap/dockbootstrap.h"
+#include "bootstrap/workbenchcommandbootstrap.h"
+#include "bootstrap/workbenchstatebootstrap.h"
 #include "editor/symboloutlinepanel.h"
-#include "terminal/terminalpanel.h"
+#include "sdk/iterminalservice.h"
 #include "project/projectmanager.h"
 #include "project/projecttemplateregistry.h"
-#include "project/builtintemplateprovider.h"
 #include "project/newprojectwizard.h"
 #include "project/solutiontreemodel.h"
 #include "git/gitservice.h"
-#include "git/gitpanel.h"
 #include "build/outputpanel.h"
 #include "problems/problemspanel.h"
 #include "settings/workspacesettings.h"
@@ -145,7 +149,6 @@
 #include "git/diffexplorerpanel.h"
 #include "git/mergeeditor.h"
 #include "build/runlaunchpanel.h"
-#include "editor/filewatchservice.h"
 #include "agent/authmanager.h"
 #include "agent/securekeystorage.h"
 #include "agent/tools/websearchtool.h"
@@ -156,7 +159,6 @@
 #include "agent/testgenerator.h"
 #include "agent/networkmonitor.h"
 #include "agent/citationmanager.h"
-#include "search/workspacechunkindex.h"
 #include "agent/modelconfigwidget.h"
 #include "agent/contextinspector.h"
 #include "agent/toolcalltrace.h"
@@ -164,6 +166,7 @@
 #include "agent/promptarchiveexporter.h"
 #include "agent/memoryfileeditor.h"
 #include "ui/welcomewidget.h"
+#include "ui/keymapmanager.h"
 
 #include <QStackedWidget>
 #include "agent/backgroundcompactor.h"
@@ -173,9 +176,6 @@
 #include "agent/accessibilityhelper.h"
 #include "agent/tooltogglemanager.h"
 #include "agent/contextscopeconfig.h"
-#include "search/embeddingindex.h"
-#include "search/gitignorefilter.h"
-#include "search/regexsearchengine.h"
 #include "agent/tools/notebooktools.h"
 
 #include <QCloseEvent>
@@ -194,16 +194,12 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent),
       m_editorMgr(nullptr),
-      m_searchPanel(nullptr),
       m_gitService(nullptr),
-      m_gitPanel(nullptr),
-      m_searchService(nullptr),
       m_agentOrchestrator(nullptr),
       m_chatPanel(nullptr),
     m_promptResolver(nullptr),
       m_referencesPanel(nullptr),
       m_symbolPanel(nullptr),
-      m_terminal(nullptr),
       m_inlineEngine(nullptr)
 {
     setWindowTitle(tr("Exorcist"));
@@ -212,13 +208,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_editorMgr = new EditorManager(this);
 
     // Services that dock widgets depend on must exist before setupUi().
-    m_searchService     = new SearchService(this);
     m_agentOrchestrator = new AgentOrchestrator(this);
     m_editorMgr->setProjectManager(new ProjectManager(this));
     m_gitService        = new GitService(this);
 
     // ServiceRegistry must exist before setupUi (createDockWidgets uses it).
     m_services = std::make_unique<ServiceRegistry>();
+
+    // Workbench services are used while setupUi() builds docks.
+    m_workbenchServices = new WorkbenchServicesBootstrap(this);
+    m_workbenchServices->initialize(m_services.get());
 
     // LSP — contributed by cpp-language plugin (plugins/cpp-language/).
     // LspClient registered as "lspClient", ILspService as "lspService".
@@ -237,70 +236,40 @@ MainWindow::MainWindow(QWidget *parent)
 
     StartupProfiler::instance().mark(QStringLiteral("UI setup"));
 
-    // ── Keymap Manager ────────────────────────────────────────────────────
-    m_keymapManager = new KeymapManager(this);
-    // Auto-register all actions that have shortcuts
-    for (QAction *action : actions()) {
-        if (!action->shortcut().isEmpty()) {
-            QString id = action->text().remove(QLatin1Char('&')).trimmed();
-            if (!id.isEmpty())
-                m_keymapManager->registerAction(id, action, action->shortcut());
+    // ── Keymap actions registration ────────────────────────────────────────
+    {
+        auto *km = m_workbenchServices->keymapManager();
+        // Auto-register all actions that have shortcuts
+        for (QAction *action : actions()) {
+            if (!action->shortcut().isEmpty()) {
+                QString id = action->text().remove(QLatin1Char('&')).trimmed();
+                if (!id.isEmpty())
+                    km->registerAction(id, action, action->shortcut());
+            }
         }
-    }
-    // Also register menu actions
-    for (QAction *menuAction : menuBar()->actions()) {
-        if (auto *menu = menuAction->menu()) {
-            for (QAction *action : menu->actions()) {
-                if (!action->shortcut().isEmpty()) {
-                    QString id = action->text().remove(QLatin1Char('&')).trimmed();
-                    if (!id.isEmpty() && !m_keymapManager->actionIds().contains(id))
-                        m_keymapManager->registerAction(id, action, action->shortcut());
+        // Also register menu actions
+        for (QAction *menuAction : menuBar()->actions()) {
+            if (auto *menu = menuAction->menu()) {
+                for (QAction *action : menu->actions()) {
+                    if (!action->shortcut().isEmpty()) {
+                        QString id = action->text().remove(QLatin1Char('&')).trimmed();
+                        if (!id.isEmpty() && !km->actionIds().contains(id))
+                            km->registerAction(id, action, action->shortcut());
+                    }
                 }
             }
         }
+        km->load();  // Apply saved overrides
     }
-    m_keymapManager->load();  // Apply saved overrides
 
     m_services->registerService("mainwindow", this);
     m_services->registerService("agentOrchestrator", m_agentOrchestrator);
+    m_services->registerService(QStringLiteral("gitService"), m_gitService);
     if (m_aiServices && m_aiServices->keyStorage())
         m_services->registerService(QStringLiteral("secureKeyStorage"), m_aiServices->keyStorage());
 
     // ── Build System — registered by build plugin (plugins/build/) ──────
     // Debug adapter — registered by debug plugin (plugins/debug/)
-
-    // ── Project Template Registry ───────────────────────────────────────
-    {
-        auto *tmplRegistry = new ProjectTemplateRegistry(this);
-        auto *builtinProvider = new BuiltinTemplateProvider(this);
-        tmplRegistry->addProvider(builtinProvider);
-        m_services->registerService(QStringLiteral("projectTemplateRegistry"), tmplRegistry);
-    }
-
-    // ── Workspace settings (global → workspace hierarchy) ───────────────
-    {
-        auto *wss = new WorkspaceSettings(this);
-        m_services->registerService(QStringLiteral("workspaceSettings"), wss);
-
-        // When workspace settings change, apply to all open editor tabs
-        connect(wss, &WorkspaceSettings::settingsChanged, this, [this, wss]() {
-            const QFont font(wss->fontFamily(), wss->fontSize());
-            const int tabSize = wss->tabSize();
-            const bool wrap = wss->wordWrap();
-            const bool minimap = wss->showMinimap();
-
-            for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-                if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i))) {
-                    e->setFont(font);
-                    e->setTabStopDistance(
-                        QFontMetricsF(font).horizontalAdvance(QLatin1Char(' ')) * tabSize);
-                    e->setWordWrapMode(wrap ? QTextOption::WordWrap
-                                           : QTextOption::NoWrap);
-                    e->setMinimapVisible(minimap);
-                }
-            }
-        });
-    }
 
     m_fileSystem = std::make_unique<QtFileSystem>();
 
@@ -348,8 +317,9 @@ MainWindow::MainWindow(QWidget *parent)
     };
 
     agentCallbacks.terminalOutputGetter = [this]() -> QString {
-        if (!m_terminal) return {};
-        return m_terminal->recentOutput(80);
+        auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService")));
+        if (!ts) return {};
+        return ts->recentOutput(80);
     };
 
     agentCallbacks.diagnosticsGetter = [this]() -> QList<AgentDiagnostic> {
@@ -485,18 +455,24 @@ MainWindow::MainWindow(QWidget *parent)
             auto *ed = currentEditor();
             return ed ? ed->grab() : QPixmap();
         }
-        if (target == QLatin1String("terminal"))
-            return m_terminal ? m_terminal->grab() : QPixmap();
+        if (target == QLatin1String("terminal")) {
+            auto *d = dock(QStringLiteral("TerminalDock"));
+            return d ? d->grab() : QPixmap();
+        }
         if (target == QLatin1String("debug")) {
             auto *d = dock(QStringLiteral("DebugDock"));
             return d ? d->grab() : QPixmap();
         }
         if (target == QLatin1String("agent") || target == QLatin1String("chat"))
             return m_chatPanel ? m_chatPanel->grab() : QPixmap();
-        if (target == QLatin1String("search"))
-            return m_searchPanel ? m_searchPanel->grab() : QPixmap();
-        if (target == QLatin1String("git"))
-            return m_gitPanel ? m_gitPanel->grab() : QPixmap();
+        if (target == QLatin1String("search")) {
+            auto *d = dock(QStringLiteral("SearchDock"));
+            return d ? d->grab() : QPixmap();
+        }
+        if (target == QLatin1String("git")) {
+            auto *d = dock(QStringLiteral("GitDock"));
+            return d ? d->grab() : QPixmap();
+        }
         return grab();
     };
 
@@ -523,8 +499,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ── Code graph / intelligence ─────────────────────────────────────────
     agentCallbacks.symbolSearchFn = [this](const QString &query, int maxResults) -> QString {
-        if (!m_symbolIndex) return {};
-        const auto syms = m_symbolIndex->search(query, maxResults);
+        auto *sidx = dynamic_cast<SymbolIndex *>(m_services->service(QStringLiteral("symbolIndex")));
+        if (!sidx) return {};
+        const auto syms = sidx->search(query, maxResults);
         QString result;
         for (const auto &s : syms) {
             static const char *kindNames[] =
@@ -539,8 +516,9 @@ MainWindow::MainWindow(QWidget *parent)
     };
 
     agentCallbacks.symbolsInFileFn = [this](const QString &filePath) -> QString {
-        if (!m_symbolIndex) return {};
-        const auto syms = m_symbolIndex->symbolsInFile(filePath);
+        auto *sidx = dynamic_cast<SymbolIndex *>(m_services->service(QStringLiteral("symbolIndex")));
+        if (!sidx) return {};
+        const auto syms = sidx->symbolsInFile(filePath);
         QString result;
         for (const auto &s : syms) {
             static const char *kindNames[] =
@@ -793,146 +771,6 @@ MainWindow::MainWindow(QWidget *parent)
         loop.exec();
         disconnect(conn);
         return result;
-    };
-
-    // ── Git operations ────────────────────────────────────────────────────
-    agentCallbacks.gitExecutor =
-        [this](const QString &operation, const QJsonObject &args) -> GitOpsTool::GitResult {
-        if (!m_gitService || !m_gitService->isGitRepo())
-            return {false, {}, QStringLiteral("No Git repository.")};
-        if (operation == QLatin1String("add")) {
-            const QJsonArray files = args[QLatin1String("files")].toArray();
-            for (const auto &f : files)
-                m_gitService->stageFile(f.toString());
-            return {true, QStringLiteral("Staged %1 file(s).").arg(files.size()), {}};
-        }
-        if (operation == QLatin1String("commit")) {
-            const QString msg = args[QLatin1String("message")].toString();
-            if (msg.isEmpty()) return {false, {}, QStringLiteral("Commit message required.")};
-            bool ok = m_gitService->commit(msg);
-            return {ok, ok ? QStringLiteral("Committed.") : QStringLiteral("Commit failed."),
-                    ok ? QString() : QStringLiteral("Commit failed.")};
-        }
-        if (operation == QLatin1String("branch")) {
-            if (args[QLatin1String("list")].toBool())
-                return {true, m_gitService->localBranches().join(QLatin1Char('\n')), {}};
-            const QString name = args[QLatin1String("name")].toString();
-            if (!name.isEmpty()) {
-                bool ok = m_gitService->createBranch(name);
-                return {ok, ok ? QStringLiteral("Branch '%1' created.").arg(name)
-                              : QStringLiteral("Failed to create branch."),
-                        ok ? QString() : QStringLiteral("Failed.")};
-            }
-            return {true, m_gitService->currentBranch(), {}};
-        }
-        if (operation == QLatin1String("checkout")) {
-            const QString target = args[QLatin1String("target")].toString();
-            bool ok = m_gitService->checkoutBranch(target);
-            return {ok, ok ? QStringLiteral("Checked out '%1'.").arg(target) : QStringLiteral("Checkout failed."),
-                    ok ? QString() : QStringLiteral("Failed.")};
-        }
-        if (operation == QLatin1String("blame")) {
-            const QString fp = args[QLatin1String("filePath")].toString();
-            const auto entries = m_gitService->blame(fp);
-            QString result;
-            for (const auto &e : entries)
-                result += QStringLiteral("%1 %2 %3\n")
-                    .arg(e.commitHash.left(8), e.author, e.summary);
-            return {true, result, {}};
-        }
-        if (operation == QLatin1String("reset")) {
-            const QJsonArray files = args[QLatin1String("files")].toArray();
-            for (const auto &f : files)
-                m_gitService->unstageFile(f.toString());
-            return {true, QStringLiteral("Unstaged %1 file(s).").arg(files.size()), {}};
-        }
-        if (operation == QLatin1String("log")) {
-            int count = args[QLatin1String("count")].toInt(10);
-            if (count < 1) count = 1;
-            if (count > 50) count = 50;
-            // Use non-blocking QEventLoop approach instead of GitService::log()
-            // which calls waitForFinished() and blocks the UI thread
-            QProcess proc;
-            proc.setWorkingDirectory(m_gitService->workingDirectory());
-            QStringList gitArgs = {QStringLiteral("log"),
-                                   QStringLiteral("--format=%h|%an|%as|%s"),
-                                   QStringLiteral("-n"), QString::number(count)};
-            const QString fp = args[QLatin1String("filePath")].toString();
-            if (!fp.isEmpty()) {
-                gitArgs << QStringLiteral("--") << fp;
-            }
-            const QString author = args[QLatin1String("author")].toString();
-            if (!author.isEmpty())
-                gitArgs << QStringLiteral("--author=%1").arg(author);
-            const QString since = args[QLatin1String("since")].toString();
-            if (!since.isEmpty())
-                gitArgs << QStringLiteral("--since=%1").arg(since);
-            const QString grepPat = args[QLatin1String("grep")].toString();
-            if (!grepPat.isEmpty())
-                gitArgs << QStringLiteral("--grep=%1").arg(grepPat);
-            proc.start(QStringLiteral("git"), gitArgs);
-            QEventLoop loop;
-            QObject::connect(&proc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
-                             &loop, &QEventLoop::quit);
-            QTimer::singleShot(15000, &loop, &QEventLoop::quit);
-            if (proc.state() != QProcess::NotRunning)
-                loop.exec();
-            if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0)
-                return {false, {}, QStringLiteral("git log failed")};
-            const QString out = QString::fromUtf8(proc.readAllStandardOutput());
-            if (out.trimmed().isEmpty())
-                return {true, QStringLiteral("No commits found."), {}};
-            return {true, out.trimmed(), {}};
-        }
-        // stash, tag, cherry_pick — run git directly (non-blocking via QEventLoop)
-        auto runGitDirect = [&](const QStringList &gitArgs) -> GitOpsTool::GitResult {
-            QProcess proc;
-            proc.setWorkingDirectory(m_gitService->workingDirectory());
-            proc.start(QStringLiteral("git"), gitArgs);
-            // Use QEventLoop so the UI stays responsive while git runs
-            QEventLoop loop;
-            QObject::connect(&proc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
-                             &loop, &QEventLoop::quit);
-            QTimer::singleShot(15000, &loop, &QEventLoop::quit);
-            if (proc.state() != QProcess::NotRunning)
-                loop.exec();
-            const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
-            const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
-            if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0)
-                return {false, {}, err.isEmpty() ? QStringLiteral("git failed") : err};
-            return {true, out.isEmpty() ? QStringLiteral("OK") : out, {}};
-        };
-        if (operation == QLatin1String("stash")) {
-            const QString action = args[QLatin1String("action")].toString(QStringLiteral("push"));
-            if (action == QLatin1String("push"))
-                return runGitDirect({QStringLiteral("stash"), QStringLiteral("push")});
-            if (action == QLatin1String("pop"))
-                return runGitDirect({QStringLiteral("stash"), QStringLiteral("pop")});
-            if (action == QLatin1String("list"))
-                return runGitDirect({QStringLiteral("stash"), QStringLiteral("list")});
-            if (action == QLatin1String("drop"))
-                return runGitDirect({QStringLiteral("stash"), QStringLiteral("drop")});
-            return {false, {}, QStringLiteral("Unknown stash action: %1").arg(action)};
-        }
-        if (operation == QLatin1String("tag")) {
-            if (args[QLatin1String("list")].toBool())
-                return runGitDirect({QStringLiteral("tag"), QStringLiteral("--list")});
-            const QString name = args[QLatin1String("name")].toString();
-            if (name.isEmpty())
-                return {false, {}, QStringLiteral("Tag name required.")};
-            const QString msg = args[QLatin1String("message")].toString();
-            if (!msg.isEmpty())
-                return runGitDirect({QStringLiteral("tag"), QStringLiteral("-a"),
-                                     name, QStringLiteral("-m"), msg});
-            return runGitDirect({QStringLiteral("tag"), name});
-        }
-        if (operation == QLatin1String("cherry_pick")) {
-            const QString hash = args[QLatin1String("commitHash")].toString();
-            if (hash.isEmpty())
-                return {false, {}, QStringLiteral("commitHash required.")};
-            return runGitDirect({QStringLiteral("cherry-pick"), hash});
-        }
-        return {false, {}, QStringLiteral("Unknown operation: %1").arg(operation)};
     };
 
     // ── Ask user ──────────────────────────────────────────────────────────
@@ -1296,8 +1134,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ── Terminal selection callback ──────────────────────────────────────
     agentCallbacks.terminalSelectionGetter = [this]() -> QString {
-        if (!m_terminal) return {};
-        return m_terminal->selectedText();
+        auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService")));
+        if (!ts) return {};
+        return ts->selectedText();
     };
 
     // ── Test failure cache callback ─────────────────────────────────────
@@ -1585,6 +1424,22 @@ MainWindow::MainWindow(QWidget *parent)
         return result;
     };
 
+    // ── Secure key storage ────────────────────────────────────────────────
+    if (auto *ks = m_services->service<SecureKeyStorage>(QStringLiteral("secureKeyStorage"))) {
+        agentCallbacks.secureKeyStorer  = [ks](const QString &svc, const QString &val) {
+            return ks->storeKey(svc, val);
+        };
+        agentCallbacks.secureKeyGetter  = [ks](const QString &svc) {
+            return ks->retrieveKey(svc);
+        };
+        agentCallbacks.secureKeyLister  = [ks]() {
+            return ks->services();
+        };
+        agentCallbacks.secureKeyDeleter = [ks](const QString &svc) {
+            return ks->deleteKey(svc);
+        };
+    }
+
     m_agentPlatform->initialize(agentCallbacks);
     m_agentPlatform->registerCoreTools(m_editorMgr->currentFolder());
 
@@ -1861,8 +1716,9 @@ MainWindow::MainWindow(QWidget *parent)
         QStringLiteral("terminal"),
         tr("Recent terminal output"),
         [this]() -> QString {
-            if (!m_terminal) return tr("No terminal output.");
-            const QString out = m_terminal->recentOutput(120);
+            auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService")));
+            if (!ts) return tr("No terminal output.");
+            const QString out = ts->recentOutput(120);
             return out.trimmed().isEmpty() ? tr("No terminal output.") : out;
         }
     });
@@ -1880,10 +1736,11 @@ MainWindow::MainWindow(QWidget *parent)
             }
         });
         m_chatPanel->setRunInTerminalCallback([this](const QString &code) {
-            if (!m_terminal) return;
+            auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService")));
+            if (!ts) return;
             m_dockManager->showDock(dock(QStringLiteral("TerminalDock")), exdock::SideBarArea::Bottom);
-            m_terminal->sendInput(code);
-            m_terminal->sendInput(QStringLiteral("\r\n"));
+            ts->sendInput(code);
+            ts->sendInput(QStringLiteral("\r\n"));
         });
         m_chatPanel->setWorkspaceFileProvider([this]() -> QStringList {
             QStringList result;
@@ -1909,7 +1766,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_gitService, &GitService::statusRefreshed,
             m_editorMgr->treeModel(), &SolutionTreeModel::refreshGitOverlays);
     connect(m_gitService, &GitService::statusRefreshed, this, [this] {
-        updateDiffRanges(currentEditor());
+        QTimer::singleShot(0, this, [this] { updateDiffRanges(currentEditor()); });
     });
     connect(m_gitService, &GitService::branchChanged, this, [this](const QString &branch) {
         m_statusBarMgr->branchLabel()->setText(branch.isEmpty() ? QString() : QString(" ") + branch);
@@ -1931,29 +1788,42 @@ void MainWindow::deferredInit()
     loadPlugins();
     StartupProfiler::instance().mark(QStringLiteral("plugins loaded"));
 
-    // Restore dock layout from DockManager JSON state.
-    // Layout version: bump when default dock visibility changes so stale
-    // saved state doesn't override new defaults.
+    // On startup we always land on the welcome page (centralStack index 0).
+    // Restoring the saved dock layout here only to close all docks a few lines
+    // later is a no-op at best and a crash on Windows at worst: restoreState
+    // calls pinDock which creates native HWNDs, the force-close below destroys
+    // them via setParent(mainWindow), and the next pinDock (when a project is
+    // opened) triggers a second HWND reconstruct that corrupts Qt's internal
+    // widget state (RBP=1 access violation in Qt6Widgets.dll).
+    //
+    // Solution: only restore dock state when NOT on the welcome page.  In
+    // practice deferredInit always runs on the welcome page, so restoreState
+    // is normally skipped here.  Dock positions for a reopened project are
+    // applied separately when the project loads.
+    const bool onWelcomePage = (m_centralStack && m_centralStack->currentIndex() == 0);
+
     {
         constexpr int kLayoutVersion = 4;
         QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
         const int savedVersion = s.value(QStringLiteral("dockLayoutVersion"), 0).toInt();
-        if (savedVersion >= kLayoutVersion) {
+        if (!onWelcomePage && savedVersion >= kLayoutVersion) {
             const QString dockJson = s.value(QStringLiteral("dockState")).toString();
             if (!dockJson.isEmpty()) {
                 const QJsonObject obj = QJsonDocument::fromJson(dockJson.toUtf8()).object();
                 if (!obj.isEmpty())
                     m_dockManager->restoreState(obj);
             }
-        } else {
-            // Outdated or missing layout — use fresh defaults, save new version
+        } else if (savedVersion < kLayoutVersion) {
+            // Outdated or missing layout — save new version
             s.setValue(QStringLiteral("dockLayoutVersion"), kLayoutVersion);
         }
     }
 
-    // We always start on the welcome page — force close all docks
-    // regardless of what restoreState may have opened.
-    if (m_centralStack && m_centralStack->currentIndex() == 0) {
+    // All docks were already closed by setupDocks().  On the welcome page we
+    // never called restoreState so nothing was pinned; this loop is a safe
+    // no-op that also guards against any future code that might open a dock
+    // before deferredInit runs.
+    if (onWelcomePage) {
         for (auto *dw : m_dockManager->dockWidgets())
             m_dockManager->closeDock(dw);
     }
@@ -1972,6 +1842,26 @@ void MainWindow::setupUi()
     m_editorMgr->tabs()->setDocumentMode(true);
     m_editorMgr->tabs()->setTabsClosable(true);
     m_editorMgr->tabs()->setMovable(true);
+    m_editorMgr->tabs()->setStyleSheet(QStringLiteral(
+        // Tab bar — VS2022 dark document tab style
+        "QTabBar { background: #2d2d30; }"
+        "QTabBar::tab {"
+        "  background: #2d2d30; color: #9d9d9d;"
+        "  padding: 5px 10px 5px 12px;"
+        "  border: none; border-right: 1px solid #1e1e1e;"
+        "  min-width: 80px; max-width: 220px; font-size: 12px;"
+        "}"
+        "QTabBar::tab:selected {"
+        "  background: #1e1e1e; color: #ffffff;"
+        "  border-top: 1px solid #007acc;"
+        "}"
+        "QTabBar::tab:hover:!selected { background: #3e3e42; color: #cccccc; }"
+        "QTabBar::tab:!selected { margin-top: 1px; }"
+        // Close button
+        "QTabBar::close-button { subcontrol-position: right; margin-right: 2px; }"
+        // Pane — just a seamless dark bg
+        "QTabWidget::pane { background: #1e1e1e; border: none; }"
+    ));
 
     // Middle-click closes tab
     m_editorMgr->tabs()->tabBar()->installEventFilter(this);
@@ -2085,8 +1975,10 @@ void MainWindow::setupMenus()
         if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
             lspSvc->stopServer();
         m_gitService->setWorkingDirectory({});
-        m_searchPanel->setRootPath({});
-        m_terminal->setWorkingDirectory({});
+        if (auto *srch = dynamic_cast<ISearchService *>(m_services->service(QStringLiteral("searchService"))))
+            srch->setRootPath({});
+        if (auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService"))))
+            ts->setWorkingDirectory({});
         setWindowTitle(tr("Exorcist"));
         statusBar()->showMessage(tr("Solution closed"), 3000);
     });
@@ -2096,9 +1988,12 @@ void MainWindow::setupMenus()
         if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
             lspSvc->stopServer();
         m_gitService->setWorkingDirectory({});
-        m_searchPanel->setRootPath({});
-        m_terminal->setWorkingDirectory({});
-        if (m_fileWatcher) m_fileWatcher->unwatchAll();
+        if (auto *srch = dynamic_cast<ISearchService *>(m_services->service(QStringLiteral("searchService"))))
+            srch->setRootPath({});
+        if (auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService"))))
+            ts->setWorkingDirectory({});
+        if (m_workbenchServices && m_workbenchServices->fileWatcher())
+            m_workbenchServices->fileWatcher()->unwatchAll();
         setWindowTitle(tr("Exorcist"));
         statusBar()->showMessage(tr("Folder closed"), 3000);
     });
@@ -2174,7 +2069,7 @@ void MainWindow::setupMenus()
     QAction *prefsAction = editMenu->addAction(tr("&Preferences..."));
     prefsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Comma));
     connect(prefsAction, &QAction::triggered, this, [this]() {
-        SettingsDialog dlg(m_themeManager, this);
+        SettingsDialog dlg(m_workbenchServices->themeManager(), this);
 
         // Add Language and Terminal settings pages
         auto *langMgr = findChild<LanguageProfileManager *>(
@@ -2211,8 +2106,8 @@ void MainWindow::setupMenus()
             }
 
             // Re-index workspace if indexer settings changed
-            if (m_workspaceIndexer && !m_workspaceIndexer->rootPath().isEmpty())
-                m_workspaceIndexer->indexWorkspace(m_workspaceIndexer->rootPath());
+            if (auto *srch = dynamic_cast<ISearchService *>(m_services->service(QStringLiteral("searchService"))))
+                srch->indexWorkspace(m_editorMgr->currentFolder());
 
             // Sync language profiles → plugin activation
             if (auto *lpm2 = findChild<LanguageProfileManager *>(
@@ -2230,7 +2125,7 @@ void MainWindow::setupMenus()
     QAction *keymapAction = editMenu->addAction(tr("&Keyboard Shortcuts..."));
     keymapAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_K, Qt::CTRL | Qt::Key_S));
     connect(keymapAction, &QAction::triggered, this, [this]() {
-        KeymapDialog dlg(m_keymapManager, this);
+        KeymapDialog dlg(m_workbenchServices->keymapManager(), this);
         dlg.exec();
     });
 
@@ -2280,7 +2175,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     QAction *themeToggleAction = viewMenu->addAction(tr("Toggle &Dark/Light Theme"));
     themeToggleAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F10));
     connect(themeToggleAction, &QAction::triggered, this, [this]() {
-        m_themeManager->toggle();
+        m_workbenchServices->themeManager()->toggle();
     });
 
     QAction *minimapAction = viewMenu->addAction(tr("Toggle &Minimap"));
@@ -2386,70 +2281,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleProblemsAction->setCheckable(true);
     toggleProblemsAction->setChecked(false);
 
-    // ── Run ─────────────────────────────────────────────────────────────
-    QMenu *runMenu = menuBar()->addMenu(tr("&Run"));
-
-    auto *buildAct = runMenu->addAction(tr("&Build"));
-    buildAct->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B));
-    connect(buildAct, &QAction::triggered, this, [this]() {
-        auto *buildSys = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
-        if (buildSys && buildSys->hasProject()) {
-            buildSys->build();
-        }
-    });
-
-    runMenu->addSeparator();
-
-    auto *runAct = runMenu->addAction(tr("Start &Debugging"));
-    runAct->setShortcut(QKeySequence(Qt::Key_F5));
-    connect(runAct, &QAction::triggered, this, [this]() {
-        // If debugger is running and paused, continue
-        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
-        if (adapter && adapter->isRunning()) {
-            adapter->continueExecution();
-            return;
-        }
-        // Use ILaunchService from build plugin
-        auto *launchSvc = m_services->service<ILaunchService>(QStringLiteral("launchService"));
-        auto *buildSys = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
-        if (launchSvc && buildSys && buildSys->hasProject()) {
-            const QStringList targets = buildSys->targets();
-            if (!targets.isEmpty()) {
-                LaunchConfig cfg;
-                cfg.executable = targets.first();
-                cfg.workingDir = m_editorMgr->currentFolder();
-                launchSvc->startDebugging(cfg);
-                return;
-            }
-        }
-    });
-
-    auto *runNodebugAct = runMenu->addAction(tr("Run &Without Debugging"));
-    runNodebugAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
-    connect(runNodebugAct, &QAction::triggered, this, [this]() {
-        auto *launchSvc = m_services->service<ILaunchService>(QStringLiteral("launchService"));
-        auto *buildSys = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
-        if (launchSvc && buildSys && buildSys->hasProject()) {
-            const QStringList targets = buildSys->targets();
-            if (!targets.isEmpty()) {
-                LaunchConfig cfg;
-                cfg.executable = targets.first();
-                cfg.workingDir = m_editorMgr->currentFolder();
-                launchSvc->startWithoutDebugging(cfg);
-                return;
-            }
-        }
-    });
-
-    runMenu->addSeparator();
-
-    auto *stopRunAct = runMenu->addAction(tr("&Stop"));
-    stopRunAct->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F5));
-    connect(stopRunAct, &QAction::triggered, this, [this]() {
-        auto *launchSvc = m_services->service<ILaunchService>(QStringLiteral("launchService"));
-        if (launchSvc) launchSvc->stopSession();
-    });
-
     // ── Help ──────────────────────────────────────────────────────────────
     QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
 
@@ -2531,7 +2362,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     connect(toggleSearchAction,   &QAction::toggled, this, [this](bool on) {
         if (on) {
             m_dockManager->showDock(dock(QStringLiteral("SearchDock")), m_dockManager->inferSide(dock(QStringLiteral("SearchDock"))));
-            m_searchPanel->activateSearch();
+            if (auto *srch = dynamic_cast<ISearchService *>(m_services->service(QStringLiteral("searchService"))))
+                srch->activateSearch();
         } else {
             m_dockManager->closeDock(dock(QStringLiteral("SearchDock")));
         }
@@ -2604,33 +2436,92 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
 
 void MainWindow::setupToolBar()
 {
-    auto *bar = addToolBar(tr("Main"));
-    bar->setMovable(false);
-    bar->setVisible(false);  // hidden on Welcome page, shown when editing
+    // Core shell does not own a default toolbar.
+    // All top-level toolbars must be contributed by plugins through
+    // IToolBarManager so each subsystem owns its own actions and lifecycle.
+}
 
-    bar->addAction(tr("New"),  this, &MainWindow::openNewTab);
-    bar->addAction(tr("Open"), this, [this]() {
-        const QString path = QFileDialog::getOpenFileName(this, tr("Open File"));
-        if (!path.isEmpty()) openFile(path);
-    });
-    bar->addAction(tr("Save"), this, &MainWindow::saveCurrentTab);
-    bar->addSeparator();
-    bar->addAction(tr("Folder"), this, [this]() { openFolder(); });
+void MainWindow::updateMenuBarVisibility(bool editing)
+{
+    auto isWelcomeMenu = [](QAction *action) {
+        if (!action)
+            return false;
 
-    // Build toolbar is contributed by the build plugin — added in loadPlugins().
+        const QString text = action->text().remove(QLatin1Char('&')).trimmed();
+        return text == QLatin1String("File")
+            || text == QLatin1String("Edit")
+            || text == QLatin1String("View")
+            || text == QLatin1String("Help");
+    };
+
+    for (QAction *action : menuBar()->actions()) {
+        if (!action)
+            continue;
+        const bool visible = editing || isWelcomeMenu(action);
+        action->setVisible(visible);
+        if (auto *menu = action->menu()) {
+            menu->menuAction()->setVisible(visible);
+            menu->setEnabled(visible);
+        }
+    }
+
+    menuBar()->updateGeometry();
+    menuBar()->update();
+    menuBar()->repaint();
+}
+
+void MainWindow::registerShellDock(const QString &id, const QString &title,
+                                   QWidget *widget, IDockManager::Area area,
+                                   bool startVisible)
+{
+    if (!m_dockManager || !widget)
+        return;
+
+    exdock::SideBarArea side = exdock::SideBarArea::Left;
+    switch (area) {
+    case IDockManager::Left:
+        side = exdock::SideBarArea::Left;
+        break;
+    case IDockManager::Right:
+        side = exdock::SideBarArea::Right;
+        break;
+    case IDockManager::Bottom:
+        side = exdock::SideBarArea::Bottom;
+        break;
+    case IDockManager::Center:
+        side = exdock::SideBarArea::Left;
+        break;
+    }
+
+    auto *dockWidget = new exdock::ExDockWidget(title, this);
+    dockWidget->setDockId(id);
+    dockWidget->setContentWidget(widget);
+    m_dockManager->addDockWidget(dockWidget, side, startVisible);
+    if (!startVisible)
+        m_dockManager->closeDock(dockWidget);
+}
+
+void MainWindow::setShellDockVisible(const QString &id, bool visible)
+{
+    auto *dockWidget = dock(id);
+    if (!dockWidget || !m_dockManager)
+        return;
+
+    if (visible)
+        m_dockManager->showDock(dockWidget, m_dockManager->inferSide(dockWidget));
+    else
+        m_dockManager->closeDock(dockWidget);
 }
 
 void MainWindow::createDockWidgets()
 {
-    using namespace exdock;
-
     // ── Create DockManager (takes over centralWidget) ─────────────────────
-    m_dockManager = new DockManager(this, this);
+    m_dockManager = new exdock::DockManager(this, this);
     // Start with dock infrastructure hidden — only the Welcome page shows.
     m_dockManager->setDockLayoutVisible(false);
 
 
-    // (ThemeManager connection deferred — m_themeManager is created later.)
+    // (ThemeManager→dockManager signal wired in createDockWidgets once dockManager exists.)
 
     // Build the central area as a QStackedWidget:
     //   page 0 = WelcomeWidget   (shown when no project is open)
@@ -2649,6 +2540,7 @@ void MainWindow::createDockWidgets()
     m_centralStack->addWidget(editorContainer);  // page 1
 
     m_centralStack->setCurrentIndex(0);  // start on welcome
+    updateMenuBarVisibility(false);
 
     // Toggle dock infrastructure and toolbar with welcome ↔ editor transitions
     connect(m_centralStack, &QStackedWidget::currentChanged, this, [this](int index) {
@@ -2657,6 +2549,7 @@ void MainWindow::createDockWidgets()
         // Hide/show all toolbars on welcome page
         for (auto *tb : findChildren<QToolBar *>())
             tb->setVisible(editing);
+        updateMenuBarVisibility(editing);
     });
 
     // Wire welcome signals
@@ -2678,9 +2571,6 @@ void MainWindow::createDockWidgets()
 
 
     // ── Project tree ──────────────────────────────────────────────────────
-    auto *dkProjectDock = new ExDockWidget(tr("Project"), this);
-    dkProjectDock->setDockId(QStringLiteral("ProjectDock"));
-
     m_editorMgr->setTreeModel(new SolutionTreeModel(m_editorMgr->projectManager(), m_gitService, this));
 
     m_editorMgr->setFileTree(new QTreeView);
@@ -2688,148 +2578,143 @@ void MainWindow::createDockWidgets()
     m_editorMgr->fileTree()->setHeaderHidden(true);
     m_editorMgr->fileTree()->setIndentation(14);
     m_editorMgr->fileTree()->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_editorMgr->fileTree()->setAnimated(true);
+    m_editorMgr->fileTree()->setUniformRowHeights(true);
+    m_editorMgr->fileTree()->setIconSize(QSize(16, 16));
+    m_editorMgr->fileTree()->setStyleSheet(QStringLiteral(
+        "QTreeView {"
+        "  background: #1e1e1e;"
+        "  color: #d4d4d4;"
+        "  border: none;"
+        "  font-size: 13px;"
+        "}"
+        "QTreeView::item {"
+        "  padding: 2px 0;"
+        "  border: none;"
+        "}"
+        "QTreeView::item:hover {"
+        "  background: #2a2d2e;"
+        "}"
+        "QTreeView::item:selected {"
+        "  background: #094771;"
+        "  color: #ffffff;"
+        "}"
+        "QTreeView::item:selected:!active {"
+        "  background: #37373d;"
+        "  color: #d4d4d4;"
+        "}"
+        "QTreeView::branch {"
+        "  background: #1e1e1e;"
+        "}"
+        "QTreeView::branch:hover {"
+        "  background: #2a2d2e;"
+        "}"
+        "QTreeView::branch:selected {"
+        "  background: #094771;"
+        "}"
+        "QTreeView::branch:has-children:!has-siblings:closed,"
+        "QTreeView::branch:closed:has-children:has-siblings {"
+        "  image: url(:/icons/branch-closed.png);"
+        "}"
+        "QTreeView::branch:open:has-children:!has-siblings,"
+        "QTreeView::branch:open:has-children:has-siblings {"
+        "  image: url(:/icons/branch-open.png);"
+        "}"
+        "QScrollBar:vertical {"
+        "  background: #1e1e1e;"
+        "  width: 10px;"
+        "  border: none;"
+        "}"
+        "QScrollBar::handle:vertical {"
+        "  background: #424242;"
+        "  min-height: 20px;"
+        "  border-radius: 5px;"
+        "}"
+        "QScrollBar::handle:vertical:hover {"
+        "  background: #686868;"
+        "}"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+        "  height: 0;"
+        "}"
+        "QScrollBar:horizontal {"
+        "  background: #1e1e1e;"
+        "  height: 10px;"
+        "  border: none;"
+        "}"
+        "QScrollBar::handle:horizontal {"
+        "  background: #424242;"
+        "  min-width: 20px;"
+        "  border-radius: 5px;"
+        "}"
+        "QScrollBar::handle:horizontal:hover {"
+        "  background: #686868;"
+        "}"
+        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {"
+        "  width: 0;"
+        "}"
+    ));
     connect(m_editorMgr->fileTree(), &QTreeView::doubleClicked, this, &MainWindow::openFileFromIndex);
     connect(m_editorMgr->fileTree(), &QTreeView::customContextMenuRequested,
             this, &MainWindow::onTreeContextMenu);
 
-    dkProjectDock->setContentWidget(m_editorMgr->fileTree());
-    m_dockManager->addDockWidget(dkProjectDock, SideBarArea::Left, /*startPinned=*/false);
-    m_dockManager->closeDock(dkProjectDock);        // show when folder is opened
+    registerShellDock(QStringLiteral("ProjectDock"), tr("Project"),
+                      m_editorMgr->fileTree(), IDockManager::Left);
 
-    // ── Search ────────────────────────────────────────────────────────────
-    m_searchPanel = new SearchPanel(m_searchService, this);
-    auto *dkSearchDock = new ExDockWidget(tr("Search"), this);
-    dkSearchDock->setDockId(QStringLiteral("SearchDock"));
-    dkSearchDock->setContentWidget(m_searchPanel);
-    m_dockManager->addDockWidget(dkSearchDock, SideBarArea::Left, /*startPinned=*/false);
-    m_dockManager->closeDock(dkSearchDock);         // show via Ctrl+Shift+F
+    // ── Search — contributed by search plugin (plugins/search/) ────────
+    // SearchDock, ISearchService ("searchService"), SymbolIndex ("symbolIndex"),
+    // and WorkspaceIndexer ("workspaceIndexer") are registered by the plugin.
+    // Post-plugin wiring connects ISearchService::resultActivated in loadPlugins().
 
-    // Search result → navigate to file:line
-    connect(m_searchPanel, &SearchPanel::resultActivated,
-            this, [this](const QString &filePath, int line, int col) {
-        navigateToLocation(filePath, line - 1, col);  // panel uses 1-based
-    });
+    // ── Git panel — contributed by git plugin (plugins/git/) ──────────────
+    // GitDock, DiffExplorerDock, and MergeEditorDock are registered by the
+    // plugin. Post-plugin wiring connects GitService signals in loadPlugins().
 
-    m_gitPanel = new GitPanel(m_gitService, this);
-    auto *dkGitDock = new ExDockWidget(tr("Git"), this);
-    dkGitDock->setDockId(QStringLiteral("GitDock"));
-    dkGitDock->setContentWidget(m_gitPanel);
-    m_dockManager->addDockWidget(dkGitDock, SideBarArea::Left, /*startPinned=*/false);
-    m_dockManager->closeDock(dkGitDock);            // show when git repo detected
+    // ── Terminal — contributed by terminal plugin (plugins/terminal/) ─────
+    // TerminalDock and ITerminalService ("terminalService") are registered
+    // by the plugin via IViewContributor and ServiceRegistry.
 
-    // Generate commit message with AI
-    connect(m_gitPanel, &GitPanel::generateCommitMessageRequested,
-            this, [this]() {
-        if (!m_gitService || !m_gitService->isGitRepo()) return;
-        // Async diff — Manifesto #2: never block UI thread
-        statusBar()->showMessage(tr("Reading changes..."), 0);
-        m_gitService->diffAsync({});
-    });
-    connect(m_gitService, &GitService::diffReady, this,
-            [this](const QString & /*filePath*/, const QString &diff) {
-        if (diff.trimmed().isEmpty()) {
-            statusBar()->showMessage(tr("No changes to generate commit message for"), 3000);
-            return;
+
+    // ── DockBootstrap — AI, Outline, References, Log, Settings, Memory, ──
+    // ── Theme Gallery, Diff, Proposed Edit, MCP, Plugin Gallery ──────────
+    {
+        DockBootstrap::Deps d;
+        d.parent      = this;
+        d.services    = m_services.get();
+        d.dockManager = m_dockManager;
+        d.themeManager = m_workbenchServices->themeManager();
+        d.orchestrator = m_agentOrchestrator;
+        if (m_services) {
+            d.bridgeClient = m_services->service<BridgeClient>(
+                QStringLiteral("bridgeClient"));
         }
-        const QString prompt = tr("Generate a concise, conventional commit message "
-                                  "for these changes:\n\n```diff\n%1\n```").arg(diff.left(8000));
-        m_chatPanel->focusInput();
-        // Use the orchestrator to generate and insert into the commit input
-        if (m_agentOrchestrator && m_agentOrchestrator->activeProvider()) {
-            AgentRequest req;
-            req.requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-            req.intent = AgentIntent::SuggestCommitMessage;
-            req.userPrompt = prompt;
-            req.workspaceRoot = m_editorMgr->currentFolder();
-            statusBar()->showMessage(tr("Generating commit message..."), 0);
-            m_agentOrchestrator->sendRequest(req);
-            // Connect one-shot to receive the response
-            auto conn = std::make_shared<QMetaObject::Connection>();
-            *conn = connect(m_agentOrchestrator, &AgentOrchestrator::responseFinished,
-                            this, [this, conn](const QString &, const AgentResponse &resp) {
-                disconnect(*conn);
-                QString msg = resp.text.trimmed();
-                // Strip markdown code block wrapping if present
-                if (msg.startsWith(QLatin1String("```")))
-                    msg = msg.mid(msg.indexOf(QLatin1Char('\n')) + 1);
-                if (msg.endsWith(QLatin1String("```")))
-                    msg.chop(3);
-                msg = msg.trimmed();
-                m_gitPanel->commitMessageInput()->setText(msg);
-                statusBar()->showMessage(tr("Commit message generated"), 3000);
-            });
-        }
-    });
+        m_dockBootstrap = new DockBootstrap(this);
+        m_dockBootstrap->initialize(d);
+    }
 
-    // Resolve merge conflicts with AI
-    connect(m_gitPanel, &GitPanel::resolveConflictsRequested,
-            this, [this]() {
-        if (!m_gitService || !m_gitService->isGitRepo()) return;
-        const QStringList conflicts = m_gitService->conflictFiles();
-        if (conflicts.isEmpty()) {
-            statusBar()->showMessage(tr("No merge conflicts found"), 3000);
-            return;
-        }
-        // Build a prompt with all conflict file contents
-        QString prompt = tr("Resolve the following merge conflicts. "
-                            "For each file, output the fully resolved content.\n\n");
-        for (const QString &file : conflicts) {
-            const QString content = m_gitService->conflictContent(file);
-            const QString relPath = QDir(m_editorMgr->currentFolder()).relativeFilePath(file);
-            prompt += QStringLiteral("### %1\n```\n%2\n```\n\n")
-                          .arg(relPath, content.left(4000));
-        }
-        m_chatPanel->setInputText(QStringLiteral("/resolve ") + prompt.left(12000));
-        m_chatPanel->focusInput();
-        m_dockManager->showDock(dock(QStringLiteral("AIDock")), exdock::SideBarArea::Right);
-    });
+    // Cache the most-used panel pointers for ergonomic access
+    m_chatPanel        = m_dockBootstrap->chatPanel();
+    m_symbolPanel      = m_dockBootstrap->symbolPanel();
+    m_referencesPanel  = m_dockBootstrap->referencesPanel();
+    m_requestLogPanel  = m_dockBootstrap->requestLogPanel();
+    m_trajectoryPanel  = m_dockBootstrap->trajectoryPanel();
+    m_settingsPanel    = m_dockBootstrap->settingsPanel();
+    m_memoryBrowser    = m_dockBootstrap->memoryBrowser();
+    m_diffViewer       = m_dockBootstrap->diffViewer();
+    m_proposedEditPanel = m_dockBootstrap->proposedEditPanel();
+    m_mcpClient        = m_dockBootstrap->mcpClient();
+    m_themeGallery     = m_dockBootstrap->themeGallery();
+    m_pluginGallery    = m_dockBootstrap->pluginGallery();
 
-    // ── Terminal ──────────────────────────────────────────────────────────
-    m_terminal     = new TerminalPanel(this);
-    auto *dkTerminalDock = new ExDockWidget(tr("Terminal"), this);
-    dkTerminalDock->setDockId(QStringLiteral("TerminalDock"));
-    dkTerminalDock->setContentWidget(m_terminal);
-    m_dockManager->addDockWidget(dkTerminalDock, SideBarArea::Bottom, /*startPinned=*/false);
-    m_dockManager->closeDock(dkTerminalDock);        // show via Ctrl+`
+    // ── Wire signals that need MainWindow state ───────────────────────────
 
-
-    // ── AI ────────────────────────────────────────────────────────────────
-    auto *dkAIDock = new ExDockWidget(tr("AI"), this);
-    dkAIDock->setDockId(QStringLiteral("AIDock"));
-    m_chatPanel = new ChatPanelWidget(m_agentOrchestrator, nullptr);
-    // NOTE: AgentController is wired after it is created in the constructor.
-    dkAIDock->setContentWidget(m_chatPanel);
-    m_dockManager->addDockWidget(dkAIDock, SideBarArea::Right, /*startPinned=*/false);
-    m_dockManager->closeDock(dkAIDock);              // show when user opens AI
     // Manifesto #9: start network monitor only when user opens AI panel
-    connect(dkAIDock, &ExDockWidget::stateChanged, this, [this](exdock::DockState state) {
+    connect(dock(QStringLiteral("AIDock")), &exdock::ExDockWidget::stateChanged,
+            this, [this](exdock::DockState state) {
         if (state != exdock::DockState::Closed && m_aiServices && m_aiServices->networkMonitor())
             m_aiServices->networkMonitor()->start();
     });
 
-
-    // ── Agent Dashboard (operational view) ────────────────────────────────
-    {
-        auto *dashPanel = new AgentDashboardPanel(nullptr);
-        auto *dkDashDock = new ExDockWidget(tr("Agent Dashboard"), this);
-        dkDashDock->setDockId(QStringLiteral("AgentDashboardDock"));
-        dkDashDock->setContentWidget(dashPanel);
-        m_dockManager->addDockWidget(dkDashDock, SideBarArea::Right, /*startPinned=*/false);
-        m_dockManager->closeDock(dkDashDock);       // operational view, show on demand
-        // Register panel in ServiceRegistry so bootstrap can find it later
-        if (m_services)
-            m_services->registerService(QStringLiteral("agentDashboardPanel"), dashPanel);
-    }
-
-
-    // ── Symbol outline ────────────────────────────────────────────────────
-    m_symbolPanel = new SymbolOutlinePanel(this);
-    auto *dkOutlineDock = new ExDockWidget(tr("Outline"), this);
-    dkOutlineDock->setDockId(QStringLiteral("OutlineDock"));
-    dkOutlineDock->setContentWidget(m_symbolPanel);
-    m_dockManager->addDockWidget(dkOutlineDock, SideBarArea::Left, /*startPinned=*/false);
-    m_dockManager->closeDock(dkOutlineDock);          // show when file is open
-
+    // Symbol outline → navigate in current editor
     connect(m_symbolPanel, &SymbolOutlinePanel::symbolActivated,
             this, [this](int line, int col) {
         auto *editor = currentEditor();
@@ -2845,94 +2730,17 @@ void MainWindow::createDockWidgets()
         editor->setFocus();
     });
 
-    // ── References ────────────────────────────────────────────────────────
-    m_referencesPanel = new ReferencesPanel(this);
-    auto *dkReferencesDock = new ExDockWidget(tr("References"), this);
-    dkReferencesDock->setDockId(QStringLiteral("ReferencesDock"));
-    dkReferencesDock->setContentWidget(m_referencesPanel);
-    m_dockManager->addDockWidget(dkReferencesDock, SideBarArea::Bottom, /*startPinned=*/false);
-    m_dockManager->closeDock(dkReferencesDock);   // show only on "Find References"
-
     connect(m_referencesPanel, &ReferencesPanel::referenceActivated,
             this, &MainWindow::navigateToLocation);
 
-    // ── Request Log (Debug) ───────────────────────────────────────────────
-    m_requestLogPanel = new RequestLogPanel(this);
-    auto *dkRequestLogDock = new ExDockWidget(tr("Request Log"), this);
-    dkRequestLogDock->setDockId(QStringLiteral("RequestLogDock"));
-    dkRequestLogDock->setContentWidget(m_requestLogPanel);
-    m_dockManager->addDockWidget(dkRequestLogDock, SideBarArea::Bottom, /*startPinned=*/false);
-    m_dockManager->closeDock(dkRequestLogDock);    // debug tool, show via View menu
-
-    // ── Trajectory Viewer (Debug) ─────────────────────────────────────────
-    m_trajectoryPanel = new TrajectoryPanel(this);
-    auto *dkTrajectoryDock = new ExDockWidget(tr("Trajectory"), this);
-    dkTrajectoryDock->setDockId(QStringLiteral("TrajectoryDock"));
-    dkTrajectoryDock->setContentWidget(m_trajectoryPanel);
-    m_dockManager->addDockWidget(dkTrajectoryDock, SideBarArea::Bottom, /*startPinned=*/false);
-    m_dockManager->closeDock(dkTrajectoryDock);    // debug tool, show via View menu
-
-    // ── Settings (dialog, not dock) ──────────────────────────────────────────
-    m_settingsPanel = new SettingsPanel(this);
-    m_settingsPanel->hide();
-
-    // ── Memory Browser ────────────────────────────────────────────────────
-    const QString memPath = QStandardPaths::writableLocation(
-        QStandardPaths::AppDataLocation) + QStringLiteral("/memories");
-    m_symbolIndex  = new SymbolIndex(this);
-    m_memoryBrowser = new MemoryBrowserPanel(memPath, this);
-    // setBrainService deferred — m_agentPlatform is not yet created here
-    auto *dkMemoryDock = new ExDockWidget(tr("Memory"), this);
-    dkMemoryDock->setDockId(QStringLiteral("MemoryDock"));
-    dkMemoryDock->setContentWidget(m_memoryBrowser);
-    m_dockManager->addDockWidget(dkMemoryDock, SideBarArea::Right, /*startPinned=*/false);
-    m_dockManager->closeDock(dkMemoryDock);        // show on demand
-
-    // ── Debug Panel — contributed by debug plugin (plugins/debug/) ───────
-    // DebugDock view, IDebugAdapter ("debugAdapter"), and IDebugService
-    // ("debugService") are registered by the plugin. Post-plugin wiring
-    // connects IDebugService signals in loadPlugins().
-
-    // ── Theme Manager ─────────────────────────────────────────────────────
-    m_themeManager = new ThemeManager(this);
-    // Wire theme → dock stylesheet (deferred from createDockWidgets)
-    connect(m_themeManager, &ThemeManager::themeChanged,
-            m_dockManager, &DockManager::applyDockStyleSheet);
-
-    // ── Theme Gallery panel ───────────────────────────────────────────────
-    m_themeGallery = new ThemeGalleryPanel(this);
-    m_themeGallery->setThemeManager(m_themeManager);
-    auto *dkThemeDock = new ExDockWidget(tr("Themes"), this);
-    dkThemeDock->setDockId(QStringLiteral("ThemeDock"));
-    dkThemeDock->setContentWidget(m_themeGallery);
-    m_dockManager->addDockWidget(dkThemeDock, SideBarArea::Left, /*startPinned=*/false);
-    m_dockManager->closeDock(dkThemeDock);         // show via View menu
-
-    // ── Diff Viewer panel ─────────────────────────────────────────────────
-    m_diffViewer = new DiffViewerPanel(this);
-    auto *dkDiffDock = new ExDockWidget(tr("Diff Viewer"), this);
-    dkDiffDock->setDockId(QStringLiteral("DiffDock"));
-    dkDiffDock->setContentWidget(m_diffViewer);
-    m_dockManager->addDockWidget(dkDiffDock, SideBarArea::Bottom, /*startPinned=*/false);
-    m_dockManager->closeDock(dkDiffDock);          // show when diff requested
-
-    // ── Proposed Edit panel ───────────────────────────────────────────────
-    m_proposedEditPanel = new ProposedEditPanel(this);
-    auto *dkProposedEditDock = new ExDockWidget(tr("Proposed Edits"), this);
-    dkProposedEditDock->setDockId(QStringLiteral("ProposedEditDock"));
-    dkProposedEditDock->setContentWidget(m_proposedEditPanel);
-    m_dockManager->addDockWidget(dkProposedEditDock, SideBarArea::Bottom, /*startPinned=*/false);
-    m_dockManager->closeDock(dkProposedEditDock);  // show when AI proposes edits
-
+    // Proposed edit → write file + update open editor
     connect(m_proposedEditPanel, &ProposedEditPanel::editAccepted,
             this, [this](const QString &filePath, const QString &newText) {
-        // Write accepted edit to file and reload in editor
         QFile f(filePath);
         if (f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
             f.write(newText.toUtf8());
             f.close();
         }
-        // Update the open editor tab if present
         for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
             auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
             if (editor && editor->property("filePath").toString() == filePath) {
@@ -2942,26 +2750,10 @@ void MainWindow::createDockWidgets()
         }
     });
 
-    // ── MCP client + panel ────────────────────────────────────────────────
-    m_mcpClient = new McpClient(this);
-    if (m_services) {
-        if (auto *bc = m_services->service<BridgeClient>(QStringLiteral("bridgeClient")))
-            m_mcpClient->setBridgeClient(bc);
-    }
-    m_mcpPanel  = new McpPanel(m_mcpClient, this);
-    auto *dkMcpDock = new ExDockWidget(tr("MCP Servers"), this);
-    dkMcpDock->setDockId(QStringLiteral("McpDock"));
-    dkMcpDock->setContentWidget(m_mcpPanel);
-    m_dockManager->addDockWidget(dkMcpDock, SideBarArea::Right, /*startPinned=*/false);
-    m_dockManager->closeDock(dkMcpDock);           // show via View menu
-
-    // ── Plugin Gallery panel ──────────────────────────────────────────────
-    m_pluginGallery = new PluginGalleryPanel(this);
-    auto *dkPluginDock = new ExDockWidget(tr("Extensions"), this);
-    dkPluginDock->setDockId(QStringLiteral("PluginDock"));
-    dkPluginDock->setContentWidget(m_pluginGallery);
-    m_dockManager->addDockWidget(dkPluginDock, SideBarArea::Left, /*startPinned=*/false);
-    m_dockManager->closeDock(dkPluginDock);        // show via View menu
+    // ── Debug Panel — contributed by debug plugin (plugins/debug/) ───────
+    // ── Theme Manager → dock stylesheet ──────────────────────────────────
+    connect(m_workbenchServices->themeManager(), &ThemeManager::themeChanged,
+            m_dockManager, &exdock::DockManager::applyDockStyleSheet);
 
     // ── Output / Build / Run panels — contributed by build plugin ──────────
     // Created by plugins/build/ via IViewContributor (OutputDock, RunDock).
@@ -2978,42 +2770,21 @@ void MainWindow::createDockWidgets()
             problemsPanel->setDiagnosticsService(m_hostServices->diagnostics());
         // OutputPanel wiring deferred to loadPlugins() (contributed by build plugin)
         m_services->registerService(QStringLiteral("problemsPanel"), problemsPanel);
-
-        auto *dkProblemsDock = new ExDockWidget(tr("Problems"), this);
-        dkProblemsDock->setDockId(QStringLiteral("ProblemsDock"));
-        dkProblemsDock->setContentWidget(problemsPanel);
-        m_dockManager->addDockWidget(dkProblemsDock, SideBarArea::Bottom, /*startPinned=*/false);
-        m_dockManager->closeDock(dkProblemsDock);      // show when diagnostics arrive
+        registerShellDock(QStringLiteral("ProblemsDock"), tr("Problems"),
+                          problemsPanel, IDockManager::Bottom);
 
         connect(problemsPanel, &ProblemsPanel::navigateToFile,
                 this, &MainWindow::navigateToLocation);
     }
 
-    // ── Diff Explorer panel ────────────────────────────────────────────────
-    {
-        auto *diffExplorer = new DiffExplorerPanel(m_gitService, this);
-
-        auto *dkDiffDock = new ExDockWidget(tr("Diff Explorer"), this);
-        dkDiffDock->setDockId(QStringLiteral("DiffExplorerDock"));
-        dkDiffDock->setContentWidget(diffExplorer);
-        m_dockManager->addDockWidget(dkDiffDock, SideBarArea::Bottom, /*startPinned=*/false);
-        m_dockManager->closeDock(dkDiffDock);      // show from git panel
-    }
-
-    // ── Merge Editor panel ─────────────────────────────────────────────────
-    {
-        auto *mergeEditor = new MergeEditor(m_gitService, this);
-
-        auto *dkMergeDock = new ExDockWidget(tr("Merge Editor"), this);
-        dkMergeDock->setDockId(QStringLiteral("MergeEditorDock"));
-        dkMergeDock->setContentWidget(mergeEditor);
-        m_dockManager->addDockWidget(dkMergeDock, SideBarArea::Bottom, /*startPinned=*/false);
-        m_dockManager->closeDock(dkMergeDock);     // show during merge conflicts
-    }
+    // ── Diff Explorer + Merge Editor — contributed by git plugin ─────────
+    // DiffExplorerDock and MergeEditorDock are registered by plugins/git/.
+    // GitDock is also plugin-contributed; see createDockWidgets comment above.
 
     // ── File Watch Service ────────────────────────────────────────────────
-    m_fileWatcher = new FileWatchService(this);
-    connect(m_fileWatcher, &FileWatchService::fileChangedExternally,
+    // Owned by WorkbenchServicesBootstrap. Wire the reload signal here so
+    // the lambda can access editor tabs (MainWindow state).
+    connect(m_workbenchServices->fileWatcher(), &FileWatchService::fileChangedExternally,
             this, [this](const QString &path) {
         for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
             auto *editor = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
@@ -3433,8 +3204,8 @@ void MainWindow::openFile(const QString &path)
     }
 
     // Watch for external changes
-    if (m_fileWatcher && !path.isEmpty())
-        m_fileWatcher->watchFile(path);
+    if (m_workbenchServices && m_workbenchServices->fileWatcher() && !path.isEmpty())
+        m_workbenchServices->fileWatcher()->watchFile(path);
 
     if (m_pluginManager)
         m_pluginManager->fireLuaEvent(QStringLiteral("editor.open"), {path});
@@ -3470,7 +3241,8 @@ void MainWindow::openFolder(const QString &path)
     const bool hasSolution = m_editorMgr->projectManager()->openFolder(folder);
     m_gitService->setWorkingDirectory(folder);
     const QString root = m_editorMgr->projectManager()->activeSolutionDir();
-    m_searchPanel->setRootPath(root);
+    if (auto *srch = dynamic_cast<ISearchService *>(m_services->service(QStringLiteral("searchService"))))
+        srch->setRootPath(root);
     setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
     statusBar()->showMessage(tr("Opened: %1").arg(root), 4000);
     if (hasSolution) {
@@ -3493,7 +3265,8 @@ void MainWindow::openFolder(const QString &path)
             rnPanel->loadLaunchJson(launchPath);
     }
     m_editorMgr->setCurrentFolder(root);
-    m_terminal->setWorkingDirectory(root);
+    if (auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService"))))
+        ts->setWorkingDirectory(root);
 
     // Apply workspace-level settings (.exorcist/settings.json)
     if (auto *wss = m_services->service<WorkspaceSettings>(QStringLiteral("workspaceSettings")))
@@ -3503,17 +3276,35 @@ void MainWindow::openFolder(const QString &path)
     if (m_pluginManager)
         m_pluginManager->activateByWorkspace(root);
 
+    if (auto *profileMgr = qobject_cast<ProfileManager *>(
+            m_services->service(QStringLiteral("profileManager")))) {
+        const QString detectedProfile = profileMgr->autoDetectEnabled()
+            ? profileMgr->detectProfile(root)
+            : profileMgr->activeProfile();
+        if (!detectedProfile.isEmpty())
+            profileMgr->activateProfile(detectedProfile);
+    }
+
     // ── Contextual dock activation ─────────────────────────────────────
     // Show core panels relevant to the opened workspace.
     // Plugin-contributed docks (Output, Run, Debug) are shown by their
     // owning plugins, NOT by MainWindow — see plugin-first extension model.
-    m_dockManager->showDock(dock(QStringLiteral("ProjectDock")), exdock::SideBarArea::Left);
-    if (m_gitService && m_gitService->isGitRepo())
-        m_dockManager->showDock(dock(QStringLiteral("GitDock")), exdock::SideBarArea::Left);
-    m_dockManager->showDock(dock(QStringLiteral("AIDock")), exdock::SideBarArea::Right);
-    m_dockManager->showDock(dock(QStringLiteral("TerminalDock")), exdock::SideBarArea::Bottom);
-    if (dock(QStringLiteral("ProblemsDock")))
-        m_dockManager->showDock(dock(QStringLiteral("ProblemsDock")), exdock::SideBarArea::Bottom);
+    //
+    // Deferred via singleShot(0) so the editor tab (and its LineNumberArea)
+    // are fully laid out before the dock resize cascade fires. Calling
+    // showDock synchronously here triggers Qt layout reflows that reach
+    // EditorView::resizeEvent while the widget is still being initialised,
+    // resulting in an access violation inside Qt6Widgets.dll.
+    QTimer::singleShot(0, this, [this]() {
+        m_dockManager->showDock(dock(QStringLiteral("ProjectDock")), exdock::SideBarArea::Left);
+        if (m_gitService && m_gitService->isGitRepo())
+            m_dockManager->showDock(dock(QStringLiteral("GitDock")), exdock::SideBarArea::Left);
+        if (dock(QStringLiteral("AIDock")))
+            m_dockManager->showDock(dock(QStringLiteral("AIDock")), exdock::SideBarArea::Right);
+        m_dockManager->showDock(dock(QStringLiteral("TerminalDock")), exdock::SideBarArea::Bottom);
+        if (dock(QStringLiteral("ProblemsDock")))
+            m_dockManager->showDock(dock(QStringLiteral("ProblemsDock")), exdock::SideBarArea::Bottom);
+    });
 
     // Auto-detect workspace languages and activate their profiles.
     // Two-pass approach:
@@ -3668,10 +3459,18 @@ void MainWindow::openFolder(const QString &path)
                     }
                 }
             } else {
-                // No compile_commands.json yet — auto-configure if CMakePresets.json exists
-                // (wizard-generated projects always include presets)
+                // No compile_commands.json yet — auto-configure if the active profile
+                // requests it or if the project has CMakePresets.json.
+                bool shouldAutoConfigure = false;
+                if (auto *wss = m_services->service<WorkspaceSettings>(
+                        QStringLiteral("workspaceSettings"))) {
+                    shouldAutoConfigure = wss->value(QStringLiteral("build"),
+                                                     QStringLiteral("autoConfigure"),
+                                                     false).toBool();
+                }
+
                 const QString presetsPath = root + QStringLiteral("/CMakePresets.json");
-                if (QFileInfo::exists(presetsPath)) {
+                if (shouldAutoConfigure || QFileInfo::exists(presetsPath)) {
                     statusBar()->showMessage(
                         tr("CMake project detected \u2014 auto-configuring..."), 4000);
 
@@ -3715,8 +3514,8 @@ void MainWindow::openFolder(const QString &path)
         const QString themePath = root + QStringLiteral("/.exorcist/theme.json");
         if (QFileInfo::exists(themePath)) {
             QString err;
-            if (m_themeManager->loadCustomTheme(themePath, &err))
-                m_themeManager->setTheme(ThemeManager::Custom);
+            if (m_workbenchServices->themeManager()->loadCustomTheme(themePath, &err))
+                m_workbenchServices->themeManager()->setTheme(ThemeManager::Custom);
             else
                 statusBar()->showMessage(tr("Theme error: %1").arg(err), 5000);
         }
@@ -3741,32 +3540,10 @@ void MainWindow::openFolder(const QString &path)
     if (m_aiServices && m_aiServices->commitMsgGen())
         m_aiServices->commitMsgGen()->setWorkspaceRoot(root);
 
-    // Start workspace indexer
-    if (!m_workspaceIndexer) {
-        m_workspaceIndexer = new WorkspaceIndexer(this);
-        connect(m_workspaceIndexer, &WorkspaceIndexer::indexingStarted, this, [this] {
-            m_statusBarMgr->indexLabel()->setText(tr("\u2699 Indexing..."));
-        });
-        connect(m_workspaceIndexer, &WorkspaceIndexer::indexingProgress,
-                this, [this](int done, int total) {
-            m_statusBarMgr->indexLabel()->setText(tr("\u2699 Indexing %1/%2").arg(done).arg(total));
-        });
-        connect(m_workspaceIndexer, &WorkspaceIndexer::indexingFinished,
-                this, [this](int files, int chunks) {
-            m_statusBarMgr->indexLabel()->setText(tr("\u2713 %1 files (%2 chunks)")
-                                 .arg(files).arg(chunks));
-            // Rebuild symbol index from indexed chunks (already in memory)
-            if (m_symbolIndex) {
-                m_symbolIndex->clear();
-                const auto allChunks = m_workspaceIndexer->search(QString(), 50000);
-                for (const auto &chunk : allChunks) {
-                    if (!chunk.symbolName.isEmpty())
-                        m_symbolIndex->indexFile(chunk.filePath, chunk.content);
-                }
-            }
-        });
-    }
-    m_workspaceIndexer->indexWorkspace(root);
+    // Start workspace indexer — delegated to search plugin (plugins/search/)
+    // SearchPlugin owns WorkspaceIndexer and wires status bar updates internally.
+    if (auto *srch = dynamic_cast<ISearchService *>(m_services->service(QStringLiteral("searchService"))))
+        srch->indexWorkspace(root);
 }
 
 void MainWindow::newSolution()
@@ -3852,12 +3629,14 @@ void MainWindow::openSolutionFile()
     if (m_editorMgr->projectManager()->openSolution(slnPath)) {
         const QString root = m_editorMgr->projectManager()->activeSolutionDir();
         m_gitService->setWorkingDirectory(root);
-        m_searchPanel->setRootPath(root);
+        if (auto *srch = dynamic_cast<ISearchService *>(m_services->service(QStringLiteral("searchService"))))
+            srch->setRootPath(root);
         setWindowTitle(tr("Exorcist - %1").arg(QDir(root).dirName()));
         statusBar()->showMessage(tr("Solution: %1").arg(QFileInfo(slnPath).fileName()), 4000);
 
         m_editorMgr->setCurrentFolder(root);
-        m_terminal->setWorkingDirectory(root);
+        if (auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService"))))
+            ts->setWorkingDirectory(root);
         if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
             lspSvc->startServer(root);
     }
@@ -4071,11 +3850,12 @@ void MainWindow::showCommandPalette()
 
 void MainWindow::showSymbolPalette()
 {
-    if (!m_symbolIndex) return;
+    auto *sidx = dynamic_cast<SymbolIndex *>(m_services->service(QStringLiteral("symbolIndex")));
+    if (!sidx) return;
 
     CommandPalette palette(CommandPalette::CommandMode, this);
 
-    const auto allSyms = m_symbolIndex->search(QString(), 500);
+    const auto allSyms = sidx->search(QString(), 500);
     QStringList items;
     for (const auto &sym : allSyms) {
         const QString kindStr = sym.kind == WorkspaceSymbol::Class ? QStringLiteral("class")
@@ -4242,7 +4022,7 @@ void MainWindow::showTabContextMenu(int tabIndex, const QPoint &globalPos)
 
 EditorView *MainWindow::currentEditor() const
 {
-    return qobject_cast<EditorView *>(m_editorMgr->tabs()->currentWidget());
+    return m_editorMgr->currentEditor();
 }
 
 // ── LSP ───────────────────────────────────────────────────────────────────────
@@ -4618,7 +4398,8 @@ void MainWindow::onTreeContextMenu(const QPoint &pos)
     terminalAction->setEnabled(!dirPath.isEmpty());
     connect(terminalAction, &QAction::triggered, this, [this, dirPath]() {
         m_dockManager->showDock(dock(QStringLiteral("TerminalDock")), exdock::SideBarArea::Bottom);
-        m_terminal->setWorkingDirectory(dirPath);
+        if (auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService"))))
+            ts->setWorkingDirectory(dirPath);
     });
 
     menu.addSeparator();
@@ -4638,6 +4419,14 @@ void MainWindow::onTreeContextMenu(const QPoint &pos)
 void MainWindow::loadPlugins()
 {
     m_pluginManager = std::make_unique<PluginManager>();
+
+    // Kill child processes (clangd, etc.) when the event loop stops.
+    // aboutToQuit fires after all windows are destroyed, so LspEditorBridges
+    // are already gone — no dangling-pointer risk during plugin shutdown.
+    PluginManager *pm = m_pluginManager.get();
+    connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit,
+            pm, [pm]() { pm->shutdownAll(); });
+
     const QString pluginDir = QCoreApplication::applicationDirPath() + "/plugins";
     int loaded = m_pluginManager->loadPluginsFrom(pluginDir);
 
@@ -4682,43 +4471,84 @@ void MainWindow::loadPlugins()
 
     // Create SDK host services for the new plugin interface
     m_hostServices = new HostServices(this, this);
-    m_hostServices->initSubsystemServices(m_fileSystem.get(), m_gitService, m_terminal);
+    m_hostServices->initSubsystemServices(m_fileSystem.get(), m_gitService);
     m_hostServices->initUIManagers();
     m_hostServices->setServiceRegistry(m_services.get());
 
+    {
+        auto *sharedServices = new SharedServicesBootstrap(this);
+        sharedServices->initialize(m_services.get(), m_hostServices, m_pluginManager.get());
+
+        auto *templateServices = new TemplateServicesBootstrap(this);
+        templateServices->initialize(m_services.get());
+
+        auto *wss = m_services->service<WorkspaceSettings>(QStringLiteral("workspaceSettings"));
+        auto *profileMgr = qobject_cast<ProfileManager *>(
+            m_services->service(QStringLiteral("profileManager")));
+
+        auto *workbenchState = new WorkbenchStateBootstrap(this);
+        WorkbenchStateBootstrap::Callbacks callbacks;
+        callbacks.applyWorkspaceSettings = [this](WorkspaceSettings *settings) {
+            if (!settings)
+                return;
+
+            const QFont font(settings->fontFamily(), settings->fontSize());
+            const int tabSize = settings->tabSize();
+            const bool wrap = settings->wordWrap();
+            const bool minimap = settings->showMinimap();
+
+            for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+                if (auto *e = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i))) {
+                    e->setFont(font);
+                    e->setTabStopDistance(
+                        QFontMetricsF(font).horizontalAdvance(QLatin1Char(' ')) * tabSize);
+                    e->setWordWrapMode(wrap ? QTextOption::WordWrap
+                                            : QTextOption::NoWrap);
+                    e->setMinimapVisible(minimap);
+                }
+            }
+        };
+        callbacks.setDockVisible = [this](const QString &dockId, bool visible) {
+            setShellDockVisible(dockId, visible);
+        };
+        workbenchState->initialize(wss, profileMgr, callbacks);
+    }
+
     // LSP diagnostics → SDK DiagnosticsService: deferred to post-plugin wiring
 
-    // Register core IDE commands so plugins can invoke them
-    auto *cmdSvc = m_hostServices->commandService();
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.newTab"), tr("New Tab"),
-                            [this]() { openNewTab(); });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.openFile"), tr("Open File..."),
-                            [this]() {
-        const QString p = QFileDialog::getOpenFileName(this, tr("Open File"));
-        if (!p.isEmpty()) openFile(p);
-    });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.openFolder"), tr("Open Folder..."),
-                            [this]() { openFolder(); });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.save"), tr("Save"),
-                            [this]() { saveCurrentTab(); });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.goToFile"), tr("Go to File..."),
-                            [this]() { showFilePalette(); });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.findReplace"), tr("Find / Replace"),
-                            [this]() { if (auto *e = currentEditor()) e->showFindBar(); });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.toggleProject"), tr("Toggle Project Panel"),
-                            [this]() { m_dockManager->toggleDock(dock(QStringLiteral("ProjectDock"))); });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.toggleSearch"), tr("Toggle Search Panel"),
-                            [this]() { m_dockManager->toggleDock(dock(QStringLiteral("SearchDock"))); });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.toggleTerminal"), tr("Toggle Terminal Panel"),
-                            [this]() { m_dockManager->toggleDock(dock(QStringLiteral("TerminalDock"))); });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.toggleAI"), tr("Toggle AI Panel"),
-                            [this]() { m_dockManager->toggleDock(dock(QStringLiteral("AIDock"))); });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.goToSymbol"), tr("Go to Symbol..."),
-                            [this]() { showSymbolPalette(); });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.quit"), tr("Quit"),
-                            [this]() { close(); });
-    cmdSvc->registerCommand(QStringLiteral("workbench.action.commandPalette"), tr("Command Palette"),
-                            [this]() { showCommandPalette(); });
+    {
+        auto *workbenchCommands = new WorkbenchCommandBootstrap(this);
+        WorkbenchCommandBootstrap::Callbacks callbacks;
+        callbacks.newTab = [this]() { openNewTab(); };
+        callbacks.openFile = [this]() {
+            const QString p = QFileDialog::getOpenFileName(this, tr("Open File"));
+            if (!p.isEmpty())
+                openFile(p);
+        };
+        callbacks.openFolder = [this]() { openFolder(); };
+        callbacks.save = [this]() { saveCurrentTab(); };
+        callbacks.goToFile = [this]() { showFilePalette(); };
+        callbacks.findReplace = [this]() {
+            if (auto *e = currentEditor())
+                e->showFindBar();
+        };
+        callbacks.toggleProject = [this]() {
+            m_dockManager->toggleDock(dock(QStringLiteral("ProjectDock")));
+        };
+        callbacks.toggleSearch = [this]() {
+            m_dockManager->toggleDock(dock(QStringLiteral("SearchDock")));
+        };
+        callbacks.toggleTerminal = [this]() {
+            m_dockManager->toggleDock(dock(QStringLiteral("TerminalDock")));
+        };
+        callbacks.toggleAi = [this]() {
+            m_dockManager->toggleDock(dock(QStringLiteral("AIDock")));
+        };
+        callbacks.goToSymbol = [this]() { showSymbolPalette(); };
+        callbacks.quit = [this]() { close(); };
+        callbacks.commandPalette = [this]() { showCommandPalette(); };
+        workbenchCommands->initialize(m_hostServices->commandService(), callbacks);
+    }
 
     // Create contribution registry for wiring plugin manifests into the IDE
     m_contributions = new ContributionRegistry(this, m_hostServices->commandService(), this);
@@ -4799,6 +4629,15 @@ void MainWindow::loadPlugins()
                 auto *ed = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
                 if (ed) ed->setCurrentDebugLine(0);
             }
+        });
+    }
+
+    // ── Post-plugin wiring: search service → navigation ──
+    if (auto *srch = dynamic_cast<ISearchService *>(
+            m_services->service(QStringLiteral("searchService")))) {
+        connect(srch, &ISearchService::resultActivated,
+                this, [this](const QString &filePath, int line, int col) {
+            navigateToLocation(filePath, line - 1, col);
         });
     }
 
@@ -4968,8 +4807,14 @@ void MainWindow::loadPlugins()
         }
     });
 
-    // Auto-show AI panel when at least one provider is available
-    if (!m_agentOrchestrator->providers().isEmpty()) {
-        m_dockManager->showDock(dock(QStringLiteral("AIDock")), exdock::SideBarArea::Right);
-    }
+    const bool editing = !m_centralStack || m_centralStack->currentIndex() != 0;
+    for (auto *tb : findChildren<QToolBar *>())
+        tb->setVisible(editing);
+    updateMenuBarVisibility(editing);
+    QTimer::singleShot(0, this, [this]() {
+        const bool editingNow = !m_centralStack || m_centralStack->currentIndex() != 0;
+        for (auto *tb : findChildren<QToolBar *>())
+            tb->setVisible(editingNow);
+        updateMenuBarVisibility(editingNow);
+    });
 }
