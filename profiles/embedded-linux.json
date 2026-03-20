@@ -1,0 +1,61 @@
+{
+    "id": "embedded-linux",
+    "name": "Embedded Linux / SBC Development",
+    "description": "Cross-compiled Linux targets, board bring-up, and remote deployment workflows",
+    "icon": "device",
+    "category": "embedded",
+
+    "requiredPlugins": [
+        "org.exorcist.cpp-language",
+        "org.exorcist.remote",
+        "org.exorcist.build",
+        "org.exorcist.debug",
+        "org.exorcist.git",
+        "org.exorcist.terminal",
+        "org.exorcist.search"
+    ],
+    "optionalPlugins": [
+        "org.exorcist.testing"
+    ],
+    "disabledPlugins": [],
+    "deferredPlugins": [
+        "org.exorcist.remote",
+        "org.exorcist.build",
+        "org.exorcist.debug"
+    ],
+
+    "detection": [
+        { "type": "fileExists", "pattern": "CMakeLists.txt", "weight": 2 },
+        { "type": "fileExists", "pattern": "meson.build", "weight": 2 },
+        { "type": "fileExists", "pattern": "bblayers.conf", "weight": 4 },
+        { "type": "fileExists", "pattern": "local.conf", "weight": 3 },
+        { "type": "fileExists", "pattern": "*.bb", "weight": 3 },
+        { "type": "fileExists", "pattern": "*.bbappend", "weight": 3 },
+        { "type": "fileExists", "pattern": "toolchain.cmake", "weight": 3 },
+        { "type": "directoryExists", "pattern": "buildroot", "weight": 4 },
+        { "type": "directoryExists", "pattern": "yocto", "weight": 4 },
+        { "type": "directoryExists", "pattern": "meta-*", "weight": 3 },
+        { "type": "directoryExists", "pattern": "rootfs", "weight": 2 },
+        { "type": "fileContent", "pattern": "CMakeLists.txt:aarch64|arm-linux|toolchain", "weight": 3 },
+        { "type": "fileContent", "pattern": "Makefile:aarch64|arm-linux|sysroot", "weight": 3 }
+    ],
+    "detectionThreshold": 4,
+
+    "dockDefaults": [
+        { "id": "ProjectDock", "visible": true },
+        { "id": "SearchDock", "visible": false },
+        { "id": "GitDock", "visible": false },
+        { "id": "RemoteDock", "visible": true },
+        { "id": "TerminalDock", "visible": true },
+        { "id": "ProblemsDock", "visible": true },
+        { "id": "OutputDock", "visible": true },
+        { "id": "RunDock", "visible": true },
+        { "id": "DebugDock", "visible": false }
+    ],
+
+    "settings": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "build.autoConfigure": true
+    }
+}

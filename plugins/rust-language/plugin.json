@@ -1,0 +1,25 @@
+{
+    "id": "org.exorcist.rust-language",
+    "name": "Rust Language Support",
+    "version": "1.0.0",
+    "description": "Rust language support via rust-analyzer.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "language",
+    "activationEvents": [
+        "workspaceContains:Cargo.toml",
+        "workspaceContains:*.rs"
+    ],
+    "contributions": {
+        "languages": [
+            {
+                "id": "rust",
+                "name": "Rust",
+                "extensions": [".rs"],
+                "mimeTypes": ["text/x-rustsrc"],
+                "lspCommand": "rust-analyzer"
+            }
+        ]
+    }
+}

@@ -1,0 +1,51 @@
+{
+    "id": "devops",
+    "name": "DevOps / Infrastructure",
+    "description": "Infrastructure-as-code, container, and deployment workspaces",
+    "icon": "server",
+    "category": "infrastructure",
+
+    "requiredPlugins": [
+        "org.exorcist.remote",
+        "org.exorcist.build",
+        "org.exorcist.git",
+        "org.exorcist.terminal",
+        "org.exorcist.search"
+    ],
+    "optionalPlugins": [
+        "org.exorcist.github"
+    ],
+    "disabledPlugins": [],
+    "deferredPlugins": [
+        "org.exorcist.remote",
+        "org.exorcist.build"
+    ],
+
+    "detection": [
+        { "type": "fileExists", "pattern": "Dockerfile", "weight": 3 },
+        { "type": "fileExists", "pattern": "docker-compose.yml", "weight": 3 },
+        { "type": "fileExists", "pattern": "compose.yaml", "weight": 3 },
+        { "type": "fileExists", "pattern": "*.tf", "weight": 3 },
+        { "type": "fileExists", "pattern": "ansible.cfg", "weight": 3 },
+        { "type": "directoryExists", "pattern": "k8s", "weight": 3 },
+        { "type": "directoryExists", "pattern": ".github", "weight": 1 }
+    ],
+    "detectionThreshold": 3,
+
+    "dockDefaults": [
+        { "id": "ProjectDock", "visible": true },
+        { "id": "SearchDock", "visible": false },
+        { "id": "GitDock", "visible": false },
+        { "id": "RemoteDock", "visible": true },
+        { "id": "TerminalDock", "visible": true },
+        { "id": "ProblemsDock", "visible": true },
+        { "id": "OutputDock", "visible": true },
+        { "id": "RunDock", "visible": false }
+    ],
+
+    "settings": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "build.autoConfigure": false
+    }
+}

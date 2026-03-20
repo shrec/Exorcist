@@ -1,0 +1,41 @@
+{
+    "id": "org.exorcist.embedded-tools",
+    "name": "Embedded Tools",
+    "version": "1.0.0",
+    "description": "Embedded upload and monitor entry points for MCU workspaces.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "workbench",
+    "activationEvents": [
+        "onProfile:embedded-mcu",
+        "workspaceContains:platformio.ini",
+        "workspaceContains:west.yml",
+        "workspaceContains:sdkconfig",
+        "workspaceContains:pyocd.yaml",
+        "workspaceContains:pyocd.yml",
+        "workspaceContains:openocd.cfg",
+        "workspaceContains:openocd*.cfg",
+        "workspaceContains:*.ioc",
+        "workspaceContains:.pio",
+        "onCommand:embedded.showTools",
+        "onCommand:embedded.startDebugRoute"
+    ],
+    "contributions": {
+        "views": [
+            {
+                "id": "EmbeddedToolsDock",
+                "title": "Embedded",
+                "location": "bottom",
+                "defaultVisible": false,
+                "priority": 14
+            }
+        ],
+        "commands": [
+            { "id": "embedded.showTools", "title": "Embedded: Show Tools", "category": "Embedded" },
+            { "id": "embedded.flashFirmware", "title": "Embedded: Flash Firmware", "category": "Embedded" },
+            { "id": "embedded.openMonitor", "title": "Embedded: Open Serial Monitor", "category": "Embedded" },
+            { "id": "embedded.startDebugRoute", "title": "Embedded: Start Debug Route", "category": "Embedded" }
+        ]
+    }
+}

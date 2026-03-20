@@ -1,0 +1,22 @@
+{
+    "id": "org.exorcist.qt-tools",
+    "name": "Qt Tools",
+    "version": "1.0.0",
+    "description": "Qt Designer, Linguist, and Assistant launch commands for Qt workspaces.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "workbench",
+    "activationEvents": [
+        "workspaceContains:*.ui",
+        "workspaceContains:*.qrc",
+        "workspaceContains:*.qml"
+    ],
+    "contributions": {
+        "commands": [
+            { "id": "qt.openDesigner", "title": "Qt: Open Designer", "category": "Qt" },
+            { "id": "qt.openLinguist", "title": "Qt: Open Linguist", "category": "Qt" },
+            { "id": "qt.openAssistant", "title": "Qt: Open Assistant", "category": "Qt" }
+        ]
+    }
+}

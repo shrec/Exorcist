@@ -1,0 +1,40 @@
+{
+    "id": "org.exorcist.serial-monitor",
+    "name": "Serial Monitor",
+    "version": "1.0.0",
+    "description": "Serial monitor panel and external monitor launcher for embedded workspaces.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "workbench",
+    "activationEvents": [
+        "onProfile:embedded-mcu",
+        "workspaceContains:platformio.ini",
+        "workspaceContains:west.yml",
+        "workspaceContains:sdkconfig",
+        "workspaceContains:pyocd.yaml",
+        "workspaceContains:pyocd.yml",
+        "workspaceContains:openocd.cfg",
+        "workspaceContains:openocd*.cfg",
+        "workspaceContains:*.ioc",
+        "onCommand:serialMonitor.show",
+        "onView:SerialMonitorDock"
+    ],
+    "contributions": {
+        "views": [
+            {
+                "id": "SerialMonitorDock",
+                "title": "Serial Monitor",
+                "location": "bottom",
+                "defaultVisible": false,
+                "priority": 15
+            }
+        ],
+        "commands": [
+            { "id": "serialMonitor.show", "title": "Serial Monitor: Show Panel", "category": "Serial" },
+            { "id": "serialMonitor.refreshPorts", "title": "Serial Monitor: Refresh Ports", "category": "Serial" },
+            { "id": "serialMonitor.clear", "title": "Serial Monitor: Clear", "category": "Serial" },
+            { "id": "serialMonitor.openExternal", "title": "Serial Monitor: Run External Monitor", "category": "Serial" }
+        ]
+    }
+}

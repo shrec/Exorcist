@@ -1,0 +1,27 @@
+{
+    "id": "org.exorcist.python-language",
+    "name": "Python Language Support",
+    "version": "1.0.0",
+    "description": "Python language support via a process-based language server.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "language",
+    "activationEvents": [
+        "workspaceContains:requirements.txt",
+        "workspaceContains:pyproject.toml",
+        "workspaceContains:setup.py",
+        "workspaceContains:*.py"
+    ],
+    "contributions": {
+        "languages": [
+            {
+                "id": "python",
+                "name": "Python",
+                "extensions": [".py", ".pyw"],
+                "mimeTypes": ["text/x-python"],
+                "lspCommand": "pylsp"
+            }
+        ]
+    }
+}

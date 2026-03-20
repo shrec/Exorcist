@@ -1,0 +1,330 @@
+#include "workbenchpluginbase.h"
+
+#include "core/idockmanager.h"
+#include "core/imenumanager.h"
+#include "core/istatusbarmanager.h"
+#include "core/iworkspacemanager.h"
+#include "core/itoolbarmanager.h"
+#include "sdk/icommandservice.h"
+#include "sdk/icomponentservice.h"
+#include "sdk/idiagnosticsservice.h"
+#include "sdk/ieditorservice.h"
+#include "sdk/igitservice.h"
+#include "sdk/ihostservices.h"
+#include "sdk/inotificationservice.h"
+#include "core/iprofilemanager.h"
+#include "sdk/itaskservice.h"
+#include "sdk/iterminalservice.h"
+#include "sdk/iviewservice.h"
+#include "sdk/iworkspaceservice.h"
+
+#include <QAction>
+#include <QMenu>
+#include <QObject>
+#include <QWidget>
+
+bool WorkbenchPluginBase::initialize(IHostServices *host)
+{
+    m_host = host;
+    return initializePlugin();
+}
+
+void WorkbenchPluginBase::shutdown()
+{
+    shutdownPlugin();
+    m_host = nullptr;
+}
+
+ICommandService *WorkbenchPluginBase::commands() const
+{
+    return m_host ? m_host->commands() : nullptr;
+}
+
+IWorkspaceService *WorkbenchPluginBase::workspace() const
+{
+    return m_host ? m_host->workspace() : nullptr;
+}
+
+IEditorService *WorkbenchPluginBase::editor() const
+{
+    return m_host ? m_host->editor() : nullptr;
+}
+
+IViewService *WorkbenchPluginBase::views() const
+{
+    return m_host ? m_host->views() : nullptr;
+}
+
+INotificationService *WorkbenchPluginBase::notifications() const
+{
+    return m_host ? m_host->notifications() : nullptr;
+}
+
+IGitService *WorkbenchPluginBase::git() const
+{
+    return m_host ? m_host->git() : nullptr;
+}
+
+ITerminalService *WorkbenchPluginBase::terminal() const
+{
+    return m_host ? m_host->terminal() : nullptr;
+}
+
+IDiagnosticsService *WorkbenchPluginBase::diagnostics() const
+{
+    return m_host ? m_host->diagnostics() : nullptr;
+}
+
+ITaskService *WorkbenchPluginBase::tasks() const
+{
+    return m_host ? m_host->tasks() : nullptr;
+}
+
+IDockManager *WorkbenchPluginBase::docks() const
+{
+    return m_host ? m_host->docks() : nullptr;
+}
+
+IMenuManager *WorkbenchPluginBase::menus() const
+{
+    return m_host ? m_host->menus() : nullptr;
+}
+
+IToolBarManager *WorkbenchPluginBase::toolbars() const
+{
+    return m_host ? m_host->toolbars() : nullptr;
+}
+
+IStatusBarManager *WorkbenchPluginBase::statusBar() const
+{
+    return m_host ? m_host->statusBar() : nullptr;
+}
+
+IWorkspaceManager *WorkbenchPluginBase::workspaceManager() const
+{
+    return m_host ? m_host->workspaceManager() : nullptr;
+}
+
+IProfileManager *WorkbenchPluginBase::profiles() const
+{
+    return m_host ? m_host->profiles() : nullptr;
+}
+
+IComponentService *WorkbenchPluginBase::components() const
+{
+    return m_host ? m_host->components() : nullptr;
+}
+
+void WorkbenchPluginBase::registerService(const QString &name, QObject *service) const
+{
+    if (m_host)
+        m_host->registerService(name, service);
+}
+
+QObject *WorkbenchPluginBase::queryService(const QString &name) const
+{
+    return m_host ? m_host->queryService(name) : nullptr;
+}
+
+bool WorkbenchPluginBase::executeCommand(const QString &commandId) const
+{
+    auto *commandService = commands();
+    return commandService ? commandService->executeCommand(commandId) : false;
+}
+
+QString WorkbenchPluginBase::workspaceRoot() const
+{
+    auto *workspaceService = workspace();
+    return workspaceService ? workspaceService->rootPath() : QString();
+}
+
+QString WorkbenchPluginBase::activeFilePath() const
+{
+    auto *editorService = editor();
+    return editorService ? editorService->activeFilePath() : QString();
+}
+
+QString WorkbenchPluginBase::activeLanguageId() const
+{
+    auto *editorService = editor();
+    return editorService ? editorService->activeLanguageId() : QString();
+}
+
+QString WorkbenchPluginBase::selectedText() const
+{
+    auto *editorService = editor();
+    return editorService ? editorService->selectedText() : QString();
+}
+
+void WorkbenchPluginBase::openFile(const QString &path, int line, int column) const
+{
+    auto *editorService = editor();
+    if (editorService)
+        editorService->openFile(path, line, column);
+}
+
+void WorkbenchPluginBase::showInfo(const QString &text) const
+{
+    auto *notificationService = notifications();
+    if (notificationService)
+        notificationService->info(text);
+}
+
+void WorkbenchPluginBase::showWarning(const QString &text) const
+{
+    auto *notificationService = notifications();
+    if (notificationService)
+        notificationService->warning(text);
+}
+
+void WorkbenchPluginBase::showError(const QString &text) const
+{
+    auto *notificationService = notifications();
+    if (notificationService)
+        notificationService->error(text);
+}
+
+void WorkbenchPluginBase::showStatusMessage(const QString &text, int timeoutMs) const
+{
+    auto *notificationService = notifications();
+    if (notificationService)
+        notificationService->statusMessage(text, timeoutMs);
+}
+
+void WorkbenchPluginBase::showPanel(const QString &panelId) const
+{
+    auto *dockManager = docks();
+    if (dockManager)
+        dockManager->showPanel(panelId);
+}
+
+void WorkbenchPluginBase::hidePanel(const QString &panelId) const
+{
+    auto *dockManager = docks();
+    if (dockManager)
+        dockManager->hidePanel(panelId);
+}
+
+void WorkbenchPluginBase::togglePanel(const QString &panelId) const
+{
+    auto *dockManager = docks();
+    if (dockManager)
+        dockManager->togglePanel(panelId);
+}
+
+QAction *WorkbenchPluginBase::makeCommandAction(const QString &text,
+                                                const QString &commandId,
+                                                QObject *owner,
+                                                const QKeySequence &shortcut) const
+{
+    auto *commandService = commands();
+    if (!owner || !commandService)
+        return nullptr;
+
+    auto *action = new QAction(text, owner);
+    if (!shortcut.isEmpty())
+        action->setShortcut(shortcut);
+
+    QObject::connect(action, &QAction::triggered, owner, [commandService, commandId]() {
+        commandService->executeCommand(commandId);
+    });
+    return action;
+}
+
+QAction *WorkbenchPluginBase::addMenuCommand(IMenuManager::MenuLocation location,
+                                             const QString &text,
+                                             const QString &commandId,
+                                             QObject *owner,
+                                             const QKeySequence &shortcut) const
+{
+    auto *action = makeCommandAction(text, commandId, owner, shortcut);
+    auto *menuManager = menus();
+    if (action && menuManager)
+        menuManager->addAction(location, action);
+    return action;
+}
+
+QAction *WorkbenchPluginBase::addMenuCommand(const QString &menuId,
+                                             const QString &text,
+                                             const QString &commandId,
+                                             QObject *owner,
+                                             const QKeySequence &shortcut) const
+{
+    auto *action = makeCommandAction(text, commandId, owner, shortcut);
+    auto *menuManager = menus();
+    if (action && menuManager)
+        menuManager->addAction(menuId, action);
+    return action;
+}
+
+void WorkbenchPluginBase::addMenuSeparator(IMenuManager::MenuLocation location) const
+{
+    auto *menuManager = menus();
+    if (menuManager)
+        menuManager->addSeparator(location);
+}
+
+QMenu *WorkbenchPluginBase::ensureMenu(const QString &menuId, const QString &title) const
+{
+    auto *menuManager = menus();
+    return menuManager ? menuManager->createMenu(menuId, title) : nullptr;
+}
+
+bool WorkbenchPluginBase::createToolBar(const QString &id,
+                                        const QString &title,
+                                        IToolBarManager::Edge edge) const
+{
+    auto *toolBarManager = toolbars();
+    return toolBarManager ? toolBarManager->createToolBar(id, title, edge) : false;
+}
+
+QAction *WorkbenchPluginBase::addToolBarCommand(const QString &toolBarId,
+                                                const QString &text,
+                                                const QString &commandId,
+                                                QObject *owner,
+                                                const QKeySequence &shortcut) const
+{
+    auto *action = makeCommandAction(text, commandId, owner, shortcut);
+    auto *toolBarManager = toolbars();
+    if (action && toolBarManager)
+        toolBarManager->addAction(toolBarId, action);
+    return action;
+}
+
+void WorkbenchPluginBase::addToolBarCommands(const QString &toolBarId,
+                                             const QList<CommandSpec> &commands,
+                                             QObject *owner) const
+{
+    for (const CommandSpec &command : commands) {
+        if (command.separatorBefore)
+            addToolBarSeparator(toolBarId);
+        addToolBarCommand(toolBarId, command.text, command.commandId, owner,
+                          command.shortcut);
+    }
+}
+
+void WorkbenchPluginBase::addToolBarWidget(const QString &id, QWidget *widget) const
+{
+    auto *toolBarManager = toolbars();
+    if (toolBarManager && widget)
+        toolBarManager->addWidget(id, widget);
+}
+
+void WorkbenchPluginBase::addToolBarSeparator(const QString &id) const
+{
+    auto *toolBarManager = toolbars();
+    if (toolBarManager)
+        toolBarManager->addSeparator(id);
+}
+
+void WorkbenchPluginBase::addMenuCommands(IMenuManager::MenuLocation location,
+                                          const QList<CommandSpec> &commands,
+                                          QObject *owner) const
+{
+    for (const CommandSpec &command : commands) {
+        if (command.separatorBefore)
+            addMenuSeparator(location);
+        addMenuCommand(location, command.text, command.commandId, owner,
+                       command.shortcut);
+    }
+}

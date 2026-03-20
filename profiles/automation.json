@@ -1,0 +1,48 @@
+{
+    "id": "automation",
+    "name": "Automation / Scripting",
+    "description": "Task-driven Lua, shell, and PowerShell workspaces with terminal-first workflows",
+    "icon": "script",
+    "category": "scripting",
+
+    "requiredPlugins": [
+        "org.exorcist.build",
+        "org.exorcist.git",
+        "org.exorcist.terminal",
+        "org.exorcist.search"
+    ],
+    "optionalPlugins": [
+        "org.exorcist.remote"
+    ],
+    "disabledPlugins": [],
+    "deferredPlugins": [
+        "org.exorcist.build",
+        "org.exorcist.terminal"
+    ],
+
+    "detection": [
+        { "type": "fileExists", "pattern": "Taskfile.yml", "weight": 4 },
+        { "type": "fileExists", "pattern": "Taskfile.yaml", "weight": 4 },
+        { "type": "fileExists", "pattern": "justfile", "weight": 3 },
+        { "type": "fileExists", "pattern": "*.lua", "weight": 2 },
+        { "type": "fileExists", "pattern": "*.sh", "weight": 2 },
+        { "type": "fileExists", "pattern": "*.ps1", "weight": 2 }
+    ],
+    "detectionThreshold": 3,
+
+    "dockDefaults": [
+        { "id": "ProjectDock", "visible": true },
+        { "id": "SearchDock", "visible": false },
+        { "id": "GitDock", "visible": false },
+        { "id": "TerminalDock", "visible": true },
+        { "id": "ProblemsDock", "visible": true },
+        { "id": "OutputDock", "visible": true },
+        { "id": "RunDock", "visible": true }
+    ],
+
+    "settings": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "build.autoConfigure": false
+    }
+}

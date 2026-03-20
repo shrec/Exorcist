@@ -1,0 +1,33 @@
+[project]
+name = "Exorcist"
+language = "cpp"
+
+[[source_dirs]]
+label = "src"
+path = "../src"
+
+[[source_dirs]]
+label = "plugins"
+path = "../plugins"
+
+[[source_dirs]]
+label = "tests"
+path = "../tests"
+
+[[source_dirs]]
+label = "tools"
+path = "../tools"
+extensions = [".py", ".toml", ".json", ".md"]
+optional = true
+
+[[source_dirs]]
+label = "docs"
+path = "../docs"
+extensions = [".md"]
+optional = true
+
+[[source_dirs]]
+label = "profiles"
+path = "../profiles"
+extensions = [".json"]
+optional = true
