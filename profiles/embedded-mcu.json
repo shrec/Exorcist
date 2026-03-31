@@ -17,7 +17,9 @@
         "org.exorcist.serial-monitor",
         "org.exorcist.build"
     ],
-    "disabledPlugins": [],
+    "disabledPlugins": [
+        "org.exorcist.qt-tools"
+    ],
     "deferredPlugins": [
         "org.exorcist.cpp-language",
         "org.exorcist.embedded-tools",

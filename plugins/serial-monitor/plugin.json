@@ -20,6 +20,7 @@
         "onCommand:serialMonitor.show",
         "onView:SerialMonitorDock"
     ],
+    "requestedPermissions": ["WorkspaceRead", "TerminalExecute"],
     "contributions": {
         "views": [
             {

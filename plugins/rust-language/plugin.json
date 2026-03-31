@@ -20,6 +20,22 @@
                 "mimeTypes": ["text/x-rustsrc"],
                 "lspCommand": "rust-analyzer"
             }
+        ],
+        "commands": [
+            { "id": "rust.goToDefinition",       "title": "Go to Definition" },
+            { "id": "rust.goToDeclaration",       "title": "Go to Declaration" },
+            { "id": "rust.findReferences",        "title": "Find All References" },
+            { "id": "rust.renameSymbol",          "title": "Rename Symbol" },
+            { "id": "rust.formatDocument",        "title": "Format Document" },
+            { "id": "rust.gotoWorkspaceSymbol",   "title": "Go to Symbol in Workspace" },
+            { "id": "rust.restartLanguageServer", "title": "Restart Language Server" },
+            { "id": "rust.cargoBuild",            "title": "Cargo Build" },
+            { "id": "rust.cargoRun",              "title": "Cargo Run" },
+            { "id": "rust.cargoTest",             "title": "Cargo Test" },
+            { "id": "rust.cargoCheck",            "title": "Cargo Check" },
+            { "id": "rust.cargoClippy",           "title": "Cargo Clippy" },
+            { "id": "rust.cargoClean",            "title": "Cargo Clean" },
+            { "id": "rust.openCargoToml",         "title": "Open Cargo.toml" }
         ]
     }
 }

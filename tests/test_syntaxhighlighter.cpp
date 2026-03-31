@@ -3,12 +3,15 @@
 #include <QTextBlock>
 
 #include "editor/syntaxhighlighter.h"
+#include "lang_test_register.h"
 
 class TestSyntaxHighlighter : public QObject
 {
     Q_OBJECT
 
 private slots:
+    void initTestCase() { registerAllTestLanguages(); }
+
     // ── Factory: extension-based creation ─────────────────────────────────
 
     void create_cpp()

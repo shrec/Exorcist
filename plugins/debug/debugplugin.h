@@ -25,6 +25,7 @@ public:
 private:
     bool initializePlugin() override;
     void shutdownPlugin() override;
+    void onWorkspaceChanged(const QString &root) override;
     void registerCommands();
     void installMenusAndToolBar();
 

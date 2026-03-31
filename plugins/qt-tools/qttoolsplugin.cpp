@@ -18,7 +18,7 @@ PluginInfo QtToolsPlugin::info() const
         QStringLiteral("Launches Qt Designer, Linguist, and Assistant for Qt workspaces."),
         QStringLiteral("Exorcist"),
         QStringLiteral("1.0"),
-        {}
+        {PluginPermission::WorkspaceRead, PluginPermission::TerminalExecute}
     };
 }
 

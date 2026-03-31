@@ -19,6 +19,10 @@ class IBuildSystem : public QObject
 public:
     using QObject::QObject;
 
+    /// Set the workspace root — tells the build system where the project lives.
+    /// Must be called when a workspace is opened or changed.
+    virtual void setProjectRoot(const QString &root) = 0;
+
     /// Whether a build system project is detected in the workspace.
     virtual bool hasProject() const = 0;
 

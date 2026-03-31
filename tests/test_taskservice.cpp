@@ -11,6 +11,7 @@ class StubBuildSystem : public IBuildSystem
 public:
     using IBuildSystem::IBuildSystem;
 
+    void setProjectRoot(const QString &) override {}
     bool hasProject() const override { return true; }
     void configure() override { ++configureCalls; }
     void build(const QString &target = {}) override { ++buildCalls; lastTarget = target; }

@@ -7,12 +7,14 @@
     "license": "MIT",
     "layer": "cpp-sdk",
     "activationEvents": [
+        "onStartupFinished",
         "workspaceContains:CMakeLists.txt",
         "workspaceContains:Makefile",
         "workspaceContains:Cargo.toml",
         "workspaceContains:build.gradle",
         "workspaceContains:meson.build"
     ],
+    "requestedPermissions": ["WorkspaceRead", "TerminalExecute", "FilesystemRead"],
     "contributions": {
         "views": [
             {

@@ -213,17 +213,20 @@
   LspBootstrap (src/bootstrap/) is dead code — not compiled in src/CMakeLists.txt.
   ILspService registered; 30+ commands; full build/debug/test/search service wiring.
 
-- [ ] **C5. Language highlighting data plugin-ად გამოტანა**
-  `src/editor/languages/` → language pack plugins via ILanguageContributor.
-  ~1365 ხაზი regex-based syntax data Core-დან plugin-ებში გადატანა.
-  HighlighterFactory already plugin-first (s_languageLookup), hard-coded fallback remains.
-  Project detection: ფაილის გაფართოების მიხედვით.
+- [x] **C5. Language highlighting data plugin-ად გამოტანა** ✅
+  `plugins/lang-pack/` — LangPackPlugin registers 40+ languages via SyntaxHighlighter::registerLanguage().
+  SyntaxHighlighter now uses a contributor registry (extension/filename/shebang lookup); hard-coded maps removed.
+  src/editor/languages/*.cpp compiled ONLY by lang-pack plugin (removed from src/CMakeLists.txt).
+  SyntaxHighlighter::LanguageContribution struct + LangBuildFn type added to syntaxhighlighter.h.
+  Tests use lang_test_register.h helper (registerAllTestLanguages()) to seed the registry.
 
 ### Phase D: God Object Decomposition
 
-- [ ] **D1. EditorManager extraction**
-  Tab/document lifecycle MainWindow-დან ცალკე კლასში.
-  m_tabs, tab signals, file open/close/save logic.
+- [x] **D1. EditorManager extraction** ✅
+  `src/editor/editormanager.cpp/h` — openFile(), closeTab(), closeAllTabs(), closeOtherTabs() moved from MainWindow.
+  Deps: setFileSystem(), setCentralStack(), setLanguageProfileManager() — set during MainWindow init.
+  Signals: editorOpened(EditorView*, QString) for per-editor wiring (LSP, AI, breakpoints); statusMessage(); tabClosed().
+  MainWindow::openFile() is now a 1-line delegate. showTabContextMenu() uses EditorManager methods.
 
 - [x] **D2. DockBootstrap extraction** ✅
   `src/bootstrap/dockbootstrap.cpp/h` — 14 dock panels created via DockBootstrap::initialize().

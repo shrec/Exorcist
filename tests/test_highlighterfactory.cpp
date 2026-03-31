@@ -5,12 +5,15 @@
 #include "editor/highlighterfactory.h"
 #include "editor/treesitterhighlighter.h"
 #include "editor/syntaxhighlighter.h"
+#include "lang_test_register.h"
 
 class TestHighlighterFactory : public QObject
 {
     Q_OBJECT
 
 private slots:
+    void initTestCase() { registerAllTestLanguages(); }
+
     // ── hasTreeSitter ─────────────────────────────────────────────────────
 
     void hasTreeSitter_compiled()

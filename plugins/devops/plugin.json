@@ -1,0 +1,40 @@
+{
+    "id": "org.exorcist.devops",
+    "name": "DevOps Tools",
+    "version": "1.0.0",
+    "description": "Container, infrastructure-as-code, and CI/CD integration for DevOps workspaces.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "workbench",
+    "activationEvents": [
+        "onProfile:devops",
+        "workspaceContains:Dockerfile",
+        "workspaceContains:docker-compose.yml",
+        "workspaceContains:compose.yaml",
+        "workspaceContains:*.tf",
+        "workspaceContains:ansible.cfg",
+        "onCommand:devops.showPanel",
+        "onCommand:devops.dockerCompose"
+    ],
+    "requestedPermissions": ["WorkspaceRead", "TerminalExecute", "FilesystemRead"],
+    "contributions": {
+        "views": [
+            {
+                "id": "DevOpsDock",
+                "title": "DevOps",
+                "location": "bottom",
+                "defaultVisible": false,
+                "priority": 17
+            }
+        ],
+        "commands": [
+            { "id": "devops.showPanel", "title": "Show DevOps Panel", "category": "DevOps" },
+            { "id": "devops.dockerCompose", "title": "Docker Compose...", "category": "DevOps" },
+            { "id": "devops.dockerBuild", "title": "Docker Build", "category": "DevOps" },
+            { "id": "devops.terraformPlan", "title": "Terraform Plan", "category": "DevOps" },
+            { "id": "devops.terraformApply", "title": "Terraform Apply", "category": "DevOps" },
+            { "id": "devops.refreshServices", "title": "Refresh Services", "category": "DevOps" }
+        ]
+    }
+}

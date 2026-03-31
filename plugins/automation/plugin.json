@@ -1,0 +1,38 @@
+{
+    "id": "org.exorcist.automation",
+    "name": "Automation",
+    "version": "1.0.0",
+    "description": "Task runner integration: discovers tasks from Taskfile, justfile, Makefile, package.json and provides one-click execution.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "workbench",
+    "activationEvents": [
+        "onProfile:automation",
+        "workspaceContains:Taskfile.yml",
+        "workspaceContains:Taskfile.yaml",
+        "workspaceContains:justfile",
+        "workspaceContains:Justfile",
+        "onCommand:automation.showTasks",
+        "onCommand:automation.runTask"
+    ],
+    "requestedPermissions": ["WorkspaceRead", "TerminalExecute", "FilesystemRead"],
+    "contributions": {
+        "views": [
+            {
+                "id": "TaskRunnerDock",
+                "title": "Tasks",
+                "location": "bottom",
+                "defaultVisible": false,
+                "priority": 16
+            }
+        ],
+        "commands": [
+            { "id": "automation.showTasks", "title": "Show Task Runner", "category": "Automation" },
+            { "id": "automation.runTask", "title": "Run Task...", "category": "Automation" },
+            { "id": "automation.refreshTasks", "title": "Refresh Tasks", "category": "Automation" },
+            { "id": "automation.runLastTask", "title": "Run Last Task", "category": "Automation" },
+            { "id": "automation.stopTask", "title": "Stop Running Task", "category": "Automation" }
+        ]
+    }
+}

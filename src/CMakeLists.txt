@@ -2,6 +2,7 @@ add_executable(exorcist WIN32
     main.cpp
     mainwindow.cpp
     mainwindow.h
+    bootstrap/agentcallbacksbootstrap.cpp
     editor/editorview.cpp
     editor/editorview.h
     editor/diffviewerpanel.cpp
@@ -28,19 +29,7 @@ add_executable(exorcist WIN32
     editor/highlighterfactory.h
     editor/editormanager.h
     editor/editormanager.cpp
-    editor/languages/langcommon.h
-    editor/languages/langcommon.cpp
-    editor/languages/langbuilders.h
-    editor/languages/lang_cpp.cpp
-    editor/languages/lang_python.cpp
-    editor/languages/lang_javascript.cpp
-    editor/languages/lang_web.cpp
-    editor/languages/lang_jvm.cpp
-    editor/languages/lang_systems.cpp
-    editor/languages/lang_scripting.cpp
-    editor/languages/lang_shell.cpp
-    editor/languages/lang_data.cpp
-    editor/languages/lang_config.cpp
+    # Language highlighting data moved to plugins/lang-pack (compiled there only)
     editor/textbuffer.h
     editor/piecetablebuffer.cpp
     editor/piecetablebuffer.h
@@ -134,6 +123,8 @@ add_executable(exorcist WIN32
     bootstrap/sharedservicesbootstrap.cpp
     bootstrap/templateservicesbootstrap.h
     bootstrap/templateservicesbootstrap.cpp
+    bootstrap/postpluginbootstrap.h
+    bootstrap/postpluginbootstrap.cpp
     bootstrap/workbenchservicesbootstrap.h
     bootstrap/workbenchservicesbootstrap.cpp
     profile/profilemanifest.h
@@ -329,6 +320,8 @@ add_executable(exorcist WIN32
     ui/welcomewidget.h
     ui/themegallerypanel.cpp
     ui/themegallerypanel.h
+    ui/themeicons.cpp
+    ui/themeicons.h
     ui/keymapmanager.cpp
     ui/keymapmanager.h
     ui/keymapdialog.cpp
@@ -537,6 +530,8 @@ add_executable(exorcist WIN32
     sdk/taskserviceimpl.cpp
     sdk/ibuildsystem.h
     sdk/ilaunchservice.h
+    sdk/ioutputservice.h
+    sdk/irunoutputservice.h
     sdk/itestrunner.h
     sdk/idebugadapter.h
     sdk/idebugservice.h

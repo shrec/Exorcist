@@ -2,7 +2,7 @@
     "id": "org.exorcist.python-language",
     "name": "Python Language Support",
     "version": "1.0.0",
-    "description": "Python language support via a process-based language server.",
+    "description": "Python language support via pylsp.",
     "author": "Exorcist",
     "license": "MIT",
     "layer": "cpp-sdk",
@@ -22,6 +22,21 @@
                 "mimeTypes": ["text/x-python"],
                 "lspCommand": "pylsp"
             }
+        ],
+        "commands": [
+            { "id": "python.goToDefinition",       "title": "Go to Definition" },
+            { "id": "python.goToDeclaration",       "title": "Go to Declaration" },
+            { "id": "python.findReferences",        "title": "Find All References" },
+            { "id": "python.renameSymbol",          "title": "Rename Symbol" },
+            { "id": "python.formatDocument",        "title": "Format Document" },
+            { "id": "python.gotoWorkspaceSymbol",   "title": "Go to Symbol in Workspace" },
+            { "id": "python.restartLanguageServer", "title": "Restart Language Server" },
+            { "id": "python.runScript",             "title": "Run Python Script" },
+            { "id": "python.runModule",             "title": "Run as Module" },
+            { "id": "python.pytest",                "title": "Run pytest" },
+            { "id": "python.pipInstall",            "title": "Install Requirements" },
+            { "id": "python.pipFreeze",             "title": "Pip Freeze" },
+            { "id": "python.openRequirements",      "title": "Open requirements.txt" }
         ]
     }
 }

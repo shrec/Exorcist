@@ -77,6 +77,14 @@ public:
     // Search workspace symbols by query string (empty → all symbols).
     void requestWorkspaceSymbols(const QString &query);
 
+    // Request inlay hints for the visible range of a document.
+    void requestInlayHints(const QString &uri,
+                          int startLine, int startChar,
+                          int endLine,   int endChar);
+
+    // Go to type definition of the symbol at the given position.
+    void requestTypeDefinition(const QString &uri, int line, int character);
+
     // ── Helpers ───────────────────────────────────────────────────────────
     // Convert a local file path to a LSP URI: file:///C:/...
     static QString pathToUri(const QString &path);
@@ -102,6 +110,8 @@ signals:
     void codeActionResult(const QString &uri, int line, int character,
                           const QJsonArray &actions);
     void workspaceSymbolsResult(const QJsonArray &symbols);
+    void inlayHintsResult(const QString &uri, const QJsonArray &hints);
+    void typeDefinitionResult(const QString &uri, const QJsonArray &locations);
 
     // Push notifications from the server (no request needed)
     void diagnosticsPublished(const QString &uri, const QJsonArray &diagnostics);

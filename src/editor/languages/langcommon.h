@@ -30,9 +30,6 @@ void addRule(QVector<SyntaxHighlighter::Rule> &rules,
              const QString &pattern,
              const QTextCharFormat &fmt);
 
-// ── Unified builder signature ───────────────────────────────────────────────
+// ── Unified builder signature (alias to SyntaxHighlighter::LangBuildFn) ────
 
-using LangBuildFn = void (*)(QVector<SyntaxHighlighter::Rule> &rules,
-                             QRegularExpression &blockStart,
-                             QRegularExpression &blockEnd,
-                             QTextCharFormat &blockFmt);
+using LangBuildFn = SyntaxHighlighter::LangBuildFn;

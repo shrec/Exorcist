@@ -79,6 +79,7 @@ private:
     QString            m_workspaceRootText;
     QString            m_activeFileText;
     QString            m_buildDirectoryText;
+    QString            m_activeTarget;
     QString            m_languageStatusTitle;
     QString            m_languageStatusDetail;
     QString            m_buildStatusTitle;

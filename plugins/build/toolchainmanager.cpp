@@ -123,35 +123,42 @@ ToolInfo ToolchainManager::findClangd() const
 
 void ToolchainManager::detectCompilers()
 {
-    // Probe common C compilers
-    const QStringList cNames = {
-        QStringLiteral("gcc"),
-        QStringLiteral("clang"),
-#ifdef Q_OS_WIN
-        QStringLiteral("cl"),
-#endif
+    // Pairs of (cacheKey, exeNames) for C compilers
+    struct CompilerEntry { QString key; QStringList exeNames; };
+    const QList<CompilerEntry> cEntries = {
+        { QStringLiteral("c_gcc"),   { QStringLiteral("gcc"),   QStringLiteral("gcc.exe")   } },
+        { QStringLiteral("c_clang"), { QStringLiteral("clang"), QStringLiteral("clang.exe") } },
     };
 
-    for (const auto &name : cNames) {
-        ToolInfo info = probeExecutable(name);
-        if (info.isValid())
-            m_compilerCache.insert(QStringLiteral("c_") + name, info);
-    }
-
-    // Probe common C++ compilers
-    const QStringList cxxNames = {
-        QStringLiteral("g++"),
-        QStringLiteral("clang++"),
-#ifdef Q_OS_WIN
-        QStringLiteral("cl"),
-#endif
+    const QList<CompilerEntry> cxxEntries = {
+        { QStringLiteral("cxx_g++"),    { QStringLiteral("g++"),    QStringLiteral("g++.exe")    } },
+        { QStringLiteral("cxx_clang++"),{ QStringLiteral("clang++"),QStringLiteral("clang++.exe")} },
     };
 
-    for (const auto &name : cxxNames) {
-        ToolInfo info = probeExecutable(name);
-        if (info.isValid())
-            m_compilerCache.insert(QStringLiteral("cxx_") + name, info);
-    }
+    auto probeEntry = [this](const CompilerEntry &e) {
+        // 1. Try system PATH first
+        for (const QString &exe : e.exeNames) {
+            ToolInfo info = probeExecutable(exe);
+            if (info.isValid()) {
+                m_compilerCache.insert(e.key, info);
+                return;
+            }
+        }
+        // 2. Search custom paths (Qt-bundled toolchains)
+        for (const QString &dir : searchPaths()) {
+            for (const QString &exe : e.exeNames) {
+                ToolInfo info = probeAtPath(dir + QLatin1Char('/') + exe,
+                                            { QStringLiteral("--version") });
+                if (info.isValid()) {
+                    m_compilerCache.insert(e.key, info);
+                    return;
+                }
+            }
+        }
+    };
+
+    for (const auto &e : cEntries)   probeEntry(e);
+    for (const auto &e : cxxEntries) probeEntry(e);
 
 #ifdef Q_OS_WIN
     // Detect MSVC via VS installation
@@ -163,15 +170,40 @@ void ToolchainManager::detectCompilers()
 
 void ToolchainManager::detectDebuggers()
 {
-    const QStringList names = {
-        QStringLiteral("gdb"),
-        QStringLiteral("lldb"),
+    struct Candidate {
+        QString name;       // cache key
+        QStringList exeNames; // executable names to try (with and without .exe)
     };
 
-    for (const auto &name : names) {
-        ToolInfo info = probeExecutable(name);
-        if (info.isValid())
-            m_debuggerCache.insert(name, info);
+    const QList<Candidate> candidates = {
+        { QStringLiteral("gdb"),  { QStringLiteral("gdb"),     QStringLiteral("gdb.exe")     } },
+        { QStringLiteral("lldb"), { QStringLiteral("lldb-mi"), QStringLiteral("lldb-mi.exe"),
+                                    QStringLiteral("lldb"),    QStringLiteral("lldb.exe")     } },
+    };
+
+    for (const Candidate &cand : candidates) {
+        // 1. Try system PATH first
+        for (const QString &exeName : cand.exeNames) {
+            ToolInfo info = probeExecutable(exeName);
+            if (info.isValid()) {
+                m_debuggerCache.insert(cand.name, info);
+                break;
+            }
+        }
+        if (m_debuggerCache.contains(cand.name)) continue;
+
+        // 2. Search custom paths (Qt-bundled toolchains not in PATH)
+        for (const QString &dir : searchPaths()) {
+            for (const QString &exeName : cand.exeNames) {
+                const QString full = dir + QLatin1Char('/') + exeName;
+                ToolInfo info = probeAtPath(full, { QStringLiteral("--version") });
+                if (info.isValid()) {
+                    m_debuggerCache.insert(cand.name, info);
+                    break;
+                }
+            }
+            if (m_debuggerCache.contains(cand.name)) break;
+        }
     }
 }
 
@@ -379,6 +411,24 @@ QStringList ToolchainManager::searchPaths() const
           << QStringLiteral("C:/msys64/mingw64/bin")
           << QStringLiteral("C:/msys64/ucrt64/bin")
           << QStringLiteral("C:/msys64/clang64/bin");
+
+    // Qt-bundled toolchains (newest first — Qt installer uses versioned dirs)
+    {
+        const QStringList qtToolRoots = {
+            // MinGW (has gdb.exe)
+            QStringLiteral("C:/Qt/Tools/mingw1310_64/bin"),
+            QStringLiteral("C:/Qt/Tools/mingw1120_64/bin"),
+            QStringLiteral("C:/Qt/Tools/mingw900_64/bin"),
+            QStringLiteral("C:/Qt/Tools/mingw810_64/bin"),
+            QStringLiteral("C:/Qt/Tools/mingw810_32/bin"),
+            // LLVM-MinGW (has lldb-mi.exe for Clang-compiled binaries)
+            QStringLiteral("C:/Qt/Tools/llvm-mingw1706_64/bin"),
+            QStringLiteral("C:/Qt/Tools/llvm-mingw_64/bin"),
+        };
+        for (const QString &p : qtToolRoots)
+            if (QFileInfo::exists(p))
+                paths << p;
+    }
 #else
     paths = pathEnv.split(QLatin1Char(':'), Qt::SkipEmptyParts);
 

@@ -2,12 +2,14 @@
 #include "cmakeintegration.h"
 #include "toolchainmanager.h"
 #include "debug/idebugadapter.h"
+#include "ui/themeicons.h"
 
 #include <QComboBox>
 #include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QSize>
 #include <QToolButton>
 
 // ── VS2022 toolbar color tokens ────────────────────────────────────────────────
@@ -111,7 +113,10 @@ void BuildToolbar::setupUi()
 
     // ── Configure button (wrench) ──────────────────────────────────────────
     m_configureBtn = new QToolButton(this);
-    m_configureBtn->setText(QStringLiteral("\u2699 Configure"));
+    m_configureBtn->setIcon(ThemeIcons::icon(QStringLiteral("configure")));
+    m_configureBtn->setIconSize(QSize(15, 15));
+    m_configureBtn->setText(tr("Configure"));
+    m_configureBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_configureBtn->setToolTip(tr("CMake Configure (Ctrl+Shift+C)"));
     m_configureBtn->setAutoRaise(true);
     m_configureBtn->setStyleSheet(QStringLiteral(
@@ -132,7 +137,10 @@ void BuildToolbar::setupUi()
 
     // ── Build button ──────────────────────────────────────────────────────
     m_buildBtn = new QToolButton(this);
-    m_buildBtn->setText(QStringLiteral("\U0001F528 Build"));
+    m_buildBtn->setIcon(ThemeIcons::icon(QStringLiteral("build")));
+    m_buildBtn->setIconSize(QSize(15, 15));
+    m_buildBtn->setText(tr("Build"));
+    m_buildBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_buildBtn->setToolTip(tr("Build Solution  Ctrl+Shift+B"));
     m_buildBtn->setAutoRaise(true);
     m_buildBtn->setStyleSheet(QStringLiteral(
@@ -157,7 +165,10 @@ void BuildToolbar::setupUi()
 
     // ── Run button (▶ without debugger) — VS teal-green ───────────────────
     m_runBtn = new QToolButton(this);
-    m_runBtn->setText(QStringLiteral("\u25B6 Run"));
+    m_runBtn->setIcon(ThemeIcons::icon(QStringLiteral("play"), QStringLiteral("#4ec9b0")));
+    m_runBtn->setIconSize(QSize(14, 14));
+    m_runBtn->setText(tr("Run"));
+    m_runBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_runBtn->setToolTip(tr("Start Without Debugging  Ctrl+F5"));
     m_runBtn->setAutoRaise(true);
     m_runBtn->setStyleSheet(QStringLiteral(
@@ -182,6 +193,9 @@ void BuildToolbar::setupUi()
 
     // ── Debug button (▶▶ with debugger) — VS launch green ────────────────
     m_debugBtn = new QToolButton(this);
+    m_debugBtn->setIcon(ThemeIcons::icon(QStringLiteral("play"), QStringLiteral("#ffffff")));
+    m_debugBtn->setIconSize(QSize(14, 14));
+    m_debugBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_debugBtn->setToolTip(tr("Start Debugging  F5"));
     m_debugBtn->setAutoRaise(true);
     m_debugBtn->setStyleSheet(QStringLiteral(
@@ -208,7 +222,9 @@ void BuildToolbar::setupUi()
 
     // ── Stop button (■) — VS red ───────────────────────────────────────────
     m_stopBtn = new QToolButton(this);
-    m_stopBtn->setText(QStringLiteral("\u25A0"));
+    m_stopBtn->setIcon(ThemeIcons::icon(QStringLiteral("stop"), QStringLiteral("#c72e24")));
+    m_stopBtn->setIconSize(QSize(14, 14));
+    m_stopBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_stopBtn->setToolTip(tr("Stop  Shift+F5"));
     m_stopBtn->setEnabled(false);
     m_stopBtn->setAutoRaise(true);
@@ -235,7 +251,10 @@ void BuildToolbar::setupUi()
 
     // ── Clean button ───────────────────────────────────────────────────────
     m_cleanBtn = new QToolButton(this);
+    m_cleanBtn->setIcon(ThemeIcons::icon(QStringLiteral("clean")));
+    m_cleanBtn->setIconSize(QSize(14, 14));
     m_cleanBtn->setText(tr("Clean"));
+    m_cleanBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_cleanBtn->setToolTip(tr("Clean Build Output"));
     m_cleanBtn->setAutoRaise(true);
     m_cleanBtn->setStyleSheet(QStringLiteral(
@@ -262,12 +281,9 @@ void BuildToolbar::setupUi()
 
     // Update debug button label once target combo has items
     connect(m_targetCombo, &QComboBox::currentTextChanged, this, [this](const QString &t) {
-        const QString label = t.isEmpty()
-            ? QStringLiteral("\u25B6\u25B6 Debug")
-            : QStringLiteral("\u25B6\u25B6 %1").arg(t);
-        m_debugBtn->setText(label);
+        m_debugBtn->setText(t.isEmpty() ? tr("Debug") : t);
     });
-    m_debugBtn->setText(QStringLiteral("\u25B6\u25B6 Debug"));
+    m_debugBtn->setText(tr("Debug"));
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -307,6 +323,13 @@ void BuildToolbar::setCMakeIntegration(CMakeIntegration *cmake)
             "QLabel { color: %1; padding: 0 10px; font-size: 11px; background: transparent; }")
             .arg(success ? "#4ec9b0" : "#f14c4c"));
     });
+    connect(m_cmake, &CMakeIntegration::cleanFinished, this, [this](bool success) {
+        updateButtonStates(false, false);
+        m_statusLabel->setText(success ? tr("Clean done") : tr("Clean failed"));
+        m_statusLabel->setStyleSheet(QStringLiteral(
+            "QLabel { color: %1; padding: 0 10px; font-size: 11px; background: transparent; }")
+            .arg(success ? "#4ec9b0" : "#f14c4c"));
+    });
 }
 
 void BuildToolbar::setToolchainManager(ToolchainManager *mgr)
@@ -319,18 +342,26 @@ void BuildToolbar::setDebugAdapter(IDebugAdapter *adapter)
     m_debugAdapter = adapter;
     if (!m_debugAdapter) return;
 
-    connect(m_debugAdapter, &IDebugAdapter::started, this, [this]() {
-        updateButtonStates(false, true);
-        m_statusLabel->setText(tr("Debugging\u2026"));
-        m_statusLabel->setStyleSheet(QStringLiteral(
-            "QLabel { color: #4fc1ff; padding: 0 10px; font-size: 11px; background: transparent; }"));
-    });
-    connect(m_debugAdapter, &IDebugAdapter::terminated, this, [this]() {
-        updateButtonStates(false, false);
-        m_statusLabel->setText(tr("Ready"));
-        m_statusLabel->setStyleSheet(QStringLiteral(
-            "QLabel { color: #848484; padding: 0 10px; font-size: 11px; background: transparent; }"));
-    });
+    // Use SIGNAL/SLOT (string-based) — PMF connect silently fails across DLL boundaries
+    // because each DLL has its own MOC copy of IDebugAdapter with different function addresses.
+    connect(m_debugAdapter, SIGNAL(started()), this, SLOT(onDebugStarted()));
+    connect(m_debugAdapter, SIGNAL(terminated()), this, SLOT(onDebugTerminated()));
+}
+
+void BuildToolbar::onDebugStarted()
+{
+    updateButtonStates(false, true);
+    m_statusLabel->setText(tr("Debugging\u2026"));
+    m_statusLabel->setStyleSheet(QStringLiteral(
+        "QLabel { color: #4fc1ff; padding: 0 10px; font-size: 11px; background: transparent; }"));
+}
+
+void BuildToolbar::onDebugTerminated()
+{
+    updateButtonStates(false, false);
+    m_statusLabel->setText(tr("Ready"));
+    m_statusLabel->setStyleSheet(QStringLiteral(
+        "QLabel { color: #848484; padding: 0 10px; font-size: 11px; background: transparent; }"));
 }
 
 void BuildToolbar::refresh()

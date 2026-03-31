@@ -42,6 +42,9 @@ public:
     void launch();                          // run selected profile
     void stopProcess();
 
+    /// Append text to the output area (for external callers like IRunOutputService).
+    void appendOutput(const QString &text, bool isError = false);
+
     QList<LaunchProfile> profiles() const { return m_profiles; }
 
 signals:

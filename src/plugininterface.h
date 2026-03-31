@@ -43,6 +43,12 @@ public:
     /// Default: no-op (backward compatible).
     virtual void resume() {}
 
+    /// Called when the user opens or switches the workspace folder.
+    /// Plugins should update their working directory, reload config files,
+    /// and refresh any workspace-dependent state.
+    /// Default: no-op (backward compatible).
+    virtual void onWorkspaceChanged(const QString &root) { Q_UNUSED(root); }
+
     virtual void shutdown() = 0;
 };
 

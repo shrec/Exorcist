@@ -14,6 +14,7 @@
 #include <QMenuBar>
 #include <QMouseEvent>
 #include <QStatusBar>
+#include <QTimer>
 #include <QToolBar>
 
 namespace exdock {
@@ -25,12 +26,17 @@ DockManager::DockManager(QMainWindow *mainWindow, QObject *parent)
     setupSideBars();
 
     // Root splitter — horizontal: [Left areas | Center splitter | Right areas]
-    m_rootSplitter = new DockSplitter(Qt::Horizontal, nullptr);
+    // Use mainWindow as parent so these are never top-level widgets. If created
+    // with nullptr, insertChildWidget() triggers a top-level→child HWND
+    // transition that corrupts QSplitterPrivate (RBP=1 crash in indexOf()).
+    m_rootSplitter = new DockSplitter(Qt::Horizontal, mainWindow);
     m_rootSplitter->setObjectName(QStringLiteral("exdock-root-splitter"));
+    m_rootSplitter->setPermanent(true);   // never self-destruct via removeChild
 
     // Center splitter — vertical: [Top areas | Editor | Bottom areas]
-    m_centerSplitter = new DockSplitter(Qt::Vertical, nullptr);
+    m_centerSplitter = new DockSplitter(Qt::Vertical, mainWindow);
     m_centerSplitter->setObjectName(QStringLiteral("exdock-center-splitter"));
+    m_centerSplitter->setPermanent(true); // never self-destruct via removeChild
 
     m_rootSplitter->insertChildWidget(0, m_centerSplitter);
     m_rootSplitter->setChildStretchFactor(0, 3);
@@ -426,11 +432,21 @@ void DockManager::showDock(ExDockWidget *dock, SideBarArea preferredSide)
     auto it = m_docks.find(id);
     if (it == m_docks.end()) return;
 
-    // Already visible — nothing to do
-    if (it->state == DockState::Docked)
+    // Already visible — just raise/activate its tab in the DockArea
+    if (it->state == DockState::Docked) {
+        if (auto *area = dock->dockArea()) {
+            const int idx = area->indexOf(dock);
+            if (idx >= 0)
+                area->setCurrentIndex(idx);
+        }
         return;
+    }
 
-    it->preferredSide = preferredSide;
+    // Only update preferredSide if explicitly specified (not None).
+    // Preserves the dock's registered location (e.g. Bottom for Output panel).
+    if (preferredSide != SideBarArea::None)
+        it->preferredSide = preferredSide;
+
     pinDock(dock);
     emit dockShown(dock);
 }
@@ -500,8 +516,11 @@ void DockManager::onOverlayHidden()
 
 bool DockManager::eventFilter(QObject *watched, QEvent *event)
 {
-    if (watched == m_mainWindow && event->type() == QEvent::Resize) {
-        repositionSideBars();
+    if (watched == m_mainWindow) {
+        if (event->type() == QEvent::Resize)
+            repositionSideBars();
+        else if (event->type() == QEvent::LayoutRequest)
+            QTimer::singleShot(0, this, &DockManager::repositionSideBars);
     }
 
     // Track mouse during drag-and-drop
@@ -674,8 +693,6 @@ void DockManager::repositionSideBars()
     m_bottomBar->raise();
 
     // Update root splitter margins to leave room for visible sidebars.
-    // This prevents the dock areas and editor from being hidden behind
-    // the sidebar strips.
     if (m_rootSplitter) {
         const int ml = m_leftBar->isVisible()   ? sideW : 0;
         const int mr = m_rightBar->isVisible()  ? sideW : 0;
@@ -699,7 +716,7 @@ DockArea *DockManager::createDockArea(SideBarArea side)
     if (it != m_sideAreas.end())
         return it.value();
 
-    auto *area = new DockArea(this, nullptr);
+    auto *area = new DockArea(this, m_mainWindow);
     m_sideAreas.insert(side, area);
 
     // Connect area signals
@@ -712,6 +729,12 @@ DockArea *DockManager::createDockArea(SideBarArea side)
         auto *currentDock = area->currentDockWidget();
         if (currentDock)
             closeDock(currentDock);
+    });
+    // Collapse all docks in area (∧ button in tab bar) → move to sidebar tabs
+    connect(area, &DockArea::closeAllRequested, this, [this, area]() {
+        const auto docks = area->dockWidgets();
+        for (auto *dock : docks)
+            unpinDock(dock);
     });
 
     // Clean up empty areas — when the last tab is removed/closed/unpinned,

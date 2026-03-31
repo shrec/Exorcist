@@ -50,7 +50,10 @@ ToolExecResult WebSearchTool::invoke(const QJsonObject &args)
     // Direct URL fetch
     if (query.startsWith(QStringLiteral("http://")) ||
         query.startsWith(QStringLiteral("https://"))) {
-        return fetchUrl(QUrl(query));
+        const QUrl url(query, QUrl::StrictMode);
+        if (!url.isValid())
+            return {false, {}, {}, QStringLiteral("Invalid URL: %1").arg(query)};
+        return fetchUrl(url);
     }
 
     // Try SearXNG search

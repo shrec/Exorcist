@@ -55,6 +55,7 @@ add_executable(test_workbenchpluginbase
     test_workbenchpluginbase.cpp
     ${CMAKE_SOURCE_DIR}/src/plugin/workbenchpluginbase.cpp
     ${CMAKE_SOURCE_DIR}/src/plugin/languageworkbenchpluginbase.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/themeicons.cpp
     ${CMAKE_SOURCE_DIR}/src/lsp/processlanguageserver.cpp
     ${CMAKE_SOURCE_DIR}/src/lsp/lspclient.cpp
     ${CMAKE_SOURCE_DIR}/src/lsp/lsptransport.cpp
@@ -72,7 +73,7 @@ add_executable(test_workbenchpluginbase
     ${CMAKE_SOURCE_DIR}/plugins/cpp-language/cppworkspacepanel.cpp
     ${CMAKE_SOURCE_DIR}/plugins/cpp-language/cppworkspacepanel.h
 )
-target_link_libraries(test_workbenchpluginbase PRIVATE Qt6::Test Qt6::Widgets)
+target_link_libraries(test_workbenchpluginbase PRIVATE Qt6::Test Qt6::Widgets Qt6::Svg)
 target_include_directories(test_workbenchpluginbase PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/plugins/cpp-language

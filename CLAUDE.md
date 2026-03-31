@@ -2,7 +2,7 @@
 
 ## MANDATORY TOOL PROTOCOL (applies to ALL agents and sub-agents)
 
-These rules override all defaults. No exceptions.
+These rules override all defaults. **No exceptions.** Violation of any rule below is an implementation bug.
 
 ---
 
@@ -11,23 +11,42 @@ These rules override all defaults. No exceptions.
 **Script:** `tools/source_graph_kit/source_graph.py`
 **DB:** `tools/source_graph_kit/source_graph.db`
 **Rebuild:** Runs automatically after every build. Manual: `python tools/source_graph_kit/source_graph.py build`
+**Self-indexed:** The source graph indexes its own code (tools/ directory) — 16 files, 357+ functions. Use `context source_graph` to learn source_graph.py's own structure.
 
-### RULE: Query the source graph BEFORE reading any source file.
+### ABSOLUTE RULES (ZERO TOLERANCE)
 
-**Forbidden:**
+1. **NEVER use `read_file` without first querying the source graph.** Always call `context`, `func`, or `outline` first to locate exact line ranges. Then read only the needed range.
+
+2. **NEVER use `grep_search` or `semantic_search` when the source graph can answer.** Source graph has FTS5 full-text search (`find`), regex search (`grep`), cross-references (`xref`), and call graphs (`who-calls`, `called-by`). Use IDE tools only when source graph has no answer.
+
+3. **NEVER read a file >100 lines without `context` or `outline` first.** Get the structure, identify the exact function/section, then read only that range.
+
+4. **NEVER use `read_file` when `body <func>` can return the function directly.** The `body` command reads and returns function source — zero file reads needed.
+
+5. **NEVER make multiple tool calls when `multi` can batch them.** Use `multi cmd1 --- cmd2 --- cmd3` to execute 2-5 queries in one invocation.
+
+6. **NEVER use `read_file` for file reading when `read <file> [L1-L2]` exists.** The source graph's `read` command has fuzzy file resolution (handles partial names, project-relative paths) and is the preferred file reader.
+
+7. **Source graph commands REPLACE IDE tools, not supplement them.** Use source graph FIRST and ONLY. Fall back to IDE tools (`grep_search`, `semantic_search`, `read_file`) if and only if the source graph cannot answer.
+
+**Forbidden patterns:**
 ```
-Read src/mainwindow.cpp           ← WRONG without querying first
-Grep "pattern" src/               ← WRONG if source graph can answer it
+read_file mainwindow.cpp 1-3390      ← FORBIDDEN: read entire large file
+grep_search "BuildPlugin"            ← FORBIDDEN: use `find BuildPlugin` or `xref BuildPlugin`
+semantic_search "build system"       ← FORBIDDEN: use `find build` or `focus build`
+read_file foo.cpp 1-500              ← FORBIDDEN without first calling context/func/outline
 ```
 
-**Required:**
+**Required patterns:**
 ```bash
-python tools/source_graph_kit/source_graph.py context mainwindow
-python tools/source_graph_kit/source_graph.py func MainWindow::someMethod
-# THEN: Read only the specific line range returned
+source_graph.py context mainwindow           # understand structure first
+source_graph.py body MainWindow::setupDocks  # read one function directly
+source_graph.py outline mainwindow.h         # structural overview
+source_graph.py read mainwindow.cpp L150-L200  # targeted read after context
+source_graph.py multi context BuildPlugin --- xref CMakeIntegration --- who-calls autoDetect
 ```
 
-### Command reference
+### Command reference — Core commands
 
 | Goal | Command |
 |------|---------|
@@ -51,18 +70,84 @@ python tools/source_graph_kit/source_graph.py func MainWindow::someMethod
 | Find TODO/FIXME | `todo` |
 | Run raw SQL | `sql "<query>"` |
 
+### Command reference — AI-agent-oriented commands (NEW)
+
+| Goal | Command | Replaces |
+|------|---------|----------|
+| Regex search in code + DB | `grep <pattern> [scope]` | `grep_search` tool |
+| Read file with fuzzy resolution | `read <file> [L1-L2]` | `read_file` tool |
+| Unified cross-reference | `xref <symbol>` | Multiple `grep_search` calls |
+| Classes sharing same parent | `siblings <class>` | Manual DB queries |
+| All implementors of an interface | `implements <interface>` | `find_class.py` |
+| Reverse call graph | `who-calls <func>` | Manual `grep_search` |
+| Forward call graph | `called-by <func>` | Manual `grep_search` |
+| Full editing context for a line | `edit-context <file> <line>` | `read_file` + guessing |
+| Structural outline (classes, funcs) | `outline <file>` | `read_file` entire header |
+| Batch multiple commands | `multi <cmd1> --- <cmd2>` | Multiple tool calls |
+
+### Command reference — Intelligent commands (AI memory + Git integrated)
+
+| Goal | Command | Replaces |
+|------|---------|----------|
+| Unified source + memory context | `smart <topic>` | `context` + `ai_memory context` |
+| Store insight to AI memory | `learn "<key>" "<value>" "<tags>"` | `ai_memory store` (no tool switch) |
+| Recall AI memories | `recall <topic>` | `ai_memory context` (no tool switch) |
+| Git history for a file | `history <file>` | `git log` in terminal |
+| Recent git changes | `changes [file]` | `git log --stat` in terminal |
+| Relationships between symbols | `relate <A> <B>` | Manual cross-ref queries |
+| Suggest work items / tech debt | `suggest [scope]` | `gap_report` + manual TODO scan |
+| Component completeness audit | `audit [scope]` | Manual Explore subagent multi-file reads |
+| Data flow tracking | `dataflow [symbol]` | Manual grep for assignments |
+| Invariant annotations | `invariant [symbol] [type]` | Manual assert/check searching |
+| Hot path analysis | `hotpath [scope] [top_n]` | Manual call counting |
+| CPU↔backend mappings | `backend-map [symbol] [type]` | Manual cross-file comparison |
+| Security vulnerability scan | `exploit [type] [sev] [scope]` | Manual security audit |
+
+### When to use which command
+
+| Situation | Best command | Why |
+|-----------|-------------|-----|
+| "What is class X?" | `context X` or `xref X` | Full picture: deps, methods, location |
+| "Where is function Y defined?" | `func Y` | Exact file + line range |
+| "What calls function Y?" | `who-calls Y` | Reverse call graph from DB |
+| "What does function Y call?" | `called-by Y` | Forward call graph from DB |
+| "Show me the code of function Y" | `body Y` | Return full source, no file read needed |
+| "I need to edit line 150 of file Z" | `edit-context Z 150` | Context: containing function, outline, includes |
+| "What classes implement IPlugin?" | `implements IPlugin` | Recursive implementor tree |
+| "Find all uses of pattern X" | `grep X [scope]` | Regex search through DB + files |
+| "Overview of file Z structure" | `outline Z` | Classes, functions, enums with line ranges |
+| "I need to understand + edit + test" | `multi context X --- who-calls Y --- outline Z` | Batch 3 queries in 1 call |
+| "Quick overview before large task" | `focus <term>` or `bundle feature <term>` | Ranked snapshot or assembled context |
+| "What do I know about topic X?" | `smart X` | Source graph + AI memory combined |
+| "Remember this for later" | `learn "key" "value" "tags"` | Store directly, no tool switch |
+| "What did I learn about X?" | `recall X` | AI memory query, no tool switch |
+| "What changed in file Z recently?" | `history Z` or `changes Z` | Git log via source graph |
+| "How are A and B related?" | `relate A B` | Hierarchy, calls, co-location, deps |
+| "What should I work on next?" | `suggest [scope]` | Review queue + TODOs + header-only |
+| "Is this subsystem complete?" | `audit [scope]` | Files, LOC, classes, SDK coverage, stubs |
+| "Where does data flow from X?" | `dataflow X` | Track field writes, returns, assignments |
+| "What invariants protect Y?" | `invariant Y` | Asserts, null checks, range checks, normalization |
+| "What are the hottest functions?" | `hotpath` | Fan-in/out, depth, critical/GPU paths |
+| "Is there a GPU version of X?" | `backend-map X` | CPU↔CUDA/OpenCL/Metal/Vulkan mappings |
+| "Any security vulnerabilities?" | `exploit` | Command injection, path traversal, buffer overflow |
+
+### Token economy rules (STRICT)
+1. **`body` over `read_file`**: Always use `body <func>` instead of reading the full `.cpp` when you only need one function
+2. **`func` → targeted read**: Use `func <name>` to get exact line ranges. If you must use `read_file`, read ONLY those lines
+3. **`focus`/`slice` over multiple reads**: Use these to get compact ranked snapshots instead of reading multiple files
+4. **`bundle` for complex tasks**: Use `bundle bugfix|feature|refactor <term>` to assemble all needed context in one call
+5. **100-line rule**: Never read >100 lines without first calling `context` or `outline` to understand structure
+6. **`find` before grep**: Use `find` (FTS5 search) before `grep_search` when searching for a symbol name
+7. **`grep` replaces `grep_search`**: Use source graph's `grep <pattern>` instead of IDE's `grep_search` tool
+8. **`read` replaces `read_file`**: Use source graph's `read <file> [L1-L2]` for file reading — it has fuzzy path resolution
+9. **`multi` batching**: Combine 2-5 independent queries with `multi cmd1 --- cmd2` to save tool call overhead
+10. **`xref` replaces scatter-search**: Use `xref <symbol>` instead of 3-4 separate searches for definition/callers/callees/usage
+11. **`edit-context` before editing**: Before editing any file, call `edit-context <file> <line>` to understand the surrounding code
+
 All commands run from the repo root:
 ```bash
 python tools/source_graph_kit/source_graph.py <command> [args]
 ```
-
-### Token economy rules
-1. Always use `body <func>` instead of reading the full `.cpp` file when you only need one function
-2. Use `func <name>` to get exact line ranges, then `Read file offset=X limit=Y`
-3. Use `focus` or `slice` instead of reading multiple files — it produces a compact ranked snapshot
-4. Use `bundle bugfix|feature|refactor <term>` to assemble context for complex tasks
-5. Never read a file >200 lines without first calling `context` to see its structure
-6. Use `find` before `Grep` when searching for a symbol name
 
 ---
 
@@ -123,18 +208,32 @@ python tools/ai_memory/ai_memory.py store "blocker:<topic>" "<description>" \
 
 ---
 
-## EXECUTION ORDER FOR EVERY TASK
+## EXECUTION ORDER FOR EVERY TASK (MANDATORY)
+
+Every task — no matter how small — follows this order. Skipping steps is a protocol violation.
 
 ```
 1.  ai_memory context <topic>                      ← recall prior knowledge
 2.  source_graph focus <term>                      ← get compact project snapshot
-3.  source_graph func / body / context             ← find exact code locations
-4.  Read <file> offset=X limit=Y                   ← read only what's needed
+3.  source_graph func / body / context / outline   ← find exact code locations
+4.  source_graph read <file> L1-L2                 ← read only what's needed (NOT read_file)
 5.  [Do the work]
 6.  ai_memory store <key> <value> --tag ...        ← persist new knowledge
 ```
 
+**Steps 1-3 are NOT optional.** Even for "simple" edits, query the graph first.
+
 Sub-agents spawned via the `Agent` tool MUST follow this same order.
+
+### Priority chain for information gathering
+
+```
+source_graph (body/context/func/find/xref/grep/outline)   ← FIRST (always)
+    ↓ only if source graph has no answer
+ai_memory (context/search)                                  ← SECOND
+    ↓ only if neither has the answer
+IDE tools (grep_search/semantic_search/read_file)           ← LAST RESORT
+```
 
 ---
 
@@ -153,6 +252,159 @@ python tools/source_graph_kit/source_graph.py build
 
 If the graph seems stale (new files missing), run `build -i` before proceeding.
 
+### What is indexed
+
+| Directory | Extensions | Content |
+|-----------|-----------|---------|
+| `src/` | `.cpp`, `.h`, `.hpp` | Core IDE code |
+| `plugins/` | `.cpp`, `.h`, `.hpp` | Plugin code |
+| `tests/` | `.cpp`, `.h` | Test code |
+| `tools/` | `.py`, `.toml`, `.json`, `.md` | Build tools, source graph itself, AI memory |
+| `docs/` | `.md` | Documentation |
+| `profiles/` | `.json` | Profile configs |
+
+**Self-indexing:** source_graph.py indexes its own code (357+ functions). Query `context source_graph` to understand the tool's own architecture.
+
+---
+
+## UI/UX Reference (MANDATORY)
+
+All UI work must follow the Visual Studio 2022 dark theme reference:
+- **Spec:** `docs/reference/ui-ux-reference.md` — full layout specification, color palette, UX principles
+- **Image:** `docs/reference/vs-ui-reference.png` — authoritative visual reference screenshot
+- Dark theme (#1e1e1e), dense info layout, left=explorers, right=tools, bottom=terminals/output
+- Read the spec BEFORE implementing any visual component
+
+## ARCHITECTURAL MANIFEST (MANDATORY — all models must follow)
+
+This is the authoritative architectural vision. Every code decision must align
+with these principles. If implementation and manifest diverge, align the code
+to the manifest.
+
+### Core Principle: Lightweight Reusable Container
+
+The IDE is a **lightweight container** — a minimal shell that loads plugins and
+provides abstract integration surfaces. The container's evolution is always
+simple because it owns no concrete features.
+
+```
+MainWindow (container only)
+├── 3 dock bar regions (left, right, bottom)
+├── Menu bar rails
+├── Toolbar rails
+├── Status bar rails
+├── Workspace/session lifecycle
+├── ServiceRegistry (register/resolve by string key)
+└── PluginManager (load/unload only, then steps aside)
+```
+
+**MainWindow does not know what plugins do internally. It does not care.**
+MainWindow offers an abstract container layer and integration services so that
+loaded plugins integrate into the environment and inject what they need via
+interfaces.
+
+### Core Principle: IHostServices — Direct Plugin Access
+
+`IHostServices` connects **directly** to the plugin — not through PluginManager.
+PluginManager's only role:
+1. `QPluginLoader::load()` — load DLL
+2. `plugin->setHostServices(host)` — hand over host reference
+3. `plugin->initializePlugin()` — call init
+
+After that, PluginManager is out of the picture. The plugin talks to the host
+directly.
+
+### Core Principle: Write Once, Reuse Everywhere
+
+**Components are finished, self-contained systems with standardized interfaces.**
+You write them once and reuse them as many times as needed, parameterized for
+each context. Adding 100 new languages means 0 component rewrites.
+
+| Reusable Component | What it does | How plugins use it |
+|---|---|---|
+| **Editor Component** | Full code editor with syntax, completion, multi-cursor | Initialize per language config, create as many instances as needed |
+| **Output Panel** | Text output with error highlighting | Standard interface: give text → it prints. No customization needed |
+| **Terminal** | PTY-based terminal emulator | Standard interface: send commands → see output |
+| **UART Terminal** | Serial port terminal for embedded | Standard interface: open port → communicate |
+| **Project Tree** | File/folder tree with filters | Standard interface: give root path + filters → shows tree |
+| **Search Panel** | Workspace-wide search | Standard interface: give query → shows results |
+| **Problems Panel** | Diagnostics/errors display | Standard interface: give diagnostics → shows them |
+| **Debugger UI** | Breakpoints, watch, callstack | Standard interface: connect to debug adapter → visualize state |
+| **Test Runner** | Test discovery and execution | Standard interface: give test framework → run and display |
+
+These components live in **shared component libraries (DLLs)** grouped by type:
+- **Components DLL** — foundational UI components (editors, panels, trees)
+- **Instruments DLL** — developer tools (terminals, debugger UI, test runners)
+
+### Core Principle: Plugin = Thin Glue Layer
+
+A language plugin is narrow — it contains ONLY:
+
+1. **Language-specific logic** (LSP configuration, language-specific rules)
+2. **Language-specific UI** (if any — most languages need none)
+3. **Import + initialization of shared components** with that language's parameters
+4. **Wiring** — connecting language-specific logic to shared component interfaces
+
+```
+Plugin (DLL) — thin
+├── Imports shared components from Component/Instrument DLLs
+│   editor = EditorComponent(lang="cpp", syntax=cpp_grammar)
+│   output = OutputPanel()  ← already finished, standard interface
+│   tree   = ProjectTree(filters=["*.cpp","*.h"])
+│   term   = Terminal()     ← already finished, standard interface
+│
+├── Language-specific logic (narrow)
+│   LSP config for clangd
+│   compile_commands.json detection
+│   language-specific commands
+│
+├── Wiring (connect logic → components)
+│   LSP diagnostics → output.appendLine(...)
+│   LSP completion → editor.showCompletions(...)
+│   build output → output.appendLine(...)
+│
+└── Optional: language-specific dock panel
+    Written inside plugin, plugged into host dock interface
+```
+
+### Core Principle: Layered Plugin Ecosystem
+
+```
+Layer 1: IDE Container (MainWindow + PluginManager + IHostServices + ServiceRegistry)
+         ↕ interfaces only
+Layer 2: Shared Component Libraries (Components DLL, Instruments DLL)
+         ↕ import and parameterize
+Layer 3: General IDE Plugins (build, git, search, terminal, AI providers)
+         ↕ services + events
+Layer 4: Language Plugins (C++, Rust, Python, JS, Lua, embedded...)
+         ↕ domain-specific
+Layer 5: Community/Third-Party Plugins (extensions, integrations)
+```
+
+### Core Principle: ExoBridge = Global Shared Daemon
+
+ExoBridge is NOT a plugin. It is a separate daemon process for resources that are
+**global to the machine, not to a plugin or workspace**:
+- Git tokens and OAuth credentials
+- Auth token cache (one login benefits all IDE instances)
+- MCP tool servers (stateless tool calls)
+- Git file watchers (per-repo, not per-window)
+- Future: package manager cache
+
+If a resource depends on which project is open or which window is active, it
+stays per-IDE-instance, NOT in ExoBridge.
+
+### Enforcement Rules for AI Models
+
+1. **Never put concrete feature logic in MainWindow.** Container only.
+2. **Never duplicate a shared component.** If OutputPanel exists, use it — don't write another one.
+3. **Never make a plugin fat.** If logic is reusable across plugins, extract to shared layer.
+4. **Never bypass IHostServices.** Plugins access host through interfaces, never by direct internal reference.
+5. **Check before creating:** Does a shared component already exist? Use `source_graph find <component>`.
+6. **New component = shared by default.** If you write Terminal once, it must be reusable for next 100 plugins.
+7. **Plugin-specific UI is the exception, not the rule.** Most plugins need zero custom UI — they compose shared components.
+8. **IDE evolution is simple** because the container is small and stable. Complexity lives in plugins and shared components, not in the shell.
+
 ---
 
 ## Project Facts
@@ -160,8 +412,10 @@ If the graph seems stale (new files missing), run `build -i` before proceeding.
 - Build dirs: `build/` (MSVC), `build-llvm/` (Clang/Ninja, active)
 - Active binary: `build-llvm/src/exorcist.exe`
 - Qt6 / C++17 / Windows 10 primary target
-- `src/mainwindow.cpp` — 3390 lines God Object; always use `context` before reading
+- `src/mainwindow.cpp` — ~3390 lines God Object; always use `context` before reading
 - Active chat panel: `ChatPanelWidget` (NOT `AgentChatPanel` — dead code)
 - 74 agent tools registered; see `memory/agent-tools.md`
 - Tests: `ctest --test-dir build-llvm`
 - Qt6 gotcha: `QProcess::flush()` removed → use `waitForBytesWritten(0)`
+- Source graph DB: 912 files, 6388 functions, 7539 call edges, 1302 classes, 53206 FTS entries
+- Source graph indexes: `src/`, `plugins/`, `tests/`, `tools/`, `docs/`, `profiles/`

@@ -31,6 +31,7 @@ void WorkspaceSettings::setWorkspaceRoot(const QString &root)
 
     m_root = root;
     m_wsJson = {};
+    m_globalCache.clear();
 
     if (!root.isEmpty())
         loadWorkspaceFile();
@@ -41,18 +42,28 @@ void WorkspaceSettings::setWorkspaceRoot(const QString &root)
 QVariant WorkspaceSettings::value(const QString &group, const QString &key,
                                   const QVariant &defaultValue) const
 {
-    // Workspace layer takes priority
-    if (m_wsJson.contains(group)) {
-        const QJsonObject grp = m_wsJson.value(group).toObject();
-        if (grp.contains(key))
-            return grp.value(key).toVariant();
+    // Workspace layer takes priority (constFind avoids double-lookup)
+    const auto git = m_wsJson.constFind(group);
+    if (git != m_wsJson.constEnd()) {
+        const QJsonObject grp = git->toObject();
+        const auto kit = grp.constFind(key);
+        if (kit != grp.constEnd())
+            return kit->toVariant();
     }
 
-    // Fall back to global QSettings
+    // Check in-memory cache of global QSettings
+    const QString cacheKey = group + QLatin1Char('/') + key;
+    const auto cit = m_globalCache.constFind(cacheKey);
+    if (cit != m_globalCache.constEnd())
+        return *cit;
+
+    // Fall back to global QSettings (expensive — cache the result)
     QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
     s.beginGroup(group);
     const QVariant v = s.value(key, defaultValue);
     s.endGroup();
+
+    m_globalCache.insert(cacheKey, v);
     return v;
 }
 
@@ -62,6 +73,7 @@ void WorkspaceSettings::setWorkspaceValue(const QString &group, const QString &k
     QJsonObject grp = m_wsJson.value(group).toObject();
     grp.insert(key, QJsonValue::fromVariant(value));
     m_wsJson.insert(group, grp);
+    m_globalCache.remove(group + QLatin1Char('/') + key);
     saveWorkspaceFile();
     emit settingsChanged();
 }
@@ -91,6 +103,7 @@ bool WorkspaceSettings::hasWorkspaceOverride(const QString &group, const QString
 
 void WorkspaceSettings::reload()
 {
+    m_globalCache.clear();
     loadWorkspaceFile();
     emit settingsChanged();
 }

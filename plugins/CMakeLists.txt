@@ -1,6 +1,7 @@
 find_package(Qt6 REQUIRED COMPONENTS Network)
 
 add_subdirectory(common)
+add_subdirectory(lang-pack)
 add_subdirectory(copilot)
 add_subdirectory(git)
 add_subdirectory(terminal)
@@ -14,8 +15,11 @@ add_subdirectory(cpp-language)
 add_subdirectory(embedded-tools)
 add_subdirectory(python-language)
 add_subdirectory(rust-language)
+add_subdirectory(typescript-language)
 add_subdirectory(qt-tools)
 add_subdirectory(serial-monitor)
+add_subdirectory(automation)
+add_subdirectory(devops)
 add_subdirectory(javascript-sdk)
 # add_subdirectory(claude)   # disabled — Copilot-first
 # add_subdirectory(codex)    # disabled — Copilot-first

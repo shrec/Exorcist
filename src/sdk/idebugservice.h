@@ -24,6 +24,14 @@ public:
     /// Remove a breakpoint entry from the debug panel's visual list.
     virtual void removeBreakpointEntry(const QString &filePath, int line) = 0;
 
+    /// Look up the adapter-assigned breakpoint ID for a file:line location.
+    /// Returns -1 if not found (e.g. adapter hasn't confirmed the breakpoint yet).
+    virtual int breakpointIdForLocation(const QString &filePath, int line) const
+    {
+        Q_UNUSED(filePath) Q_UNUSED(line)
+        return -1;
+    }
+
 signals:
     /// User wants to navigate to a source location (e.g. double-click stack frame).
     void navigateToSource(const QString &filePath, int line);

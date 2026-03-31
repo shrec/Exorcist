@@ -4,7 +4,6 @@
 #include <QLayout>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QStyleOption>
 
 namespace exdock {
 
@@ -90,21 +89,31 @@ void DockToolBar::paintEvent(QPaintEvent *event)
     // direct QMainWindow child.  We own the full paint here.
     Q_UNUSED(event)
     QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, false);
 
-    // Plain window-colour background (QSS can override via object name)
-    p.fillRect(rect(), palette().color(QPalette::Window));
+    // VS2022 dark toolbar background — #2d2d30
+    p.fillRect(rect(), QColor(45, 45, 48));
+
+    // Bottom border line (1px) — #3c3c3c
+    if (orientation() == Qt::Horizontal) {
+        p.setPen(QColor(60, 60, 60));
+        p.drawLine(0, height() - 1, width(), height() - 1);
+    } else {
+        p.setPen(QColor(60, 60, 60));
+        p.drawLine(width() - 1, 0, width() - 1, height());
+    }
 
     // VS-like grip handle (dotted pattern) on the non-action edge
     if (!m_locked && !actions().isEmpty()) {
         const bool horiz = (orientation() == Qt::Horizontal);
-        const QColor gripColor = palette().color(QPalette::Mid);
+        const QColor gripColor(85, 85, 85); // subtle grip dots
         if (horiz) {
             const int x = 3;
-            for (int y = 4; y < height() - 4; y += 3)
+            for (int y = 5; y < height() - 5; y += 3)
                 p.fillRect(x, y, 2, 2, gripColor);
         } else {
             const int y = 3;
-            for (int x = 4; x < width() - 4; x += 3)
+            for (int x = 5; x < width() - 5; x += 3)
                 p.fillRect(x, y, 2, 2, gripColor);
         }
     }

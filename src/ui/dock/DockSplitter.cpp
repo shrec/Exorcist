@@ -1,6 +1,7 @@
 #include "DockSplitter.h"
 
 #include <QGuiApplication>
+#include <QPainter>
 #include <QResizeEvent>
 #include <QScreen>
 #include <QShowEvent>
@@ -9,21 +10,65 @@
 
 namespace exdock {
 
+// ── DockSplitterHandle ───────────────────────────────────────────────────────
+
+DockSplitterHandle::DockSplitterHandle(Qt::Orientation orientation,
+                                       QSplitter *parent)
+    : QSplitterHandle(orientation, parent)
+{
+    setAttribute(Qt::WA_Hover, true);
+    setMouseTracking(true);
+}
+
+void DockSplitterHandle::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+
+    // Base: same color as toolbar background so handle is flush
+    p.fillRect(rect(), QColor(45, 45, 48));
+
+    // Thin center line — visible but subtle; #007acc blue on hover
+    const QColor lineColor = m_hovered ? QColor(0x00, 0x7a, 0xcc) : QColor(63, 63, 70);
+    if (orientation() == Qt::Horizontal) {
+        const int cx = width() / 2;
+        p.fillRect(cx, 0, 1, height(), lineColor);
+    } else {
+        const int cy = height() / 2;
+        p.fillRect(0, cy, width(), 1, lineColor);
+    }
+}
+
+void DockSplitterHandle::enterEvent(QEnterEvent *event)
+{
+    m_hovered = true;
+    update();
+    QSplitterHandle::enterEvent(event);
+}
+
+void DockSplitterHandle::leaveEvent(QEvent *event)
+{
+    m_hovered = false;
+    update();
+    QSplitterHandle::leaveEvent(event);
+}
+
+// ── DockSplitter ─────────────────────────────────────────────────────────────
+
 DockSplitter::DockSplitter(Qt::Orientation orient, QWidget *parent)
     : QSplitter(orient, parent)
 {
     setChildrenCollapsible(false);
-
-    // DPI-aware handle width: 2px at 96 DPI, scales proportionally
-    int hw = 2;
-    if (auto *screen = QGuiApplication::primaryScreen())
-        hw = qMax(2, static_cast<int>(2.0 * screen->logicalDotsPerInch() / 96.0));
-    setHandleWidth(hw);
-
+    // 5px handle — wide enough to grab comfortably, thin enough to be unobtrusive
+    setHandleWidth(5);
     setObjectName(QStringLiteral("exdock-splitter"));
 
     // Allow the splitter itself to shrink to its children's minimums
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+}
+
+QSplitterHandle *DockSplitter::createHandle()
+{
+    return new DockSplitterHandle(orientation(), this);
 }
 
 void DockSplitter::insertChildWidget(int index, QWidget *widget)
@@ -119,8 +164,9 @@ bool DockSplitter::removeChild(QWidget *child)
         m_minSizes.removeAt(idx);
 
     // If this splitter has only one child left, promote it to the parent.
-    // Skip promotion for root/center splitters (owned by DockManager).
-    if (count() == 1) {
+    // Skip promotion for root/center splitters (owned by DockManager) —
+    // those are marked permanent and must never self-destruct.
+    if (count() == 1 && !m_permanent) {
         auto *remaining = widget(0);
         auto *parentSplitter = qobject_cast<DockSplitter *>(parentWidget());
         if (parentSplitter) {

@@ -16,7 +16,9 @@
     "optionalPlugins": [
         "org.exorcist.build"
     ],
-    "disabledPlugins": [],
+    "disabledPlugins": [
+        "org.exorcist.qt-tools"
+    ],
     "deferredPlugins": [
         "org.exorcist.debug",
         "org.exorcist.testing"

@@ -13,7 +13,7 @@ PluginInfo GitHubPlugin::info() const
         QStringLiteral("GitHub CLI integration — PRs, Issues, Actions, Releases"),
         QStringLiteral("Exorcist"),
         QStringLiteral("1.0"),
-        {}
+        {PluginPermission::WorkspaceRead, PluginPermission::GitRead, PluginPermission::NetworkAccess}
     };
 }
 
@@ -40,7 +40,7 @@ void GitHubPlugin::shutdownPlugin()
 
 QWidget *GitHubPlugin::createView(const QString &viewId, QWidget *parent)
 {
-    if (viewId == QStringLiteral("GitHubDock")) {
+    if (viewId == QStringLiteral("GitHubDock") && m_panel) {
         m_panel->setParent(parent);
         return m_panel;
     }

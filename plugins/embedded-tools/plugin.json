@@ -21,6 +21,7 @@
         "onCommand:embedded.showTools",
         "onCommand:embedded.startDebugRoute"
     ],
+    "requestedPermissions": ["WorkspaceRead", "TerminalExecute", "FilesystemRead"],
     "contributions": {
         "views": [
             {

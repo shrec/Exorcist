@@ -5,6 +5,7 @@
 #include <QProcess>
 #include <QQueue>
 #include <QHash>
+#include <QSet>
 
 /// Debug adapter that speaks the GDB/MI protocol via QProcess.
 ///
@@ -89,6 +90,8 @@ private:
     void handleVarUpdateResult(int token, const QHash<QString, QString> &attrs);
     void handleVarDeleteResult(int token, const QHash<QString, QString> &attrs);
     void handleVarAssignResult(int token, const QHash<QString, QString> &attrs);
+    /// Parse -stack-list-locals result and emit variablesReceived.
+    void handleLocalsResult(int token, const QHash<QString, QString> &attrs);
 
     /// Parse a list of changelist entries from -var-update output.
     QList<DebugVarChange> parseChangeList(const QString &raw);
@@ -134,6 +137,12 @@ private:
 
     // For assign: token → var name
     QHash<int, QString>    m_varAssignNames;
+
+    // For locals (requestScopes / requestVariables): token set
+    QSet<int>              m_localsRequests;
+
+    // For evaluate: token → expression
+    QHash<int, QString>    m_evalExprs;
 
     // Next unique var-object name counter
     int m_nextVarId = 1;

@@ -11,7 +11,7 @@ add_library(debug_plugin SHARED
     ${CMAKE_SOURCE_DIR}/src/debug/quickwatchdialog.cpp
 )
 
-target_link_libraries(debug_plugin PRIVATE Qt6::Widgets plugin_common exorcist)
+target_link_libraries(debug_plugin PRIVATE Qt6::Widgets Qt6::Svg plugin_common exorcist)
 
 target_include_directories(debug_plugin PRIVATE
     ${CMAKE_SOURCE_DIR}/src

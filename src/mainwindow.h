@@ -12,6 +12,7 @@
 #include "pluginmanager.h"
 #include "serviceregistry.h"
 #include "agent/tools/buildtools.h"
+#include "agent/agentplatformbootstrap.h"
 #include "editor/editormanager.h"
 
 namespace exdock { class ExDockWidget; class DockManager; }
@@ -56,6 +57,7 @@ class ContributionRegistry;
 class StatusBarManager;
 class AIServicesBootstrap;
 class DockBootstrap;
+class PostPluginBootstrap;
 class WelcomeWidget;
 class QStackedWidget;
 
@@ -118,8 +120,6 @@ private:
 
     StatusBarManager *m_statusBarMgr = nullptr;
 
-    PluginGalleryPanel *m_pluginGallery = nullptr;
-    ThemeGalleryPanel  *m_themeGallery = nullptr;
     std::unique_ptr<PluginManager>            m_pluginManager;
     std::unique_ptr<ServiceRegistry>            m_services;
     std::unique_ptr<IFileSystem>     m_fileSystem;
@@ -132,16 +132,9 @@ private:
     InlineCompletionEngine *m_inlineEngine;
     InlineChatWidget       *m_inlineChat = nullptr;
     QuickChatDialog         *m_quickChat  = nullptr;
-    RequestLogPanel          *m_requestLogPanel;
-    TrajectoryPanel          *m_trajectoryPanel;
     SettingsPanel            *m_settingsPanel;
     QDialog                  *m_settingsDialog = nullptr;
-    MemoryBrowserPanel       *m_memoryBrowser;
     class NextEditEngine     *m_nesEngine      = nullptr;
-    McpClient               *m_mcpClient         = nullptr;
-    McpPanel                *m_mcpPanel          = nullptr;
-    DiffViewerPanel          *m_diffViewer        = nullptr;
-    ProposedEditPanel         *m_proposedEditPanel = nullptr;
     AIServicesBootstrap      *m_aiServices = nullptr;
     WorkbenchServicesBootstrap *m_workbenchServices = nullptr;
     DockBootstrap            *m_dockBootstrap = nullptr;
@@ -155,6 +148,7 @@ private:
     ContributionRegistry     *m_contributions = nullptr;
 
     void updateDiffRanges(EditorView *editor);
+    AgentPlatformBootstrap::Callbacks buildAgentCallbacks();
     void onLspInitialized();
     void showInlineChat(EditorView *editor, const QString &selectedText,
                         const QString &filePath, const QString &languageId);

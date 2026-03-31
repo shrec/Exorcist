@@ -15,6 +15,14 @@
         "workspaceContains:*.c",
         "workspaceContains:*.h"
     ],
+    "dependencies": [
+        { "id": "org.exorcist.build", "optional": true }
+    ],
+    "requestedPermissions": [
+        "WorkspaceRead",
+        "TerminalExecute",
+        "FilesystemRead"
+    ],
     "contributions": {
         "languages": [
             {
@@ -36,7 +44,7 @@
             {
                 "id": "CppWorkspaceDock",
                 "title": "C++ Workspace",
-                "location": "sidebar-right",
+                "location": "sidebar-left",
                 "defaultVisible": true,
                 "priority": 8
             }

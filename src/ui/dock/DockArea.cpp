@@ -4,10 +4,12 @@
 #include "DockTitleBar.h"
 #include "ExDockWidget.h"
 
+#include <QHBoxLayout>
 #include <QMainWindow>
 #include <QMenu>
 #include <QSizePolicy>
 #include <QStackedWidget>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 namespace exdock {
@@ -24,9 +26,29 @@ DockArea::DockArea(DockManager *manager, QWidget *parent)
     m_titleBar = new DockTitleBar(this, this);
     lay->addWidget(m_titleBar);
 
-    // Tab bar — shown when multiple widgets
-    m_tabBar = new DockTabBar(this, this);
-    lay->addWidget(m_tabBar);
+    // Tab bar row — tab bar + collapse button (VS2022 style close panel ∧)
+    m_tabRow = new QWidget(this);
+    m_tabRow->setObjectName(QStringLiteral("exdock-tabrow"));
+    auto *tabRowLayout = new QHBoxLayout(m_tabRow);
+    tabRowLayout->setContentsMargins(0, 0, 0, 0);
+    tabRowLayout->setSpacing(0);
+
+    m_tabBar = new DockTabBar(this, m_tabRow);
+    tabRowLayout->addWidget(m_tabBar, 1);
+
+    m_collapseBtn = new QToolButton(m_tabRow);
+    m_collapseBtn->setObjectName(QStringLiteral("exdock-collapse-btn"));
+    m_collapseBtn->setText(QStringLiteral("∧"));
+    m_collapseBtn->setToolTip(tr("Hide Panel"));
+    m_collapseBtn->setFixedSize(24, 24);
+    m_collapseBtn->setAutoRaise(true);
+    m_collapseBtn->setStyleSheet(QStringLiteral(
+        "QToolButton { color: #858585; font-size: 10px; border: none; background: transparent; }"
+        "QToolButton:hover { color: #cccccc; background: #3c3c3c; border-radius: 2px; }"));
+    connect(m_collapseBtn, &QToolButton::clicked, this, &DockArea::closeAllRequested);
+    tabRowLayout->addWidget(m_collapseBtn);
+
+    lay->addWidget(m_tabRow);
 
     // Content stack
     m_stack = new QStackedWidget(this);
@@ -162,6 +184,11 @@ ExDockWidget *DockArea::dockWidget(int index) const
     return m_widgets.at(index);
 }
 
+int DockArea::indexOf(ExDockWidget *widget) const
+{
+    return m_widgets.indexOf(widget);
+}
+
 ExDockWidget *DockArea::currentDockWidget() const
 {
     const int idx = m_tabBar->currentIndex();
@@ -230,7 +257,7 @@ void DockArea::onTabContextMenu(int index, const QPoint &globalPos)
 void DockArea::updateTitleBarVisibility()
 {
     const bool multi = m_widgets.size() > 1;
-    m_tabBar->setVisible(multi);
+    m_tabRow->setVisible(multi);
     m_titleBar->setVisible(!multi && !m_widgets.isEmpty());
 }
 

@@ -15,6 +15,12 @@ BuildSystemService::BuildSystemService(CMakeIntegration *cmake, QObject *parent)
             this,    &IBuildSystem::cleanFinished);
 }
 
+void BuildSystemService::setProjectRoot(const QString &root)
+{
+    m_cmake->setProjectRoot(root);
+    m_cmake->autoDetectConfigs();
+}
+
 bool BuildSystemService::hasProject() const
 {
     return m_cmake->hasCMakeProject();

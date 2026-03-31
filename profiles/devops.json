@@ -6,6 +6,7 @@
     "category": "infrastructure",
 
     "requiredPlugins": [
+        "org.exorcist.devops",
         "org.exorcist.remote",
         "org.exorcist.build",
         "org.exorcist.git",
@@ -15,7 +16,9 @@
     "optionalPlugins": [
         "org.exorcist.github"
     ],
-    "disabledPlugins": [],
+    "disabledPlugins": [
+        "org.exorcist.qt-tools"
+    ],
     "deferredPlugins": [
         "org.exorcist.remote",
         "org.exorcist.build"
@@ -40,7 +43,8 @@
         { "id": "TerminalDock", "visible": true },
         { "id": "ProblemsDock", "visible": true },
         { "id": "OutputDock", "visible": true },
-        { "id": "RunDock", "visible": false }
+        { "id": "RunDock", "visible": false },
+        { "id": "DevOpsDock", "visible": true }
     ],
 
     "settings": {

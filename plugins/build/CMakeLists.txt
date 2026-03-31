@@ -20,6 +20,7 @@ add_library(build_plugin SHARED
 target_link_libraries(build_plugin PRIVATE
     Qt6::Widgets
     Qt6::Concurrent
+    Qt6::Svg
     plugin_common
     exorcist
 )

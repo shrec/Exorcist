@@ -22,5 +22,8 @@ private:
     bool initializePlugin() override;
     void shutdownPlugin() override;
 
+    void registerRustCommands();
+    void installRustMenu();
+
     std::unique_ptr<ProcessLanguageServer> m_server;
 };

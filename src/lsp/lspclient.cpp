@@ -69,6 +69,19 @@ QString LspClient::languageIdForPath(const QString &path)
 
 void LspClient::initialize(const QString &workspaceRoot)
 {
+    // Guard: if already initialized or an initialize request is in-flight, skip.
+    if (m_initialized) {
+        qWarning() << "[LSP-DIAG] LspClient::initialize() skipped — already initialized";
+        return;
+    }
+    for (const auto &p : m_pending) {
+        if (p.method == QLatin1String("initialize")) {
+            qWarning() << "[LSP-DIAG] LspClient::initialize() skipped — request in-flight";
+            return;
+        }
+    }
+    qWarning() << "[LSP-DIAG] LspClient::initialize() sending handshake, root=" << workspaceRoot;
+
     const QString rootUri = pathToUri(workspaceRoot);
 
     QJsonObject textDocumentCaps;
@@ -347,6 +360,31 @@ void LspClient::requestWorkspaceSymbols(const QString &query)
     m_pending[id] = {"workspace/symbol", {}, 0, 0};
 }
 
+void LspClient::requestInlayHints(const QString &uri,
+                                  int startLine, int startChar,
+                                  int endLine,   int endChar)
+{
+    if (!m_initialized) return;
+    const int id = sendRequest("textDocument/inlayHint", QJsonObject{
+        {"textDocument", QJsonObject{{"uri", uri}}},
+        {"range", QJsonObject{
+            {"start", QJsonObject{{"line", startLine}, {"character", startChar}}},
+            {"end",   QJsonObject{{"line", endLine},   {"character", endChar}}},
+        }},
+    });
+    m_pending[id] = {"textDocument/inlayHint", uri, startLine, 0};
+}
+
+void LspClient::requestTypeDefinition(const QString &uri, int line, int character)
+{
+    if (!m_initialized) return;
+    const int id = sendRequest("textDocument/typeDefinition", QJsonObject{
+        {"textDocument", QJsonObject{{"uri", uri}}},
+        {"position", QJsonObject{{"line", line}, {"character", character}}},
+    });
+    m_pending[id] = {"textDocument/typeDefinition", uri, line, character};
+}
+
 // ── Message dispatch ──────────────────────────────────────────────────────────
 
 void LspClient::onMessageReceived(const LspMessage &msg)
@@ -383,6 +421,7 @@ void LspClient::handleResponse(int id, const QJsonValue &result,
         sendNotification("initialized", {});
         m_initialized = true;
         qCInfo(lcLsp) << "LSP server initialized";
+        qWarning() << "[LSP-DIAG] LspClient initialized — emitting initialized() signal";
         emit initialized();
     }
     else if (req.method == "shutdown") {
@@ -463,6 +502,18 @@ void LspClient::handleResponse(int id, const QJsonValue &result,
     }
     else if (req.method == "workspace/symbol") {
         emit workspaceSymbolsResult(result.toArray());
+    }
+    else if (req.method == "textDocument/inlayHint") {
+        emit inlayHintsResult(req.uri, result.toArray());
+    }
+    else if (req.method == "textDocument/typeDefinition") {
+        QJsonArray locations;
+        if (result.isArray()) {
+            locations = result.toArray();
+        } else if (result.isObject()) {
+            locations = QJsonArray{result.toObject()};
+        }
+        emit typeDefinitionResult(req.uri, locations);
     }
 }
 

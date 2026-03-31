@@ -14,6 +14,8 @@ GdbMiAdapter::GdbMiAdapter(QObject *parent)
         const QString text = QString::fromUtf8(m_process.readAllStandardError());
         emit outputProduced(text, QStringLiteral("stderr"));
     });
+    connect(&m_process, &QProcess::started,
+            this, &GdbMiAdapter::onProcessStarted);
     connect(&m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, &GdbMiAdapter::onProcessFinished);
     connect(&m_process, &QProcess::errorOccurred,
@@ -24,7 +26,7 @@ GdbMiAdapter::~GdbMiAdapter()
 {
     if (m_process.state() != QProcess::NotRunning) {
         m_process.kill();
-        m_process.waitForFinished(2000);
+        m_process.waitForFinished(500);
     }
 }
 
@@ -35,7 +37,13 @@ void GdbMiAdapter::launch(const QString &executable,
                            const QString &workingDir,
                            const QJsonObject &env)
 {
+    emit outputProduced(QStringLiteral("[GDB] launch() called, debugger=%1").arg(m_debuggerPath),
+                        QStringLiteral("debug"));
+
     if (m_process.state() != QProcess::NotRunning) {
+        emit outputProduced(QStringLiteral("[GDB] ERROR: already running, state=%1")
+                                .arg(int(m_process.state())),
+                            QStringLiteral("debug"));
         emit error(tr("Debugger already running"));
         return;
     }
@@ -57,31 +65,73 @@ void GdbMiAdapter::launch(const QString &executable,
         m_process.setProcessEnvironment(sysEnv);
     }
 
-    m_launched = false;
-    m_process.start();
+    // Store launch parameters — consumed by onProcessStarted() when GDB is ready.
+    m_pendingExe  = executable;
+    m_pendingArgs = args;
+    m_launched    = false;
 
-    if (!m_process.waitForStarted(5000)) {
-        emit error(tr("Failed to start debugger: %1").arg(m_process.errorString()));
+    emit outputProduced(QStringLiteral("[GDB] starting process (async)..."), QStringLiteral("debug"));
+    m_process.start();
+    // Returns immediately — onProcessStarted() fires when GDB is ready.
+    // onProcessError() fires if GDB fails to start (FailedToStart).
+}
+
+// ── Called by QProcess::started signal (non-blocking path) ──────────────────
+
+void GdbMiAdapter::onProcessStarted()
+{
+    emit outputProduced(QStringLiteral("[GDB] started OK, pid=%1").arg(m_process.processId()),
+                        QStringLiteral("debug"));
+
+    // ── Attach flow ───────────────────────────────────────────────────────
+    if (m_pendingExe == QLatin1String("__attach__")) {
+        const int pid = m_pendingArgs.value(0).toInt();
+        sendCommand(QStringLiteral("-target-attach %1").arg(pid));
+        m_launched = true;
+        emit started();
         return;
     }
 
+    // ── Launch flow ───────────────────────────────────────────────────────
+
+    // GDB requires forward slashes (backslashes cause parse errors on Windows)
+    const QString exePath = QString(m_pendingExe).replace(QLatin1Char('\\'), QLatin1Char('/'));
+
     // Set the inferior (program to debug)
-    sendCommand(QStringLiteral("-file-exec-and-symbols \"%1\"").arg(executable));
+    sendCommand(QStringLiteral("-file-exec-and-symbols \"%1\"").arg(exePath));
 
     // Set inferior arguments
-    if (!args.isEmpty()) {
+    if (!m_pendingArgs.isEmpty()) {
         QString argStr;
-        for (const auto &a : args) {
+        for (const auto &a : m_pendingArgs) {
             if (!argStr.isEmpty()) argStr += QLatin1Char(' ');
             argStr += QLatin1Char('"') + a + QLatin1Char('"');
         }
         sendCommand(QStringLiteral("-exec-arguments %1").arg(argStr));
     }
 
+    // Flush any breakpoints set before launch
+    emit outputProduced(QStringLiteral("[DEBUG] prelaunch BPs: %1").arg(m_prelaunchBreakpoints.size()),
+                        QStringLiteral("debug"));
+    for (const DebugBreakpoint &bp : m_prelaunchBreakpoints) {
+        QString bpPath = QString(bp.filePath).replace(QLatin1Char('\\'), QLatin1Char('/'));
+        QString cmd = QStringLiteral("-break-insert ");
+        if (!bp.condition.isEmpty())
+            cmd += QStringLiteral("-c \"%1\" ").arg(bp.condition);
+        if (!bp.enabled)
+            cmd += QStringLiteral("-d ");
+        cmd += QStringLiteral("\"%1:%2\"").arg(bpPath).arg(bp.line);
+        const int token = sendCommand(cmd);
+        m_pendingBps.insert(token, bp);
+    }
+    m_prelaunchBreakpoints.clear();
+
     // Run
     sendCommand(QStringLiteral("-exec-run"));
     m_launched = true;
     emit started();
+    emit outputProduced(QStringLiteral("[DEBUG] -exec-run sent, session active"),
+                        QStringLiteral("debug"));
 }
 
 void GdbMiAdapter::attach(int pid)
@@ -97,26 +147,37 @@ void GdbMiAdapter::attach(int pid)
 
     m_process.setProgram(m_debuggerPath);
     m_process.setArguments(gdbArgs);
+
+    // Store attach PID for use in onProcessStarted (re-uses the started signal).
+    // Encode as negative to distinguish from launch flow.
+    m_pendingExe  = QStringLiteral("__attach__");
+    m_pendingArgs = { QString::number(pid) };
     m_process.start();
-
-    if (!m_process.waitForStarted(5000)) {
-        emit error(tr("Failed to start debugger: %1").arg(m_process.errorString()));
-        return;
-    }
-
-    sendCommand(QStringLiteral("-target-attach %1").arg(pid));
-    m_launched = true;
-    emit started();
+    // onProcessStarted() fires when GDB is ready, sends -target-attach.
 }
 
 void GdbMiAdapter::terminate()
 {
+    // Re-queue confirmed breakpoints so the next debug session starts with them.
+    m_prelaunchBreakpoints.clear();
+    for (auto it = m_breakpoints.begin(); it != m_breakpoints.end(); ++it) {
+        DebugBreakpoint bp = it.value();
+        bp.id       = -1;
+        bp.verified = false;
+        m_prelaunchBreakpoints.append(bp);
+    }
+    m_breakpoints.clear();
+
+    m_launched = false;
+
     if (m_process.state() == QProcess::NotRunning) return;
 
+    // Try graceful exit first (300ms), then force kill.
+    // Never block longer than 300ms — this can be called from closeEvent.
     sendCommand(QStringLiteral("-gdb-exit"));
-    if (!m_process.waitForFinished(3000)) {
+    if (!m_process.waitForFinished(300)) {
         m_process.kill();
-        m_process.waitForFinished(1000);
+        m_process.waitForFinished(200);
     }
 }
 
@@ -171,12 +232,19 @@ void GdbMiAdapter::pause(int threadId)
 
 void GdbMiAdapter::addBreakpoint(const DebugBreakpoint &bp)
 {
+    if (!m_launched) {
+        // GDB isn't running yet — queue for flush in launch()
+        m_prelaunchBreakpoints.append(bp);
+        return;
+    }
+
+    const QString bpPath = QString(bp.filePath).replace(QLatin1Char('\\'), QLatin1Char('/'));
     QString cmd = QStringLiteral("-break-insert ");
     if (!bp.condition.isEmpty())
         cmd += QStringLiteral("-c \"%1\" ").arg(bp.condition);
     if (!bp.enabled)
         cmd += QStringLiteral("-d ");
-    cmd += QStringLiteral("\"%1:%2\"").arg(bp.filePath).arg(bp.line);
+    cmd += QStringLiteral("\"%1:%2\"").arg(bpPath).arg(bp.line);
 
     const int token = sendCommand(cmd);
     m_pendingBps.insert(token, bp);
@@ -205,8 +273,9 @@ void GdbMiAdapter::requestThreads()
 
 void GdbMiAdapter::requestStackTrace(int threadId)
 {
-    const int token = sendCommand(
-        QStringLiteral("-stack-list-frames --thread %1").arg(threadId));
+    const int token = (threadId > 0)
+        ? sendCommand(QStringLiteral("-stack-list-frames --thread %1").arg(threadId))
+        : sendCommand(QStringLiteral("-stack-list-frames"));
     m_stackTraceRequests.insert(token, threadId);
 }
 
@@ -485,6 +554,10 @@ void GdbMiAdapter::handleStopped(const QHash<QString, QString> &attrs)
     const int threadId = attrs.value(QStringLiteral("thread-id"), QStringLiteral("0")).toInt();
     const QString reason = attrs.value(QStringLiteral("reason"));
 
+    emit outputProduced(QStringLiteral("[GDB] *stopped reason=%1 thread=%2")
+                            .arg(reason, QString::number(threadId)),
+                        QStringLiteral("debug"));
+
     DebugStopReason stopReason = DebugStopReason::Unknown;
     if (reason.contains(QStringLiteral("breakpoint")))
         stopReason = DebugStopReason::Breakpoint;
@@ -529,13 +602,30 @@ void GdbMiAdapter::handleStackListResult(int token, const QHash<QString, QString
     QList<DebugFrame> frames;
 
     if (!stack.isEmpty()) {
-        // Simple extraction: find each frame={...}
-        static const QRegularExpression frameRx(
-            QStringLiteral("frame=\\{([^}]+)\\}"));
-        auto it = frameRx.globalMatch(stack);
-        while (it.hasNext()) {
-            auto m = it.next();
-            frames.append(parseFrame(m.captured(1)));
+        // Nested-brace-aware extraction of each frame={...} block.
+        // The old regex [^}]+ broke when args contained {}, losing file/line.
+        int pos = 0;
+        while (pos < stack.length()) {
+            const int tag = stack.indexOf(QStringLiteral("frame={"), pos);
+            if (tag < 0) break;
+            int start = tag + 7; // after "frame={"
+            int depth = 1;
+            int j = start;
+            while (j < stack.length() && depth > 0) {
+                const QChar ch = stack.at(j);
+                if (ch == QLatin1Char('{')) ++depth;
+                else if (ch == QLatin1Char('}')) --depth;
+                else if (ch == QLatin1Char('"')) {
+                    ++j;
+                    while (j < stack.length() && stack.at(j) != QLatin1Char('"')) {
+                        if (stack.at(j) == QLatin1Char('\\')) ++j;
+                        ++j;
+                    }
+                }
+                if (depth > 0) ++j;
+            }
+            frames.append(parseFrame(stack.mid(start, j - start)));
+            pos = j + 1;
         }
     }
 
@@ -689,8 +779,21 @@ void GdbMiAdapter::onProcessFinished(int exitCode, QProcess::ExitStatus status)
     Q_UNUSED(exitCode)
     Q_UNUSED(status)
     m_launched = false;
+
+    // Re-queue confirmed breakpoints so the next debug session starts with them.
+    if (!m_breakpoints.isEmpty()) {
+        for (auto it = m_breakpoints.begin(); it != m_breakpoints.end(); ++it) {
+            DebugBreakpoint bp = it.value();
+            bp.id       = -1;
+            bp.verified = false;
+            m_prelaunchBreakpoints.append(bp);
+        }
+        m_breakpoints.clear();
+    }
+
     m_pending.clear();
     m_pendingBps.clear();
+    m_stackTraceRequests.clear();
     m_varObjRequests.clear();
     m_varCreateExprs.clear();
     m_varListParents.clear();
@@ -701,6 +804,14 @@ void GdbMiAdapter::onProcessFinished(int exitCode, QProcess::ExitStatus status)
 
 void GdbMiAdapter::onProcessError(QProcess::ProcessError err)
 {
-    Q_UNUSED(err)
-    emit error(tr("Debugger process error: %1").arg(m_process.errorString()));
+    if (err == QProcess::FailedToStart) {
+        emit outputProduced(
+            QStringLiteral("[GDB] FAILED to start: %1 | path=%2")
+                .arg(m_process.errorString(), m_debuggerPath),
+            QStringLiteral("debug"));
+        emit error(QStringLiteral("GDB failed to start: %1 | path=%2")
+                       .arg(m_process.errorString(), m_debuggerPath));
+    } else {
+        emit error(tr("Debugger process error: %1").arg(m_process.errorString()));
+    }
 }

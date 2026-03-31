@@ -71,17 +71,16 @@ This is the execution todo for the canonical model defined in:
   <!-- Added bundled org.exorcist.python-language and org.exorcist.rust-language plugins
        backed by shared ProcessLanguageServer, plus org.exorcist.qt-tools for Qt workspaces;
        profiles now resolve to real bundled Wave 1 plugin IDs and coverage is verified by tests -->
-- [ ] Wave 2: Embedded MCU, Embedded Linux, DevOps, Automation
-    <!-- Added scaffold bundled profiles for embedded-linux, devops, and automation.
-      Embedded MCU now has real org.exorcist.embedded-tools and org.exorcist.serial-monitor
-      plugins, optional live serial support via Qt SerialPort, persisted serial monitor UX,
-      workspace-aware command inference for PlatformIO, ESP-IDF, Zephyr, pyOCD,
-      OpenOCD, STM32CubeProgrammer script flows, and Makefile flows,
-      recursive profile auto-detection for nested embedded markers,
-      plus persisted per-workspace flash/monitor/debug command overrides for manual toolchain control.
-      Embedded Linux now has concrete recursive Buildroot/Yocto detection coverage and
-      remote plugin activation from both the profile and embedded Linux workspace markers.
-      Remaining Wave 2 work is broader device/debug ownership plus devops/automation plugin depth. -->
+- [x] Wave 2: Embedded MCU, Embedded Linux, DevOps, Automation
+    <!-- Embedded MCU: org.exorcist.embedded-tools + org.exorcist.serial-monitor plugins,
+      PlatformIO/ESP-IDF/Zephyr/pyOCD/OpenOCD detection, command inference, panel persistence.
+      Embedded Linux: recursive Buildroot/Yocto detection, remote plugin activation.
+      DevOps: org.exorcist.devops plugin — ServiceDiscovery (Docker/Compose/Terraform/Ansible/
+      Kubernetes/GitHub Actions), DevOpsPanel with service tree + command execution,
+      menu commands for docker compose/build, terraform plan/apply.
+      Automation: org.exorcist.automation plugin — TaskDiscovery (Taskfile.yml/justfile/Makefile/
+      package.json/scripts/), TaskRunnerPanel with grouped tree + output, run/stop/refresh,
+      "run last task" support, Ctrl+Shift+T/R shortcuts. -->
 - [ ] Wave 3: Web Backend, Web Frontend, Full Stack, Data Engineering
 - [ ] Wave 4: Systems, Game Dev, AI/ML, Blockchain
 - [ ] Wave 5: Security Research, Reverse Engineering, external plugin validation

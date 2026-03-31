@@ -12,6 +12,8 @@
 #include "sdk/idebugadapter.h"
 #include "sdk/ilaunchservice.h"
 #include "sdk/icommandservice.h"
+#include "sdk/ioutputservice.h"
+#include "sdk/irunoutputservice.h"
 #include "core/idockmanager.h"
 #include "core/imenumanager.h"
 #include "core/itoolbarmanager.h"
@@ -82,6 +84,104 @@ private:
     DebugLaunchController *m_ctrl;
 };
 
+// ── OutputServiceAdapter ─────────────────────────────────────────────────────
+// Adapts OutputPanel to the stable IOutputService SDK interface.
+// Uses a callback to show the output dock (avoids coupling to WorkbenchPluginBase).
+
+class OutputServiceAdapter : public IOutputService
+{
+    Q_OBJECT
+
+public:
+    OutputServiceAdapter(OutputPanel *panel,
+                         std::function<void()> showDock,
+                         QObject *parent = nullptr)
+        : IOutputService(parent), m_panel(panel), m_showDock(std::move(showDock))
+    {}
+
+    void appendLine(const QString &channel, const QString &text, bool isError) override
+    {
+        Q_UNUSED(channel)
+        m_panel->appendBuildLine(text, isError);
+        emit lineAppended(channel, text, isError);
+    }
+
+    void appendLine(const QString &text, bool isError) override
+    {
+        m_panel->appendBuildLine(text, isError);
+        emit lineAppended({}, text, isError);
+    }
+
+    void clearChannel(const QString &channel) override
+    {
+        Q_UNUSED(channel)
+        m_panel->clear();
+        emit channelCleared(channel);
+    }
+
+    void clear() override { m_panel->clear(); }
+
+    void show(const QString &channel) override
+    {
+        Q_UNUSED(channel)
+        if (m_showDock)
+            m_showDock();
+    }
+
+    QString activeChannel() const override { return QStringLiteral("Build"); }
+
+private:
+    OutputPanel *m_panel;
+    std::function<void()> m_showDock;
+};
+
+// ── RunOutputServiceAdapter ──────────────────────────────────────────────────
+// Adapts RunLaunchPanel to the stable IRunOutputService SDK interface.
+
+class RunOutputServiceAdapter : public IRunOutputService
+{
+    Q_OBJECT
+
+public:
+    RunOutputServiceAdapter(RunLaunchPanel *panel,
+                            std::function<void()> showDock,
+                            QObject *parent = nullptr)
+        : IRunOutputService(parent), m_panel(panel), m_showDock(std::move(showDock))
+    {}
+
+    void appendOutput(const QString &text, bool isError) override
+    {
+        m_panel->appendOutput(text, isError);
+        emit outputAppended(text, isError);
+    }
+
+    void clear() override { m_panel->appendOutput(QStringLiteral("\n"), false); }
+
+    void show() override
+    {
+        if (m_showDock)
+            m_showDock();
+    }
+
+    void notifyProcessStarted(const QString &executable) override
+    {
+        m_panel->appendOutput(tr("▶ Started: %1\n").arg(executable), false);
+    }
+
+    void notifyProcessFinished(int exitCode) override
+    {
+        m_panel->appendOutput(
+            exitCode == 0
+                ? tr("✓ Process exited with code 0\n")
+                : tr("✕ Process exited with code %1\n").arg(exitCode),
+            exitCode != 0);
+    }
+
+private:
+    RunLaunchPanel *m_panel;
+    std::function<void()> m_showDock;
+};
+
 // ── BuildPlugin ──────────────────────────────────────────────────────────────
 
 PluginInfo BuildPlugin::info() const
@@ -93,7 +193,7 @@ PluginInfo BuildPlugin::info() const
         QStringLiteral("CMake build system, toolchain detection, output panel, run/launch"),
         QStringLiteral("Exorcist"),
         QStringLiteral("1.0"),
-        {}
+        {PluginPermission::WorkspaceRead, PluginPermission::TerminalExecute, PluginPermission::FilesystemRead}
     };
 }
 
@@ -135,15 +235,12 @@ bool BuildPlugin::initializePlugin()
     createToolBar(QStringLiteral("build"), tr("Build"));
     addToolBarWidget(QStringLiteral("build"), m_toolbar);
 
+    // Hide build toolbar until a workspace is opened (no project = no build actions)
+    if (toolbars())
+        toolbars()->setVisible(QStringLiteral("build"), false);
+
     registerCommands();
     installMenus();
-
-    // ── Auto-show docks ──
-    // Plugin owns its own UI lifecycle: docks are shown by the plugin
-    // itself, never by MainWindow. This works regardless of trigger source
-    // (toolbar button, Run menu, command palette, keybinding).
-    // Show Output dock when plugin activates for a build workspace
-    showPanel(QStringLiteral("OutputDock"));
 
     // Show Output dock when any build/configure output arrives
     connect(m_buildSvc, &IBuildSystem::buildOutput, this, [this](const QString &, bool) {
@@ -161,6 +258,15 @@ bool BuildPlugin::initializePlugin()
 
     // Register RunLaunchPanel for workspace change notifications
     registerService(QStringLiteral("runPanel"), m_runPanel);
+
+    // ── SDK service adapters (stable inter-plugin interfaces) ────────────
+    auto *outputSvc = new OutputServiceAdapter(
+        m_output, [this]() { showPanel(QStringLiteral("OutputDock")); }, this);
+    registerService(QStringLiteral("outputService"), outputSvc);
+
+    auto *runOutputSvc = new RunOutputServiceAdapter(
+        m_runPanel, [this]() { showPanel(QStringLiteral("RunDock")); }, this);
+    registerService(QStringLiteral("runOutputService"), runOutputSvc);
 
     // Set working directory from workspace
     const QString root = workspaceRoot();
@@ -180,11 +286,11 @@ void BuildPlugin::shutdownPlugin()
 
 QWidget *BuildPlugin::createView(const QString &viewId, QWidget *parent)
 {
-    if (viewId == QLatin1String("OutputDock")) {
+    if (viewId == QLatin1String("OutputDock") && m_output) {
         m_output->setParent(parent);
         return m_output;
     }
-    if (viewId == QLatin1String("RunDock")) {
+    if (viewId == QLatin1String("RunDock") && m_runPanel) {
         m_runPanel->setParent(parent);
         return m_runPanel;
     }
@@ -216,9 +322,7 @@ void BuildPlugin::registerCommands()
 
     cmds->registerCommand(QStringLiteral("build.run"), tr("Run Without Debugging"), [this]() {
         const QString exe = m_toolbar ? m_toolbar->selectedTarget() : QString();
-        if (exe.isEmpty())
-            return;
-
+        // exe may be empty; DebugLaunchController auto-discovers after build
         DebugLaunchConfig cfg;
         cfg.executable = exe;
         cfg.workingDir = m_workingDir;
@@ -226,15 +330,17 @@ void BuildPlugin::registerCommands()
     });
 
     cmds->registerCommand(QStringLiteral("build.debug"), tr("Start Debugging"), [this]() {
+        // Lazy wire — debug plugin may have initialized after build plugin.
+        if (!m_debugAdapter)
+            wireDebugAdapter();
+
         if (m_debugAdapter && m_debugAdapter->isRunning()) {
             m_debugAdapter->continueExecution();
             return;
         }
 
         const QString exe = m_toolbar ? m_toolbar->selectedTarget() : QString();
-        if (exe.isEmpty())
-            return;
-
+        // exe may be empty; DebugLaunchController auto-discovers after build
         DebugLaunchConfig cfg;
         cfg.executable = exe;
         cfg.workingDir = m_workingDir;
@@ -242,6 +348,8 @@ void BuildPlugin::registerCommands()
     });
 
     cmds->registerCommand(QStringLiteral("build.stop"), tr("Stop"), [this]() {
+        if (!m_debugAdapter)
+            wireDebugAdapter();
         if (m_launcher)
             m_launcher->stopDebugging();
     });
@@ -280,29 +388,68 @@ void BuildPlugin::installMenus()
 
 void BuildPlugin::wireDebugAdapter()
 {
+    if (m_debugAdapter) return;  // already wired
     auto *adapter = qobject_cast<IDebugAdapter *>(queryService(QStringLiteral("debugAdapter")));
     if (!adapter) return;
 
     m_debugAdapter = adapter;
     m_launcher->setDebugAdapter(adapter);
     m_toolbar->setDebugAdapter(adapter);
+
+    // Use SIGNAL/SLOT (string-based) for cross-DLL connections.
+    // PMF connect (& syntax) silently fails across DLL boundaries because each
+    // plugin DLL has its own MOC copy of IDebugAdapter with different addresses.
+    connect(adapter, SIGNAL(error(QString)),
+            this, SLOT(onAdapterError(QString)));
+    connect(adapter, SIGNAL(outputProduced(QString,QString)),
+            this, SLOT(onAdapterOutput(QString,QString)));
+}
+
+void BuildPlugin::onAdapterOutput(const QString &text, const QString &category)
+{
+    if (category == QStringLiteral("debug") || category == QStringLiteral("stderr")
+            || category == QStringLiteral("console"))
+        m_output->appendBuildLine(text.trimmed(), category == QStringLiteral("stderr"));
+}
+
+void BuildPlugin::onAdapterError(const QString &msg)
+{
+    m_output->appendBuildLine(QStringLiteral("[GDB] ") + msg, /*isError=*/true);
 }
 
 void BuildPlugin::wireConnections()
 {
     // ── Build toolbar → CMake lifecycle ───────────────────────────────────
     connect(m_toolbar, &BuildToolbar::configureRequested, this, [this]() {
+        showPanel(QStringLiteral("OutputDock"));  // show output immediately on action
         m_output->clear();
         m_cmake->configure();
     });
 
     connect(m_cmake, &CMakeIntegration::configureFinished,
-            this, [this](bool success, const QString &) {
-        if (!success) return;
+            this, [this](bool success, const QString &msg) {
+        if (!success) {
+            // Show early-out errors (no CMakeLists.txt, cmake not found, etc.)
+            if (!msg.isEmpty())
+                m_output->appendBuildLine(msg, /*isError=*/true);
+            return;
+        }
         m_toolbar->refresh();
+
+        // Notify LSP (clangd) that compile_commands.json may have changed.
+        // This triggers IntelliSense to become active for the project.
+        const QString ccPath = m_cmake->compileCommandsPath();
+        if (!ccPath.isEmpty()) {
+            if (auto *lsp = queryService(QStringLiteral("lspService"))) {
+                QMetaObject::invokeMethod(lsp, "reloadCompileCommands",
+                                         Qt::QueuedConnection,
+                                         Q_ARG(QString, ccPath));
+            }
+        }
     });
 
     connect(m_toolbar, &BuildToolbar::buildRequested, this, [this]() {
+        showPanel(QStringLiteral("OutputDock"));  // show output immediately on action
         m_output->clear();
         m_cmake->build();
     });
@@ -314,6 +461,8 @@ void BuildPlugin::wireConnections()
     });
 
     connect(m_toolbar, &BuildToolbar::cleanRequested, this, [this]() {
+        showPanel(QStringLiteral("OutputDock"));
+        m_output->clear();
         m_cmake->clean();
     });
 
@@ -323,12 +472,18 @@ void BuildPlugin::wireConnections()
         m_output->appendBuildLine(line, isError);
     });
 
+    // ── Post-build: refresh target list in toolbar ───────────────────────
+    connect(m_cmake, &CMakeIntegration::buildFinished,
+            this, [this](bool success, int) {
+        if (success)
+            m_toolbar->refresh();
+    });
+
     // ── Run (Ctrl+F5) ────────────────────────────────────────────────────
     connect(m_toolbar, &BuildToolbar::runRequested,
             this, [this](const QString &exe) {
-        if (exe.isEmpty()) return;
         DebugLaunchConfig cfg;
-        cfg.executable = exe;
+        cfg.executable = exe;  // may be empty; DebugLaunchController will auto-discover after build
         cfg.workingDir = m_workingDir;
         m_launcher->startWithoutDebugging(cfg);
     });
@@ -336,11 +491,27 @@ void BuildPlugin::wireConnections()
     // ── Debug (F5) ───────────────────────────────────────────────────────
     connect(m_toolbar, &BuildToolbar::debugRequested,
             this, [this](const QString &exe) {
-        if (exe.isEmpty()) return;
+        wireDebugAdapter();  // lazy — debug plugin may activate after build plugin
+        m_output->appendBuildLine(QStringLiteral("[DEBUG] debugRequested: exe=%1 adapter=%2")
+                 .arg(exe.isEmpty() ? QStringLiteral("(empty)") : exe,
+                      m_debugAdapter ? QStringLiteral("yes") : QStringLiteral("NULL")), false);
         DebugLaunchConfig cfg;
-        cfg.executable = exe;
+        cfg.executable = exe;  // may be empty; DebugLaunchController will auto-discover after build
         cfg.workingDir = m_workingDir;
         m_launcher->startDebugging(cfg);
+    });
+
+    // ── Process output → Run panel ──────────────────────────────────────
+    connect(m_launcher, &DebugLaunchController::processOutput,
+            this, [this](const QString &text, bool isError) {
+        showPanel(QStringLiteral("RunDock"));
+        m_runPanel->appendOutput(text, isError);
+    });
+
+    // ── Debug log → output panel ────────────────────────────────────────
+    connect(m_launcher, &DebugLaunchController::debugLog,
+            this, [this](const QString &msg) {
+        m_output->appendBuildLine(msg, false);
     });
 
     // ── Launch errors → notification ─────────────────────────────────────
@@ -350,11 +521,45 @@ void BuildPlugin::wireConnections()
     });
 }
 
+void BuildPlugin::onWorkspaceChanged(const QString &root)
+{
+    // Show build toolbar and output dock now that a project is open
+    if (toolbars())
+        toolbars()->setVisible(QStringLiteral("build"), true);
+    showPanel(QStringLiteral("OutputDock"));
+
+    setWorkingDir(root);
+
+    // Load workspace task/launch configs if present.
+    if (m_output) {
+        const QString tasksPath = root + QStringLiteral("/.exorcist/tasks.json");
+        if (QFileInfo::exists(tasksPath))
+            m_output->loadTasksFromJson(tasksPath);
+    }
+    if (m_runPanel) {
+        const QString launchPath = root + QStringLiteral("/.exorcist/launch.json");
+        if (QFileInfo::exists(launchPath))
+            m_runPanel->loadLaunchJson(launchPath);
+    }
+}
+
 void BuildPlugin::setWorkingDir(const QString &dir)
 {
     m_workingDir = dir;
-    if (m_output) m_output->setWorkingDirectory(dir);
+
+    // Tell CMakeIntegration where the project lives and discover build configs.
+    // This is the critical step that makes Configure/Build work — without it
+    // cmake doesn't know the workspace root and rejects all operations.
+    if (m_cmake) {
+        m_cmake->setProjectRoot(dir);
+        m_cmake->autoDetectConfigs();
+    }
+
+    if (m_output)  m_output->setWorkingDirectory(dir);
     if (m_runPanel) m_runPanel->setWorkingDirectory(dir);
+
+    // Refresh toolbar combos (config list + target list) after config change.
+    if (m_toolbar) m_toolbar->refresh();
 }
 
 #include "buildplugin.moc"

@@ -60,6 +60,20 @@ public:
 
     const QList<DiagnosticMark> &diagnosticMarks() const { return m_diagMarks; }
 
+    // ── Inlay Hints (parameter names, type annotations) ───────────────────
+    struct InlayHint {
+        int     line;       // 0-based
+        int     character;  // 0-based column
+        QString label;
+        bool    paddingLeft  = false;
+        bool    paddingRight = false;
+    };
+    void setInlayHints(const QList<InlayHint> &hints);
+    void clearInlayHints();
+    bool isInlayHintsVisible() const { return m_showInlayHints; }
+    void setInlayHintsVisible(bool visible);
+    int firstVisibleBlockNumber() const;
+
     // ── Inline review annotations ─────────────────────────────────────────
     struct ReviewAnnotation {
         int     line;       // 1-based line number
@@ -197,6 +211,10 @@ private:
     bool                     m_isLargeFilePreview;
     bool                     m_isLoadingChunk;
     QList<DiagnosticMark>    m_diagMarks;
+
+    // Inlay hints
+    QList<InlayHint>         m_inlayHints;
+    bool                     m_showInlayHints = true;
 
     // Ghost text (inline completion)
     QString                  m_ghostText;

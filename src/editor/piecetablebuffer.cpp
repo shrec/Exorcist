@@ -16,7 +16,7 @@ int PieceTableBuffer::length() const
 
 QString PieceTableBuffer::slice(int start, int len) const
 {
-    if (len <= 0 || start >= m_length) {
+    if (len <= 0 || start < 0 || start >= m_length) {
         return {};
     }
 
@@ -86,7 +86,7 @@ void PieceTableBuffer::insert(int pos, const QString &text)
 
 void PieceTableBuffer::remove(int pos, int len)
 {
-    if (len <= 0 || pos >= m_length) {
+    if (len <= 0 || pos < 0 || pos >= m_length) {
         return;
     }
     len = qMin(len, m_length - pos);

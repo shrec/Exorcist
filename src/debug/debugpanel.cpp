@@ -353,8 +353,8 @@ void DebugPanel::onStopClicked()
 void DebugPanel::onWatchInputSubmit()
 {
     const QString expr = m_watchInput->text().trimmed();
-    if (expr.isEmpty() || !m_adapter) return;
-    m_adapter->evaluate(expr);
+    if (expr.isEmpty()) return;
+    m_watchModel->addWatch(expr);  // creates a persistent GDB var-object, not a one-shot evaluate
     m_watchInput->clear();
 }
 
@@ -399,6 +399,9 @@ void DebugPanel::onAdapterStopped(int threadId, DebugStopReason reason,
         m_adapter->requestStackTrace(threadId);
         m_adapter->requestScopes(0);
     }
+
+    // Refresh watch expressions after each stop (picks up changed values)
+    m_watchModel->onDebuggerStopped();
 }
 
 void DebugPanel::onAdapterContinued(int /*threadId*/)

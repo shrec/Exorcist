@@ -3,6 +3,8 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+
+#include <memory>
 #include <QFontComboBox>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -168,8 +170,7 @@ void LanguageSettingsPage::removeLanguage()
     m_mgr->removeProfile(m_currentLang);
     const int row = m_langList->currentRow();
     if (row >= 0) {
-        auto *item = m_langList->takeItem(row);
-        delete item;
+        std::unique_ptr<QListWidgetItem> item(m_langList->takeItem(row));
     }
     m_currentLang.clear();
 }

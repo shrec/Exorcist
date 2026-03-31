@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- Settings sliders: 3 horizontal lines with adjustment circles -->
+  <rect x="1" y="2" width="14" height="1.5" rx="0.75" fill="currentColor"/>
+  <rect x="1" y="7.25" width="14" height="1.5" rx="0.75" fill="currentColor"/>
+  <rect x="1" y="12.5" width="14" height="1.5" rx="0.75" fill="currentColor"/>
+  <!-- Slider circles -->
+  <circle cx="4.5" cy="2.75" r="2.2" fill="currentColor"/>
+  <circle cx="10.5" cy="8" r="2.2" fill="currentColor"/>
+  <circle cx="6" cy="13.25" r="2.2" fill="currentColor"/>
+</svg>

@@ -408,45 +408,9 @@ bool BuiltinTemplateProvider::createCppConsole(const QString &name,
     if (!writeFile(d.filePath(QStringLiteral("CMakeLists.txt")), cmake, error))
         return false;
 
-    // ── CMakePresets.json ────────────────────────────────────────────────
-    const QString presets = QStringLiteral(
-        "{\n"
-        "    \"version\": 3,\n"
-        "    \"configurePresets\": [\n"
-        "        {\n"
-        "            \"name\": \"debug\",\n"
-        "            \"displayName\": \"Debug\",\n"
-        "            \"binaryDir\": \"${sourceDir}/build-debug\",\n"
-        "            \"cacheVariables\": {\n"
-        "                \"CMAKE_BUILD_TYPE\": \"Debug\"\n"
-        "            }\n"
-        "        },\n"
-        "        {\n"
-        "            \"name\": \"release\",\n"
-        "            \"displayName\": \"Release\",\n"
-        "            \"binaryDir\": \"${sourceDir}/build-release\",\n"
-        "            \"cacheVariables\": {\n"
-        "                \"CMAKE_BUILD_TYPE\": \"Release\"\n"
-        "            }\n"
-        "        },\n"
-        "        {\n"
-        "            \"name\": \"relwithdebinfo\",\n"
-        "            \"displayName\": \"Release with Debug Info\",\n"
-        "            \"binaryDir\": \"${sourceDir}/build-relwithdebinfo\",\n"
-        "            \"cacheVariables\": {\n"
-        "                \"CMAKE_BUILD_TYPE\": \"RelWithDebInfo\"\n"
-        "            }\n"
-        "        }\n"
-        "    ],\n"
-        "    \"buildPresets\": [\n"
-        "        { \"name\": \"debug\",          \"configurePreset\": \"debug\" },\n"
-        "        { \"name\": \"release\",        \"configurePreset\": \"release\" },\n"
-        "        { \"name\": \"relwithdebinfo\", \"configurePreset\": \"relwithdebinfo\" }\n"
-        "    ]\n"
-        "}\n");
-
-    if (!writeFile(d.filePath(QStringLiteral("CMakePresets.json")), presets, error))
-        return false;
+    // CMakePresets.json is NOT generated here — it is written by
+    // writeCMakePresetsJson() in MainWindow after project creation,
+    // using the kit selected in the wizard (compiler + generator paths).
 
     // ── src/main.cpp ─────────────────────────────────────────────────────
     const QString mainCpp = QStringLiteral(

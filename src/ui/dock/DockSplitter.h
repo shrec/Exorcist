@@ -1,11 +1,28 @@
 #pragma once
 
 #include <QSplitter>
+#include <QSplitterHandle>
 #include <QList>
 
 namespace exdock {
 
 class DockArea;
+
+/// VS2022-style splitter handle — shows a thin blue highlight line on hover.
+class DockSplitterHandle : public QSplitterHandle
+{
+    Q_OBJECT
+public:
+    explicit DockSplitterHandle(Qt::Orientation orientation, QSplitter *parent);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+    void enterEvent(QEnterEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+
+private:
+    bool m_hovered = false;
+};
 
 /// A splitter that holds DockAreas and/or other DockSplitters to form
 /// a recursive layout tree. When a child area is removed and only one
@@ -23,6 +40,11 @@ class DockSplitter : public QSplitter
 public:
     explicit DockSplitter(Qt::Orientation orient,
                           QWidget *parent = nullptr);
+
+protected:
+    QSplitterHandle *createHandle() override;
+
+public:
 
     /// Insert a widget (DockArea or DockSplitter) at a position.
     void insertChildWidget(int index, QWidget *widget);
@@ -60,6 +82,11 @@ public:
     /// Set minimum size for a specific child index.
     void setChildMinimumSize(int index, int minSize);
 
+    /// Permanent splitters (root/center) are never collapsed or self-deleted
+    /// by removeChild, even when only one child remains.
+    void setPermanent(bool permanent) { m_permanent = permanent; }
+    bool isPermanent() const { return m_permanent; }
+
     /// Resize event — ensure minimum sizes enforced after layout.
     QSize minimumSizeHint() const override;
 
@@ -72,7 +99,8 @@ private:
 
     QList<int> m_stretchFactors;
     QList<int> m_minSizes;
-    bool       m_firstShow = true;
+    bool       m_firstShow  = true;
+    bool       m_permanent  = false;
 };
 
 } // namespace exdock

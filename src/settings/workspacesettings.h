@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QFileSystemWatcher>
+#include <QHash>
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
@@ -74,4 +75,7 @@ private:
     QJsonObject m_wsJson;
 
     std::unique_ptr<QFileSystemWatcher> m_watcher;
+
+    // Per-key cache of global QSettings values to avoid repeated registry access
+    mutable QHash<QString, QVariant> m_globalCache;
 };

@@ -1007,6 +1007,32 @@ void EditorView::setDiagnostics(const QJsonArray &lspDiagnostics)
     m_lineNumberArea->update();
 }
 
+// ── Inlay Hints ──────────────────────────────────────────────────────────────
+
+void EditorView::setInlayHints(const QList<InlayHint> &hints)
+{
+    m_inlayHints = hints;
+    viewport()->update();
+}
+
+void EditorView::clearInlayHints()
+{
+    m_inlayHints.clear();
+    viewport()->update();
+}
+
+void EditorView::setInlayHintsVisible(bool visible)
+{
+    if (m_showInlayHints == visible) return;
+    m_showInlayHints = visible;
+    viewport()->update();
+}
+
+int EditorView::firstVisibleBlockNumber() const
+{
+    return firstVisibleBlock().blockNumber();
+}
+
 void EditorView::refreshDiagnosticSelections()
 {
     // Keep current-line highlight, then add diagnostic underlines on top
@@ -1383,6 +1409,55 @@ void EditorView::paintEvent(QPaintEvent *event)
     if (m_multiCursor->hasMultipleCursors()) {
         QPainter painter(viewport());
         paintMultiCursors(painter);
+    }
+
+    // ── Inlay hints ───────────────────────────────────────────────────────
+    if (m_showInlayHints && !m_inlayHints.isEmpty()) {
+        QPainter painter(viewport());
+        painter.setRenderHint(QPainter::Antialiasing, false);
+
+        QFont hintFont = font();
+        hintFont.setPointSizeF(hintFont.pointSizeF() * 0.85);
+        painter.setFont(hintFont);
+        const QFontMetrics hfm(hintFont);
+        const QFontMetrics efm(font());
+
+        const QColor bgColor(70, 70, 70, 180);
+        const QColor fgColor(180, 180, 220);
+
+        for (const InlayHint &hint : std::as_const(m_inlayHints)) {
+            QTextBlock block = document()->findBlockByNumber(hint.line);
+            if (!block.isValid()) continue;
+
+            const QRectF geo = blockBoundingGeometry(block).translated(contentOffset());
+            if (geo.top() > viewport()->height() || geo.bottom() < 0)
+                continue;
+
+            // x position: character offset within the line
+            const QString lineText = block.text().left(hint.character);
+            const int xPos = efm.horizontalAdvance(lineText);
+
+            // Build label with optional padding
+            QString label;
+            if (hint.paddingLeft)  label += QLatin1Char(' ');
+            label += hint.label;
+            if (hint.paddingRight) label += QLatin1Char(' ');
+
+            const int labelW = hfm.horizontalAdvance(label) + 6; // 3px padding each side
+            const int labelH = hfm.height();
+            const int yTop = qRound(geo.top() + (geo.height() - labelH) / 2.0);
+
+            // Background rounded rect
+            const QRect bgRect(xPos + 2, yTop, labelW, labelH);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(bgColor);
+            painter.drawRoundedRect(bgRect, 3, 3);
+
+            // Text
+            painter.setPen(fgColor);
+            painter.drawText(bgRect.adjusted(3, 0, -3, 0),
+                             Qt::AlignVCenter | Qt::AlignLeft, label);
+        }
     }
 
     if (m_ghostText.isEmpty() || m_ghostBlock < 0)

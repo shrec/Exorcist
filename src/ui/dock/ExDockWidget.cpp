@@ -11,6 +11,15 @@ ExDockWidget::ExDockWidget(const QString &title, QWidget *parent)
     : QWidget(parent)
     , m_title(title)
 {
+    // Give this widget a stable native HWND so that when DockManager
+    // reparents it into a QStackedWidget (via insertWidget), Qt uses
+    // Win32 SetParent() on our HWND rather than traversing our children
+    // and reparenting their HWNDs individually. Without this, any
+    // WA_NativeWindow child (e.g. UltralightWidget) would have its HWND
+    // moved separately, which corrupts Qt's internal widget state on
+    // Windows (RBP=1 / READ at 0xFFFF… crash).
+    setAttribute(Qt::WA_NativeWindow);
+
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(0);

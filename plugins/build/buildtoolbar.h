@@ -54,6 +54,10 @@ signals:
     /// Build config selection changed.
     void configChanged(int index);
 
+private slots:
+    void onDebugStarted();
+    void onDebugTerminated();
+
 private:
     void setupUi();
     void updateButtonStates(bool building, bool debugging);

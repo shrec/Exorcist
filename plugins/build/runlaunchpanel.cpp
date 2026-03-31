@@ -361,6 +361,19 @@ void RunLaunchPanel::runProfile(const LaunchProfile &profile)
     emit processStarted(profile.name);
 }
 
+// ── Public API ────────────────────────────────────────────────────────────────
+
+void RunLaunchPanel::appendOutput(const QString &text, bool isError)
+{
+    QTextCharFormat fmt;
+    fmt.setForeground(isError ? QColor(0xf4, 0x47, 0x47) : QColor(0xcc, 0xcc, 0xcc));
+    QTextCursor cur = m_output->textCursor();
+    cur.movePosition(QTextCursor::End);
+    cur.insertText(text, fmt);
+    m_output->verticalScrollBar()->setValue(
+        m_output->verticalScrollBar()->maximum());
+}
+
 // ── Slots ─────────────────────────────────────────────────────────────────────
 
 void RunLaunchPanel::onReadyReadStdout()

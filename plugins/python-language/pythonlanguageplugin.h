@@ -22,5 +22,8 @@ private:
     bool initializePlugin() override;
     void shutdownPlugin() override;
 
+    void registerPythonCommands();
+    void installPythonMenu();
+
     std::unique_ptr<ProcessLanguageServer> m_server;
 };

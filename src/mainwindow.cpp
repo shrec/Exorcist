@@ -18,16 +18,21 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QVBoxLayout>
+#include <QApplication>
 #include <QCoreApplication>
+#include <QLineEdit>
 #include <QStatusBar>
+#include <QTextEdit>
 #include <QTabWidget>
 #include <QToolBar>
 #include <QTreeView>
 #include <QUuid>
 #include <QInputDialog>
 #include <QClipboard>
+#include <QCryptographicHash>
 #include <QDesktopServices>
 #include <QMessageBox>
+#include <QScrollBar>
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -126,6 +131,7 @@
 #include "sdk/ilspservice.h"
 #include "sdk/ibuildsystem.h"
 #include "sdk/ilaunchservice.h"
+#include "build/kit.h"
 #include "bootstrap/bridgebootstrap.h"
 #include "bootstrap/sharedservicesbootstrap.h"
 #include "bootstrap/templateservicesbootstrap.h"
@@ -135,6 +141,7 @@
 #include "bootstrap/dockbootstrap.h"
 #include "bootstrap/workbenchcommandbootstrap.h"
 #include "bootstrap/workbenchstatebootstrap.h"
+#include "bootstrap/postpluginbootstrap.h"
 #include "editor/symboloutlinepanel.h"
 #include "sdk/iterminalservice.h"
 #include "project/projectmanager.h"
@@ -272,6 +279,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Debug adapter — registered by debug plugin (plugins/debug/)
 
     m_fileSystem = std::make_unique<QtFileSystem>();
+    m_editorMgr->setFileSystem(m_fileSystem.get());
 
     // ── ExoBridge bootstrap ─────────────────────────────────────────────
     {
@@ -293,1152 +301,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_agentPlatform = new AgentPlatformBootstrap(
         m_agentOrchestrator, m_services.get(), m_fileSystem.get(), this);
 
-    AgentPlatformBootstrap::Callbacks agentCallbacks;
+    auto agentCallbacks = buildAgentCallbacks();
 
-    // ── Basic context getters (already working) ───────────────────────────
-    agentCallbacks.openFilesGetter = [this]() {
-        QStringList paths;
-        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-            auto *ed = m_editorMgr->editorAt(i);
-            const QString fp = ed ? ed->property("filePath").toString() : QString();
-            if (!fp.isEmpty())
-                paths.append(fp);
-        }
-        return paths;
-    };
-
-    agentCallbacks.gitStatusGetter = [this]() -> QString {
-        if (!m_gitService || !m_gitService->isGitRepo()) return {};
-        QString result = QStringLiteral("Branch: %1\n").arg(m_gitService->currentBranch());
-        const auto statuses = m_gitService->fileStatuses();
-        for (auto it = statuses.begin(); it != statuses.end(); ++it)
-            result += QStringLiteral("  %1 %2\n").arg(it.value(), it.key());
-        return result;
-    };
-
-    agentCallbacks.terminalOutputGetter = [this]() -> QString {
-        auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService")));
-        if (!ts) return {};
-        return ts->recentOutput(80);
-    };
-
-    agentCallbacks.diagnosticsGetter = [this]() -> QList<AgentDiagnostic> {
-        auto *ed = currentEditor();
-        if (!ed) return {};
-        QList<AgentDiagnostic> result;
-        const QString path = ed->property("filePath").toString();
-        for (const DiagnosticMark &d : ed->diagnosticMarks()) {
-            AgentDiagnostic ag;
-            ag.filePath = path;
-            ag.line     = d.line;
-            ag.column   = d.startChar;
-            ag.message  = d.message;
-            ag.severity = (d.severity == DiagSeverity::Error)
-                ? AgentDiagnostic::Severity::Error
-                : (d.severity == DiagSeverity::Warning)
-                    ? AgentDiagnostic::Severity::Warning
-                    : AgentDiagnostic::Severity::Info;
-            result.append(ag);
-        }
-        return result;
-    };
-
-    agentCallbacks.changedFilesGetter = [this]() -> QHash<QString, QString> {
-        if (!m_gitService || !m_gitService->isGitRepo()) return {};
-        return m_gitService->fileStatuses();
-    };
-
-    agentCallbacks.gitDiffGetter = [this](const QString &filePath) -> QString {
-        if (!m_gitService || !m_gitService->isGitRepo()) return {};
-        return m_gitService->diff(filePath);
-    };
-
-    // ── Debug adapter callbacks ───────────────────────────────────────────
-    agentCallbacks.debugBreakpointSetter =
-        [this](const QString &filePath, int line, const QString &condition) -> QString {
-        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
-        if (!adapter) return {};
-        DebugBreakpoint bp;
-        bp.filePath  = filePath;
-        bp.line      = line;
-        bp.condition = condition;
-        bp.enabled   = true;
-        adapter->addBreakpoint(bp);
-        return QStringLiteral("Breakpoint set at %1:%2").arg(filePath).arg(line);
-    };
-
-    agentCallbacks.debugBreakpointRemover =
-        [this](const QString &filePath, int line) -> bool {
-        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
-        if (!adapter) return false;
-        // Find breakpoint ID by file:line and remove it
-        Q_UNUSED(filePath)
-        adapter->removeBreakpoint(line);
-        return true;
-    };
-
-    agentCallbacks.debugStackGetter = [this](int threadId) -> QString {
-        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
-        if (!adapter || !adapter->isRunning()) return {};
-        QString result;
-        QEventLoop loop;
-        auto conn = connect(adapter, &IDebugAdapter::stackTraceReceived,
-            &loop, [&](int tid, const QList<DebugFrame> &frames) {
-                if (tid != threadId) return;
-                for (const auto &f : frames)
-                    result += QStringLiteral("#%1 %2 at %3:%4\n")
-                        .arg(f.id).arg(f.name, f.filePath).arg(f.line);
-                loop.quit();
-            });
-        QTimer::singleShot(5000, &loop, &QEventLoop::quit);
-        adapter->requestStackTrace(threadId);
-        loop.exec();
-        disconnect(conn);
-        return result;
-    };
-
-    agentCallbacks.debugVariablesGetter = [this](int variablesRef) -> QString {
-        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
-        if (!adapter || !adapter->isRunning()) return {};
-        QString result;
-        QEventLoop loop;
-        auto conn = connect(adapter, &IDebugAdapter::variablesReceived,
-            &loop, [&](int ref, const QList<DebugVariable> &vars) {
-                if (ref != variablesRef) return;
-                for (const auto &v : vars)
-                    result += QStringLiteral("%1 %2 = %3\n")
-                        .arg(v.type, v.name, v.value);
-                loop.quit();
-            });
-        QTimer::singleShot(5000, &loop, &QEventLoop::quit);
-        adapter->requestVariables(variablesRef);
-        loop.exec();
-        disconnect(conn);
-        return result;
-    };
-
-    agentCallbacks.debugEvaluator = [this](const QString &expression, int frameId) -> QString {
-        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
-        if (!adapter || !adapter->isRunning()) return {};
-        QString result;
-        QEventLoop loop;
-        auto conn = connect(adapter, &IDebugAdapter::evaluateResult,
-            &loop, [&](const QString &expr, const QString &val) {
-                if (expr == expression) {
-                    result = val;
-                    loop.quit();
-                }
-            });
-        QTimer::singleShot(5000, &loop, &QEventLoop::quit);
-        adapter->evaluate(expression, frameId);
-        loop.exec();
-        disconnect(conn);
-        return result;
-    };
-
-    agentCallbacks.debugStepper = [this](const QString &action) -> bool {
-        auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
-        if (!adapter || !adapter->isRunning()) return false;
-        if (action == QLatin1String("over"))     adapter->stepOver();
-        else if (action == QLatin1String("into")) adapter->stepInto();
-        else if (action == QLatin1String("out"))  adapter->stepOut();
-        else if (action == QLatin1String("continue")) adapter->continueExecution();
-        else return false;
-        return true;
-    };
-
-    // ── Screenshot ────────────────────────────────────────────────────────
-    agentCallbacks.widgetGrabber = [this](const QString &target) -> QPixmap {
-        if (target == QLatin1String("window"))
-            return grab();
-        if (target == QLatin1String("editor")) {
-            auto *ed = currentEditor();
-            return ed ? ed->grab() : QPixmap();
-        }
-        if (target == QLatin1String("terminal")) {
-            auto *d = dock(QStringLiteral("TerminalDock"));
-            return d ? d->grab() : QPixmap();
-        }
-        if (target == QLatin1String("debug")) {
-            auto *d = dock(QStringLiteral("DebugDock"));
-            return d ? d->grab() : QPixmap();
-        }
-        if (target == QLatin1String("agent") || target == QLatin1String("chat"))
-            return m_chatPanel ? m_chatPanel->grab() : QPixmap();
-        if (target == QLatin1String("search")) {
-            auto *d = dock(QStringLiteral("SearchDock"));
-            return d ? d->grab() : QPixmap();
-        }
-        if (target == QLatin1String("git")) {
-            auto *d = dock(QStringLiteral("GitDock"));
-            return d ? d->grab() : QPixmap();
-        }
-        return grab();
-    };
-
-    // ── Introspection ─────────────────────────────────────────────────────
-    agentCallbacks.introspectionHandler = [this](const QString &query) -> QString {
-        if (query == QLatin1String("services") && m_services)
-            return m_services->keys().join(QLatin1Char('\n'));
-        if (query == QLatin1String("plugins") && m_pluginManager) {
-            QStringList names;
-            for (const auto &lp : m_pluginManager->loadedPlugins())
-                names << lp.manifest.name;
-            return names.join(QLatin1Char('\n'));
-        }
-        if (query == QLatin1String("tools") && m_agentPlatform && m_agentPlatform->toolRegistry())
-            return m_agentPlatform->toolRegistry()->availableToolNames().join(QLatin1Char('\n'));
-        if (query == QLatin1String("config"))
-            return QStringLiteral("Workspace: %1\nFolder: %2")
-                .arg(QCoreApplication::applicationDirPath(), m_editorMgr->currentFolder());
-        return QStringLiteral("Unknown query: %1. Try: services, plugins, tools, config")
-            .arg(query);
-    };
-
-    // (LuaJIT executor is wired below, before initialize() call)
-
-    // ── Code graph / intelligence ─────────────────────────────────────────
-    agentCallbacks.symbolSearchFn = [this](const QString &query, int maxResults) -> QString {
-        auto *sidx = dynamic_cast<SymbolIndex *>(m_services->service(QStringLiteral("symbolIndex")));
-        if (!sidx) return {};
-        const auto syms = sidx->search(query, maxResults);
-        QString result;
-        for (const auto &s : syms) {
-            static const char *kindNames[] =
-                {"class", "function", "struct", "enum", "namespace", "variable", "method"};
-            result += QStringLiteral("%1 [%2] %3:%4\n")
-                .arg(s.name,
-                     QLatin1String(kindNames[static_cast<int>(s.kind)]),
-                     s.filePath)
-                .arg(s.line);
-        }
-        return result;
-    };
-
-    agentCallbacks.symbolsInFileFn = [this](const QString &filePath) -> QString {
-        auto *sidx = dynamic_cast<SymbolIndex *>(m_services->service(QStringLiteral("symbolIndex")));
-        if (!sidx) return {};
-        const auto syms = sidx->symbolsInFile(filePath);
-        QString result;
-        for (const auto &s : syms) {
-            static const char *kindNames[] =
-                {"class", "function", "struct", "enum", "namespace", "variable", "method"};
-            result += QStringLiteral("L%1 %2 [%3]\n")
-                .arg(s.line)
-                .arg(s.name,
-                     QLatin1String(kindNames[static_cast<int>(s.kind)]));
-        }
-        return result;
-    };
-
-    agentCallbacks.findReferencesFn =
-        [this](const QString &filePath, int line, int column) -> QString {
-        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
-        if (!lspClient || !lspClient->isInitialized()) return {};
-        const QString uri = LspClient::pathToUri(filePath);
-        QString result;
-        QEventLoop loop;
-        auto conn = connect(lspClient, &LspClient::referencesResult,
-            &loop, [&](const QString &resUri, const QJsonArray &locations) {
-                Q_UNUSED(resUri)
-                for (const auto &loc : locations) {
-                    const QJsonObject obj = loc.toObject();
-                    const QJsonObject range = obj[QLatin1String("range")].toObject();
-                    const QJsonObject start = range[QLatin1String("start")].toObject();
-                    const QString locUri = obj[QLatin1String("uri")].toString();
-                    // Convert file URI back to path
-                    QString path = QUrl(locUri).toLocalFile();
-                    result += QStringLiteral("%1:%2:%3\n")
-                        .arg(path)
-                        .arg(start[QLatin1String("line")].toInt() + 1)
-                        .arg(start[QLatin1String("character")].toInt() + 1);
-                }
-                loop.quit();
-            });
-        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
-        lspClient->requestReferences(uri, line - 1, column - 1);
-        loop.exec();
-        disconnect(conn);
-        return result;
-    };
-
-    agentCallbacks.findDefinitionFn =
-        [this](const QString &filePath, int line, int column) -> QString {
-        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
-        if (!lspClient || !lspClient->isInitialized()) return {};
-        const QString uri = LspClient::pathToUri(filePath);
-        QString result;
-        QEventLoop loop;
-        auto conn = connect(lspClient, &LspClient::definitionResult,
-            &loop, [&](const QString &resUri, const QJsonArray &locations) {
-                Q_UNUSED(resUri)
-                for (const auto &loc : locations) {
-                    const QJsonObject obj = loc.toObject();
-                    const QJsonObject range = obj[QLatin1String("range")].toObject();
-                    const QJsonObject start = range[QLatin1String("start")].toObject();
-                    const QString locUri = obj[QLatin1String("uri")].toString();
-                    QString path = QUrl(locUri).toLocalFile();
-                    result += QStringLiteral("%1:%2:%3\n")
-                        .arg(path)
-                        .arg(start[QLatin1String("line")].toInt() + 1)
-                        .arg(start[QLatin1String("character")].toInt() + 1);
-                }
-                loop.quit();
-            });
-        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
-        lspClient->requestDefinition(uri, line - 1, column - 1);
-        loop.exec();
-        disconnect(conn);
-        return result;
-    };
-
-    agentCallbacks.chunkSearchFn = [this](const QString &query, int maxResults) -> QString {
-        if (!m_aiServices || !m_aiServices->chunkIndex()) return {};
-        const auto chunks = m_aiServices->chunkIndex()->search(query, maxResults);
-        QString result;
-        for (const auto &c : chunks) {
-            result += QStringLiteral("── %1:%2-%3")
-                .arg(c.filePath).arg(c.startLine + 1).arg(c.endLine + 1);
-            if (!c.symbol.isEmpty())
-                result += QStringLiteral(" (%1)").arg(c.symbol);
-            result += QLatin1Char('\n');
-            result += c.content;
-            result += QLatin1Char('\n');
-        }
-        return result;
-    };
-
-    // ── Build & test (via ServiceRegistry) ──────────────────────────────
-    agentCallbacks.buildProjectFn =
-        [this](const QString &target, std::atomic<bool> &cancelled) -> BuildProjectTool::BuildResult {
-        auto *buildSvc = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
-        if (!buildSvc)
-            return {false, QStringLiteral("No build system configured."), -1};
-        QString output;
-        bool success = false;
-        int exitCode = -1;
-        QEventLoop loop;
-        auto connOut = connect(buildSvc, &IBuildSystem::buildOutput,
-            &loop, [&](const QString &line, bool isError) {
-                Q_UNUSED(isError)
-                output += line + QLatin1Char('\n');
-            });
-        auto connDone = connect(buildSvc, &IBuildSystem::buildFinished,
-            &loop, [&](bool ok, int code) {
-                success  = ok;
-                exitCode = code;
-                loop.quit();
-            });
-        // Safety timeout
-        QTimer::singleShot(120000, &loop, &QEventLoop::quit);
-        // Cancel check — poll every 200ms so tool responds promptly
-        QTimer cancelCheck;
-        QObject::connect(&cancelCheck, &QTimer::timeout, &loop, [&]() {
-            if (cancelled.load()) loop.quit();
-        });
-        cancelCheck.start(200);
-        buildSvc->build(target);
-        loop.exec();
-        disconnect(connOut);
-        disconnect(connDone);
-        if (cancelled.load())
-            return {false, QStringLiteral("Build cancelled."), -1};
-        return {success, output, exitCode};
-    };
-
-    agentCallbacks.runTestsFn =
-        [this](const QString &scope, const QString &filter,
-               std::atomic<bool> &cancelled) -> RunTestsTool::TestResult {
-        Q_UNUSED(scope)
-        auto *buildSvc = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
-        if (!buildSvc)
-            return {false, 0, 0, 0, QStringLiteral("No build system.")};
-        const QString buildDir = buildSvc->buildDirectory();
-        if (buildDir.isEmpty())
-            return {false, 0, 0, 0, QStringLiteral("No build directory.")};
-        QStringList args = {QStringLiteral("--test-dir"), buildDir,
-                            QStringLiteral("--output-on-failure")};
-        if (!filter.isEmpty())
-            args << QStringLiteral("-R") << filter;
-        QProcess proc;
-        proc.setWorkingDirectory(buildDir);
-        proc.start(QStringLiteral("ctest"), args);
-        // Poll with cancel check instead of blocking waitForFinished
-        constexpr int kTestTimeout = 120000;
-        QElapsedTimer elapsed;
-        elapsed.start();
-        while (!proc.waitForFinished(200)) {
-            if (elapsed.elapsed() > kTestTimeout || cancelled.load()) {
-                proc.kill();
-                proc.waitForFinished(2000);
-                break;
-            }
-        }
-        const QString output = QString::fromUtf8(proc.readAllStandardOutput())
-                             + QString::fromUtf8(proc.readAllStandardError());
-        const int exitCode = proc.exitCode();
-        if (cancelled.load()) {
-            m_lastTestResult = {false, 0, 0, 0, QStringLiteral("Tests cancelled.")};
-            return m_lastTestResult;
-        }
-        int passed = 0, failed = 0, total = 0;
-        QRegularExpression re(QStringLiteral("(\\d+)% tests passed, (\\d+) tests failed out of (\\d+)"));
-        auto match = re.match(output);
-        if (match.hasMatch()) {
-            failed = match.captured(2).toInt();
-            total  = match.captured(3).toInt();
-            passed = total - failed;
-        }
-        m_lastTestResult = {exitCode == 0, passed, failed, total, output};
-        return m_lastTestResult;
-    };
-
-    agentCallbacks.buildTargetsGetter = [this]() -> QStringList {
-        auto *buildSvc = m_services->service<IBuildSystem>(QStringLiteral("buildSystem"));
-        if (!buildSvc) return {};
-        return buildSvc->targets();
-    };
-
-    // ── Code formatting ───────────────────────────────────────────────────
-    agentCallbacks.codeFormatter =
-        [this](const QString &filePath, const QString &content,
-               const QString &language, int rangeStart, int rangeEnd)
-            -> FormatCodeTool::FormatResult {
-        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
-        if (!lspClient || !lspClient->isInitialized())
-            return {false, {}, {}, QStringLiteral("LSP not available."), {}};
-        const QString uri = LspClient::pathToUri(filePath);
-        FormatCodeTool::FormatResult result;
-        QEventLoop loop;
-        auto conn = connect(lspClient, &LspClient::formattingResult,
-            &loop, [&](const QString &resUri, const QJsonArray &textEdits) {
-                Q_UNUSED(resUri)
-                if (textEdits.isEmpty()) {
-                    result = {true, content, {}, {}, QStringLiteral("LSP")};
-                } else {
-                    result.ok = true;
-                    result.formatterUsed = QStringLiteral("LSP (clangd)");
-                    result.formatted = content; // simplified — edits applied by caller
-                    QStringList changes;
-                    for (const auto &e : textEdits)
-                        changes << e.toObject()[QLatin1String("newText")].toString();
-                    result.diff = changes.join(QLatin1Char('\n'));
-                }
-                loop.quit();
-            });
-        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
-        Q_UNUSED(language)
-        if (rangeStart > 0 && rangeEnd > 0)
-            lspClient->requestRangeFormatting(uri, rangeStart - 1, 0, rangeEnd - 1, 0);
-        else
-            lspClient->requestFormatting(uri);
-        loop.exec();
-        disconnect(conn);
-        return result;
-    };
-
-    // ── Refactoring (LSP) ─────────────────────────────────────────────────
-    agentCallbacks.refactorer =
-        [this](const QString &operation, const QString &filePath,
-               int line, int column, const QString &newName,
-               int rangeStartLine, int rangeEndLine) -> RefactorTool::RefactorResult {
-        Q_UNUSED(rangeStartLine) Q_UNUSED(rangeEndLine)
-        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
-        if (!lspClient || !lspClient->isInitialized())
-            return {false, 0, 0, {}, {}, QStringLiteral("LSP not available.")};
-        if (operation != QLatin1String("rename"))
-            return {false, 0, 0, {}, {},
-                    QStringLiteral("Only 'rename' is currently supported via LSP.")};
-        const QString uri = LspClient::pathToUri(filePath);
-        RefactorTool::RefactorResult result;
-        QEventLoop loop;
-        auto conn = connect(lspClient, &LspClient::renameResult,
-            &loop, [&](const QString &, const QJsonObject &workspaceEdit) {
-                applyWorkspaceEdit(workspaceEdit);
-                const auto changes = workspaceEdit[QLatin1String("changes")].toObject();
-                result.ok = true;
-                result.filesChanged = changes.keys().size();
-                int edits = 0;
-                for (const auto &key : changes.keys())
-                    edits += changes[key].toArray().size();
-                result.editsApplied = edits;
-                result.summary = QStringLiteral("Renamed to '%1': %2 edits across %3 files.")
-                    .arg(newName).arg(edits).arg(result.filesChanged);
-                loop.quit();
-            });
-        QTimer::singleShot(15000, &loop, &QEventLoop::quit);
-        lspClient->requestRename(uri, line - 1, column - 1, newName);
-        loop.exec();
-        disconnect(conn);
-        return result;
-    };
-
-    // ── Ask user ──────────────────────────────────────────────────────────
-    agentCallbacks.userPrompter =
-        [this](const QString &question, const QStringList &options,
-               bool allowFreeText) -> AskUserTool::UserResponse {
-        if (options.isEmpty() || allowFreeText) {
-            bool ok = false;
-            const QString answer = QInputDialog::getText(
-                this, tr("Agent Question"), question,
-                QLineEdit::Normal, QString(), &ok);
-            return {ok, answer, -1};
-        }
-        // Multiple choice via QMessageBox
-        QStringList labels = options;
-        if (labels.size() <= 3) {
-            auto box = std::make_unique<QMessageBox>(this);
-            box->setWindowTitle(tr("Agent Question"));
-            box->setText(question);
-            QList<QPushButton *> buttons;
-            for (const QString &opt : labels)
-                buttons << box->addButton(opt, QMessageBox::ActionRole);
-            box->addButton(QMessageBox::Cancel);
-            box->exec();
-            int idx = -1;
-            for (int i = 0; i < buttons.size(); ++i) {
-                if (box->clickedButton() == buttons[i]) { idx = i; break; }
-            }
-            bool answered = idx >= 0;
-            return {answered, answered ? labels[idx] : QString(), idx};
-        }
-        // Many options → use QInputDialog combo
-        bool ok = false;
-        const QString chosen = QInputDialog::getItem(
-            this, tr("Agent Question"), question, labels, 0, false, &ok);
-        int idx = ok ? labels.indexOf(chosen) : -1;
-        return {ok, chosen, idx};
-    };
-
-    // ── Editor context ────────────────────────────────────────────────────
-    agentCallbacks.editorStateGetter = [this]() -> EditorContextTool::EditorState {
-        EditorContextTool::EditorState state;
-        auto *ed = currentEditor();
-        if (!ed) return state;
-        state.activeFilePath = ed->property("filePath").toString();
-        const QTextCursor cur = ed->textCursor();
-        state.cursorLine   = cur.blockNumber() + 1;
-        state.cursorColumn = cur.positionInBlock() + 1;
-        state.selectedText = cur.selectedText();
-        if (cur.hasSelection()) {
-            state.selectionStartLine = cur.document()->findBlock(cur.selectionStart()).blockNumber() + 1;
-            state.selectionEndLine   = cur.document()->findBlock(cur.selectionEnd()).blockNumber() + 1;
-        }
-        state.totalLines = ed->document()->blockCount();
-        state.language   = ed->languageId();
-        state.isModified = ed->document()->isModified();
-        // Viewport
-        const QTextCursor topCur = ed->cursorForPosition(QPoint(0, 0));
-        state.visibleStartLine = topCur.blockNumber() + 1;
-        const QTextCursor botCur = ed->cursorForPosition(
-            QPoint(0, ed->viewport()->height() - 1));
-        state.visibleEndLine = botCur.blockNumber() + 1;
-        // Open files
-        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-            auto *tab = m_editorMgr->editorAt(i);
-            const QString fp = tab ? tab->property("filePath").toString() : QString();
-            if (!fp.isEmpty())
-                state.openFiles.append(fp);
-        }
-        return state;
-    };
-
-    // ── Change impact analysis ────────────────────────────────────────────
-    agentCallbacks.changeImpactAnalyzer =
-        [this](const QString &filePath, int line, int column,
-               const QString &changeType) -> ChangeImpactTool::ImpactResult {
-        ChangeImpactTool::ImpactResult result;
-        result.ok = false;
-        // Use LSP references to estimate impact
-        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
-        if (!lspClient || !lspClient->isInitialized()) {
-            result.error = QStringLiteral("LSP not available.");
-            return result;
-        }
-        // Find references synchronously
-        QStringList refFiles;
-        QEventLoop loop;
-        const QString uri = LspClient::pathToUri(filePath);
-        auto conn = connect(lspClient, &LspClient::referencesResult,
-            &loop, [&](const QString &, const QJsonArray &locations) {
-                for (const auto &loc : locations) {
-                    QString path = QUrl(loc.toObject()[QLatin1String("uri")].toString()).toLocalFile();
-                    if (!refFiles.contains(path))
-                        refFiles.append(path);
-                }
-                loop.quit();
-            });
-        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
-        lspClient->requestReferences(uri, line - 1, column - 1);
-        loop.exec();
-        disconnect(conn);
-        result.ok = true;
-        result.directReferences = refFiles.size();
-        result.affectedFiles    = refFiles;
-        // Risk scoring
-        Q_UNUSED(changeType)
-        result.riskScore = qBound(1, refFiles.size(), 10);
-        result.summary = QStringLiteral("%1 files reference this symbol.")
-            .arg(refFiles.size());
-        return result;
-    };
-
-    // ── Navigation ────────────────────────────────────────────────────────
-    agentCallbacks.fileOpener =
-        [this](const QString &filePath, int line, int column) -> bool {
-        navigateToLocation(filePath, line - 1, column > 0 ? column - 1 : 0);
-        return true;
-    };
-
-    agentCallbacks.headerSourceSwitcher = [this](const QString &filePath) -> QString {
-        const QFileInfo fi(filePath);
-        const QString base = fi.completeBaseName();
-        const QString dir  = fi.absolutePath();
-        static const QStringList headerExts = {
-            QStringLiteral("h"), QStringLiteral("hpp"), QStringLiteral("hxx"), QStringLiteral("hh")};
-        static const QStringList sourceExts = {
-            QStringLiteral("cpp"), QStringLiteral("cc"), QStringLiteral("cxx"), QStringLiteral("c")};
-        const QString ext = fi.suffix().toLower();
-        const QStringList &searchExts = headerExts.contains(ext) ? sourceExts : headerExts;
-        for (const QString &e : searchExts) {
-            const QString candidate = dir + QLatin1Char('/') + base + QLatin1Char('.') + e;
-            if (QFile::exists(candidate)) return candidate;
-        }
-        return {};
-    };
-
-    // ── LSP rename & usages ───────────────────────────────────────────────
-    agentCallbacks.symbolRenamer =
-        [this](const QString &filePath, int line, int column,
-               const QString &newName) -> QString {
-        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
-        if (!lspClient || !lspClient->isInitialized())
-            return QStringLiteral("Error: LSP not available.");
-        const QString uri = LspClient::pathToUri(filePath);
-        QString result;
-        QEventLoop loop;
-        auto conn = connect(lspClient, &LspClient::renameResult,
-            &loop, [&](const QString &, const QJsonObject &workspaceEdit) {
-                applyWorkspaceEdit(workspaceEdit);
-                const auto changes = workspaceEdit[QLatin1String("changes")].toObject();
-                int edits = 0;
-                for (const auto &key : changes.keys())
-                    edits += changes[key].toArray().size();
-                result = QStringLiteral("%1 edits across %2 files.")
-                    .arg(edits).arg(changes.keys().size());
-                loop.quit();
-            });
-        auto errConn = connect(lspClient, &LspClient::serverError,
-            &loop, [&](const QString &msg) {
-                result = QStringLiteral("Error: %1").arg(msg);
-                loop.quit();
-            });
-        QTimer::singleShot(15000, &loop, &QEventLoop::quit);
-        lspClient->requestRename(uri, line - 1, column - 1, newName);
-        loop.exec();
-        disconnect(conn);
-        disconnect(errConn);
-        return result;
-    };
-
-    agentCallbacks.usageFinder =
-        [this](const QString &filePath, int line, int column) -> QString {
-        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
-        if (!lspClient || !lspClient->isInitialized()) return {};
-        const QString uri = LspClient::pathToUri(filePath);
-        QString result;
-        QEventLoop loop;
-        auto conn = connect(lspClient, &LspClient::referencesResult,
-            &loop, [&](const QString &, const QJsonArray &locations) {
-                for (const auto &loc : locations) {
-                    const QJsonObject obj = loc.toObject();
-                    const QJsonObject range = obj[QLatin1String("range")].toObject();
-                    const QJsonObject start = range[QLatin1String("start")].toObject();
-                    QString path = QUrl(obj[QLatin1String("uri")].toString()).toLocalFile();
-                    result += QStringLiteral("%1:%2:%3\n")
-                        .arg(path)
-                        .arg(start[QLatin1String("line")].toInt() + 1)
-                        .arg(start[QLatin1String("character")].toInt() + 1);
-                }
-                loop.quit();
-            });
-        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
-        lspClient->requestReferences(uri, line - 1, column - 1);
-        loop.exec();
-        disconnect(conn);
-        return result;
-    };
-
-    // ── LuaJIT executor ──────────────────────────────────────────────────
-    agentCallbacks.luaExecutor = [this](const QString &script) -> LuaExecuteTool::LuaResult {
-        auto *engine = m_pluginManager ? m_pluginManager->luaEngine() : nullptr;
-        if (!engine)
-            return {false, {}, {}, QStringLiteral("LuaJIT engine not available."), 0};
-
-        auto adhoc = engine->executeAdhoc(script);
-        return {adhoc.ok, adhoc.output, adhoc.returnValue, adhoc.error,
-                adhoc.memoryUsedBytes};
-    };
-
-    // ── Diff viewer ──────────────────────────────────────────────────────
-    agentCallbacks.diffViewer =
-        [this](const QString &left, const QString &right,
-               const QString &leftTitle, const QString &rightTitle) -> bool {
-        // Display diff in a new dock widget with side-by-side view
-        auto diffWidget = std::make_unique<QWidget>();
-        auto *layout = new QHBoxLayout(diffWidget.get());
-
-        auto leftEdit = std::make_unique<QPlainTextEdit>();
-        leftEdit->setReadOnly(true);
-        leftEdit->setPlainText(left);
-        leftEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
-
-        auto rightEdit = std::make_unique<QPlainTextEdit>();
-        rightEdit->setReadOnly(true);
-        rightEdit->setPlainText(right);
-        rightEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
-
-        auto *leftGroup = new QGroupBox(leftTitle);
-        auto *leftLayout = new QVBoxLayout(leftGroup);
-        leftLayout->addWidget(leftEdit.release());
-
-        auto *rightGroup = new QGroupBox(rightTitle);
-        auto *rightLayout = new QVBoxLayout(rightGroup);
-        rightLayout->addWidget(rightEdit.release());
-
-        layout->addWidget(leftGroup);
-        layout->addWidget(rightGroup);
-
-        auto *dock = new QDockWidget(
-            tr("Diff: %1 vs %2").arg(leftTitle, rightTitle), this);
-        dock->setWidget(diffWidget.release());
-        dock->setAttribute(Qt::WA_DeleteOnClose);
-        addDockWidget(Qt::BottomDockWidgetArea, dock);
-        dock->show();
-        return true;
-    };
-
-    // ── Static analysis callback ─────────────────────────────────────────
-    agentCallbacks.staticAnalyzer =
-        [this](const QString &filePath, const QStringList &checkers,
-               bool fixMode) -> StaticAnalysisTool::AnalysisResult {
-        // Dispatch to the appropriate analyzer based on file extension
-        StaticAnalysisTool::AnalysisResult result;
-        result.ok = false;
-
-        if (filePath.isEmpty()) {
-            result.error = QStringLiteral("No file path provided.");
-            return result;
-        }
-
-        const QFileInfo fi(filePath);
-        const QString suffix = fi.suffix().toLower();
-
-        // Build the command based on language
-        QString program;
-        QStringList args;
-
-        if (suffix == QLatin1String("cpp") || suffix == QLatin1String("cxx") ||
-            suffix == QLatin1String("cc")  || suffix == QLatin1String("c")   ||
-            suffix == QLatin1String("h")   || suffix == QLatin1String("hpp")) {
-            // clang-tidy
-            program = QStringLiteral("clang-tidy");
-            args << filePath;
-            if (!checkers.isEmpty()) {
-                args << QStringLiteral("-checks=%1").arg(checkers.join(QLatin1Char(',')));
-            }
-            if (fixMode)
-                args << QStringLiteral("--fix");
-            // Add compile_commands.json path if available
-            const QString compileDb = m_editorMgr->currentFolder() + QStringLiteral("/build-llvm/compile_commands.json");
-            if (QFileInfo::exists(compileDb))
-                args << QStringLiteral("-p") << m_editorMgr->currentFolder() + QStringLiteral("/build-llvm");
-            result.analyzerUsed = QStringLiteral("clang-tidy");
-
-        } else if (suffix == QLatin1String("py")) {
-            program = QStringLiteral("pylint");
-            args << QStringLiteral("--output-format=text") << filePath;
-            result.analyzerUsed = QStringLiteral("pylint");
-
-        } else if (suffix == QLatin1String("js") || suffix == QLatin1String("ts") ||
-                   suffix == QLatin1String("jsx") || suffix == QLatin1String("tsx")) {
-            program = QStringLiteral("eslint");
-            args << QStringLiteral("--format=compact") << filePath;
-            if (fixMode)
-                args << QStringLiteral("--fix");
-            result.analyzerUsed = QStringLiteral("eslint");
-
-        } else if (suffix == QLatin1String("rs")) {
-            program = QStringLiteral("cargo");
-            args << QStringLiteral("clippy") << QStringLiteral("--message-format=short");
-            result.analyzerUsed = QStringLiteral("clippy");
-
-        } else if (suffix == QLatin1String("go")) {
-            program = QStringLiteral("staticcheck");
-            args << filePath;
-            result.analyzerUsed = QStringLiteral("staticcheck");
-
-        } else {
-            result.error = QStringLiteral("No analyzer available for .%1 files.").arg(suffix);
-            return result;
-        }
-
-        // Run the analyzer process
-        QProcess proc;
-        proc.setWorkingDirectory(m_editorMgr->currentFolder());
-        proc.start(program, args);
-        if (!proc.waitForFinished(55000)) {
-            result.error = QStringLiteral("Analyzer timed out or failed to start: %1").arg(program);
-            return result;
-        }
-
-        result.ok = true;
-        const QString output = QString::fromUtf8(proc.readAllStandardOutput())
-                             + QString::fromUtf8(proc.readAllStandardError());
-
-        // Parse output into findings (simple line-based parsing)
-        const QStringList lines = output.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-        static const QRegularExpression findingRe(
-            QStringLiteral("^(.+?):(\\d+):(\\d+):\\s*(warning|error|note|info):\\s*(.+)$"));
-
-        for (const QString &line : lines) {
-            const QRegularExpressionMatch m = findingRe.match(line);
-            if (m.hasMatch()) {
-                StaticAnalysisTool::Finding f;
-                f.filePath = m.captured(1);
-                f.line     = m.captured(2).toInt();
-                f.column   = m.captured(3).toInt();
-                f.severity = m.captured(4);
-                f.message  = m.captured(5);
-
-                // Extract rule ID if present (e.g. [bugprone-...] or (C1234))
-                static const QRegularExpression ruleRe(
-                    QStringLiteral("\\[([a-zA-Z0-9._-]+)\\]$"));
-                const QRegularExpressionMatch ruleMatch = ruleRe.match(f.message);
-                if (ruleMatch.hasMatch()) {
-                    f.ruleId = ruleMatch.captured(1);
-                    f.message = f.message.left(ruleMatch.capturedStart()).trimmed();
-                }
-
-                if (f.severity == QLatin1String("error"))
-                    result.errorCount++;
-                else if (f.severity == QLatin1String("warning"))
-                    result.warningCount++;
-
-                result.findings.append(f);
-            }
-        }
-
-        return result;
-    };
-
-    // ── Terminal selection callback ──────────────────────────────────────
-    agentCallbacks.terminalSelectionGetter = [this]() -> QString {
-        auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService")));
-        if (!ts) return {};
-        return ts->selectedText();
-    };
-
-    // ── Test failure cache callback ─────────────────────────────────────
-    agentCallbacks.testFailureGetter = [this]() -> RunTestsTool::TestResult {
-        return m_lastTestResult;
-    };
-
-    // ── IDE command execution callbacks ─────────────────────────────────
-    agentCallbacks.commandExecutor = [this](const QString &id) -> bool {
-        auto *cmdSvc = m_hostServices->commandService();
-        return cmdSvc ? cmdSvc->executeCommand(id) : false;
-    };
-    agentCallbacks.commandListGetter = [this]() -> QStringList {
-        auto *cmdSvc = m_hostServices->commandService();
-        return cmdSvc ? cmdSvc->commandIds() : QStringList{};
-    };
-
-    // ── Tree-sitter AST access callbacks ────────────────────────────────
-    auto tsHelper = std::make_shared<TreeSitterAgentHelper>();
-    agentCallbacks.tsFileParser = [tsHelper](const QString &fp, int md) {
-        return tsHelper->parseFile(fp, md);
-    };
-    agentCallbacks.tsQueryRunner = [tsHelper](const QString &fp, const QString &qp) {
-        return tsHelper->runQuery(fp, qp);
-    };
-    agentCallbacks.tsSymbolExtractor = [tsHelper](const QString &fp) {
-        return tsHelper->extractSymbols(fp);
-    };
-    agentCallbacks.tsNodeAtPosition = [tsHelper](const QString &fp, int l, int c) {
-        return tsHelper->nodeAtPosition(fp, l, c);
-    };
-
-    // ── Symbol documentation (LSP hover) ────────────────────────────────
-    agentCallbacks.symbolDocGetter =
-        [this](const QString &filePath, int line, int column) -> SymbolDocTool::DocResult {
-        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
-        if (!lspClient || !lspClient->isInitialized())
-            return {false, {}, {}, {}, QStringLiteral("LSP not available.")};
-        const QString uri = LspClient::pathToUri(filePath);
-        SymbolDocTool::DocResult result;
-        result.ok = false;
-        QEventLoop loop;
-        auto conn = connect(lspClient, &LspClient::hoverResult,
-            &loop, [&](const QString &, int, int, const QString &markdown) {
-                if (markdown.isEmpty()) {
-                    result.error = QStringLiteral("No documentation found at this location.");
-                } else {
-                    result.ok = true;
-                    result.documentation = markdown;
-                    // Try to extract signature (first code block or first line)
-                    const int codeStart = markdown.indexOf(QLatin1String("```"));
-                    if (codeStart >= 0) {
-                        const int lineEnd = markdown.indexOf(QLatin1Char('\n'), codeStart + 3);
-                        const int codeEnd = markdown.indexOf(QLatin1String("```"), lineEnd);
-                        if (lineEnd >= 0 && codeEnd > lineEnd)
-                            result.signature = markdown.mid(lineEnd + 1, codeEnd - lineEnd - 1).trimmed();
-                    }
-                }
-                loop.quit();
-            });
-        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
-        lspClient->requestHover(uri, line - 1, column - 1);
-        loop.exec();
-        disconnect(conn);
-        if (!result.ok && result.error.isEmpty())
-            result.error = QStringLiteral("Hover request timed out.");
-        return result;
-    };
-
-    // ── Code completion (LSP) ───────────────────────────────────────────
-    agentCallbacks.completionGetter =
-        [this](const QString &filePath, int line, int column,
-               const QString &prefix) -> CodeCompletionTool::CompletionResult {
-        Q_UNUSED(prefix)
-        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
-        if (!lspClient || !lspClient->isInitialized())
-            return {false, {}, false, QStringLiteral("LSP not available.")};
-        const QString uri = LspClient::pathToUri(filePath);
-        CodeCompletionTool::CompletionResult result;
-        result.ok = false;
-        QEventLoop loop;
-        auto conn = connect(lspClient, &LspClient::completionResult,
-            &loop, [&](const QString &, int, int,
-                       const QJsonArray &items, bool isIncomplete) {
-                result.ok = true;
-                result.isIncomplete = isIncomplete;
-                static const char *kindNames[] = {
-                    "", "text", "method", "function", "constructor", "field",
-                    "variable", "class", "interface", "module", "property",
-                    "unit", "value", "enum", "keyword", "snippet", "color",
-                    "file", "reference", "folder", "enum_member", "constant",
-                    "struct", "event", "operator", "type_parameter"
-                };
-                for (const auto &item : items) {
-                    const QJsonObject obj = item.toObject();
-                    CodeCompletionTool::CompletionItem ci;
-                    ci.label = obj[QLatin1String("label")].toString();
-                    const int kind = obj[QLatin1String("kind")].toInt();
-                    ci.kind = (kind >= 0 && kind <= 25)
-                        ? QString::fromLatin1(kindNames[kind])
-                        : QString::number(kind);
-                    ci.detail = obj[QLatin1String("detail")].toString();
-                    ci.documentation = obj[QLatin1String("documentation")].toString();
-                    if (ci.documentation.isEmpty()) {
-                        const QJsonObject docObj = obj[QLatin1String("documentation")].toObject();
-                        ci.documentation = docObj[QLatin1String("value")].toString();
-                    }
-                    ci.insertText = obj[QLatin1String("insertText")].toString();
-                    if (ci.insertText.isEmpty())
-                        ci.insertText = ci.label;
-                    result.items.append(ci);
-                }
-                loop.quit();
-            });
-        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
-        lspClient->requestCompletion(uri, line - 1, column - 1);
-        loop.exec();
-        disconnect(conn);
-        if (!result.ok && result.error.isEmpty())
-            result.error = QStringLiteral("Completion request timed out.");
-        return result;
-    };
-
-    // ── Diagram generation (Mermaid CLI) ────────────────────────────────
-    agentCallbacks.diagramRenderer =
-        [this](const QString &markup, const QString &format,
-               const QString &outputPath) -> GenerateDiagramTool::DiagramResult {
-        Q_UNUSED(this)
-        GenerateDiagramTool::DiagramResult result;
-        result.ok = false;
-
-        // Determine output file path
-        QString outFile = outputPath;
-        const QString diagramCache = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
-        QDir().mkpath(diagramCache);
-        if (outFile.isEmpty()) {
-            outFile = diagramCache + QStringLiteral("/exorcist_diagram.svg");
-        }
-
-        // Write markup to a temp input file
-        const QString inputFile = diagramCache + QStringLiteral("/exorcist_diagram_input.mmd");
-        {
-            QFile f(inputFile);
-            if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                result.error = QStringLiteral("Failed to write temp input file.");
-                return result;
-            }
-            f.write(markup.toUtf8());
-        }
-
-        if (format == QLatin1String("mermaid") || format.isEmpty()) {
-            // Use mmdc (Mermaid CLI)
-            QProcess proc;
-            QStringList args = {
-                QStringLiteral("-i"), inputFile,
-                QStringLiteral("-o"), outFile
-            };
-            // Force SVG output unless outputPath ends with .png
-            if (outFile.endsWith(QLatin1String(".png"), Qt::CaseInsensitive))
-                args << QStringLiteral("-e") << QStringLiteral("png");
-
-            proc.start(QStringLiteral("mmdc"), args);
-            if (!proc.waitForFinished(30000)) {
-                result.error = QStringLiteral("mmdc (Mermaid CLI) timed out or not found. "
-                    "Install with: npm install -g @mermaid-js/mermaid-cli");
-                return result;
-            }
-            if (proc.exitCode() != 0) {
-                result.error = QStringLiteral("mmdc failed: %1")
-                    .arg(QString::fromUtf8(proc.readAllStandardError()));
-                return result;
-            }
-        } else if (format == QLatin1String("plantuml")) {
-            // Use plantuml.jar or plantuml command
-            QProcess proc;
-            QStringList args = {
-                QStringLiteral("-tsvg"),
-                QStringLiteral("-o"), QFileInfo(outFile).absolutePath(),
-                inputFile
-            };
-            proc.start(QStringLiteral("plantuml"), args);
-            if (!proc.waitForFinished(30000)) {
-                result.error = QStringLiteral("PlantUML timed out or not found.");
-                return result;
-            }
-            if (proc.exitCode() != 0) {
-                result.error = QStringLiteral("PlantUML failed: %1")
-                    .arg(QString::fromUtf8(proc.readAllStandardError()));
-                return result;
-            }
-            // PlantUML outputs next to input file with .svg extension
-            const QString plantOut = diagramCache + QStringLiteral("/exorcist_diagram_input.svg");
-            if (plantOut != outFile)
-                QFile::rename(plantOut, outFile);
-        } else {
-            result.error = QStringLiteral("Unknown format: %1. Use 'mermaid' or 'plantuml'.").arg(format);
-            return result;
-        }
-
-        // Read SVG content if output is SVG
-        if (outFile.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive)) {
-            QFile f(outFile);
-            if (f.open(QIODevice::ReadOnly))
-                result.svgContent = QString::fromUtf8(f.readAll());
-        }
-        result.pngPath = outFile;
-        result.ok = true;
-        return result;
-    };
-
-    // ── Performance profiling ───────────────────────────────────────────
-    agentCallbacks.profiler =
-        [this](const QString &target, int duration,
-               const QString &type) -> PerformanceProfileTool::ProfileResult {
-        Q_UNUSED(this)
-        PerformanceProfileTool::ProfileResult result;
-        result.ok = false;
-
-        if (target.isEmpty()) {
-            result.error = QStringLiteral("No profiling target specified.");
-            return result;
-        }
-
-#ifdef Q_OS_WIN
-        // Windows: use xperf / WPR or fallback to sampling via tasklist
-        Q_UNUSED(duration) Q_UNUSED(type)
-        QProcess proc;
-        // Use "perf" (WSL) or dotnet-trace, or fallback to basic process stats
-        proc.start(QStringLiteral("powershell"), {
-            QStringLiteral("-Command"),
-            QStringLiteral("Get-Process -Name '%1' -ErrorAction SilentlyContinue | "
-                "Select-Object Name, Id, CPU, WorkingSet64, "
-                "VirtualMemorySize64, HandleCount, Threads | "
-                "Format-List | Out-String").arg(target)
-        });
-        proc.waitForFinished(15000);
-        const QString output = QString::fromUtf8(proc.readAllStandardOutput());
-        if (output.trimmed().isEmpty()) {
-            result.error = QStringLiteral("Process '%1' not found or no data available.").arg(target);
-            return result;
-        }
-        result.ok = true;
-        result.report = output;
-        result.totalMs = 0;
-        result.totalSamples = 0;
-#else
-        if (type == QLatin1String("cpu") || type.isEmpty()) {
-            QProcess proc;
-            proc.start(QStringLiteral("perf"), {
-                QStringLiteral("record"), QStringLiteral("-g"),
-                QStringLiteral("-p"), target,
-                QStringLiteral("--"), QStringLiteral("sleep"),
-                QString::number(duration)
-            });
-            if (!proc.waitForFinished((duration + 5) * 1000)) {
-                result.error = QStringLiteral("perf timed out.");
-                return result;
-            }
-            // Get report
-            QProcess report;
-            report.start(QStringLiteral("perf"), {
-                QStringLiteral("report"), QStringLiteral("--stdio"),
-                QStringLiteral("--no-children")
-            });
-            report.waitForFinished(15000);
-            result.ok = true;
-            result.report = QString::fromUtf8(report.readAllStandardOutput());
-            result.totalMs = duration * 1000.0;
-        } else if (type == QLatin1String("memory")) {
-            QProcess proc;
-            proc.start(QStringLiteral("valgrind"), {
-                QStringLiteral("--tool=massif"),
-                QStringLiteral("--pages-as-heap=yes"),
-                target
-            });
-            proc.waitForFinished(qMax(duration, 10) * 1000);
-            result.ok = true;
-            result.report = QString::fromUtf8(proc.readAllStandardOutput())
-                          + QString::fromUtf8(proc.readAllStandardError());
-        } else {
-            result.error = QStringLiteral("Unsupported profile type: %1").arg(type);
-            return result;
-        }
-#endif
-        return result;
-    };
-
-    // ── Secure key storage ────────────────────────────────────────────────
-    if (auto *ks = m_services->service<SecureKeyStorage>(QStringLiteral("secureKeyStorage"))) {
-        agentCallbacks.secureKeyStorer  = [ks](const QString &svc, const QString &val) {
-            return ks->storeKey(svc, val);
-        };
-        agentCallbacks.secureKeyGetter  = [ks](const QString &svc) {
-            return ks->retrieveKey(svc);
-        };
-        agentCallbacks.secureKeyLister  = [ks]() {
-            return ks->services();
-        };
-        agentCallbacks.secureKeyDeleter = [ks](const QString &svc) {
-            return ks->deleteKey(svc);
-        };
-    }
 
     m_agentPlatform->initialize(agentCallbacks);
     m_agentPlatform->registerCoreTools(m_editorMgr->currentFolder());
@@ -1446,8 +310,17 @@ MainWindow::MainWindow(QWidget *parent)
     // ── Wire LSP diagnostics push to agent (deferred to post-plugin wiring) ──
 
     // Deferred from createDockWidgets — m_agentPlatform was null there.
-    if (m_memoryBrowser)
-        m_memoryBrowser->setBrainService(m_agentPlatform->brainService());
+    // memoryBrowser() is lazy — calling it here would create it early.
+    // Instead, defer setBrainService to when the panel is first opened.
+    if (m_dockBootstrap) {
+        auto *db = m_dockBootstrap;
+        auto *brain = m_agentPlatform->brainService();
+        connect(dock(QStringLiteral("MemoryDock")), &exdock::ExDockWidget::stateChanged,
+                this, [db, brain](exdock::DockState state) {
+            if (state != exdock::DockState::Closed)
+                db->memoryBrowser()->setBrainService(brain);
+        });
+    }
 
     // Wire the orchestrator facade to delegate to the new platform services
     m_agentOrchestrator->setRegistry(m_agentPlatform->providerRegistry());
@@ -1477,38 +350,38 @@ MainWindow::MainWindow(QWidget *parent)
     // Wire request log panel
     connect(ac, &AgentController::turnStarted,
             this, [this](const QString &msg) {
-        m_requestLogPanel->logRequest(QStringLiteral("turn"), QStringLiteral("-"),
+        m_dockBootstrap->requestLogPanel()->logRequest(QStringLiteral("turn"), QStringLiteral("-"),
                                        1, 0);
     });
     connect(ac, &AgentController::turnFinished,
             this, [this](const AgentTurn &turn) {
         const QString text = turn.steps.isEmpty() ? QString() : turn.steps.last().finalText;
-        m_requestLogPanel->logResponse(QStringLiteral("turn"), text.left(500));
+        m_dockBootstrap->requestLogPanel()->logResponse(QStringLiteral("turn"), text.left(500));
     });
     connect(ac, &AgentController::turnError,
             this, [this](const QString &err) {
-        m_requestLogPanel->logError(QStringLiteral("turn"), err);
+        m_dockBootstrap->requestLogPanel()->logError(QStringLiteral("turn"), err);
         NotificationToast::show(this, tr("AI Error: %1").arg(err.left(100)),
                                 NotificationToast::Error, 5000);
     });
     connect(ac, &AgentController::toolCallStarted,
             this, [this](const QString &name, const QJsonObject &args) {
-        m_requestLogPanel->logToolCall(name, args, true, QStringLiteral("started"));
+        m_dockBootstrap->requestLogPanel()->logToolCall(name, args, true, QStringLiteral("started"));
     });
     connect(ac, &AgentController::toolCallFinished,
             this, [this](const QString &name, const ToolExecResult &result) {
-        m_requestLogPanel->logToolCall(name, {}, result.ok,
+        m_dockBootstrap->requestLogPanel()->logToolCall(name, {}, result.ok,
             result.ok ? result.textContent.left(200) : result.error);
     });
 
     // Wire trajectory panel
     connect(ac, &AgentController::turnStarted,
             this, [this](const QString &) {
-        m_trajectoryPanel->clear();
+        m_dockBootstrap->trajectoryPanel()->clear();
     });
     connect(ac, &AgentController::turnFinished,
             this, [this](const AgentTurn &turn) {
-        m_trajectoryPanel->setTurn(turn);
+        m_dockBootstrap->trajectoryPanel()->setTurn(turn);
     });
 
     // Wire memory suggestion engine — suggest facts after each turn
@@ -1559,7 +432,7 @@ MainWindow::MainWindow(QWidget *parent)
         step.toolCall.arguments = QString::fromUtf8(
             QJsonDocument(args).toJson(QJsonDocument::Compact));
         step.toolResult = tr("running...");
-        m_trajectoryPanel->appendStep(step);
+        m_dockBootstrap->trajectoryPanel()->appendStep(step);
     });
     // Wire chat panel now that the controller exists
     if (m_chatPanel) {
@@ -1883,16 +756,111 @@ void MainWindow::setupUi()
         editor->setFocus();
     });
 
-    connect(m_editorMgr->tabs(), &QTabWidget::tabCloseRequested, this, [this](int index) {
-        QWidget *widget = m_editorMgr->tabs()->widget(index);
-        const QString closedPath = widget ? widget->property("filePath").toString() : QString();
-        m_editorMgr->tabs()->removeTab(index);
-        if (widget) {
-            widget->deleteLater();
-        }
-        if (!closedPath.isEmpty() && m_pluginManager)
-            m_pluginManager->fireLuaEvent(QStringLiteral("editor.close"), {closedPath});
+    // Tab close button → EditorManager; Lua event via tabClosed signal
+    connect(m_editorMgr->tabs(), &QTabWidget::tabCloseRequested,
+            m_editorMgr, &EditorManager::closeTab);
+    connect(m_editorMgr, &EditorManager::tabClosed, this, [this](const QString &path) {
+        if (!path.isEmpty() && m_pluginManager)
+            m_pluginManager->fireLuaEvent(QStringLiteral("editor.close"), {path});
     });
+
+    // Status messages from EditorManager → status bar
+    connect(m_editorMgr, &EditorManager::statusMessage, this,
+            [this](const QString &msg, int ms) { statusBar()->showMessage(msg, ms); });
+
+    // Per-editor wiring: called once each time a new file tab is created
+    connect(m_editorMgr, &EditorManager::editorOpened, this,
+            [this](EditorView *editor, const QString &path) {
+        // Recent files
+        if (auto *rfm = findChild<RecentFilesManager *>(
+                QStringLiteral("recentFilesManager")))
+            rfm->addFile(path);
+
+        // Language-profile: activate language-specific plugin if profile is active
+        if (m_pluginManager) {
+            const QString langId = editor->languageId();
+            if (auto *lpm = findChild<LanguageProfileManager *>(
+                    QStringLiteral("languageProfileManager"))) {
+                if (lpm->isActive(langId))
+                    m_pluginManager->activateByLanguageProfile(langId);
+            }
+        }
+
+        // Ctrl+I inline chat
+        connect(editor, &EditorView::inlineChatRequested,
+                this, [this, editor, path](const QString &sel, const QString &lang) {
+            showInlineChat(editor, sel, path, lang);
+        });
+
+        // AI context menu — five actions wired to the chat panel
+        auto wireAiAction = [this](const QString &sel, const QString &fp,
+                                   const QString &lang, const QString &cmd) {
+            m_chatPanel->setEditorContext(fp, sel, lang);
+            m_chatPanel->focusInput();
+            const QString prompt = sel.isEmpty()
+                ? cmd : QStringLiteral("%1 %2").arg(cmd, sel.left(200));
+            m_chatPanel->setInputText(prompt);
+        };
+        connect(editor, &EditorView::aiExplainRequested, this,
+                [wireAiAction](const QString &s, const QString &f, const QString &l) {
+            wireAiAction(s, f, l, QStringLiteral("/explain")); });
+        connect(editor, &EditorView::aiReviewRequested, this,
+                [wireAiAction](const QString &s, const QString &f, const QString &l) {
+            wireAiAction(s, f, l, QStringLiteral("/review")); });
+        connect(editor, &EditorView::aiFixRequested, this,
+                [wireAiAction](const QString &s, const QString &f, const QString &l) {
+            wireAiAction(s, f, l, QStringLiteral("/fix")); });
+        connect(editor, &EditorView::aiTestRequested, this,
+                [wireAiAction](const QString &s, const QString &f, const QString &l) {
+            wireAiAction(s, f, l, QStringLiteral("/test")); });
+        connect(editor, &EditorView::aiDocRequested, this,
+                [wireAiAction](const QString &s, const QString &f, const QString &l) {
+            wireAiAction(s, f, l, QStringLiteral("/doc")); });
+
+        // Alt+\ manual completion trigger
+        connect(editor, &EditorView::manualCompletionRequested, this, [this]() {
+            if (m_inlineEngine) m_inlineEngine->triggerCompletion();
+        });
+
+        // Breakpoint gutter → debug service
+        connect(editor, &EditorView::breakpointToggled, this,
+                [this](const QString &fp, int ln, bool added) {
+            auto *debugSvc = m_services->service<IDebugService>(
+                QStringLiteral("debugService"));
+            auto *adapter = m_services->service<IDebugAdapter>(
+                QStringLiteral("debugAdapter"));
+            if (added) {
+                if (debugSvc) debugSvc->addBreakpointEntry(fp, ln);
+                // Always send to adapter — if not yet launched, it queues for next run
+                if (adapter) {
+                    DebugBreakpoint bp;
+                    bp.filePath = fp;
+                    bp.line = ln;
+                    adapter->addBreakpoint(bp);
+                }
+            } else {
+                if (debugSvc) {
+                    // Remove from adapter using the confirmed breakpoint ID
+                    const int bpId = debugSvc->breakpointIdForLocation(fp, ln);
+                    if (adapter && adapter->isRunning() && bpId >= 0)
+                        adapter->removeBreakpoint(bpId);
+                    debugSvc->removeBreakpointEntry(fp, ln);
+                }
+            }
+        });
+
+        // LSP bridge — sets up completions, hover, go-to-def, symbols, etc.
+        createLspBridge(editor, path);
+
+        // File watcher
+        if (m_workbenchServices && m_workbenchServices->fileWatcher() && !path.isEmpty())
+            m_workbenchServices->fileWatcher()->watchFile(path);
+
+        // Lua event
+        if (m_pluginManager)
+            m_pluginManager->fireLuaEvent(QStringLiteral("editor.open"), {path});
+    });
+
     connect(m_editorMgr->tabs(), &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
     createDockWidgets();
     // No openNewTab() here — welcome page shows first until a project is opened.
@@ -1925,6 +893,7 @@ void MainWindow::setupMenus()
 
     auto *langProfileMgr = new LanguageProfileManager(this);
     langProfileMgr->setObjectName(QStringLiteral("languageProfileManager"));
+    m_editorMgr->setLanguageProfileManager(langProfileMgr);
     QMenu *recentMenu = fileMenu->addMenu(tr("Recent &Files"));
     recentMgr->attachMenu(recentMenu);
     connect(recentMgr, &RecentFilesManager::fileSelected,
@@ -2002,50 +971,64 @@ void MainWindow::setupMenus()
     // ── Edit ──────────────────────────────────────────────────────────────
     QMenu *editMenu = menuBar()->addMenu(tr("&Edit"));
 
+    // Helper: dispatch edit actions to whichever text widget currently has focus.
+    // Non-EditorView text widgets (output panels, search boxes, chat input etc.) must
+    // receive Ctrl+C / Ctrl+A / Ctrl+X / Ctrl+V rather than the code editor.
+    auto dispatchEdit = [this](auto editorCall, auto pteFn, auto teFn, auto leFn) {
+        QWidget *fw = QApplication::focusWidget();
+        if (fw && !qobject_cast<EditorView *>(fw)) {
+            if (auto *pte = qobject_cast<QPlainTextEdit *>(fw)) { (pte->*pteFn)(); return; }
+            if (auto *te  = qobject_cast<QTextEdit *>(fw))      { (te->*teFn)();  return; }
+            if (auto *le  = qobject_cast<QLineEdit *>(fw))      { (le->*leFn)();  return; }
+        }
+        if (auto *e = m_editorMgr->currentEditor())
+            editorCall(e);
+    };
+
     QAction *undoAction = editMenu->addAction(tr("&Undo"));
     undoAction->setShortcut(QKeySequence::Undo);
-    connect(undoAction, &QAction::triggered, this, [this]() {
-        if (auto *e = m_editorMgr->currentEditor())
-            e->undo();
+    connect(undoAction, &QAction::triggered, this, [this, dispatchEdit]() {
+        dispatchEdit([](EditorView *e){ e->undo(); },
+                     &QPlainTextEdit::undo, &QTextEdit::undo, &QLineEdit::undo);
     });
 
     QAction *redoAction = editMenu->addAction(tr("&Redo"));
     redoAction->setShortcut(QKeySequence::Redo);
-    connect(redoAction, &QAction::triggered, this, [this]() {
-        if (auto *e = m_editorMgr->currentEditor())
-            e->redo();
+    connect(redoAction, &QAction::triggered, this, [this, dispatchEdit]() {
+        dispatchEdit([](EditorView *e){ e->redo(); },
+                     &QPlainTextEdit::redo, &QTextEdit::redo, &QLineEdit::redo);
     });
 
     editMenu->addSeparator();
 
     QAction *cutAction = editMenu->addAction(tr("Cu&t"));
     cutAction->setShortcut(QKeySequence::Cut);
-    connect(cutAction, &QAction::triggered, this, [this]() {
-        if (auto *e = m_editorMgr->currentEditor())
-            e->cut();
+    connect(cutAction, &QAction::triggered, this, [this, dispatchEdit]() {
+        dispatchEdit([](EditorView *e){ e->cut(); },
+                     &QPlainTextEdit::cut, &QTextEdit::cut, &QLineEdit::cut);
     });
 
     QAction *copyAction = editMenu->addAction(tr("&Copy"));
     copyAction->setShortcut(QKeySequence::Copy);
-    connect(copyAction, &QAction::triggered, this, [this]() {
-        if (auto *e = m_editorMgr->currentEditor())
-            e->copy();
+    connect(copyAction, &QAction::triggered, this, [this, dispatchEdit]() {
+        dispatchEdit([](EditorView *e){ e->copy(); },
+                     &QPlainTextEdit::copy, &QTextEdit::copy, &QLineEdit::copy);
     });
 
     QAction *pasteAction = editMenu->addAction(tr("&Paste"));
     pasteAction->setShortcut(QKeySequence::Paste);
-    connect(pasteAction, &QAction::triggered, this, [this]() {
-        if (auto *e = m_editorMgr->currentEditor())
-            e->paste();
+    connect(pasteAction, &QAction::triggered, this, [this, dispatchEdit]() {
+        dispatchEdit([](EditorView *e){ e->paste(); },
+                     &QPlainTextEdit::paste, &QTextEdit::paste, &QLineEdit::paste);
     });
 
     editMenu->addSeparator();
 
     QAction *selectAllAction = editMenu->addAction(tr("Select &All"));
     selectAllAction->setShortcut(QKeySequence::SelectAll);
-    connect(selectAllAction, &QAction::triggered, this, [this]() {
-        if (auto *e = m_editorMgr->currentEditor())
-            e->selectAll();
+    connect(selectAllAction, &QAction::triggered, this, [this, dispatchEdit]() {
+        dispatchEdit([](EditorView *e){ e->selectAll(); },
+                     &QPlainTextEdit::selectAll, &QTextEdit::selectAll, &QLineEdit::selectAll);
     });
 
     editMenu->addSeparator();
@@ -2250,7 +1233,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
         EditorView *editor = currentEditor();
         if (!editor) return;
         const QString currentText = editor->toPlainText();
-        m_diffViewer->showDiff(filePath, headText, currentText);
+        m_dockBootstrap->diffViewer()->showDiff(filePath, headText, currentText);
         m_dockManager->showDock(dock(QStringLiteral("DiffDock")), exdock::SideBarArea::Bottom);
     });
 
@@ -2394,7 +1377,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
             m_dockManager->showDock(dock(QStringLiteral("MemoryDock")), exdock::SideBarArea::Right);
         else
             m_dockManager->closeDock(dock(QStringLiteral("MemoryDock")));
-        if (on) m_memoryBrowser->refresh();
+        if (on) m_dockBootstrap->memoryBrowser()->refresh();
     });
     connect(toggleMcpAction,    &QAction::toggled, this, dockToggle(QStringLiteral("McpDock")));
     connect(togglePluginAction, &QAction::toggled, this, dockToggle(QStringLiteral("PluginDock")));
@@ -2527,6 +1510,7 @@ void MainWindow::createDockWidgets()
     //   page 0 = WelcomeWidget   (shown when no project is open)
     //   page 1 = editor container (breadcrumb + tab widget)
     m_centralStack = new QStackedWidget(this);
+    m_editorMgr->setCentralStack(m_centralStack);
 
     m_welcome = new WelcomeWidget(this);
     m_centralStack->addWidget(m_welcome);  // page 0
@@ -2691,19 +1675,13 @@ void MainWindow::createDockWidgets()
         m_dockBootstrap->initialize(d);
     }
 
-    // Cache the most-used panel pointers for ergonomic access
+    // Cache eagerly-created panel pointers (ChatPanel, SymbolOutline,
+    // References, Settings are created in DockBootstrap::initialize).
+    // Other panels are lazy — access via m_dockBootstrap->panel() on demand.
     m_chatPanel        = m_dockBootstrap->chatPanel();
     m_symbolPanel      = m_dockBootstrap->symbolPanel();
     m_referencesPanel  = m_dockBootstrap->referencesPanel();
-    m_requestLogPanel  = m_dockBootstrap->requestLogPanel();
-    m_trajectoryPanel  = m_dockBootstrap->trajectoryPanel();
     m_settingsPanel    = m_dockBootstrap->settingsPanel();
-    m_memoryBrowser    = m_dockBootstrap->memoryBrowser();
-    m_diffViewer       = m_dockBootstrap->diffViewer();
-    m_proposedEditPanel = m_dockBootstrap->proposedEditPanel();
-    m_mcpClient        = m_dockBootstrap->mcpClient();
-    m_themeGallery     = m_dockBootstrap->themeGallery();
-    m_pluginGallery    = m_dockBootstrap->pluginGallery();
 
     // ── Wire signals that need MainWindow state ───────────────────────────
 
@@ -2734,7 +1712,7 @@ void MainWindow::createDockWidgets()
             this, &MainWindow::navigateToLocation);
 
     // Proposed edit → write file + update open editor
-    connect(m_proposedEditPanel, &ProposedEditPanel::editAccepted,
+    connect(m_dockBootstrap->proposedEditPanel(), &ProposedEditPanel::editAccepted,
             this, [this](const QString &filePath, const QString &newText) {
         QFile f(filePath);
         if (f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
@@ -2861,14 +1839,22 @@ void MainWindow::createDockWidgets()
 
     // ── LSP signal wiring — deferred to post-plugin wiring in loadPlugins() ──
 
-    // When MCP discovers new tools, register them in the ToolRegistry
-    connect(m_mcpPanel, &McpPanel::toolsChanged, this, [this]() {
-        const QList<McpToolInfo> tools = m_mcpClient->allTools();
-        for (const McpToolInfo &t : tools) {
-            const QString regName = QStringLiteral("mcp_%1_%2").arg(t.serverName, t.name);
-            if (!m_agentPlatform->toolRegistry()->hasTool(regName))
-                m_agentPlatform->toolRegistry()->registerTool(std::make_unique<McpToolAdapter>(m_mcpClient, t));
-        }
+    // When MCP discovers new tools, register them in the ToolRegistry.
+    // McpPanel is lazy — connect when the dock is first opened.
+    connect(dock(QStringLiteral("McpDock")), &exdock::ExDockWidget::stateChanged,
+            this, [this](exdock::DockState state) {
+        if (state == exdock::DockState::Closed) return;
+        auto *mp = m_dockBootstrap->mcpPanel();
+        // Connect only once (disconnect check)
+        connect(mp, &McpPanel::toolsChanged, this, [this]() {
+            auto *mc = m_dockBootstrap->mcpClient();
+            const QList<McpToolInfo> tools = mc->allTools();
+            for (const McpToolInfo &t : tools) {
+                const QString regName = QStringLiteral("mcp_%1_%2").arg(t.serverName, t.name);
+                if (!m_agentPlatform->toolRegistry()->hasTool(regName))
+                    m_agentPlatform->toolRegistry()->registerTool(std::make_unique<McpToolAdapter>(mc, t));
+            }
+        });
     });
 
     // Wire settings to agent controller
@@ -3041,174 +2027,7 @@ void MainWindow::openFileFromIndex(const QModelIndex &index)
 
 void MainWindow::openFile(const QString &path)
 {
-    if (!m_fileSystem->exists(path)) {
-        statusBar()->showMessage(tr("File not found: %1").arg(path), 4000);
-        return;
-    }
-
-    // Switch from welcome page to editor view
-    if (m_centralStack && m_centralStack->currentIndex() == 0)
-        m_centralStack->setCurrentIndex(1);
-
-    // Track in recent files
-    if (auto *rfm = findChild<RecentFilesManager *>(
-            QStringLiteral("recentFilesManager"))) {
-        rfm->addFile(path);
-    }
-
-    for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-        if (m_editorMgr->tabs()->widget(i)->property("filePath").toString() == path) {
-            m_editorMgr->tabs()->setCurrentIndex(i);
-            return;
-        }
-    }
-
-    auto *editor = new EditorView();
-    constexpr qint64 kLargeFileThreshold = 10 * 1024 * 1024;
-    LargeFileLoader::applyToEditor(editor, path, kLargeFileThreshold);
-    editor->setProperty("filePath", path);
-    HighlighterFactory::create(path, editor->document());
-
-    // Apply saved editor settings
-    {
-        QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
-        s.beginGroup(QStringLiteral("editor"));
-        const QFont font(s.value(QStringLiteral("fontFamily"), QStringLiteral("Consolas")).toString(),
-                         s.value(QStringLiteral("fontSize"), 11).toInt());
-        const int tabSize = s.value(QStringLiteral("tabSize"), 4).toInt();
-        const bool wrap = s.value(QStringLiteral("wordWrap"), false).toBool();
-        const bool minimap = s.value(QStringLiteral("showMinimap"), false).toBool();
-        s.endGroup();
-
-        editor->setFont(font);
-        editor->setTabStopDistance(QFontMetricsF(font).horizontalAdvance(QLatin1Char(' ')) * tabSize);
-        editor->setWordWrapMode(wrap ? QTextOption::WordWrap : QTextOption::NoWrap);
-        editor->setMinimapVisible(minimap);
-    }
-
-    // Set language ID on the editor for inline chat / inline completion
-    const QString langId = LspClient::languageIdForPath(path);
-    editor->setLanguageId(langId);
-
-    // Apply language profile overrides (tab size, indent style)
-    if (auto *lpm = findChild<LanguageProfileManager *>(
-            QStringLiteral("languageProfileManager"))) {
-        QSettings gs(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
-        gs.beginGroup(QStringLiteral("editor"));
-        const int globalTab = gs.value(QStringLiteral("tabSize"), 4).toInt();
-        gs.endGroup();
-
-        const int langTab = lpm->tabSize(langId, globalTab);
-        if (langTab != globalTab) {
-            const QFont f = editor->font();
-            editor->setTabStopDistance(
-                QFontMetricsF(f).horizontalAdvance(QLatin1Char(' ')) * langTab);
-        }
-
-        // Activate language-specific plugins when a file of this language opens
-        if (m_pluginManager && lpm->isActive(langId))
-            m_pluginManager->activateByLanguageProfile(langId);
-    }
-
-    // Ctrl+I inline chat
-    connect(editor, &EditorView::inlineChatRequested,
-            this, [this, editor, path](const QString &sel, const QString &lang) {
-        showInlineChat(editor, sel, path, lang);
-    });
-
-    // AI context menu: wire all five actions to chat panel
-    auto wireAiAction = [this](const QString &sel, const QString &fp,
-                               const QString &lang, const QString &cmd) {
-        m_chatPanel->setEditorContext(fp, sel, lang);
-        m_chatPanel->focusInput();
-        // Build the slash command text and insert it
-        const QString prompt = sel.isEmpty()
-            ? cmd
-            : QStringLiteral("%1 %2").arg(cmd, sel.left(200));
-        m_chatPanel->setInputText(prompt);
-    };
-    connect(editor, &EditorView::aiExplainRequested,
-            this, [wireAiAction](const QString &s, const QString &f, const QString &l) {
-        wireAiAction(s, f, l, QStringLiteral("/explain"));
-    });
-    connect(editor, &EditorView::aiReviewRequested,
-            this, [wireAiAction](const QString &s, const QString &f, const QString &l) {
-        wireAiAction(s, f, l, QStringLiteral("/review"));
-    });
-    connect(editor, &EditorView::aiFixRequested,
-            this, [wireAiAction](const QString &s, const QString &f, const QString &l) {
-        wireAiAction(s, f, l, QStringLiteral("/fix"));
-    });
-    connect(editor, &EditorView::aiTestRequested,
-            this, [wireAiAction](const QString &s, const QString &f, const QString &l) {
-        wireAiAction(s, f, l, QStringLiteral("/test"));
-    });
-    connect(editor, &EditorView::aiDocRequested,
-            this, [wireAiAction](const QString &s, const QString &f, const QString &l) {
-        wireAiAction(s, f, l, QStringLiteral("/doc"));
-    });
-
-    // Alt+\ manual completion trigger
-    connect(editor, &EditorView::manualCompletionRequested,
-            this, [this]() {
-        if (m_inlineEngine)
-            m_inlineEngine->triggerCompletion();
-    });
-
-    // Review annotation navigation (F8 next, Shift+F8 prev)
-    auto *nextRevAction = new QAction(editor);
-    nextRevAction->setShortcut(QKeySequence(Qt::Key_F8));
-    nextRevAction->setShortcutContext(Qt::WidgetShortcut);
-    connect(nextRevAction, &QAction::triggered, editor, &EditorView::nextReviewAnnotation);
-    editor->addAction(nextRevAction);
-
-    auto *prevRevAction = new QAction(editor);
-    prevRevAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F8));
-    prevRevAction->setShortcutContext(Qt::WidgetShortcut);
-    connect(prevRevAction, &QAction::triggered, editor, &EditorView::prevReviewAnnotation);
-    editor->addAction(prevRevAction);
-
-    // Wire breakpoint gutter → debug service (plugin-provided)
-    connect(editor, &EditorView::breakpointToggled,
-            this, [this](const QString &fp, int ln, bool added) {
-        auto *debugSvc = m_services->service<IDebugService>(QStringLiteral("debugService"));
-        if (added) {
-            if (debugSvc) debugSvc->addBreakpointEntry(fp, ln);
-            auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
-            if (adapter) {
-                DebugBreakpoint bp;
-                bp.filePath = fp;
-                bp.line = ln;
-                adapter->addBreakpoint(bp);
-            }
-        } else {
-            if (debugSvc) debugSvc->removeBreakpointEntry(fp, ln);
-            // Adapter breakpoint removal requires the adapter-assigned ID,
-            // which is tracked inside GdbMiAdapter. For now, re-setting
-            // breakpoints on next launch is the simplest approach.
-        }
-    });
-
-    createLspBridge(editor, path);
-
-    const QString title = QFileInfo(path).fileName();
-    int index = m_editorMgr->tabs()->addTab(editor, title);
-    m_editorMgr->tabs()->setTabToolTip(index, QDir::toNativeSeparators(path));
-    m_editorMgr->tabs()->setCurrentIndex(index);
-
-    if (editor->isLargeFilePreview()) {
-        statusBar()->showMessage(tr("Large file preview (read-only)"), 5000);
-        connect(editor, &EditorView::requestMoreData, this, [editor]() {
-            LargeFileLoader::appendNextChunk(editor, 2 * 1024 * 1024);
-        });
-    }
-
-    // Watch for external changes
-    if (m_workbenchServices && m_workbenchServices->fileWatcher() && !path.isEmpty())
-        m_workbenchServices->fileWatcher()->watchFile(path);
-
-    if (m_pluginManager)
-        m_pluginManager->fireLuaEvent(QStringLiteral("editor.open"), {path});
+    m_editorMgr->openFile(path);
 }
 
 void MainWindow::openFolder(const QString &path)
@@ -3250,31 +2069,60 @@ void MainWindow::openFolder(const QString &path)
             .arg(QFileInfo(m_editorMgr->projectManager()->solution().filePath).fileName()), 4000);
     }
 
-    // Notify build plugin of workspace change (via OutputPanel/RunPanel services)
-    if (auto *outPanel = qobject_cast<OutputPanel *>(m_services->service(QStringLiteral("outputPanel")))) {
-        outPanel->setWorkingDirectory(root);
-        const QString tasksPath = root + QStringLiteral("/.exorcist/tasks.json");
-        if (QFileInfo::exists(tasksPath))
-            outPanel->loadTasksFromJson(tasksPath);
-    }
-
-    if (auto *rnPanel = qobject_cast<RunLaunchPanel *>(m_services->service(QStringLiteral("runPanel")))) {
-        rnPanel->setWorkingDirectory(root);
-        const QString launchPath = root + QStringLiteral("/.exorcist/launch.json");
-        if (QFileInfo::exists(launchPath))
-            rnPanel->loadLaunchJson(launchPath);
-    }
     m_editorMgr->setCurrentFolder(root);
-    if (auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService"))))
-        ts->setWorkingDirectory(root);
 
     // Apply workspace-level settings (.exorcist/settings.json)
     if (auto *wss = m_services->service<WorkspaceSettings>(QStringLiteral("workspaceSettings")))
         wss->setWorkspaceRoot(root);
 
-    // Activate plugins with workspaceContains activation events
-    if (m_pluginManager)
+    // Activate plugins with workspaceContains activation events,
+    // then notify all active plugins of the new workspace root.
+    // Each plugin owns its own workspace-change response (cmake setup,
+    // terminal cwd, config reload, etc.) — MainWindow knows nothing about them.
+    if (m_pluginManager) {
         m_pluginManager->activateByWorkspace(root);
+        m_pluginManager->notifyWorkspaceChanged(root);
+    }
+
+    // Wire LSP service signals that loadPlugins() post-wiring may have
+    // missed for deferred plugins (e.g. CppLanguagePlugin activated above).
+    if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService"))) {
+        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
+        qWarning() << "[LSP-DIAG] openFolder deferred wiring: lspSvc found, lspClient="
+                   << (lspClient ? "yes" : "null");
+        if (lspClient) {
+            connect(lspClient, &LspClient::initialized,
+                    this, &MainWindow::onLspInitialized, Qt::UniqueConnection);
+        }
+        connect(lspSvc, &ILspService::navigateToLocation,
+                this, &MainWindow::navigateToLocation, Qt::UniqueConnection);
+        connect(lspSvc, &ILspService::referencesReady,
+                this, [this](const QJsonArray &locations) {
+            if (m_referencesPanel)
+                m_referencesPanel->showReferences(tr("Symbol"), locations);
+            if (dock(QStringLiteral("ReferencesDock")))
+                m_dockManager->showDock(dock(QStringLiteral("ReferencesDock")), exdock::SideBarArea::Bottom);
+        }, Qt::UniqueConnection);
+        connect(lspSvc, &ILspService::workspaceEditRequested,
+                this, &MainWindow::applyWorkspaceEdit, Qt::UniqueConnection);
+        connect(lspSvc, &ILspService::statusMessage,
+                this, [this](const QString &msg, int timeout) {
+            statusBar()->showMessage(msg, timeout);
+        }, Qt::UniqueConnection);
+        if (lspClient && m_agentPlatform) {
+            if (auto *notifier = m_agentPlatform->diagnosticsNotifier()) {
+                connect(lspClient, &LspClient::diagnosticsPublished,
+                        notifier, &DiagnosticsNotifier::onDiagnosticsPublished,
+                        Qt::UniqueConnection);
+            }
+        }
+        if (lspClient && m_hostServices) {
+            connect(lspClient, &LspClient::diagnosticsPublished,
+                    m_hostServices->diagnosticsService(),
+                    &DiagnosticsServiceImpl::onDiagnosticsPublished,
+                    Qt::UniqueConnection);
+        }
+    }
 
     if (auto *profileMgr = qobject_cast<ProfileManager *>(
             m_services->service(QStringLiteral("profileManager")))) {
@@ -3544,6 +2392,153 @@ void MainWindow::openFolder(const QString &path)
     // SearchPlugin owns WorkspaceIndexer and wires status bar updates internally.
     if (auto *srch = dynamic_cast<ISearchService *>(m_services->service(QStringLiteral("searchService"))))
         srch->indexWorkspace(root);
+
+    // Restore previously open editor tabs for this workspace
+    {
+        QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+        const QString wsKey = QStringLiteral("workspace/")
+                              + QString::fromUtf8(QCryptographicHash::hash(
+                                    root.toUtf8(), QCryptographicHash::Md5).toHex());
+        s.beginGroup(wsKey);
+
+        const QString tabsJson = s.value(QStringLiteral("openTabs")).toString();
+        const int savedActive  = s.value(QStringLiteral("activeTab"), -1).toInt();
+        const QString bpsJson  = s.value(QStringLiteral("breakpoints")).toString();
+        s.endGroup();
+
+        if (!tabsJson.isEmpty()) {
+            const QJsonArray tabs = QJsonDocument::fromJson(tabsJson.toUtf8()).array();
+            if (!tabs.isEmpty()) {
+                // Close the blank tab that was created above
+                if (m_editorMgr->tabs()->count() == 1) {
+                    QWidget *first = m_editorMgr->tabs()->widget(0);
+                    if (first && first->property("filePath").toString().isEmpty())
+                        m_editorMgr->closeTab(0);
+                }
+
+                for (const QJsonValue &v : tabs) {
+                    const QJsonObject entry = v.toObject();
+                    const QString fp = entry[QLatin1String("path")].toString();
+                    if (fp.isEmpty() || !QFileInfo::exists(fp))
+                        continue;
+
+                    m_editorMgr->openFile(fp);
+
+                    // Restore cursor and scroll position
+                    const int line   = entry[QLatin1String("line")].toInt(-1);
+                    const int col    = entry[QLatin1String("column")].toInt(0);
+                    const int scroll = entry[QLatin1String("scroll")].toInt(-1);
+                    if (line >= 0) {
+                        if (auto *ev = m_editorMgr->currentEditor()) {
+                            QTextCursor tc = ev->textCursor();
+                            tc.movePosition(QTextCursor::Start);
+                            tc.movePosition(QTextCursor::Down, QTextCursor::MoveAnchor, line);
+                            tc.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, col);
+                            ev->setTextCursor(tc);
+                            if (scroll >= 0)
+                                ev->verticalScrollBar()->setValue(scroll);
+                        }
+                    }
+                }
+
+                // Restore the active tab
+                if (savedActive >= 0 && savedActive < m_editorMgr->tabs()->count())
+                    m_editorMgr->tabs()->setCurrentIndex(savedActive);
+            }
+        }
+
+        // Restore breakpoints: set gutter markers and queue for next debug session
+        if (!bpsJson.isEmpty()) {
+            const QJsonArray bps = QJsonDocument::fromJson(bpsJson.toUtf8()).array();
+            auto *adapter = m_services->service<IDebugAdapter>(QStringLiteral("debugAdapter"));
+            for (const QJsonValue &v : bps) {
+                const QJsonObject bp = v.toObject();
+                const QString fp   = bp[QLatin1String("file")].toString();
+                const int line     = bp[QLatin1String("line")].toInt(0);
+                if (fp.isEmpty() || line <= 0) continue;
+
+                // Restore gutter marker on open editor (if the file is open)
+                for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+                    auto *ev = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+                    if (ev && ev->property("filePath").toString() == fp) {
+                        QSet<int> lines = ev->breakpointLines();
+                        lines.insert(line);
+                        ev->setBreakpointLines(lines);
+                        break;
+                    }
+                }
+
+                // Queue breakpoint for the next debug session
+                if (adapter) {
+                    DebugBreakpoint dbp;
+                    dbp.filePath = fp;
+                    dbp.line     = line;
+                    adapter->addBreakpoint(dbp);
+                }
+            }
+        }
+    }
+}
+
+// Write CMakePresets.json for the selected kit so CMake uses the right
+// compiler and generator without manual reconfiguration.  When no kit is
+// selected the preset still defaults to Ninja so CMake never falls back
+// to the Visual Studio / MSVC generator on Windows.
+static void writeCMakePresetsJson(const QString &projectDir, const Kit &kit)
+{
+    const QString generator = kit.generator.isEmpty()
+                                ? QStringLiteral("Ninja") : kit.generator;
+
+    // Base cache variables: compiler paths if known
+    QJsonObject baseCacheVars;
+    if (!kit.cCompilerPath.isEmpty())
+        baseCacheVars[QStringLiteral("CMAKE_C_COMPILER")]   = kit.cCompilerPath;
+    if (!kit.cxxCompilerPath.isEmpty())
+        baseCacheVars[QStringLiteral("CMAKE_CXX_COMPILER")] = kit.cxxCompilerPath;
+    if (!kit.debuggerPath.isEmpty())
+        baseCacheVars[QStringLiteral("CMAKE_DEBUGGER")]     = kit.debuggerPath;
+    if (!kit.generatorPath.isEmpty())
+        baseCacheVars[QStringLiteral("CMAKE_MAKE_PROGRAM")] = kit.generatorPath;
+
+    // Three presets: debug, release, relwithdebinfo
+    struct PresetInfo { QString suffix; QString display; QString buildType; };
+    const PresetInfo infos[] = {
+        { QStringLiteral("debug"),          QStringLiteral("Debug"),                QStringLiteral("Debug") },
+        { QStringLiteral("release"),        QStringLiteral("Release"),              QStringLiteral("Release") },
+        { QStringLiteral("relwithdebinfo"), QStringLiteral("Release with Debug Info"), QStringLiteral("RelWithDebInfo") },
+    };
+
+    QJsonArray configurePresets;
+    QJsonArray buildPresets;
+
+    for (const auto &p : infos) {
+        QJsonObject vars = baseCacheVars;
+        vars[QStringLiteral("CMAKE_BUILD_TYPE")] = p.buildType;
+
+        QJsonObject cfg;
+        cfg[QStringLiteral("name")]           = p.suffix;
+        cfg[QStringLiteral("displayName")]    = p.display;
+        cfg[QStringLiteral("generator")]      = generator;
+        cfg[QStringLiteral("binaryDir")]      = QStringLiteral("${sourceDir}/build-") + p.suffix;
+        cfg[QStringLiteral("cacheVariables")] = vars;
+        configurePresets.append(cfg);
+
+        QJsonObject bld;
+        bld[QStringLiteral("name")]            = p.suffix;
+        bld[QStringLiteral("configurePreset")] = p.suffix;
+        buildPresets.append(bld);
+    }
+
+    QJsonObject root;
+    root[QStringLiteral("version")]          = 3;
+    root[QStringLiteral("configurePresets")] = configurePresets;
+    root[QStringLiteral("buildPresets")]     = buildPresets;
+
+    const QString presetsPath = projectDir + QStringLiteral("/CMakePresets.json");
+    QFile f(presetsPath);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    }
 }
 
 void MainWindow::newSolution()
@@ -3553,7 +2548,8 @@ void MainWindow::newSolution()
     if (!registry)
         return;
 
-    NewProjectWizard wizard(registry, m_editorMgr->currentFolder(), this);
+    auto *kitMgr = m_services->service<IKitManager>(QStringLiteral("kitManager"));
+    NewProjectWizard wizard(registry, m_editorMgr->currentFolder(), kitMgr, this);
     if (wizard.exec() != QDialog::Accepted)
         return;
 
@@ -3561,60 +2557,30 @@ void MainWindow::newSolution()
     if (projectDir.isEmpty())
         return;
 
-    // The wizard creates:  <location>/<ProjectName>/  with project files.
-    // We treat that parent directory as the solution root and create .exsln there.
-    //
-    // VS-style structure:
-    //   <location>/<SolutionName>/
-    //   ├── <SolutionName>.exsln
-    //   └── <ProjectName>/        ← created by wizard
-    //       ├── CMakeLists.txt
-    //       └── src/main.cpp
-    //
-    // When SolutionName == ProjectName (common case), the wizard already
-    // created  <location>/<Name>/<files>  so we wrap one level up.
+    // Generate CMakePresets.json in the project dir so CMake uses the
+    // right compiler + generator without manual configuration.  Even when
+    // no kit is selected the preset defaults to the Ninja generator so
+    // CMake never falls back to the Visual Studio / MSVC generator.
+    writeCMakePresetsJson(projectDir, wizard.selectedKit());
+
+    // Single-project creation: the .exsln lives alongside the project files
+    // in the same directory.  No VS-style nesting for the common case (one
+    // project = one solution).  Multi-project solutions are built later via
+    // "Add Project to Solution" which places each project in its own subdir.
 
     const QDir projDir(projectDir);
     const QString projectName = projDir.dirName();
-    const QString solutionRoot = projDir.absolutePath();  // this IS the project dir
+    const QString solutionRoot = projDir.absolutePath();
 
-    // If the wizard put files directly in <location>/<name>, we need to move
-    // them into a subdirectory so the solution root stays clean.
-    // Check if CMakeLists.txt or any build file is at project root level.
-    const bool hasProjectFiles = QFileInfo::exists(projDir.filePath(QStringLiteral("CMakeLists.txt")))
-                              || QFileInfo::exists(projDir.filePath(QStringLiteral("Cargo.toml")))
-                              || QFileInfo::exists(projDir.filePath(QStringLiteral("go.mod")))
-                              || QFileInfo::exists(projDir.filePath(QStringLiteral("package.json")))
-                              || QFileInfo::exists(projDir.filePath(QStringLiteral("pyproject.toml")))
-                              || QFileInfo::exists(projDir.filePath(QStringLiteral("main.py")))
-                              || QFileInfo::exists(projDir.filePath(QStringLiteral("build.zig")));
-
-    if (hasProjectFiles) {
-        // Move all content into a subdirectory with the same name
-        const QString subDir = solutionRoot + QStringLiteral("/__tmp_proj__");
-        QDir().mkpath(subDir);
-        const QFileInfoList entries = projDir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot);
-        for (const QFileInfo &fi : entries) {
-            if (fi.fileName() == QStringLiteral("__tmp_proj__"))
-                continue;
-            QFile::rename(fi.absoluteFilePath(),
-                          subDir + QStringLiteral("/") + fi.fileName());
-        }
-        // Rename __tmp_proj__ to projectName
-        const QString finalProjDir = solutionRoot + QStringLiteral("/") + projectName;
-        QDir().rename(subDir, finalProjDir);
-    }
-
-    // Create .exsln solution file at solution root
+    // Create .exsln solution file alongside project files
     const QString slnPath = solutionRoot + QStringLiteral("/") + projectName + QStringLiteral(".exsln");
     auto *pm = m_editorMgr->projectManager();
     pm->createSolution(projectName, slnPath);
-    pm->addProject(projectName,
-                   solutionRoot + QStringLiteral("/") + projectName,
+    pm->addProject(projectName, solutionRoot,
                    wizard.selectedLanguage(), wizard.selectedTemplateId());
     pm->saveSolution();
 
-    // Open the solution root
+    // Open the project root (which is also the solution root)
     openFolder(solutionRoot);
 }
 
@@ -3669,13 +2635,16 @@ void MainWindow::addProjectToSolution()
         if (!registry)
             return;
 
-        NewProjectWizard wizard(registry, pm->activeSolutionDir(), this);
+        auto *kitMgr2 = m_services->service<IKitManager>(QStringLiteral("kitManager"));
+        NewProjectWizard wizard(registry, pm->activeSolutionDir(), kitMgr2, this);
         if (wizard.exec() != QDialog::Accepted)
             return;
 
         const QString projectDir = wizard.createdProjectPath();
         if (projectDir.isEmpty())
             return;
+
+        writeCMakePresetsJson(projectDir, wizard.selectedKit());
 
         const QString projectName = QDir(projectDir).dirName();
         pm->addProject(projectName, projectDir,
@@ -3912,6 +2881,56 @@ void MainWindow::saveSettings()
         s.setValue(QStringLiteral("dockState"),
                    QString::fromUtf8(QJsonDocument(dockState).toJson(QJsonDocument::Compact)));
     }
+
+    // Save open editor tabs per workspace
+    const QString wsRoot = m_editorMgr->projectManager()->activeSolutionDir();
+    if (!wsRoot.isEmpty() && m_editorMgr->tabs()) {
+        const QString wsKey = QStringLiteral("workspace/")
+                              + QString::fromUtf8(QCryptographicHash::hash(
+                                    wsRoot.toUtf8(), QCryptographicHash::Md5).toHex());
+        s.beginGroup(wsKey);
+
+        QJsonArray tabs;
+        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+            QWidget *w = m_editorMgr->tabs()->widget(i);
+            if (!w) continue;
+            const QString fp = w->property("filePath").toString();
+            if (fp.isEmpty()) continue;
+
+            QJsonObject entry;
+            entry[QLatin1String("path")] = fp;
+            if (auto *ev = qobject_cast<EditorView *>(w)) {
+                const QTextCursor tc = ev->textCursor();
+                entry[QLatin1String("line")]   = tc.blockNumber();
+                entry[QLatin1String("column")] = tc.columnNumber();
+                entry[QLatin1String("scroll")] = ev->verticalScrollBar()->value();
+            }
+            tabs.append(entry);
+        }
+
+        s.setValue(QStringLiteral("openTabs"),
+                   QString::fromUtf8(QJsonDocument(tabs).toJson(QJsonDocument::Compact)));
+        s.setValue(QStringLiteral("activeTab"), m_editorMgr->tabs()->currentIndex());
+
+        // Save breakpoints (gutter markers) for this workspace
+        QJsonArray bps;
+        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+            auto *ev = qobject_cast<EditorView *>(m_editorMgr->tabs()->widget(i));
+            if (!ev) continue;
+            const QString fp = ev->property("filePath").toString();
+            if (fp.isEmpty()) continue;
+            for (int line : ev->breakpointLines()) {
+                QJsonObject bp;
+                bp[QLatin1String("file")] = fp;
+                bp[QLatin1String("line")] = line;
+                bps.append(bp);
+            }
+        }
+        s.setValue(QStringLiteral("breakpoints"),
+                   QString::fromUtf8(QJsonDocument(bps).toJson(QJsonDocument::Compact)));
+
+        s.endGroup();
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -3919,7 +2938,16 @@ void MainWindow::closeEvent(QCloseEvent *event)
     saveSettings();
     if (m_agentPlatform && m_agentPlatform->brainService())
         m_agentPlatform->brainService()->save();
+
+    // Shut down plugins BEFORE window destruction — kills child processes
+    // (clangd, GDB, build tools, etc.) so the process can exit cleanly.
+    if (m_pluginManager)
+        m_pluginManager->shutdownAll();
+
     QMainWindow::closeEvent(event);
+
+    // Ensure the application quits even if child widgets/processes linger.
+    QMetaObject::invokeMethod(qApp, &QCoreApplication::quit, Qt::QueuedConnection);
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
@@ -3975,30 +3003,17 @@ void MainWindow::showTabContextMenu(int tabIndex, const QPoint &globalPos)
 
     // Close
     menu.addAction(tr("Close"), this, [this, tabIndex]() {
-        QWidget *w = m_editorMgr->tabs()->widget(tabIndex);
-        m_editorMgr->tabs()->removeTab(tabIndex);
-        if (w) w->deleteLater();
+        m_editorMgr->closeTab(tabIndex);
     });
 
     // Close All Tabs
     menu.addAction(tr("Close All Tabs"), this, [this]() {
-        while (m_editorMgr->tabs()->count() > 0) {
-            QWidget *w = m_editorMgr->tabs()->widget(0);
-            m_editorMgr->tabs()->removeTab(0);
-            if (w) w->deleteLater();
-        }
+        m_editorMgr->closeAllTabs();
     });
 
     // Close Other Tabs
     menu.addAction(tr("Close Other Tabs"), this, [this, tabIndex]() {
-        QWidget *keep = m_editorMgr->tabs()->widget(tabIndex);
-        for (int i = m_editorMgr->tabs()->count() - 1; i >= 0; --i) {
-            if (m_editorMgr->tabs()->widget(i) != keep) {
-                QWidget *w = m_editorMgr->tabs()->widget(i);
-                m_editorMgr->tabs()->removeTab(i);
-                if (w) w->deleteLater();
-            }
-        }
+        m_editorMgr->closeOtherTabs(tabIndex);
     });
 
     menu.addSeparator();
@@ -4030,7 +3045,12 @@ EditorView *MainWindow::currentEditor() const
 void MainWindow::createLspBridge(EditorView *editor, const QString &path)
 {
     auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
-    if (!lspClient) return;
+    if (!lspClient) {
+        qWarning() << "[LSP-DIAG] createLspBridge: lspClient is null, skipping bridge for" << path;
+        return;
+    }
+    qWarning() << "[LSP-DIAG] createLspBridge: creating bridge for" << path 
+               << "initialized=" << lspClient->isInitialized();
 
     // Bridge is parented to the editor — auto-deleted when the tab is closed.
     auto *bridge = new LspEditorBridge(editor, lspClient, path, editor);
@@ -4183,6 +3203,7 @@ void MainWindow::navigateToLocation(const QString &path, int line, int character
 
 void MainWindow::onLspInitialized()
 {
+    qWarning() << "[LSP-DIAG] onLspInitialized() called, tabs=" << m_editorMgr->tabs()->count();
     // Open bridges for any tabs that were already open before LSP was ready.
     for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
         auto *editor = m_editorMgr->editorAt(i);
@@ -4430,12 +3451,13 @@ void MainWindow::loadPlugins()
     const QString pluginDir = QCoreApplication::applicationDirPath() + "/plugins";
     int loaded = m_pluginManager->loadPluginsFrom(pluginDir);
 
-    // Wire plugin gallery panel
-    if (m_pluginGallery) {
-        m_pluginGallery->setPluginManager(m_pluginManager.get());
+    // Wire plugin gallery panel (lazy — created on demand)
+    {
+        auto *pg = m_dockBootstrap->pluginGallery();
+        pg->setPluginManager(m_pluginManager.get());
 
         // Marketplace service — owned by gallery panel (no MainWindow member)
-        auto *marketplace = new PluginMarketplaceService(m_pluginGallery);
+        auto *marketplace = new PluginMarketplaceService(pg);
         marketplace->setPluginManager(m_pluginManager.get());
         marketplace->setPluginsDirectory(pluginDir);
         m_services->registerService(QStringLiteral("pluginMarketplace"), marketplace);
@@ -4445,11 +3467,11 @@ void MainWindow::loadPlugins()
                                      + QLatin1String("/plugin_registry.json");
         if (QFile::exists(registryPath)) {
             marketplace->loadRegistryFromFile(registryPath);
-            m_pluginGallery->loadRegistryFromFile(registryPath);
+            m_dockBootstrap->pluginGallery()->loadRegistryFromFile(registryPath);
         }
 
         // Wire install button → download & install
-        connect(m_pluginGallery, &PluginGalleryPanel::installRequested,
+        connect(pg, &PluginGalleryPanel::installRequested,
                 marketplace, [marketplace, this](const QString &pluginId, const QString &downloadUrl) {
             for (const auto &entry : marketplace->entries()) {
                 if (entry.id == pluginId) {
@@ -4466,7 +3488,7 @@ void MainWindow::loadPlugins()
 
         // Refresh gallery when a plugin is installed
         connect(marketplace, &PluginMarketplaceService::pluginInstalled,
-                m_pluginGallery, &PluginGalleryPanel::refreshInstalled);
+                pg, &PluginGalleryPanel::refreshInstalled);
     }
 
     // Create SDK host services for the new plugin interface
@@ -4571,9 +3593,13 @@ void MainWindow::loadPlugins()
     const QString luaPluginDir = QCoreApplication::applicationDirPath() + "/plugins/lua";
     m_pluginManager->loadLuaPluginsFrom(luaPluginDir, m_hostServices);
 
-    // Process plugin manifests → wire contributions into the IDE
+    // Process plugin manifests → wire contributions into the IDE.
+    // Skip deferred plugins: they haven't been initialized yet (createView()
+    // members are null), and their manifests will be registered by
+    // activateByWorkspace() / activateByEvent() once they're actually activated.
     for (const auto &lp : m_pluginManager->loadedPlugins()) {
-        if (lp.manifest.hasContributions()) {
+        if (lp.manifest.hasContributions()
+                && !m_pluginManager->isPluginDeferred(lp.instance)) {
             m_contributions->registerManifest(
                 lp.manifest.id.isEmpty() ? lp.instance->info().id : lp.manifest.id,
                 lp.manifest, lp.instance);
@@ -4587,185 +3613,63 @@ void MainWindow::loadPlugins()
             return lc ? lc->id : QString();
         });
 
-    // ── Post-plugin wiring: ProblemsPanel → OutputPanel ──
-    if (auto *outPanel = qobject_cast<OutputPanel *>(m_services->service(QStringLiteral("outputPanel")))) {
-        if (auto *pp = qobject_cast<ProblemsPanel *>(m_services->service(QStringLiteral("problemsPanel")))) {
-            pp->setOutputPanel(outPanel);
+    // ── Post-plugin wiring (delegated to PostPluginBootstrap) ──
+    // NOTE: bare `new` required — Qt parent (this) manages lifetime;
+    //       connections + QTimer::singleShot must outlive this scope.
+    {
+        auto *postPlugin = new PostPluginBootstrap(this);  // NOLINT(cppcoreguidelines-owning-memory)
+        PostPluginBootstrap::Deps deps;
+        deps.services          = m_services.get();
+        deps.hostServices      = m_hostServices;
+        deps.agentPlatform     = m_agentPlatform;
+        deps.agentOrchestrator = m_agentOrchestrator;
+        deps.inlineEngine      = m_inlineEngine;
+        deps.nesEngine         = m_nesEngine;
+        deps.statusBarMgr      = m_statusBarMgr;
+        deps.editorMgr         = m_editorMgr;
+        deps.pluginManager     = m_pluginManager.get();
+        postPlugin->wire(deps);
+
+        // PostPluginBootstrap emits navigateToSource → MainWindow handles it
+        connect(postPlugin, &PostPluginBootstrap::navigateToSource,
+                this, &MainWindow::navigateToLocation);
+
+        // LSP workspace edits must still go through MainWindow (owns editor tabs)
+        if (auto *lspSvc = m_services->service<ILspService>(
+                QStringLiteral("lspService"))) {
+            connect(lspSvc, &ILspService::workspaceEditRequested,
+                    this, &MainWindow::applyWorkspaceEdit);
         }
-    }
 
-    // ── Post-plugin wiring: debug service signals → editor integration ──
-    if (auto *debugSvc = m_services->service<IDebugService>(QStringLiteral("debugService"))) {
-        // Navigate to source on stack frame double-click
-        connect(debugSvc, &IDebugService::navigateToSource,
-                this, [this](const QString &filePath, int line) {
-            navigateToLocation(filePath, line - 1, 0);
-        });
-
-        // Highlight current stopped line in editor
-        connect(debugSvc, &IDebugService::debugStopped,
-                this, [this](const QList<DebugFrame> &frames) {
-            for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-                auto *ed = m_editorMgr->editorAt(i);
-                if (ed) ed->setCurrentDebugLine(0);
-            }
-            if (!frames.isEmpty()) {
-                const auto &top = frames.first();
-                for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-                    auto *ed = m_editorMgr->editorAt(i);
-                    if (ed && ed->property("filePath").toString() == top.filePath) {
-                        ed->setCurrentDebugLine(top.line);
-                        m_editorMgr->tabs()->setCurrentIndex(i);
-                        break;
-                    }
-                }
-            }
-        });
-
-        // Clear debug line on session end
-        connect(debugSvc, &IDebugService::debugTerminated,
-                this, [this]() {
-            for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
-                auto *ed = m_editorMgr->editorAt(i);
-                if (ed) ed->setCurrentDebugLine(0);
-            }
-        });
-    }
-
-    // ── Post-plugin wiring: search service → navigation ──
-    if (auto *srch = dynamic_cast<ISearchService *>(
-            m_services->service(QStringLiteral("searchService")))) {
-        connect(srch, &ISearchService::resultActivated,
-                this, [this](const QString &filePath, int line, int col) {
-            navigateToLocation(filePath, line - 1, col);
-        });
-    }
-
-    // ── Post-plugin wiring: LSP service signals → editor integration ──
-    if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService"))) {
-        auto *lspClient = m_services->service<LspClient>(QStringLiteral("lspClient"));
-
-        // Server ready → initialize LSP client with workspace root
-        connect(lspSvc, &ILspService::serverReady, this, [this, lspClient]() {
-            if (lspClient) lspClient->initialize(m_editorMgr->currentFolder());
-        });
-
-        // LSP initialized → create bridges for already-open tabs
-        if (lspClient) {
+        // LSP initialized → create bridges for open tabs
+        if (auto *lspClient = m_services->service<LspClient>(
+                QStringLiteral("lspClient"))) {
             connect(lspClient, &LspClient::initialized,
                     this, &MainWindow::onLspInitialized);
         }
 
-        // Go-to-Definition (F12)
-        connect(lspSvc, &ILspService::navigateToLocation,
-                this, &MainWindow::navigateToLocation);
-
-        // Find References → References panel
-        connect(lspSvc, &ILspService::referencesReady,
-                this, [this](const QJsonArray &locations) {
-            if (m_referencesPanel)
-                m_referencesPanel->showReferences(tr("Symbol"), locations);
-            if (dock(QStringLiteral("ReferencesDock")))
-                m_dockManager->showDock(dock(QStringLiteral("ReferencesDock")), exdock::SideBarArea::Bottom);
-        });
-
-        // Rename Symbol → apply workspace edit
-        connect(lspSvc, &ILspService::workspaceEditRequested,
-                this, &MainWindow::applyWorkspaceEdit);
-
-        // LSP status messages (e.g. "No definition found")
-        connect(lspSvc, &ILspService::statusMessage,
-                this, [this](const QString &msg, int timeout) {
-            statusBar()->showMessage(msg, timeout);
-        });
-
-        // Wire LSP diagnostics push to agent
-        if (lspClient && m_agentPlatform) {
-            if (auto *notifier = m_agentPlatform->diagnosticsNotifier()) {
-                connect(lspClient, &LspClient::diagnosticsPublished,
-                        notifier, &DiagnosticsNotifier::onDiagnosticsPublished);
-            }
+        // References panel → show dock + populate
+        if (auto *lspSvc = m_services->service<ILspService>(
+                QStringLiteral("lspService"))) {
+            connect(lspSvc, &ILspService::referencesReady,
+                    this, [this](const QJsonArray &locations) {
+                if (m_referencesPanel)
+                    m_referencesPanel->showReferences(tr("Symbol"), locations);
+                if (dock(QStringLiteral("ReferencesDock")))
+                    m_dockManager->showDock(dock(QStringLiteral("ReferencesDock")),
+                                            exdock::SideBarArea::Bottom);
+            });
         }
 
-        // Wire LSP diagnostics into the SDK DiagnosticsService
-        if (lspClient && m_hostServices) {
-            connect(lspClient, &LspClient::diagnosticsPublished,
-                    m_hostServices->diagnosticsService(),
-                    &DiagnosticsServiceImpl::onDiagnosticsPublished);
+        // LSP status messages → main status bar
+        if (auto *lspSvc = m_services->service<ILspService>(
+                QStringLiteral("lspService"))) {
+            connect(lspSvc, &ILspService::statusMessage,
+                    this, [this](const QString &msg, int timeout) {
+                statusBar()->showMessage(msg, timeout);
+            });
         }
     }
-
-    if (m_agentPlatform)
-        m_agentPlatform->registerPluginProviders(m_pluginManager.get());
-
-    // Wire inline completion engine to the first provider that supports it
-    for (IAgentProvider *p : m_agentOrchestrator->providers()) {
-        if (p->capabilities() & AgentCapability::InlineCompletion) {
-            m_inlineEngine->setProvider(p);
-            m_nesEngine->setProvider(p);
-            break;
-        }
-    }
-
-    // Update inline engine provider when active provider changes
-    connect(m_agentOrchestrator, &AgentOrchestrator::activeProviderChanged,
-            this, [this](const QString &) {
-        IAgentProvider *active = m_agentOrchestrator->activeProvider();
-        if (active && (active->capabilities() & AgentCapability::InlineCompletion)) {
-            m_inlineEngine->setProvider(active);
-            m_nesEngine->setProvider(active);
-        }
-    });
-
-    // Update status bar on AI errors
-    connect(m_agentOrchestrator, &AgentOrchestrator::responseError,
-            this, [this](const QString &, const AgentError &error) {
-        switch (error.code) {
-        case AgentError::Code::AuthError:
-            m_statusBarMgr->copilotStatusLabel()->setText(tr("\u26A0 Auth Error"));
-            m_statusBarMgr->copilotStatusLabel()->setStyleSheet(QStringLiteral("padding: 0 8px; color:#f44747;"));
-            m_statusBarMgr->copilotStatusLabel()->setToolTip(tr("Authentication failed — check API key"));
-            break;
-        case AgentError::Code::RateLimited:
-            m_statusBarMgr->copilotStatusLabel()->setText(tr("\u23F2 Rate Limited"));
-            m_statusBarMgr->copilotStatusLabel()->setStyleSheet(QStringLiteral("padding: 0 8px; color:#ffb74d;"));
-            m_statusBarMgr->copilotStatusLabel()->setToolTip(tr("Rate limited — waiting for cooldown"));
-            // Restore after 60s
-            QTimer::singleShot(60000, this, [this]() {
-                m_statusBarMgr->copilotStatusLabel()->setText(tr("\u2713 AI Ready"));
-                m_statusBarMgr->copilotStatusLabel()->setStyleSheet(QStringLiteral("padding: 0 8px; color:#89d185;"));
-                m_statusBarMgr->copilotStatusLabel()->setToolTip(tr("AI Assistant status — click to open AI panel"));
-            });
-            break;
-        case AgentError::Code::NetworkError:
-            m_statusBarMgr->copilotStatusLabel()->setText(tr("\u26A0 Offline"));
-            m_statusBarMgr->copilotStatusLabel()->setStyleSheet(QStringLiteral("padding: 0 8px; color:#f44747;"));
-            m_statusBarMgr->copilotStatusLabel()->setToolTip(tr("Network error — check connection"));
-            // Try to auto-recover after 10s
-            QTimer::singleShot(10000, this, [this]() {
-                if (m_agentOrchestrator && m_agentOrchestrator->activeProvider()
-                    && m_agentOrchestrator->activeProvider()->isAvailable()) {
-                    m_statusBarMgr->copilotStatusLabel()->setText(tr("\u2713 AI Ready"));
-                    m_statusBarMgr->copilotStatusLabel()->setStyleSheet(QStringLiteral("padding: 0 8px; color:#89d185;"));
-                    m_statusBarMgr->copilotStatusLabel()->setToolTip(tr("AI Assistant status — click to open AI panel"));
-                }
-            });
-            break;
-        default:
-            break;
-        }
-    });
-
-    // Restore status on successful response
-    connect(m_agentOrchestrator, &AgentOrchestrator::responseFinished,
-            this, [this](const QString &, const AgentResponse &) {
-        if (m_statusBarMgr->copilotStatusLabel()->text() != tr("\u2713 AI Ready")) {
-            m_statusBarMgr->copilotStatusLabel()->setText(tr("\u2713 AI Ready"));
-            m_statusBarMgr->copilotStatusLabel()->setStyleSheet(QStringLiteral("padding: 0 8px; color:#89d185;"));
-            m_statusBarMgr->copilotStatusLabel()->setToolTip(tr("AI Assistant status — click to open AI panel"));
-        }
-    });
-
     // Populate tool toggles in settings panel
     if (m_settingsPanel) {
         QStringList toolNames = m_agentPlatform->toolRegistry()->toolNames();
@@ -4776,36 +3680,6 @@ void MainWindow::loadPlugins()
     if (loaded > 0) {
         statusBar()->showMessage(tr("Loaded %1 plugins").arg(loaded), 4000);
     }
-
-    // Update status bar when provider becomes available
-    connect(m_agentOrchestrator, &AgentOrchestrator::providerAvailabilityChanged,
-            this, [this](bool available) {
-        if (available) {
-            m_statusBarMgr->copilotStatusLabel()->setText(tr("\u2713 AI Ready"));
-            m_statusBarMgr->copilotStatusLabel()->setStyleSheet(QStringLiteral("padding: 0 8px; color:#89d185;"));
-            m_statusBarMgr->copilotStatusLabel()->setToolTip(tr("AI Assistant — connected"));
-        } else {
-            m_statusBarMgr->copilotStatusLabel()->setText(tr("\u26A0 AI Offline"));
-            m_statusBarMgr->copilotStatusLabel()->setStyleSheet(QStringLiteral("padding: 0 8px; color:#f44747;"));
-            m_statusBarMgr->copilotStatusLabel()->setToolTip(tr("AI provider not available — click to configure"));
-        }
-    });
-
-    // Update status bar when provider registers
-    connect(m_agentOrchestrator, &AgentOrchestrator::providerRegistered,
-            this, [this](const QString &) {
-        const auto *active = m_agentOrchestrator->activeProvider();
-        if (active) {
-            if (active->isAvailable()) {
-                m_statusBarMgr->copilotStatusLabel()->setText(tr("\u2713 AI Ready"));
-                m_statusBarMgr->copilotStatusLabel()->setStyleSheet(QStringLiteral("padding: 0 8px; color:#89d185;"));
-            } else {
-                m_statusBarMgr->copilotStatusLabel()->setText(tr("\u2026 Connecting"));
-                m_statusBarMgr->copilotStatusLabel()->setStyleSheet(QStringLiteral("padding: 0 8px; color:#75bfff;"));
-                m_statusBarMgr->copilotStatusLabel()->setToolTip(tr("Connecting to AI provider..."));
-            }
-        }
-    });
 
     const bool editing = !m_centralStack || m_centralStack->currentIndex() != 0;
     for (auto *tb : findChildren<QToolBar *>())

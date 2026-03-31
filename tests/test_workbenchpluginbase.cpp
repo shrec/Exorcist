@@ -247,7 +247,7 @@ public:
     }
     bool removeMenu(const QString &id) override
     {
-        delete m_customMenus.take(id);
+        if (auto *m = m_customMenus.take(id)) m->deleteLater();
         return true;
     }
     void addAction(MenuLocation location, QAction *action, const QString & = {}) override
@@ -417,6 +417,7 @@ public:
     {
     }
 
+    void setProjectRoot(const QString &) override {}
     bool hasProject() const override { return m_hasProject; }
     void configure() override { ++m_configureCalls; }
     void build(const QString &target = {}) override

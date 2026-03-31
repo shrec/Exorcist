@@ -411,6 +411,16 @@ void RunLaunchPanel::onProcessFinished(int exitCode, QProcess::ExitStatus status
     emit processFinished(m_profileCombo->currentText(), exitCode);
 }
 
+void RunLaunchPanel::appendOutput(const QString &text, bool isError)
+{
+    QTextCharFormat fmt;
+    fmt.setForeground(isError ? QColor(0xf4, 0x47, 0x47) : QColor(0xcc, 0xcc, 0xcc));
+    QTextCursor cur = m_output->textCursor();
+    cur.movePosition(QTextCursor::End);
+    cur.insertText(text, fmt);
+    m_output->verticalScrollBar()->setValue(m_output->verticalScrollBar()->maximum());
+}
+
 void RunLaunchPanel::onElapsedTick()
 {
     const qint64 ms = m_elapsed->elapsed();

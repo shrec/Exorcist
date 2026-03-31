@@ -1,0 +1,12 @@
+{
+    "id": "org.exorcist.lang-pack",
+    "name": "Language Pack",
+    "version": "1.0.0",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "editor",
+    "description": "Regex-based syntax highlighting for 40+ languages (C++, Python, JS/TS, Rust, Go, Java, Shell, etc.).",
+    "activationEvents": ["*"],
+    "contributions": {}
+}

@@ -212,20 +212,23 @@ void GdbMiAdapter::requestStackTrace(int threadId)
 
 void GdbMiAdapter::requestScopes(int /*frameId*/)
 {
-    // GDB/MI doesn't have scopes — we list locals directly
-    sendCommand(QStringLiteral("-stack-list-locals --simple-values"));
+    // GDB/MI doesn't have DAP-style scopes — list locals directly.
+    const int token = sendCommand(QStringLiteral("-stack-list-locals --simple-values"));
+    m_localsRequests.insert(token);
 }
 
 void GdbMiAdapter::requestVariables(int /*variablesReference*/)
 {
-    sendCommand(QStringLiteral("-stack-list-locals --all-values"));
+    const int token = sendCommand(QStringLiteral("-stack-list-locals --all-values"));
+    m_localsRequests.insert(token);
 }
 
 void GdbMiAdapter::evaluate(const QString &expression, int frameId)
 {
     Q_UNUSED(frameId)
-    sendCommand(QStringLiteral("-data-evaluate-expression \"%1\"")
-                    .arg(expression));
+    const int token = sendCommand(
+        QStringLiteral("-data-evaluate-expression \"%1\"").arg(expression));
+    m_evalExprs.insert(token, expression);
 }
 
 // ── Variable Objects ──────────────────────────────────────────────────────────
@@ -393,10 +396,13 @@ void GdbMiAdapter::parseMiLine(const QString &line)
                 handleBreakInsertResult(token, attrs);
             } else if (m_stackTraceRequests.contains(token)) {
                 handleStackListResult(token, attrs);
+            } else if (m_localsRequests.contains(token)) {
+                m_localsRequests.remove(token);
+                handleLocalsResult(token, attrs);
+            } else if (m_evalExprs.contains(token)) {
+                handleEvaluateResult(token, attrs);
             } else if (body.contains(QStringLiteral("threads="))) {
                 handleThreadInfoResult(token, attrs);
-            } else if (body.contains(QStringLiteral("value="))) {
-                handleEvaluateResult(token, attrs);
             }
         }
 
@@ -571,10 +577,30 @@ void GdbMiAdapter::handleVarResult(int /*token*/, const QHash<QString, QString> 
     // Variable listing handled via requestVariables output
 }
 
-void GdbMiAdapter::handleEvaluateResult(int /*token*/, const QHash<QString, QString> &attrs)
+void GdbMiAdapter::handleEvaluateResult(int token, const QHash<QString, QString> &attrs)
 {
+    const QString expr  = m_evalExprs.take(token);
     const QString value = attrs.value(QStringLiteral("value"));
-    emit evaluateResult(QString(), value);
+    emit evaluateResult(expr, value);
+}
+
+void GdbMiAdapter::handleLocalsResult(int /*token*/, const QHash<QString, QString> &attrs)
+{
+    const QString localsStr = attrs.value(QStringLiteral("locals"));
+    QList<DebugVariable> vars;
+
+    // Extract name="..." from each entry. Using name-only regex is robust
+    // against nested braces inside struct value strings.
+    static const QRegularExpression nameRx(QStringLiteral("name=\\\"([^\\\"]+)\\\""));
+    auto it = nameRx.globalMatch(localsStr);
+    while (it.hasNext()) {
+        auto m = it.next();
+        DebugVariable v;
+        v.name = m.captured(1);
+        vars.append(v);
+    }
+
+    emit variablesReceived(0, vars);
 }
 
 // ── Variable Object result handlers ───────────────────────────────────────────
@@ -696,6 +722,8 @@ void GdbMiAdapter::onProcessFinished(int exitCode, QProcess::ExitStatus status)
     m_varListParents.clear();
     m_varDeleteNames.clear();
     m_varAssignNames.clear();
+    m_localsRequests.clear();
+    m_evalExprs.clear();
     emit terminated();
 }
 

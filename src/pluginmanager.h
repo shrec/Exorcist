@@ -66,6 +66,10 @@ public:
 
     void shutdownAll();
 
+    /// Notify all active plugins that the workspace folder has changed.
+    /// Each plugin's onWorkspaceChanged() is called; plugins own their response.
+    void notifyWorkspaceChanged(const QString &root);
+
     const QStringList &errors() const;
     QVector<IPlugin *> plugins() const;
     QVector<QObject *> pluginObjects() const;
@@ -134,6 +138,11 @@ public:
     /// active profile that matches their languageIds.
     bool isPluginAllowedByProfile(const PluginManifest &manifest) const;
 
+    /// Returns true if the plugin with this instance pointer is currently
+    /// deferred (not yet initialized). Used to skip manifest registration
+    /// for un-initialized deferred plugins at startup.
+    bool isPluginDeferred(const IPlugin *instance) const;
+
     /// Get the currently active editor language.
     QString activeEditorLanguage() const { return m_activeEditorLanguage; }
 
@@ -157,6 +166,11 @@ private:
     bool shouldDeferPlugin(const PluginManifest &manifest) const;
     void activatePlugin(const LoadedPlugin &lp);
     void loadDisabledSet();
+
+    /// Topological sort by plugin dependencies. Plugins whose dependencies
+    /// are not yet activated are moved after the plugins they depend on.
+    /// Cycles are silently broken (the cycle member activates last).
+    static QVector<LoadedPlugin> sortByDependencies(QVector<LoadedPlugin> plugins);
 
     QSet<QString> m_disabledIds;
     QSet<QString> m_activeProfiles;  // currently active language profile IDs

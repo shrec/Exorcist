@@ -35,9 +35,14 @@ public:
     RunLaunchPanel        *runPanel() const         { return m_runPanel; }
     DebugLaunchController *debugLauncher() const    { return m_launcher; }
 
-    void setWorkingDir(const QString &dir);
+    void onWorkspaceChanged(const QString &root) override;
+
+private slots:
+    void onAdapterOutput(const QString &text, const QString &category);
+    void onAdapterError(const QString &msg);
 
 private:
+    void setWorkingDir(const QString &dir);
     bool initializePlugin() override;
     void shutdownPlugin() override;
     void registerCommands();

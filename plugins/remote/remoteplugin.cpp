@@ -26,7 +26,7 @@ PluginInfo RemotePlugin::info() const
         QStringLiteral("SSH connections, remote file browsing, and sync"),
         QStringLiteral("Exorcist"),
         QStringLiteral("1.0"),
-        {}
+        {PluginPermission::TerminalExecute, PluginPermission::NetworkAccess, PluginPermission::FilesystemRead}
     };
 }
 

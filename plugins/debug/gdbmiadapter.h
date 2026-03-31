@@ -57,6 +57,7 @@ public:
 
 private slots:
     void onReadyRead();
+    void onProcessStarted();
     void onProcessFinished(int exitCode, QProcess::ExitStatus status);
     void onProcessError(QProcess::ProcessError err);
 
@@ -102,12 +103,19 @@ private:
     QString   m_lineBuffer;
     bool      m_launched = false;
 
+    // Stored for onProcessStarted() — set by launch()
+    QString     m_pendingExe;
+    QStringList m_pendingArgs;
+
     // Track pending commands by token
     struct PendingCmd {
         QString command;
         int     token;
     };
     QHash<int, PendingCmd> m_pending;
+
+    // Breakpoints queued before launch() — flushed to GDB before -exec-run.
+    QList<DebugBreakpoint> m_prelaunchBreakpoints;
 
     // Pending breakpoints: adapter-ID is unknown until GDB confirms.
     // Map token → original breakpoint request.

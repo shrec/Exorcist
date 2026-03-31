@@ -6,6 +6,7 @@
     "category": "scripting",
 
     "requiredPlugins": [
+        "org.exorcist.automation",
         "org.exorcist.build",
         "org.exorcist.git",
         "org.exorcist.terminal",
@@ -14,7 +15,9 @@
     "optionalPlugins": [
         "org.exorcist.remote"
     ],
-    "disabledPlugins": [],
+    "disabledPlugins": [
+        "org.exorcist.qt-tools"
+    ],
     "deferredPlugins": [
         "org.exorcist.build",
         "org.exorcist.terminal"
@@ -37,7 +40,8 @@
         { "id": "TerminalDock", "visible": true },
         { "id": "ProblemsDock", "visible": true },
         { "id": "OutputDock", "visible": true },
-        { "id": "RunDock", "visible": true }
+        { "id": "RunDock", "visible": true },
+        { "id": "TaskRunnerDock", "visible": true }
     ],
 
     "settings": {

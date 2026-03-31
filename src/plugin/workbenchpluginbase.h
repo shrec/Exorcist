@@ -40,6 +40,7 @@ public:
         QString commandId;
         QKeySequence shortcut;
         bool separatorBefore = false;
+        QString iconName;    // optional: name of icon in ThemeIcons (e.g. "play")
     };
 
     bool initialize(IHostServices *host) final;

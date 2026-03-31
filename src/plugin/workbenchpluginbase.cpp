@@ -18,6 +18,8 @@
 #include "sdk/iviewservice.h"
 #include "sdk/iworkspaceservice.h"
 
+#include "ui/themeicons.h"
+
 #include <QAction>
 #include <QMenu>
 #include <QObject>
@@ -298,8 +300,10 @@ void WorkbenchPluginBase::addToolBarCommands(const QString &toolBarId,
     for (const CommandSpec &command : commands) {
         if (command.separatorBefore)
             addToolBarSeparator(toolBarId);
-        addToolBarCommand(toolBarId, command.text, command.commandId, owner,
-                          command.shortcut);
+        auto *action = addToolBarCommand(toolBarId, command.text, command.commandId, owner,
+                                         command.shortcut);
+        if (action && !command.iconName.isEmpty())
+            action->setIcon(ThemeIcons::icon(command.iconName));
     }
 }
 

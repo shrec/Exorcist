@@ -66,5 +66,10 @@ ui_screenshot.png
 ui_ss*.png
 *.bak
 
+# UI/UX reference images (local only, not committed)
+docs/reference/*.png
+docs/reference/*.jpg
+docs/reference/*.jpeg
+
 # Research repositories (local reference only, not committed)
 /ReserchRepos/

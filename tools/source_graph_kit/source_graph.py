@@ -59,6 +59,33 @@ Usage:
     python source_graph.py validateai [path]  # Validate Monster AI XML
     python source_graph.py sql "<query>"      # Run raw SQL query
 
+  AI-agent-oriented commands (reduce tool calls):
+    python source_graph.py grep <pattern> [scope]      # Regex search in source (replaces grep_search)
+    python source_graph.py read <file> [L1-L2]         # Read file content (replaces read_file)
+    python source_graph.py xref <symbol>               # Unified cross-reference (def + callers + callees + usage)
+    python source_graph.py siblings <class>            # Classes sharing same parent
+    python source_graph.py implements <interface>      # All implementors of an interface
+    python source_graph.py who-calls <func>            # Reverse call graph (who calls this?)
+    python source_graph.py called-by <func>            # Forward call graph (what does this call?)
+    python source_graph.py edit-context <file> <line>  # Editing context: function bounds + includes + source
+    python source_graph.py outline <file>              # Structural outline: classes, functions, enums, structs
+    python source_graph.py multi <cmd1> --- <cmd2>     # Multiple commands in one call (--- separator)
+
+  Intelligent commands (source_graph + ai_memory integration):
+    python source_graph.py smart <topic>               # Unified context: source graph + AI memory combined
+    python source_graph.py learn <key> <value> [tags]  # Store insight/decision in AI memory (no tool switch)
+    python source_graph.py recall <topic>              # Recall AI memories about a topic (no tool switch)
+    python source_graph.py history <file>              # Git log for a file (last 15 commits)
+    python source_graph.py changes [file]              # Recent git changes (diff stat)
+    python source_graph.py relate <sym_a> <sym_b>      # Find all relationships between two symbols
+    python source_graph.py suggest [scope]             # Suggest what to work on next (TODOs, gaps, scores)
+    python source_graph.py audit [scope]               # Component/subsystem completeness audit
+    python source_graph.py dataflow [symbol]            # Data flow edges (field writes, returns, assigns)
+    python source_graph.py invariant [symbol] [type]    # Invariant annotations (asserts, null checks, range checks)
+    python source_graph.py hotpath [scope] [top_n]      # Hot path analysis (fan-in/out, depth, critical/GPU)
+    python source_graph.py backend-map [symbol] [type]  # CPU↔backend function mappings (CUDA/OpenCL/Metal/etc.)
+    python source_graph.py exploit [type] [sev] [scope] # Security vulnerability pattern analysis
+
   Token-saving commands:
         python source_graph.py focus <term> [budget] [--core]   # Compact ranked snapshot for agents
         python source_graph.py slice <term> [budget] [--core]   # Minimal dependency/call slice
@@ -1390,6 +1417,15 @@ CREATE TABLE IF NOT EXISTS classes (
     description TEXT
 );
 
+CREATE TABLE IF NOT EXISTS class_parents (
+    id INTEGER PRIMARY KEY,
+    class_name TEXT NOT NULL,
+    parent_name TEXT NOT NULL,
+    access TEXT,                   -- 'public', 'protected', 'private'
+    header TEXT,
+    project TEXT
+);
+
 CREATE TABLE IF NOT EXISTS methods (
     id INTEGER PRIMARY KEY,
     class_name TEXT NOT NULL,
@@ -1961,6 +1997,87 @@ CREATE INDEX IF NOT EXISTS idx_symbol_audit_coverage_score ON symbol_audit_cover
 CREATE INDEX IF NOT EXISTS idx_ai_tasks_status_priority ON ai_tasks(status, priority DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_tasks_type ON ai_tasks(task_type);
 
+CREATE TABLE IF NOT EXISTS dataflow_edges (
+    id INTEGER PRIMARY KEY,
+    source_symbol TEXT NOT NULL,
+    source_file TEXT NOT NULL,
+    source_project TEXT,
+    target_symbol TEXT NOT NULL,
+    target_file TEXT NOT NULL,
+    target_project TEXT,
+    data_type TEXT,
+    flow_kind TEXT NOT NULL,
+    confidence INTEGER DEFAULT 0,
+    evidence TEXT,
+    UNIQUE(source_symbol, source_file, target_symbol, target_file, flow_kind)
+);
+
+CREATE TABLE IF NOT EXISTS invariants (
+    id INTEGER PRIMARY KEY,
+    symbol_name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    project TEXT,
+    line_num INTEGER,
+    invariant_type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    severity TEXT DEFAULT 'medium',
+    evidence TEXT,
+    UNIQUE(symbol_name, file_path, invariant_type, line_num)
+);
+
+CREATE TABLE IF NOT EXISTS hot_paths (
+    id INTEGER PRIMARY KEY,
+    symbol_name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    project TEXT,
+    total_callers INTEGER DEFAULT 0,
+    total_callees INTEGER DEFAULT 0,
+    fan_in INTEGER DEFAULT 0,
+    fan_out INTEGER DEFAULT 0,
+    depth INTEGER DEFAULT 0,
+    path_weight INTEGER DEFAULT 0,
+    is_critical INTEGER DEFAULT 0,
+    is_gpu_path INTEGER DEFAULT 0,
+    reasons TEXT,
+    UNIQUE(symbol_name, file_path)
+);
+
+CREATE TABLE IF NOT EXISTS backend_mappings (
+    id INTEGER PRIMARY KEY,
+    cpu_symbol TEXT NOT NULL,
+    cpu_file TEXT NOT NULL,
+    backend_type TEXT NOT NULL,
+    backend_symbol TEXT NOT NULL,
+    backend_file TEXT NOT NULL,
+    mapping_confidence INTEGER DEFAULT 0,
+    evidence TEXT,
+    UNIQUE(cpu_symbol, cpu_file, backend_symbol, backend_file)
+);
+
+CREATE TABLE IF NOT EXISTS exploit_paths (
+    id INTEGER PRIMARY KEY,
+    entry_symbol TEXT NOT NULL,
+    entry_file TEXT NOT NULL,
+    vulnerability_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    path_description TEXT,
+    evidence TEXT,
+    line_num INTEGER,
+    project TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_dataflow_source ON dataflow_edges(source_symbol, source_file);
+CREATE INDEX IF NOT EXISTS idx_dataflow_target ON dataflow_edges(target_symbol, target_file);
+CREATE INDEX IF NOT EXISTS idx_dataflow_kind ON dataflow_edges(flow_kind);
+CREATE INDEX IF NOT EXISTS idx_invariants_symbol ON invariants(symbol_name, file_path);
+CREATE INDEX IF NOT EXISTS idx_invariants_type ON invariants(invariant_type);
+CREATE INDEX IF NOT EXISTS idx_hot_paths_weight ON hot_paths(path_weight DESC);
+CREATE INDEX IF NOT EXISTS idx_hot_paths_critical ON hot_paths(is_critical, is_gpu_path);
+CREATE INDEX IF NOT EXISTS idx_backend_mappings_cpu ON backend_mappings(cpu_symbol, cpu_file);
+CREATE INDEX IF NOT EXISTS idx_backend_mappings_backend ON backend_mappings(backend_type);
+CREATE INDEX IF NOT EXISTS idx_exploit_paths_type ON exploit_paths(vulnerability_type);
+CREATE INDEX IF NOT EXISTS idx_exploit_paths_severity ON exploit_paths(severity);
+
 CREATE TABLE IF NOT EXISTS file_hashes (
     id INTEGER PRIMARY KEY,
     file_path TEXT UNIQUE NOT NULL,
@@ -2185,6 +2302,19 @@ def _auto_detect_config():
     return cfg
 
 
+def _normalize_extensions(exts):
+    """Normalize extension formats to glob patterns: '.py' → '*.py', '*.py' stays."""
+    normalized = []
+    for ext in exts:
+        if ext.startswith("*."):
+            normalized.append(ext)
+        elif ext.startswith("."):
+            normalized.append(f"*{ext}")
+        else:
+            normalized.append(ext)
+    return normalized
+
+
 def load_config():
     """Load project config and set global variables."""
     global SOURCE_DIRS, CATEGORY_RULES, EXTERNAL_PATHS, SEED_DATA, CONFIG_PATH
@@ -2215,7 +2345,7 @@ def load_config():
         path = Path(sd["path"])
         if not path.is_absolute():
             path = REPO_ROOT / path
-        exts = sd.get("extensions", default_exts)
+        exts = _normalize_extensions(sd.get("extensions", default_exts))
         optional = sd.get("optional", False)
         if path.exists() or not optional:
             SOURCE_DIRS.append((label, path, exts))
@@ -2811,7 +2941,7 @@ def scan_files(conn):
     for project, base_dir, extensions in SOURCE_DIRS:
         if not base_dir.exists():
             continue
-        for ext in extensions:
+        for ext in _normalize_extensions(extensions):
             for f in base_dir.rglob(ext):
                 rel = _rel_name(f, base_dir)
                 category = categorize_file(rel, project)
@@ -3158,7 +3288,7 @@ def scan_includes(conn):
     for project, base_dir, exts in SOURCE_DIRS:
         if not base_dir.exists():
             continue
-        for ext in exts:
+        for ext in _normalize_extensions(exts):
             for f in base_dir.rglob(ext):
                 try:
                     with open(f, "r", encoding="utf-8", errors="ignore") as fh:
@@ -3375,13 +3505,20 @@ def scan_classes(conn):
     class_re = LANG_ADAPTER.class_pattern()
     if not class_re:
         return
-    scan_exts = LANG_ADAPTER.header_extensions or LANG_ADAPTER.extensions
+    # Multi-parent regex: captures all ': public X, public Y, private Z' parents
+    multi_parent_re = re.compile(r'(?:public|protected|private)\s+(\w+)')
+    # Full inheritance tail regex: everything after class Name :
+    inherit_tail_re = re.compile(r'^\s*class\s+\w+\s*:\s*(.*)')
+    # Scan ALL extensions (headers + sources) so .cpp-only classes get indexed
+    scan_exts = list(set((LANG_ADAPTER.header_extensions or []) + (LANG_ADAPTER.extensions or []))) or None
     for project, base_dir, _exts in SOURCE_DIRS:
         if not base_dir.exists():
             continue
         for ext in (scan_exts if scan_exts else _exts):
             for f in base_dir.rglob(ext):
                 try:
+                    rel = _rel_name(f, base_dir)
+                    is_header = f.suffix in ('.h', '.hpp', '.hxx')
                     with open(f, "r", encoding="utf-8", errors="ignore") as fh:
                         for line in fh:
                             m = class_re.match(line)
@@ -3392,13 +3529,41 @@ def scan_classes(conn):
                                 impl_ext = ".cpp" if LANG_ADAPTER.name == "cpp" else f.suffix
                                 impl_name = f.stem + impl_ext
                                 impl_path = f.parent / impl_name
+                                if is_header:
+                                    h_val = rel
+                                    c_val = impl_name if impl_path.exists() else None
+                                else:
+                                    h_val = None
+                                    c_val = rel
                                 try:
                                     conn.execute(
                                         "INSERT INTO classes (name, header, cpp_file, parent_class, project) VALUES (?,?,?,?,?)",
-                                        (class_name, _rel_name(f, base_dir), impl_name if impl_path.exists() else None, parent, project)
+                                        (class_name, h_val, c_val, parent, project)
                                     )
                                 except Exception:
                                     pass
+                                # Store ALL parent classes in class_parents table
+                                tail_m = inherit_tail_re.match(line)
+                                if tail_m:
+                                    tail = tail_m.group(1)
+                                    for pm in multi_parent_re.finditer(tail):
+                                        pname = pm.group(1)
+                                        # Determine access specifier
+                                        start = max(0, pm.start() - 15)
+                                        snippet = tail[start:pm.start() + len(pm.group(0))]
+                                        if 'private' in snippet:
+                                            access = 'private'
+                                        elif 'protected' in snippet:
+                                            access = 'protected'
+                                        else:
+                                            access = 'public'
+                                        try:
+                                            conn.execute(
+                                                "INSERT INTO class_parents (class_name, parent_name, access, header, project) VALUES (?,?,?,?,?)",
+                                                (class_name, pname, access, rel, project)
+                                            )
+                                        except Exception:
+                                            pass
                 except Exception:
                     pass
 
@@ -5100,6 +5265,366 @@ def scan_call_edges(conn):
             )
 
 
+def scan_dataflow(conn):
+    """Scan function bodies for data flow edges: parameter passing, return values, field assignments."""
+    rows = conn.execute(
+        "SELECT file, function_name, class_name, start_line, end_line, signature, project FROM function_index ORDER BY file, start_line"
+    ).fetchall()
+    file_cache = {}
+    conn.execute("DELETE FROM dataflow_edges")
+    inserts = []
+
+    # Patterns for data flow analysis
+    assign_re = re.compile(r'\b([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*=\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*(?:\s*\([^)]*\))?)')
+    return_re = re.compile(r'\breturn\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)')
+    param_pass_re = re.compile(r'\b([A-Za-z_]\w*)\s*\(\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*\)')
+    field_write_re = re.compile(r'\b(?:this->|m_|self\.)([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)')
+    emit_re = re.compile(r'\b(?:emit\s+)?([A-Za-z_]\w*)\s*\(\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*\)')
+
+    skip = {'if', 'else', 'for', 'while', 'switch', 'case', 'return', 'break', 'continue',
+            'true', 'false', 'nullptr', 'NULL', 'void', 'int', 'float', 'double', 'bool',
+            'char', 'auto', 'const', 'static', 'class', 'struct', 'enum', 'this', 'new', 'delete',
+            'sizeof', 'typeof', 'decltype', 'throw', 'catch', 'try', 'using', 'namespace'}
+
+    for row in rows:
+        lines = _read_project_file_lines(row["project"], row["file"], file_cache)
+        if not lines:
+            continue
+        body = _extract_function_body_text(lines, row["start_line"], row["end_line"])
+        if not body:
+            continue
+
+        func_name = row["function_name"]
+        cls = row["class_name"] or ""
+        qualified = f"{cls}::{func_name}" if cls else func_name
+        fpath = row["file"]
+        proj = row["project"] or ""
+
+        # Field writes: this->field = value, m_field = value
+        for m in field_write_re.finditer(body):
+            field, source = m.group(1), m.group(2)
+            if source.lower() not in skip:
+                inserts.append((qualified, fpath, proj, f"{cls}::m_{field}" if cls else f"m_{field}",
+                               fpath, proj, "field", "field-write", 70, f"{source}→m_{field}"))
+
+        # Return value flow
+        for m in return_re.finditer(body):
+            ret_val = m.group(1)
+            if ret_val.lower() not in skip and not ret_val.isdigit():
+                inserts.append((ret_val, fpath, proj, qualified, fpath, proj,
+                               "return", "return-value", 60, f"return {ret_val}"))
+
+        # Assignment flow: target = source
+        for m in assign_re.finditer(body):
+            target, source = m.group(1), m.group(2)
+            if (target.lower() not in skip and source.lower() not in skip
+                    and not target.isdigit() and not source.isdigit()
+                    and target != source and '(' not in source):
+                flow_kind = "field-assign" if '.' in target or target.startswith('m_') else "local-assign"
+                inserts.append((source, fpath, proj, target, fpath, proj,
+                               "assign", flow_kind, 50, f"{source}→{target}"))
+
+    if inserts:
+        conn.executemany(
+            "INSERT OR IGNORE INTO dataflow_edges "
+            "(source_symbol, source_file, source_project, target_symbol, target_file, target_project, "
+            "data_type, flow_kind, confidence, evidence) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            inserts
+        )
+        conn.commit()
+    print(f"  dataflow_edges: {len(inserts)} edges inserted")
+
+
+def scan_invariants(conn):
+    """Scan for invariant annotations: asserts, range checks, null checks, normalization requirements."""
+    rows = conn.execute(
+        "SELECT file, function_name, class_name, start_line, end_line, signature, project FROM function_index ORDER BY file, start_line"
+    ).fetchall()
+    file_cache = {}
+    conn.execute("DELETE FROM invariants")
+    inserts = []
+
+    patterns = [
+        # Assert-style checks
+        (re.compile(r'\b(?:assert|Q_ASSERT|QVERIFY|static_assert)\s*\(\s*(.+?)\s*\)'), 'assertion', 'high'),
+        # Null/nullptr checks
+        (re.compile(r'\bif\s*\(\s*!?\s*([A-Za-z_]\w*)\s*(?:==|!=)\s*(?:nullptr|NULL|0)\s*\)'), 'null-check', 'high'),
+        # Range checks: value < N, value > N, value >= N, value <= N
+        (re.compile(r'\bif\s*\(\s*([A-Za-z_]\w*)\s*([<>]=?)\s*(\d+)\s*\)'), 'range-check', 'medium'),
+        # Bounds checking
+        (re.compile(r'\b(?:at|value)\s*\(\s*([A-Za-z_]\w*)\s*\)|\.at\s*\(\s*([A-Za-z_]\w*)\s*\)'), 'bounds-check', 'medium'),
+        # Size/length checks
+        (re.compile(r'\bif\s*\(\s*([A-Za-z_]\w*)\s*\.(?:size|length|count|isEmpty)\s*\(\s*\)'), 'size-check', 'medium'),
+        # Normalization / sanitization
+        (re.compile(r'\b(?:normalize|sanitize|validate|verify|clamp|qBound)\s*\('), 'normalization', 'high'),
+        # Error code checks
+        (re.compile(r'\bif\s*\(\s*!?\s*(?:ok|success|result|err|error|status)\b'), 'error-check', 'medium'),
+        # Type checks / casts
+        (re.compile(r'\b(?:dynamic_cast|qobject_cast)\s*<\s*([^>]+)\s*>\s*\(\s*([A-Za-z_]\w*)'), 'type-check', 'medium'),
+    ]
+
+    for row in rows:
+        lines = _read_project_file_lines(row["project"], row["file"], file_cache)
+        if not lines:
+            continue
+        body = _extract_function_body_text(lines, row["start_line"], row["end_line"])
+        if not body:
+            continue
+
+        func_name = row["function_name"]
+        cls = row["class_name"] or ""
+        qualified = f"{cls}::{func_name}" if cls else func_name
+        fpath = row["file"]
+        proj = row["project"] or ""
+
+        for pat, inv_type, severity in patterns:
+            for m in pat.finditer(body):
+                desc = m.group(0).strip()[:200]
+                line_offset = body[:m.start()].count('\n')
+                line_num = row["start_line"] + line_offset
+                inserts.append((qualified, fpath, proj, line_num, inv_type, desc, severity, f"pattern:{inv_type}"))
+
+    if inserts:
+        conn.executemany(
+            "INSERT OR IGNORE INTO invariants "
+            "(symbol_name, file_path, project, line_num, invariant_type, description, severity, evidence) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            inserts
+        )
+        conn.commit()
+    print(f"  invariants: {len(inserts)} entries inserted")
+
+
+def scan_hot_paths(conn):
+    """Compute hot path rankings from call_edges fan-in/fan-out and depth analysis."""
+    conn.execute("DELETE FROM hot_paths")
+
+    # Aggregate caller/callee counts from call_edges
+    fan_in = {}
+    fan_out = {}
+    for row in conn.execute("SELECT caller_symbol, caller_file, callee_symbol, callee_file, call_count FROM call_edges").fetchall():
+        caller_key = (row["caller_symbol"], row["caller_file"])
+        callee_key = (row["callee_symbol"], row["callee_file"])
+        fan_out[caller_key] = fan_out.get(caller_key, 0) + (row["call_count"] or 1)
+        fan_in[callee_key] = fan_in.get(callee_key, 0) + (row["call_count"] or 1)
+
+    # Get all functions
+    all_funcs = {}
+    for row in conn.execute(
+        "SELECT file, function_name, class_name, project FROM function_index"
+    ).fetchall():
+        cls = row["class_name"] or ""
+        name = f"{cls}::{row['function_name']}" if cls else row["function_name"]
+        key = (name, row["file"])
+        all_funcs[key] = row["project"] or ""
+
+    # GPU/critical path indicators from semantic_tags
+    gpu_symbols = set()
+    critical_symbols = set()
+    for row in conn.execute("SELECT entity_name, file, tag FROM semantic_tags").fetchall():
+        tag = (row["tag"] or "").lower()
+        key = (row["entity_name"], row["file"])
+        if "gpu" in tag or "cuda" in tag or "kernel" in tag or "opencl" in tag:
+            gpu_symbols.add(key)
+        if "critical" in tag or "hot" in tag or "perf" in tag:
+            critical_symbols.add(key)
+
+    # Build depth via BFS from high-fan-in roots
+    callee_map = defaultdict(set)
+    for row in conn.execute("SELECT caller_symbol, caller_file, callee_symbol, callee_file FROM call_edges").fetchall():
+        callee_map[(row["caller_symbol"], row["caller_file"])].add((row["callee_symbol"], row["callee_file"]))
+
+    inserts = []
+    for key, proj in all_funcs.items():
+        sym, fpath = key
+        fi = fan_in.get(key, 0)
+        fo = fan_out.get(key, 0)
+
+        # BFS depth
+        depth = 0
+        visited = {key}
+        frontier = callee_map.get(key, set())
+        while frontier and depth < 20:
+            depth += 1
+            next_frontier = set()
+            for c in frontier:
+                if c not in visited:
+                    visited.add(c)
+                    next_frontier.update(callee_map.get(c, set()))
+            frontier = next_frontier
+
+        # Weight = fan_in * 3 + fan_out * 2 + depth * 5 (heuristic)
+        weight = fi * 3 + fo * 2 + depth * 5
+        is_gpu = 1 if key in gpu_symbols else 0
+        is_critical = 1 if (key in critical_symbols or weight > 50 or fi > 10) else 0
+
+        reasons = []
+        if fi > 5:
+            reasons.append(f"high-fan-in:{fi}")
+        if fo > 5:
+            reasons.append(f"high-fan-out:{fo}")
+        if depth > 3:
+            reasons.append(f"deep-call-chain:{depth}")
+        if is_gpu:
+            reasons.append("gpu-path")
+
+        if weight > 0 or is_gpu or is_critical:
+            inserts.append((sym, fpath, proj, fi, fo, fi, fo, depth, weight,
+                           is_critical, is_gpu, ", ".join(reasons) if reasons else None))
+
+    if inserts:
+        conn.executemany(
+            "INSERT OR IGNORE INTO hot_paths "
+            "(symbol_name, file_path, project, total_callers, total_callees, fan_in, fan_out, "
+            "depth, path_weight, is_critical, is_gpu_path, reasons) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            inserts
+        )
+        conn.commit()
+    print(f"  hot_paths: {len(inserts)} entries inserted")
+
+
+def scan_backend_mapping(conn):
+    """Detect CPU↔GPU/backend function equivalents by naming pattern matching."""
+    rows = conn.execute(
+        "SELECT file, function_name, class_name, project FROM function_index"
+    ).fetchall()
+    conn.execute("DELETE FROM backend_mappings")
+
+    # Build function registry by base name
+    func_by_base = defaultdict(list)
+    backend_indicators = {
+        'cuda': re.compile(r'(?:^cuda[A-Z_]|^cu(?:Device|Context|Module|Stream|Mem|Event|Launch|Func)|__global__|__device__|__host__)', re.IGNORECASE),
+        'opencl': re.compile(r'(?:^opencl|^cl(?:Enqueue|Create|Build|Get|Set|Release|Retain)|__kernel)', re.IGNORECASE),
+        'metal': re.compile(r'(?:^metal|^mtl[A-Z]|MTLDevice|MTLBuffer|MTLCommand)', re.IGNORECASE),
+        'vulkan': re.compile(r'(?:^vulkan|^vk[A-Z]|VkDevice|VkBuffer|VkCommand)', re.IGNORECASE),
+        'directx': re.compile(r'(?:^directx|^dx[0-9]+|^d3d|^ID3D|DXGI)', re.IGNORECASE),
+        'simd': re.compile(r'(?:^sse|^avx|^neon|^simd|__m128|__m256|_mm_|vld[0-9])', re.IGNORECASE),
+    }
+
+    for row in rows:
+        cls = row["class_name"] or ""
+        func = row["function_name"]
+        qualified = f"{cls}::{func}" if cls else func
+        fpath = row["file"]
+        proj = row["project"] or ""
+
+        # Determine backend type from name/file
+        detected = "cpu"
+        for btype, pat in backend_indicators.items():
+            if pat.search(func) or pat.search(fpath) or pat.search(cls):
+                detected = btype
+                break
+
+        # Strip backend prefix/suffix to get canonical base name
+        base = re.sub(r'(?i)^(?:cuda|cl(?=Enqueue|Create|Build)|mtl|vk|dx|d3d|__global__|__device__|__host__|__kernel)\s*', '', func)
+        base = re.sub(r'(?i)(?:_cuda|_opencl|_metal|_vulkan|_cpu|_gpu|_simd|Kernel|_kernel)$', '', base)
+        base = base.lower().strip('_')
+
+        if base:
+            func_by_base[base].append((qualified, fpath, proj, detected))
+
+    # Find matching pairs (CPU + backend)
+    inserts = []
+    for base, entries in func_by_base.items():
+        cpu_entries = [e for e in entries if e[3] == 'cpu']
+        backend_entries = [e for e in entries if e[3] != 'cpu']
+
+        for cpu_sym, cpu_file, cpu_proj, _ in cpu_entries:
+            for be_sym, be_file, be_proj, be_type in backend_entries:
+                confidence = 80 if cpu_file != be_file else 60
+                inserts.append((cpu_sym, cpu_file, be_type, be_sym, be_file,
+                               confidence, f"name-match:{base}"))
+
+        # Also pair backends with each other
+        for i, (sym1, f1, p1, t1) in enumerate(backend_entries):
+            for sym2, f2, p2, t2 in backend_entries[i+1:]:
+                if t1 != t2:
+                    inserts.append((sym1, f1, t2, sym2, f2, 50, f"cross-backend:{base}"))
+
+    if inserts:
+        conn.executemany(
+            "INSERT OR IGNORE INTO backend_mappings "
+            "(cpu_symbol, cpu_file, backend_type, backend_symbol, backend_file, mapping_confidence, evidence) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            inserts
+        )
+        conn.commit()
+    print(f"  backend_mappings: {len(inserts)} entries inserted")
+
+
+def scan_exploit_paths(conn):
+    """Scan for potential security vulnerability patterns: unchecked input, missing validation, injection risks."""
+    rows = conn.execute(
+        "SELECT file, function_name, class_name, start_line, end_line, signature, project FROM function_index ORDER BY file, start_line"
+    ).fetchall()
+    file_cache = {}
+    conn.execute("DELETE FROM exploit_paths")
+    inserts = []
+
+    vuln_patterns = [
+        # Command injection
+        (re.compile(r'\b(?:system|popen|exec[lv]?p?|ShellExecute|CreateProcess|QProcess::start)\s*\(.*\+'), 'command-injection', 'critical'),
+        # SQL injection (string concatenation in queries)
+        (re.compile(r'(?:exec|prepare|query)\s*\(\s*(?:\"[^\"]*\"|\'[^\']*\')\s*\+'), 'sql-injection', 'critical'),
+        # Path traversal
+        (re.compile(r'(?:open|fopen|ifstream|QFile)\s*\([^)]*\+[^)]*\)'), 'path-traversal', 'high'),
+        # Unchecked external input
+        (re.compile(r'\b(?:getenv|std::getenv|qgetenv)\s*\(\s*\"'), 'unchecked-env', 'medium'),
+        # Buffer operations without size checks
+        (re.compile(r'\b(?:strcpy|strcat|sprintf|gets|scanf)\s*\('), 'buffer-overflow', 'critical'),
+        # Unsafe deserialization
+        (re.compile(r'\b(?:fromJson|fromRawData|deserialize|unmarshal)\s*\([^)]*\)'), 'unsafe-deser', 'high'),
+        # Missing null check before dereference
+        (re.compile(r'(?:->|\.)\w+\s*\([^)]*\).*(?:->|\.)\w+'), 'chain-deref', 'medium'),
+        # Hardcoded secrets/credentials
+        (re.compile(r'(?:password|secret|api_key|token|apikey)\s*=\s*["\'][^"\']{4,}["\']', re.IGNORECASE), 'hardcoded-secret', 'critical'),
+        # Unvalidated URL/network input
+        (re.compile(r'\bQUrl\s*\(\s*[A-Za-z_]\w*\s*\)|QNetworkRequest\s*\(\s*[A-Za-z_]\w*\s*\)'), 'unvalidated-url', 'high'),
+        # Integer overflow risk
+        (re.compile(r'\b(?:int|short|char)\s+\w+\s*=\s*\w+\s*[*+]\s*\w+'), 'integer-overflow', 'medium'),
+        # Use after free patterns (raw pointer + delete)
+        (re.compile(r'\bdelete\s+\w+'), 'use-after-free', 'high'),
+        # Race condition indicators
+        (re.compile(r'\b(?:static\s+(?:int|bool|QString|QList|QMap)\b)'), 'race-condition', 'medium'),
+        # Missing input length validation
+        (re.compile(r'\b(?:toUtf8|toLatin1|toStdString)\s*\(\s*\).*(?:data|constData)\s*\(\s*\)'), 'missing-length-check', 'medium'),
+    ]
+
+    for row in rows:
+        lines = _read_project_file_lines(row["project"], row["file"], file_cache)
+        if not lines:
+            continue
+        body = _extract_function_body_text(lines, row["start_line"], row["end_line"])
+        if not body:
+            continue
+
+        func_name = row["function_name"]
+        cls = row["class_name"] or ""
+        qualified = f"{cls}::{func_name}" if cls else func_name
+        fpath = row["file"]
+        proj = row["project"] or ""
+
+        for pat, vuln_type, severity in vuln_patterns:
+            for m in pat.finditer(body):
+                line_offset = body[:m.start()].count('\n')
+                line_num = row["start_line"] + line_offset
+                desc = m.group(0).strip()[:200]
+                inserts.append((qualified, fpath, vuln_type, severity, desc,
+                               f"pattern:{vuln_type}", line_num, proj))
+
+    if inserts:
+        conn.executemany(
+            "INSERT OR IGNORE INTO exploit_paths "
+            "(entry_symbol, entry_file, vulnerability_type, severity, path_description, evidence, line_num, project) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            inserts
+        )
+        conn.commit()
+    print(f"  exploit_paths: {len(inserts)} entries inserted")
+
+
 def scan_symbol_metadata(conn):
     """Aggregate symbol-level metadata for reasoning and prioritization."""
     rows = conn.execute(
@@ -5490,13 +6015,13 @@ def scan_ai_tasks(conn):
 
 def scan_function_index(conn):
     """Scan source files for function definitions with exact line ranges."""
-    dirs = [(label, path) for label, path, _exts in SOURCE_DIRS]
-
     count = 0
-    for project, base_dir in dirs:
+    for project, base_dir, exts in SOURCE_DIRS:
         if not base_dir.exists():
             continue
-        for ext in ("*.cpp", "*.h"):
+        # Use configured extensions, falling back to C++ defaults
+        scan_exts = _normalize_extensions(exts) if exts else ["*.cpp", "*.h"]
+        for ext in scan_exts:
             for filepath in base_dir.rglob(ext):
                 try:
                     n = _scan_file_functions(conn, filepath, project, base_dir)
@@ -5506,8 +6031,29 @@ def scan_function_index(conn):
     return count
 
 
+def _adapter_for_file(filepath):
+    """Select the appropriate language adapter based on file extension."""
+    ext = str(filepath).rsplit('.', 1)[-1].lower() if '.' in str(filepath) else ''
+    adapter_map = {
+        'py': PythonAdapter,
+        'ts': TypeScriptAdapter,
+        'tsx': TypeScriptAdapter,
+        'js': TypeScriptAdapter,
+        'jsx': TypeScriptAdapter,
+        'rs': RustAdapter,
+        'go': GoAdapter,
+        'java': JavaAdapter,
+        'cs': CSharpAdapter,
+    }
+    cls = adapter_map.get(ext)
+    if cls:
+        return cls()
+    return LANG_ADAPTER  # Default: project-level adapter (usually CppAdapter)
+
+
 def _scan_file_functions(conn, filepath, project, base_dir=None):
     """Extract function definitions from a single file with line ranges."""
+    adapter = _adapter_for_file(filepath)
     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
         lines = f.readlines()
 
@@ -5517,13 +6063,13 @@ def _scan_file_functions(conn, filepath, project, base_dir=None):
     fname = _rel_name(filepath, base_dir) if base_dir else filepath.name
     count = 0
 
-    # Preprocess: strip block/line comments using the language adapter
-    cleaned = LANG_ADAPTER.strip_block_comments_from_lines(lines)
+    # Preprocess: strip block/line comments using the per-file adapter
+    cleaned = adapter.strip_block_comments_from_lines(lines)
 
     # Get patterns from adapter
-    func_sig_re = LANG_ADAPTER.function_sig_pattern()
-    ctor_re = LANG_ADAPTER.constructor_pattern()
-    skip_names = LANG_ADAPTER.function_skip_names()
+    func_sig_re = adapter.function_sig_pattern()
+    ctor_re = adapter.constructor_pattern()
+    skip_names = adapter.function_skip_names()
 
     if not func_sig_re:
         return 0
@@ -5569,19 +6115,19 @@ def _scan_file_functions(conn, filepath, project, base_dir=None):
             continue
 
         # Find the opening scope marker (brace for C++/Java/etc., colon for Python)
-        scope_line = LANG_ADAPTER.find_opening_scope(cleaned, i)
+        scope_line = adapter.find_opening_scope(cleaned, i)
         if scope_line is None or scope_line - i > 15:
             i += 1
             continue
 
         # For brace-based languages, check it's not a forward declaration
-        if LANG_ADAPTER.is_declaration_not_definition(cleaned, i, scope_line):
+        if adapter.is_declaration_not_definition(cleaned, i, scope_line):
             i += 1
             continue
 
         # Found a function definition — find the end of its scope
         start_line = i + 1  # 1-based
-        end_line = LANG_ADAPTER.find_scope_end(cleaned, scope_line)
+        end_line = adapter.find_scope_end(cleaned, scope_line)
         if end_line is None:
             i += 1
             continue
@@ -6151,6 +6697,21 @@ def build():
     print("[*] Scanning heuristic call graph...")
     scan_call_edges(conn)
 
+    print("[*] Scanning data flow edges...")
+    scan_dataflow(conn)
+
+    print("[*] Scanning invariants...")
+    scan_invariants(conn)
+
+    print("[*] Computing hot paths...")
+    scan_hot_paths(conn)
+
+    print("[*] Scanning backend mappings...")
+    scan_backend_mapping(conn)
+
+    print("[*] Scanning exploit paths...")
+    scan_exploit_paths(conn)
+
     print("[*] Deriving semantic tags...")
     scan_semantic_tags(conn)
 
@@ -6275,6 +6836,11 @@ def _full_build_with_preserve():
     scan_function_index(conn)
     scan_edges(conn)
     scan_call_edges(conn)
+    scan_dataflow(conn)
+    scan_invariants(conn)
+    scan_hot_paths(conn)
+    scan_backend_mapping(conn)
+    scan_exploit_paths(conn)
 
     _rebuild_aggregation_tables(conn)
     _update_file_hashes(conn)
@@ -6295,6 +6861,7 @@ def _rebuild_aggregation_tables(conn):
         "audit_coverage", "history_metrics", "review_queue", "ownership_metrics",
         "test_function_map", "symbol_metadata", "analysis_scores",
         "symbol_audit_coverage", "ai_tasks", "edges",
+        "dataflow_edges", "invariants", "hot_paths", "backend_mappings", "exploit_paths",
     ]
     tables = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
@@ -6307,6 +6874,11 @@ def _rebuild_aggregation_tables(conn):
     scan_dead_methods(conn)
     scan_duplicate_blocks(conn)
     scan_edges(conn)
+    scan_dataflow(conn)
+    scan_invariants(conn)
+    scan_hot_paths(conn)
+    scan_backend_mapping(conn)
+    scan_exploit_paths(conn)
     scan_semantic_tags(conn)
     scan_semantic_profiles(conn)
     scan_audit_coverage(conn)
@@ -7453,7 +8025,13 @@ def find_cmd(term):
     cols = ["entity_type", "name", "file", "category", "description"]
     print(f"\n  Search: '{term}'")
     if not rows:
-        print("  (no results)")
+        suggestions = _fuzzy_suggest(term)
+        if suggestions:
+            print("  (no exact results) Did you mean:")
+            for s in suggestions:
+                print(f"    {s[0]} ({s[2]}) [{s[1]}]")
+        else:
+            print("  (no results)")
         return
     # Manual table print for tuple rows
     widths = [len(c) for c in cols]
@@ -7948,6 +8526,15 @@ def func_cmd(name):
         (pattern, pattern, pattern)
     ).fetchall()
     print(f"\n  Functions matching '{name}':")
+    if not rows:
+        suggestions = _fuzzy_suggest(name)
+        if suggestions:
+            print("  (no results) Did you mean:")
+            for s in suggestions:
+                print(f"    {s[0]} ({s[2]}) [{s[1]}]")
+        else:
+            print("  (no results)")
+        return
     print_table(rows, ["file", "function_name", "class_name", "start_line", "end_line", "signature", "project"])
 
     meta = conn.execute(
@@ -9045,6 +9632,1709 @@ def sql_cmd(query):
 
 
 # ============================================================
+# AI-ORIENTED COMMANDS: grep, read, xref, siblings, implements,
+#   who-calls, called-by, edit-context, outline, multi
+# ============================================================
+
+def grep_cmd(pattern, scope=None, max_results=40):
+    """Regex search through indexed function bodies and source files.
+
+    Searches function_bodies table first (fast, in-DB), then falls back
+    to scanning actual files for matches outside indexed functions.
+    scope: optional file path filter (e.g. 'src/agent' or 'plugins/build')
+    """
+    conn = get_conn()
+    import re as _re
+    try:
+        regex = _re.compile(pattern, _re.IGNORECASE)
+    except _re.error as err:
+        print(f"  [!] Invalid regex: {err}")
+        return
+
+    results = []
+    seen_locations = set()
+
+    # Phase 1: Search function bodies in DB (fast)
+    scope_clause = ""
+    params = []
+    if scope:
+        scope_clause = " AND file LIKE ?"
+        params.append(f"%{scope}%")
+
+    rows = conn.execute(
+        f"SELECT file, function_name, class_name, start_line, end_line, body "
+        f"FROM function_bodies WHERE 1=1{scope_clause} ORDER BY file",
+        params
+    ).fetchall()
+
+    for row in rows:
+        body_text = row['body'] or ''
+        for i, line in enumerate(body_text.split('\n')):
+            if regex.search(line):
+                line_num = row['start_line'] + i
+                loc_key = (row['file'], line_num)
+                if loc_key not in seen_locations:
+                    seen_locations.add(loc_key)
+                    cls = f"{row['class_name']}::" if row['class_name'] else ""
+                    results.append({
+                        'file': row['file'],
+                        'line': line_num,
+                        'function': f"{cls}{row['function_name']}",
+                        'text': line.strip()[:120]
+                    })
+                    if len(results) >= max_results:
+                        break
+        if len(results) >= max_results:
+            break
+
+    # Phase 2: Scan actual source files for matches outside indexed functions
+    if len(results) < max_results:
+        file_rows = conn.execute(
+            f"SELECT path, project FROM files WHERE 1=1{' AND path LIKE ?' if scope else ''} ORDER BY path",
+            ([f'%{scope}%'] if scope else [])
+        ).fetchall()
+        for frow in file_rows:
+            fpath = frow['path']
+            base_dir = _project_base_dir(frow['project'])
+            full_path = Path(base_dir) / fpath if base_dir else Path(REPO_ROOT) / fpath
+            if not full_path.exists():
+                full_path = Path(REPO_ROOT) / fpath
+                if not full_path.exists():
+                    continue
+            try:
+                file_lines = full_path.read_text(encoding='utf-8', errors='replace').split('\n')
+            except Exception:
+                continue
+            for li, line_text in enumerate(file_lines, 1):
+                loc_key = (fpath, li)
+                if loc_key not in seen_locations and regex.search(line_text):
+                    seen_locations.add(loc_key)
+                    results.append({
+                        'file': fpath,
+                        'line': li,
+                        'function': '',
+                        'text': line_text.strip()[:120]
+                    })
+                    if len(results) >= max_results:
+                        break
+            if len(results) >= max_results:
+                break
+
+    print(f"\n  === Grep: /{pattern}/ {'in ' + scope if scope else ''} ===")
+    if not results:
+        print("  (no matches)")
+        return
+    for r in results:
+        fn = f" [{r['function']}]" if r['function'] else ""
+        print(f"  {r['file']}:{r['line']}{fn}  {r['text']}")
+    print(f"\n  ({len(results)} matches)")
+
+
+def _resolve_file_path(filepath):
+    """Resolve a file path to an actual file on disk.
+
+    Tries in order:
+    1. Direct path from repo root
+    2. Fuzzy rglob match
+    3. DB lookup: project-relative → absolute via SOURCE_DIRS
+    """
+    full_path = Path(REPO_ROOT) / filepath
+    if full_path.exists():
+        return full_path, filepath
+
+    # Try fuzzy rglob
+    basename = Path(filepath).name
+    candidates = list(Path(REPO_ROOT).rglob(basename))
+    # Prefer candidates matching the most path segments
+    if candidates:
+        best = None
+        best_score = -1
+        norm_parts = filepath.replace('\\', '/').split('/')
+        for c in candidates:
+            rel = str(c.relative_to(REPO_ROOT)).replace('\\', '/')
+            score = sum(1 for p in norm_parts if p in rel)
+            if score > best_score:
+                best_score = score
+                best = c
+        if best:
+            rel_path = str(best.relative_to(REPO_ROOT)).replace('\\', '/')
+            return best, rel_path
+
+    # DB lookup: find by path pattern and resolve via project base dir
+    try:
+        conn = get_conn()
+        pattern = f"%{filepath.replace(chr(92), '/')}%"
+        row = conn.execute(
+            "SELECT path, project FROM files WHERE path LIKE ? LIMIT 1",
+            (pattern,)
+        ).fetchone()
+        if row:
+            base_dir = _project_base_dir(row['project'])
+            if base_dir:
+                resolved = Path(base_dir) / row['path']
+                if resolved.exists():
+                    return resolved, f"{row['project']}/{row['path']}"
+    except Exception:
+        pass
+
+    return None, filepath
+
+
+def read_cmd(filepath, start_line=None, end_line=None):
+    """Read file content with optional line range. Replaces read_file tool calls."""
+    full_path, display_path = _resolve_file_path(filepath)
+    if not full_path or not full_path.exists():
+        print(f"  [!] File not found: {filepath}")
+        return
+
+    try:
+        lines = full_path.read_text(encoding='utf-8', errors='replace').split('\n')
+    except Exception as e:
+        print(f"  [!] Cannot read file: {e}")
+        return
+
+    total = len(lines)
+    s = max(1, start_line or 1)
+    e = min(total, end_line or total)
+
+    print(f"\n  === {display_path} (L{s}-L{e} of {total}) ===")
+    for i in range(s - 1, e):
+        print(f"  {i + 1:>5} | {lines[i]}")
+
+
+def xref_cmd(symbol):
+    """Unified cross-reference: definition, callers, callees, class hierarchy, usage."""
+    conn = get_conn()
+    pattern = f"%{symbol}%"
+
+    # 1. Definition: where is it declared/defined?
+    funcs = conn.execute(
+        "SELECT file, function_name, class_name, start_line, end_line, signature "
+        "FROM function_index WHERE function_name LIKE ? ORDER BY file",
+        (pattern,)
+    ).fetchall()
+    if funcs:
+        print(f"\n  === Definition ({len(funcs)} matches) ===")
+        print_table(funcs, ["file", "function_name", "class_name", "start_line", "end_line", "signature"])
+
+    # 2. Class definition
+    classes = conn.execute(
+        "SELECT name, header, cpp_file, parent_class, project FROM classes WHERE name LIKE ?",
+        (pattern,)
+    ).fetchall()
+    if classes:
+        print(f"\n  === Class Definition ===")
+        print_table(classes, ["name", "header", "cpp_file", "parent_class", "project"])
+
+    # 3. Who calls this?
+    callers = conn.execute(
+        "SELECT caller_symbol, caller_file, confidence, call_count "
+        "FROM call_edges WHERE callee_symbol LIKE ? "
+        "ORDER BY call_count DESC, confidence DESC LIMIT 25",
+        (pattern,)
+    ).fetchall()
+    if callers:
+        print(f"\n  === Called By ({len(callers)} callers) ===")
+        print_table(callers, ["caller_symbol", "caller_file", "confidence", "call_count"])
+
+    # 4. What does this call?
+    callees = conn.execute(
+        "SELECT callee_symbol, callee_file, confidence, call_count "
+        "FROM call_edges WHERE caller_symbol LIKE ? "
+        "ORDER BY call_count DESC, confidence DESC LIMIT 25",
+        (pattern,)
+    ).fetchall()
+    if callees:
+        print(f"\n  === Calls ({len(callees)} callees) ===")
+        print_table(callees, ["callee_symbol", "callee_file", "confidence", "call_count"])
+
+    # 5. File-level dependencies (uses/used-by)
+    files_using = conn.execute(
+        "SELECT DISTINCT source_file, dep_type FROM dependencies "
+        "WHERE target_file LIKE ? ORDER BY source_file LIMIT 20",
+        (pattern,)
+    ).fetchall()
+    if files_using:
+        print(f"\n  === Files Using This ===")
+        print_table(files_using, ["source_file", "dep_type"])
+
+    # 6. Methods of matching class
+    methods = conn.execute(
+        "SELECT class_name, method_name, file, line_hint, category FROM methods WHERE class_name LIKE ? ORDER BY line_hint",
+        (pattern,)
+    ).fetchall()
+    if methods:
+        print(f"\n  === Methods ({len(methods)}) ===")
+        print_table(methods, ["class_name", "method_name", "file", "line_hint", "category"])
+
+    if not funcs and not classes and not callers and not callees and not files_using and not methods:
+        # Last resort: fuzzy suggestions + FTS search
+        suggestions = _fuzzy_suggest(symbol)
+        if suggestions:
+            print(f"\n  No structured data for '{symbol}'. Did you mean:")
+            for s in suggestions:
+                print(f"    {s[0]} ({s[2]}) [{s[1]}]")
+        else:
+            print(f"\n  No structured data for '{symbol}'. Running FTS search...")
+            find_cmd(symbol)
+
+
+def siblings_cmd(class_name):
+    """Find all classes that share the same parent as the given class."""
+    conn = get_conn()
+    pattern = f"%{class_name}%"
+
+    # Find the class and its parent
+    target = conn.execute(
+        "SELECT name, parent_class, header FROM classes WHERE name LIKE ?",
+        (pattern,)
+    ).fetchall()
+    if not target:
+        print(f"  No class matching '{class_name}'")
+        return
+
+    for cls in target:
+        parent = cls['parent_class']
+        if not parent:
+            print(f"\n  {cls['name']} has no parent class")
+            continue
+
+        siblings = conn.execute(
+            "SELECT name, header, cpp_file, project FROM classes WHERE parent_class = ? ORDER BY name",
+            (parent,)
+        ).fetchall()
+        print(f"\n  === Siblings of {cls['name']} (parent: {parent}) — {len(siblings)} classes ===")
+        print_table(siblings, ["name", "header", "cpp_file", "project"])
+
+
+def implements_cmd(interface_name):
+    """Find all implementations of an interface (classes with matching parent)."""
+    conn = get_conn()
+    pattern = f"%{interface_name}%"
+
+    # Find the interface itself
+    iface = conn.execute(
+        "SELECT name, header, project FROM classes WHERE name LIKE ? ORDER BY name",
+        (pattern,)
+    ).fetchall()
+    if not iface:
+        print(f"  No interface matching '{interface_name}'")
+        return
+
+    for ifc in iface:
+        ifc_name = ifc['name']
+        # Find all classes that extend this
+        impls = conn.execute(
+            "SELECT name, header, cpp_file, project FROM classes WHERE parent_class = ? ORDER BY name",
+            (ifc_name,)
+        ).fetchall()
+        # Also check edge table for inherits edges
+        edge_impls = conn.execute(
+            "SELECT source, target, detail FROM edges "
+            "WHERE target LIKE ? AND edge_type = 'inherits'",
+            (f"%{ifc_name}%",)
+        ).fetchall()
+
+        print(f"\n  === {ifc_name} ({ifc['header']}) — {len(impls)} direct implementors ===")
+        if impls:
+            print_table(impls, ["name", "header", "cpp_file", "project"])
+        else:
+            print("  (no direct subclasses in classes table)")
+
+        if edge_impls:
+            print(f"\n  === Inheritance Edges ===")
+            print_table(edge_impls, ["source", "target", "detail"])
+
+        # Recursively find grandchildren
+        for impl in impls:
+            grandchildren = conn.execute(
+                "SELECT name, header, cpp_file FROM classes WHERE parent_class = ?",
+                (impl['name'],)
+            ).fetchall()
+            if grandchildren:
+                print(f"\n  └── Children of {impl['name']}:")
+                print_table(grandchildren, ["name", "header", "cpp_file"])
+
+
+def whocalls_cmd(func_name):
+    """Find all callers of a function (reverse call graph)."""
+    conn = get_conn()
+    pattern = f"%{func_name}%"
+    rows = conn.execute(
+        "SELECT caller_symbol, caller_file, callee_symbol, callee_file, confidence, call_count "
+        "FROM call_edges WHERE callee_symbol LIKE ? "
+        "ORDER BY call_count DESC, confidence DESC LIMIT 40",
+        (pattern,)
+    ).fetchall()
+    print(f"\n  === Who calls '{func_name}'? ===")
+    print_table(rows, ["caller_symbol", "caller_file", "callee_symbol", "confidence", "call_count"])
+
+
+def calledby_cmd(func_name):
+    """Find all functions called by a function (forward call graph)."""
+    conn = get_conn()
+    pattern = f"%{func_name}%"
+    rows = conn.execute(
+        "SELECT caller_symbol, callee_symbol, callee_file, confidence, call_count "
+        "FROM call_edges WHERE caller_symbol LIKE ? "
+        "ORDER BY call_count DESC, confidence DESC LIMIT 40",
+        (pattern,)
+    ).fetchall()
+    print(f"\n  === What does '{func_name}' call? ===")
+    print_table(rows, ["caller_symbol", "callee_symbol", "callee_file", "confidence", "call_count"])
+
+
+def editcontext_cmd(filepath, line_num):
+    """Get editing context for a specific file + line: surrounding function, class, includes.
+
+    This tells the AI everything it needs to write a correct edit:
+    the function boundaries, what class it belongs to, and what headers are available.
+    """
+    conn = get_conn()
+    pattern = f"%{filepath}%"
+    line_num = int(line_num)
+
+    # 1. File summary
+    summary = conn.execute(
+        "SELECT file, summary, category FROM file_summaries WHERE file LIKE ?",
+        (pattern,)
+    ).fetchall()
+    if summary:
+        print(f"\n  === File: {summary[0]['file']} ===")
+        print(f"  Summary: {summary[0]['summary']}")
+        print(f"  Category: {summary[0]['category']}")
+
+    # 2. Find the function containing this line
+    containing = conn.execute(
+        "SELECT function_name, class_name, start_line, end_line, signature "
+        "FROM function_index WHERE file LIKE ? AND start_line <= ? AND end_line >= ? "
+        "ORDER BY (end_line - start_line) ASC LIMIT 1",
+        (pattern, line_num, line_num)
+    ).fetchall()
+    if containing:
+        fn = containing[0]
+        cls = f"{fn['class_name']}::" if fn['class_name'] else ""
+        print(f"\n  === Containing Function ===")
+        print(f"  {cls}{fn['function_name']} (L{fn['start_line']}-L{fn['end_line']})")
+        print(f"  Signature: {fn['signature']}")
+    else:
+        # Find nearest functions
+        above = conn.execute(
+            "SELECT function_name, class_name, start_line, end_line "
+            "FROM function_index WHERE file LIKE ? AND end_line < ? "
+            "ORDER BY end_line DESC LIMIT 1",
+            (pattern, line_num)
+        ).fetchall()
+        below = conn.execute(
+            "SELECT function_name, class_name, start_line, end_line "
+            "FROM function_index WHERE file LIKE ? AND start_line > ? "
+            "ORDER BY start_line ASC LIMIT 1",
+            (pattern, line_num)
+        ).fetchall()
+        print(f"\n  === Line {line_num} is between functions ===")
+        if above:
+            a = above[0]
+            cls = f"{a['class_name']}::" if a['class_name'] else ""
+            print(f"  ↑ {cls}{a['function_name']} ends at L{a['end_line']}")
+        if below:
+            b = below[0]
+            cls = f"{b['class_name']}::" if b['class_name'] else ""
+            print(f"  ↓ {cls}{b['function_name']} starts at L{b['start_line']}")
+
+    # 3. All functions in this file (compact)
+    all_funcs = conn.execute(
+        "SELECT function_name, class_name, start_line, end_line "
+        "FROM function_index WHERE file LIKE ? ORDER BY start_line",
+        (pattern,)
+    ).fetchall()
+    if all_funcs:
+        print(f"\n  === Functions in File ({len(all_funcs)}) ===")
+        for fn in all_funcs:
+            cls = f"{fn['class_name']}::" if fn['class_name'] else ""
+            marker = " ◄" if containing and fn['function_name'] == containing[0]['function_name'] and fn['start_line'] == containing[0]['start_line'] else ""
+            print(f"  L{fn['start_line']:>5}-{fn['end_line']:<5} {cls}{fn['function_name']}{marker}")
+
+    # 4. Dependencies (what this file includes)
+    deps = conn.execute(
+        "SELECT target_file FROM dependencies WHERE source_file LIKE ? ORDER BY target_file",
+        (pattern,)
+    ).fetchall()
+    if deps:
+        print(f"\n  === Includes ({len(deps)}) ===")
+        for d in deps:
+            print(f"  #include {d['target_file']}")
+
+    # 5. Read the actual line region from disk
+    full_path = None
+    for candidate in (Path(REPO_ROOT) / filepath, ):
+        if candidate.exists():
+            full_path = candidate
+            break
+    if not full_path:
+        # Try to resolve from DB
+        file_row = conn.execute("SELECT path FROM files WHERE path LIKE ? LIMIT 1", (pattern,)).fetchone()
+        if file_row:
+            full_path = Path(REPO_ROOT) / file_row['path']
+
+    if full_path and full_path.exists():
+        try:
+            file_lines = full_path.read_text(encoding='utf-8', errors='replace').split('\n')
+            # Show 15 lines around the target line
+            ctx_start = max(0, line_num - 16)
+            ctx_end = min(len(file_lines), line_num + 15)
+            print(f"\n  === Source Context (L{ctx_start + 1}-L{ctx_end}) ===")
+            for i in range(ctx_start, ctx_end):
+                marker = ">>>" if i + 1 == line_num else "   "
+                print(f"  {marker} {i + 1:>5} | {file_lines[i]}")
+        except Exception:
+            pass
+
+
+def outline_cmd(filepath):
+    """Show structural outline of a file: classes, functions, enums, structs with line numbers."""
+    conn = get_conn()
+    pattern = f"%{filepath}%"
+
+    # File info
+    file_info = conn.execute(
+        "SELECT file, summary, category FROM file_summaries WHERE file LIKE ?",
+        (pattern,)
+    ).fetchall()
+    if file_info:
+        for fi in file_info:
+            print(f"\n  === {fi['file']} ===")
+            print(f"  {fi['summary']}")
+
+    # Classes defined in file
+    classes = conn.execute(
+        "SELECT name, parent_class FROM classes WHERE header LIKE ? OR cpp_file LIKE ? ORDER BY name",
+        (pattern, pattern)
+    ).fetchall()
+    if classes:
+        print(f"\n  === Classes ({len(classes)}) ===")
+        for cls in classes:
+            parent = f" : {cls['parent_class']}" if cls['parent_class'] else ""
+            print(f"  class {cls['name']}{parent}")
+
+    # Functions with line ranges
+    funcs = conn.execute(
+        "SELECT function_name, class_name, start_line, end_line, signature "
+        "FROM function_index WHERE file LIKE ? ORDER BY start_line",
+        (pattern,)
+    ).fetchall()
+    if funcs:
+        print(f"\n  === Functions ({len(funcs)}) ===")
+        cur_class = None
+        for fn in funcs:
+            cls = fn['class_name'] or ''
+            if cls != cur_class:
+                cur_class = cls
+                if cls:
+                    print(f"\n  [{cls}]")
+            name = fn['function_name']
+            span = fn['end_line'] - fn['start_line'] + 1
+            sig = fn['signature'][:80] if fn['signature'] else ''
+            print(f"    L{fn['start_line']:>5}-{fn['end_line']:<5} ({span:>3} lines) {name}  {sig}")
+
+    # Enums
+    enums = conn.execute(
+        "SELECT name, line, value_count, values_preview FROM enums WHERE file LIKE ?",
+        (pattern,)
+    ).fetchall()
+    if enums:
+        print(f"\n  === Enums ({len(enums)}) ===")
+        for en in enums:
+            print(f"    L{en['line']:>5} {en['name']} ({en['value_count']} values)")
+
+    # Structs
+    structs = conn.execute(
+        "SELECT name, line, field_count FROM structs WHERE file LIKE ?",
+        (pattern,)
+    ).fetchall()
+    if structs:
+        print(f"\n  === Structs ({len(structs)}) ===")
+        for st in structs:
+            print(f"    L{st['line']:>5} {st['name']} ({st['field_count']} fields)")
+
+    if not file_info and not funcs and not classes:
+        print(f"  No structural data for '{filepath}'. Try a more specific path.")
+
+
+# ============================================================
+# INTELLIGENT COMMANDS: smart, learn, recall, history, relate, suggest, fuzzy
+# ============================================================
+
+def _fuzzy_suggest(term, limit=8):
+    """Find similar symbol names when an exact match fails.
+
+    Uses edit-distance-like scoring: checks for substring matches,
+    prefix matches, and FTS5 partial matches.
+    Returns list of (name, file_path, kind) tuples.
+    """
+    conn = get_conn()
+    results = []
+    seen = set()
+
+    # 1. FTS5 prefix match
+    try:
+        for row in conn.execute(
+            "SELECT name, file_path, kind FROM fts_index "
+            "WHERE fts_index MATCH ? ORDER BY rank LIMIT ?",
+            (f"{term}*", limit * 2)
+        ):
+            key = (row[0], row[1])
+            if key not in seen:
+                seen.add(key)
+                results.append((row[0], row[1], row[2]))
+    except Exception:
+        pass
+
+    # 2. Substring match in function_index
+    pattern = f"%{term}%"
+    for row in conn.execute(
+        "SELECT DISTINCT function_name, file, 'function' FROM function_index "
+        "WHERE function_name LIKE ? LIMIT ?",
+        (pattern, limit)
+    ):
+        key = (row[0], row[1])
+        if key not in seen:
+            seen.add(key)
+            results.append((row[0], row[1], row[2]))
+
+    # 3. Substring match in classes
+    for row in conn.execute(
+        "SELECT DISTINCT name, header, 'class' FROM classes "
+        "WHERE name LIKE ? LIMIT ?",
+        (pattern, limit)
+    ):
+        key = (row[0], row[1])
+        if key not in seen:
+            seen.add(key)
+            results.append((row[0], row[1], row[2]))
+
+    conn.close()
+
+    # Score by relevance: exact prefix > contains > longer distance
+    def _score(item):
+        name_lower = item[0].lower()
+        term_lower = term.lower()
+        if name_lower == term_lower:
+            return 0
+        if name_lower.startswith(term_lower):
+            return 1
+        if term_lower in name_lower:
+            return 2 + len(name_lower)
+        return 100 + len(name_lower)
+
+    results.sort(key=_score)
+    return results[:limit]
+
+
+def _ai_memory_db_path():
+    """Return the path to ai_memory.db, resolved relative to this script."""
+    return Path(__file__).resolve().parent.parent / "ai_memory" / "ai_memory.db"
+
+
+def _query_ai_memory(topic, limit=10):
+    """Query ai_memory DB directly (no subprocess) for a topic.
+
+    Returns list of dicts with key, value, tags, scope.
+    """
+    db_path = _ai_memory_db_path()
+    if not db_path.exists():
+        return []
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=3)
+        conn.row_factory = sqlite3.Row
+        results = []
+
+        # FTS search
+        try:
+            for row in conn.execute(
+                "SELECT key, value, tags, scope FROM memories "
+                "WHERE id IN (SELECT rowid FROM memories_fts WHERE memories_fts MATCH ?) "
+                "LIMIT ?",
+                (topic, limit)
+            ):
+                results.append(dict(row))
+        except Exception:
+            pass
+
+        # Key prefix search
+        if len(results) < limit:
+            for row in conn.execute(
+                "SELECT key, value, tags, scope FROM memories "
+                "WHERE key LIKE ? LIMIT ?",
+                (f"%{topic}%", limit - len(results))
+            ):
+                d = dict(row)
+                if d not in results:
+                    results.append(d)
+
+        # Tag search
+        if len(results) < limit:
+            for row in conn.execute(
+                "SELECT key, value, tags, scope FROM memories "
+                "WHERE tags LIKE ? LIMIT ?",
+                (f"%{topic}%", limit - len(results))
+            ):
+                d = dict(row)
+                if d not in results:
+                    results.append(d)
+
+        conn.close()
+        return results
+    except Exception:
+        return []
+
+
+def dataflow_cmd(symbol=None):
+    """Show data flow edges for a symbol or all data flows."""
+    conn = get_conn()
+    if not conn:
+        return
+    try:
+        if symbol:
+            rows = conn.execute(
+                "SELECT source_symbol, source_file, target_symbol, target_file, data_type, flow_kind, confidence, evidence "
+                "FROM dataflow_edges WHERE source_symbol LIKE ? OR target_symbol LIKE ? ORDER BY confidence DESC",
+                (f"%{symbol}%", f"%{symbol}%")
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT source_symbol, source_file, target_symbol, target_file, data_type, flow_kind, confidence, evidence "
+                "FROM dataflow_edges ORDER BY confidence DESC LIMIT 100"
+            ).fetchall()
+
+        if not rows:
+            print(f"  No dataflow edges found{f' for {symbol}' if symbol else ''}.")
+            conn.close()
+            return
+
+        print(f"\n  === Data Flow {'for ' + symbol if symbol else '(top 100)'} ===")
+
+        # Group by flow_kind
+        by_kind = defaultdict(list)
+        for r in rows:
+            by_kind[r["flow_kind"]].append(r)
+
+        for kind, edges in sorted(by_kind.items()):
+            print(f"\n  [{kind.upper()}] ({len(edges)} edges)")
+            for e in edges[:20]:
+                src = f"{e['source_symbol']}"
+                tgt = f"{e['target_symbol']}"
+                conf = e['confidence']
+                print(f"    {src} → {tgt}  (conf:{conf}, {e['data_type'] or '?'})")
+            if len(edges) > 20:
+                print(f"    ... and {len(edges) - 20} more")
+
+        # Summary stats
+        total = len(rows)
+        kinds = len(by_kind)
+        print(f"\n  Summary: {total} edges, {kinds} flow types")
+
+        conn.close()
+    except Exception as e:
+        print(f"  [!] Error: {e}")
+        conn.close()
+
+
+def invariant_cmd(symbol=None, inv_type=None):
+    """Show invariant annotations for a symbol, type, or all invariants."""
+    conn = get_conn()
+    if not conn:
+        return
+    try:
+        query = "SELECT symbol_name, file_path, line_num, invariant_type, description, severity, evidence FROM invariants"
+        params = []
+        conditions = []
+
+        if symbol:
+            conditions.append("symbol_name LIKE ?")
+            params.append(f"%{symbol}%")
+        if inv_type:
+            conditions.append("invariant_type = ?")
+            params.append(inv_type)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, symbol_name"
+
+        rows = conn.execute(query, params).fetchall()
+
+        if not rows:
+            print(f"  No invariants found{f' for {symbol}' if symbol else ''}{f' type={inv_type}' if inv_type else ''}.")
+            conn.close()
+            return
+
+        ctx = []
+        if symbol:
+            ctx.append(f"symbol={symbol}")
+        if inv_type:
+            ctx.append(f"type={inv_type}")
+        print(f"\n  === Invariants{' (' + ', '.join(ctx) + ')' if ctx else ''} ===")
+
+        # Group by type
+        by_type = defaultdict(list)
+        for r in rows:
+            by_type[r["invariant_type"]].append(r)
+
+        sev_icons = {'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🟢'}
+        for itype, entries in sorted(by_type.items()):
+            print(f"\n  [{itype.upper()}] ({len(entries)} checks)")
+            for e in entries[:15]:
+                sev = e['severity']
+                icon = sev_icons.get(sev, '⚪')
+                print(f"    {icon} {e['symbol_name']} ({e['file_path']}:{e['line_num']}) — {e['description'][:80]}")
+            if len(entries) > 15:
+                print(f"    ... and {len(entries) - 15} more")
+
+        print(f"\n  Summary: {len(rows)} invariants, {len(by_type)} types")
+        conn.close()
+    except Exception as e:
+        print(f"  [!] Error: {e}")
+        conn.close()
+
+
+def hotpath_cmd(scope=None, top_n=30):
+    """Show hot path analysis — most-called functions, critical paths, GPU paths."""
+    conn = get_conn()
+    if not conn:
+        return
+    try:
+        query = ("SELECT symbol_name, file_path, total_callers, total_callees, fan_in, fan_out, "
+                 "depth, path_weight, is_critical, is_gpu_path, reasons FROM hot_paths")
+        params = []
+        if scope:
+            query += " WHERE file_path LIKE ?"
+            params.append(f"%{scope}%")
+        query += " ORDER BY path_weight DESC LIMIT ?"
+        params.append(top_n)
+
+        rows = conn.execute(query, params).fetchall()
+
+        if not rows:
+            print(f"  No hot path data found{f' for scope={scope}' if scope else ''}.")
+            conn.close()
+            return
+
+        print(f"\n  === Hot Paths{f' (scope: {scope})' if scope else ''} — Top {top_n} ===")
+        print(f"  {'Rank':<5} {'Weight':<8} {'Fan-In':<8} {'Fan-Out':<9} {'Depth':<7} {'Flags':<10} Symbol")
+        print(f"  {'─'*5} {'─'*8} {'─'*8} {'─'*9} {'─'*7} {'─'*10} {'─'*40}")
+
+        for i, r in enumerate(rows, 1):
+            flags = []
+            if r['is_critical']:
+                flags.append('🔥')
+            if r['is_gpu_path']:
+                flags.append('🎮')
+            flag_str = ''.join(flags) if flags else '  '
+            print(f"  {i:<5} {r['path_weight']:<8} {r['fan_in']:<8} {r['fan_out']:<9} {r['depth']:<7} {flag_str:<10} {r['symbol_name']}")
+
+        # Stats
+        critical_count = sum(1 for r in rows if r['is_critical'])
+        gpu_count = sum(1 for r in rows if r['is_gpu_path'])
+        max_weight = rows[0]['path_weight'] if rows else 0
+        print(f"\n  Summary: {len(rows)} functions | {critical_count} critical | {gpu_count} GPU | max weight: {max_weight}")
+
+        conn.close()
+    except Exception as e:
+        print(f"  [!] Error: {e}")
+        conn.close()
+
+
+def backend_map_cmd(symbol=None, backend=None):
+    """Show CPU↔backend function mappings."""
+    conn = get_conn()
+    if not conn:
+        return
+    try:
+        query = ("SELECT cpu_symbol, cpu_file, backend_type, backend_symbol, backend_file, "
+                 "mapping_confidence, evidence FROM backend_mappings")
+        params = []
+        conditions = []
+        if symbol:
+            conditions.append("(cpu_symbol LIKE ? OR backend_symbol LIKE ?)")
+            params.extend([f"%{symbol}%", f"%{symbol}%"])
+        if backend:
+            conditions.append("backend_type = ?")
+            params.append(backend)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY mapping_confidence DESC"
+
+        rows = conn.execute(query, params).fetchall()
+
+        if not rows:
+            print(f"  No backend mappings found{f' for {symbol}' if symbol else ''}{f' backend={backend}' if backend else ''}.")
+            conn.close()
+            return
+
+        print(f"\n  === Backend Mappings ===")
+
+        by_backend = defaultdict(list)
+        for r in rows:
+            by_backend[r["backend_type"]].append(r)
+
+        backend_icons = {'cuda': '🟢', 'opencl': '🔵', 'metal': '⚪', 'vulkan': '🔴', 'directx': '🟣', 'simd': '🟡'}
+        for btype, entries in sorted(by_backend.items()):
+            icon = backend_icons.get(btype, '⚫')
+            print(f"\n  {icon} [{btype.upper()}] ({len(entries)} mappings)")
+            for e in entries[:20]:
+                conf = e['mapping_confidence']
+                print(f"    {e['cpu_symbol']} ↔ {e['backend_symbol']}  (conf:{conf})")
+                print(f"      CPU:     {e['cpu_file']}")
+                print(f"      Backend: {e['backend_file']}")
+            if len(entries) > 20:
+                print(f"    ... and {len(entries) - 20} more")
+
+        print(f"\n  Summary: {len(rows)} mappings across {len(by_backend)} backends")
+        conn.close()
+    except Exception as e:
+        print(f"  [!] Error: {e}")
+        conn.close()
+
+
+def exploit_cmd(vuln_type=None, severity=None, scope=None):
+    """Show potential security vulnerability paths."""
+    conn = get_conn()
+    if not conn:
+        return
+    try:
+        query = ("SELECT entry_symbol, entry_file, vulnerability_type, severity, "
+                 "path_description, evidence, line_num FROM exploit_paths")
+        params = []
+        conditions = []
+        if vuln_type:
+            conditions.append("vulnerability_type = ?")
+            params.append(vuln_type)
+        if severity:
+            conditions.append("severity = ?")
+            params.append(severity)
+        if scope:
+            conditions.append("entry_file LIKE ?")
+            params.append(f"%{scope}%")
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, entry_file"
+
+        rows = conn.execute(query, params).fetchall()
+
+        if not rows:
+            filters = []
+            if vuln_type:
+                filters.append(f"type={vuln_type}")
+            if severity:
+                filters.append(f"severity={severity}")
+            if scope:
+                filters.append(f"scope={scope}")
+            print(f"  No exploit paths found{' (' + ', '.join(filters) + ')' if filters else ''}.")
+            conn.close()
+            return
+
+        print(f"\n  === Exploit Path Analysis ===")
+
+        sev_icons = {'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🟢'}
+
+        by_type = defaultdict(list)
+        for r in rows:
+            by_type[r["vulnerability_type"]].append(r)
+
+        for vtype, entries in sorted(by_type.items(), key=lambda x: -len(x[1])):
+            crits = sum(1 for e in entries if e['severity'] == 'critical')
+            highs = sum(1 for e in entries if e['severity'] == 'high')
+            print(f"\n  [{vtype.upper()}] ({len(entries)} findings, {crits} critical, {highs} high)")
+            for e in entries[:15]:
+                icon = sev_icons.get(e['severity'], '⚪')
+                desc = (e['path_description'] or '')[:80]
+                print(f"    {icon} [{e['severity']}] {e['entry_symbol']} ({e['entry_file']}:{e['line_num']})")
+                if desc:
+                    print(f"       {desc}")
+            if len(entries) > 15:
+                print(f"    ... and {len(entries) - 15} more")
+
+        # Summary
+        total = len(rows)
+        crits = sum(1 for r in rows if r['severity'] == 'critical')
+        highs = sum(1 for r in rows if r['severity'] == 'high')
+        meds = sum(1 for r in rows if r['severity'] == 'medium')
+        types = len(by_type)
+        print(f"\n  Summary: {total} findings | {crits} critical | {highs} high | {meds} medium | {types} vulnerability types")
+        if crits > 0:
+            print(f"  ⚠️  {crits} CRITICAL findings require immediate attention!")
+
+        conn.close()
+    except Exception as e:
+        print(f"  [!] Error: {e}")
+        conn.close()
+
+
+def _store_ai_memory(key, value, tags=""):
+    """Store or update a memory in ai_memory.db directly (no subprocess)."""
+    db_path = _ai_memory_db_path()
+    if not db_path.exists():
+        print(f"  [!] ai_memory.db not found at {db_path}")
+        return False
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=5)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+        existing = conn.execute("SELECT id FROM memories WHERE key = ?", (key,)).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE memories SET value=?, tags=?, updated_at=? WHERE key=?",
+                (value, tags, now, key)
+            )
+        else:
+            conn.execute(
+                "INSERT INTO memories (key, value, tags, scope, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'persistent', ?, ?)",
+                (key, value, tags, now, now)
+            )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"  [!] Failed to store memory: {e}")
+        return False
+
+
+def smart_cmd(topic):
+    """Unified intelligence query: combines source graph context + AI memory.
+
+    Gives a full picture of a topic by querying:
+    1. Source graph: context (classes, functions, deps, rdeps)
+    2. AI memory: related decisions, bugs, insights, observations
+    3. If source graph finds nothing, runs fuzzy suggestions
+    """
+    print(f"\n  === SMART CONTEXT: {topic} ===\n")
+
+    # --- Part 1: Source Graph Context ---
+    print("  --- Source Graph ---")
+    conn = get_conn()
+
+    # Check if topic matches a class
+    class_rows = conn.execute(
+        "SELECT name, header, parent_class FROM classes WHERE name LIKE ? LIMIT 5",
+        (f"%{topic}%",)
+    ).fetchall()
+
+    # Check if topic matches functions
+    func_rows = conn.execute(
+        "SELECT function_name, file, class_name, start_line, end_line FROM function_index "
+        "WHERE function_name LIKE ? LIMIT 10",
+        (f"%{topic}%",)
+    ).fetchall()
+
+    # Check if topic matches files
+    file_rows = conn.execute(
+        "SELECT path, project FROM files WHERE path LIKE ? LIMIT 5",
+        (f"%{topic}%",)
+    ).fetchall()
+
+    sg_found = False
+    if class_rows:
+        sg_found = True
+        print(f"  Classes ({len(class_rows)}):")
+        for r in class_rows:
+            parent = f" : {r['parent_class']}" if r['parent_class'] else ""
+            print(f"    {r['name']}{parent}  [{r['header']}]")
+
+    if func_rows:
+        sg_found = True
+        print(f"  Functions ({len(func_rows)}):")
+        for r in func_rows:
+            cls = f"{r['class_name']}::" if r['class_name'] else ""
+            print(f"    {cls}{r['function_name']}  [{r['file']} L{r['start_line']}-{r['end_line']}]")
+
+    if file_rows:
+        sg_found = True
+        print(f"  Files ({len(file_rows)}):")
+        for r in file_rows:
+            print(f"    {r['project']}/{r['path']}")
+
+    # Dependencies
+    if class_rows:
+        cls_name = class_rows[0]['name']
+        callers = conn.execute(
+            "SELECT DISTINCT caller_file FROM call_edges WHERE callee_symbol LIKE ? LIMIT 8",
+            (f"%{cls_name}%",)
+        ).fetchall()
+        if callers:
+            print(f"  Referenced from:")
+            for c in callers:
+                print(f"    {c['caller_file']}")
+
+    if not sg_found:
+        suggestions = _fuzzy_suggest(topic)
+        if suggestions:
+            print(f"  No exact match. Did you mean:")
+            for s in suggestions:
+                print(f"    {s[0]} ({s[2]}) [{s[1]}]")
+        else:
+            print(f"  No results in source graph for '{topic}'.")
+
+    conn.close()
+
+    # --- Part 2: AI Memory ---
+    print(f"\n  --- AI Memory ---")
+    memories = _query_ai_memory(topic)
+    if memories:
+        for m in memories:
+            tags_str = f" [{m['tags']}]" if m.get('tags') else ""
+            print(f"  [{m['scope']}]{tags_str} {m['key']}")
+            # Truncate long values
+            val = m['value']
+            if len(val) > 200:
+                val = val[:200] + "..."
+            for line in val.split('\n'):
+                print(f"    {line}")
+    else:
+        print(f"  No memories found for '{topic}'.")
+
+    print()
+
+
+def learn_cmd(key, value, tags=""):
+    """Store an insight/decision/observation into AI memory from source graph.
+
+    Shortcut for ai_memory store — no need to switch tools.
+    Example: learn "decision:build-refactor" "Extracted BuildBootstrap from MainWindow" "decision,build"
+    """
+    if _store_ai_memory(key, value, tags):
+        print(f"  [OK] Stored: {key}")
+        if tags:
+            print(f"       Tags: {tags}")
+    else:
+        print(f"  [!] Failed to store memory.")
+
+
+def recall_cmd(topic):
+    """Recall memories about a topic from AI memory.
+
+    Shortcut for ai_memory context — no need to switch tools.
+    """
+    memories = _query_ai_memory(topic)
+    if memories:
+        print(f"\n  === AI Memory: {topic} ({len(memories)} results) ===\n")
+        for m in memories:
+            tags_str = f" [{m['tags']}]" if m.get('tags') else ""
+            print(f"  {m['key']}{tags_str}")
+            val = m['value']
+            if len(val) > 300:
+                val = val[:300] + "..."
+            for line in val.split('\n'):
+                print(f"    {line}")
+            print()
+    else:
+        print(f"\n  No memories found for '{topic}'.\n")
+
+
+def _git_root():
+    """Find the git repository root directory."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5,
+            cwd=str(SCRIPT_DIR)
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip())
+    except Exception:
+        pass
+    # Fallback: REPO_ROOT's parent (tools/../ = project root)
+    return REPO_ROOT.parent
+
+
+def history_cmd(filepath):
+    """Show recent git history for a file or directory.
+
+    Uses git log to display last 15 commits affecting the target.
+    """
+    resolved, rel_display = _resolve_file_path(filepath)
+    if not resolved:
+        print(f"  [!] Cannot resolve path: {filepath}")
+        return
+
+    import subprocess
+    git_root = _git_root()
+    try:
+        result = subprocess.run(
+            ["git", "log", "--oneline", "--follow", "-15",
+             "--format=%h %ad %s", "--date=short", "--", str(resolved)],
+            capture_output=True, text=True, timeout=10,
+            cwd=str(git_root)
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            rel = rel_display
+            print(f"\n  === Git History: {rel} (last 15) ===\n")
+            for line in result.stdout.strip().split('\n'):
+                print(f"  {line}")
+            print()
+        else:
+            print(f"  No git history for '{filepath}'.")
+    except FileNotFoundError:
+        print("  [!] git not found in PATH.")
+    except subprocess.TimeoutExpired:
+        print("  [!] git log timed out.")
+    except Exception as e:
+        print(f"  [!] git error: {e}")
+
+
+def changes_cmd(filepath=None):
+    """Show files changed in recent commits (or changes in a specific file).
+
+    Without args: shows last 10 commits with changed file counts.
+    With file: shows diff stat of recent changes in that file.
+    """
+    import subprocess
+    git_root = _git_root()
+    try:
+        if filepath:
+            resolved, rel_display = _resolve_file_path(filepath)
+            if not resolved:
+                print(f"  [!] Cannot resolve: {filepath}")
+                return
+            result = subprocess.run(
+                ["git", "log", "--oneline", "-10", "--stat",
+                 "--format=%h %ad %s", "--date=short", "--", str(resolved)],
+                capture_output=True, text=True, timeout=10,
+                cwd=str(git_root)
+            )
+        else:
+            result = subprocess.run(
+                ["git", "log", "--oneline", "-10", "--stat",
+                 "--format=%h %ad %s", "--date=short"],
+                capture_output=True, text=True, timeout=10,
+                cwd=str(git_root)
+            )
+        if result.returncode == 0 and result.stdout.strip():
+            print(f"\n  === Recent Changes ===\n")
+            for line in result.stdout.strip().split('\n')[:60]:
+                print(f"  {line}")
+            print()
+        else:
+            print("  No recent changes found.")
+    except FileNotFoundError:
+        print("  [!] git not found in PATH.")
+    except Exception as e:
+        print(f"  [!] git error: {e}")
+
+
+def relate_cmd(symbol_a, symbol_b):
+    """Find all relationships/connections between two symbols.
+
+    Searches: class hierarchy, call edges, file dependencies, shared files.
+    """
+    conn = get_conn()
+    print(f"\n  === Relationships: {symbol_a} ↔ {symbol_b} ===\n")
+    found = False
+
+    # 1. Check class hierarchy (parent-child)
+    for direction in [(symbol_a, symbol_b), (symbol_b, symbol_a)]:
+        parent_check = conn.execute(
+            "SELECT name, parent_class, header FROM classes "
+            "WHERE name LIKE ? AND parent_class LIKE ?",
+            (f"%{direction[0]}%", f"%{direction[1]}%")
+        ).fetchall()
+        if parent_check:
+            found = True
+            print(f"  Inheritance:")
+            for r in parent_check:
+                print(f"    {r[0]} extends {r[1]}  [{r[2]}]")
+
+    # 2. Call edges: A calls B
+    calls_ab = conn.execute(
+        "SELECT caller_symbol, callee_symbol, caller_file, callee_file FROM call_edges "
+        "WHERE caller_symbol LIKE ? AND callee_symbol LIKE ? LIMIT 15",
+        (f"%{symbol_a}%", f"%{symbol_b}%")
+    ).fetchall()
+    if calls_ab:
+        found = True
+        print(f"  {symbol_a} calls {symbol_b}:")
+        for r in calls_ab:
+            print(f"    {r[0]} → {r[1]}  [{r[2]}]")
+
+    # 3. Call edges: B calls A
+    calls_ba = conn.execute(
+        "SELECT caller_symbol, callee_symbol, caller_file, callee_file FROM call_edges "
+        "WHERE caller_symbol LIKE ? AND callee_symbol LIKE ? LIMIT 15",
+        (f"%{symbol_b}%", f"%{symbol_a}%")
+    ).fetchall()
+    if calls_ba:
+        found = True
+        print(f"  {symbol_b} calls {symbol_a}:")
+        for r in calls_ba:
+            print(f"    {r[0]} → {r[1]}  [{r[2]}]")
+
+    # 4. Co-occurrence in same file
+    files_a = set()
+    for r in conn.execute(
+        "SELECT DISTINCT file FROM function_index WHERE function_name LIKE ?",
+        (f"%{symbol_a}%",)
+    ):
+        files_a.add(r[0])
+    for r in conn.execute(
+        "SELECT DISTINCT header FROM classes WHERE name LIKE ?",
+        (f"%{symbol_a}%",)
+    ):
+        files_a.add(r[0])
+
+    files_b = set()
+    for r in conn.execute(
+        "SELECT DISTINCT file FROM function_index WHERE function_name LIKE ?",
+        (f"%{symbol_b}%",)
+    ):
+        files_b.add(r[0])
+    for r in conn.execute(
+        "SELECT DISTINCT header FROM classes WHERE name LIKE ?",
+        (f"%{symbol_b}%",)
+    ):
+        files_b.add(r[0])
+
+    shared = files_a & files_b
+    if shared:
+        found = True
+        print(f"  Co-located in files:")
+        for f in sorted(shared):
+            print(f"    {f}")
+
+    # 5. Dependency path (A's file includes B's file or vice versa)
+    if files_a and files_b:
+        for fa in files_a:
+            for fb in files_b:
+                dep = conn.execute(
+                    "SELECT 1 FROM dependencies WHERE source_file LIKE ? AND target_file LIKE ? LIMIT 1",
+                    (f"%{fa}%", f"%{fb}%")
+                ).fetchone()
+                if dep:
+                    found = True
+                    print(f"  Include dependency: {fa} → {fb}")
+                dep_rev = conn.execute(
+                    "SELECT 1 FROM dependencies WHERE source_file LIKE ? AND target_file LIKE ? LIMIT 1",
+                    (f"%{fb}%", f"%{fa}%")
+                ).fetchone()
+                if dep_rev:
+                    found = True
+                    print(f"  Include dependency: {fb} → {fa}")
+
+    if not found:
+        print(f"  No direct relationships found between '{symbol_a}' and '{symbol_b}'.")
+        # Try fuzzy suggestions
+        sug_a = _fuzzy_suggest(symbol_a, 3)
+        sug_b = _fuzzy_suggest(symbol_b, 3)
+        if sug_a:
+            print(f"  Similar to '{symbol_a}': {', '.join(s[0] for s in sug_a)}")
+        if sug_b:
+            print(f"  Similar to '{symbol_b}': {', '.join(s[0] for s in sug_b)}")
+
+    conn.close()
+    print()
+
+
+def audit_cmd(scope=None):
+    """Component/plugin completeness audit.
+
+    Usage:
+        audit                       # Full project audit
+        audit plugins               # All plugins
+        audit plugins/build         # Specific plugin
+        audit src/editor            # Specific subsystem
+        audit sdk                   # SDK interface coverage
+    """
+    conn = get_conn()
+    print(f"\n  === Component Audit{f' — scope: {scope}' if scope else ''} ===\n")
+
+    # Determine file filter
+    if scope:
+        scope_filter = f"%{scope}%"
+    else:
+        scope_filter = "%"
+
+    # ── 1. Subsystem overview ─────────────────────────────────
+    print("  ── Subsystem Overview ──")
+    # Group files by top-level directory (subsystem)
+    rows = conn.execute("""
+        SELECT
+            CASE
+                WHEN fl.file LIKE 'build/%' AND fl.project = 'plugins' THEN 'plugins/build'
+                WHEN fl.file LIKE 'debug/%' AND fl.project = 'plugins' THEN 'plugins/debug'
+                WHEN fl.file LIKE 'testing/%' AND fl.project = 'plugins' THEN 'plugins/testing'
+                WHEN fl.file LIKE 'search/%' AND fl.project = 'plugins' THEN 'plugins/search'
+                WHEN fl.file LIKE 'terminal/%' AND fl.project = 'plugins' THEN 'plugins/terminal'
+                WHEN fl.file LIKE 'git/%' AND fl.project = 'plugins' THEN 'plugins/git'
+                WHEN fl.file LIKE 'github/%' AND fl.project = 'plugins' THEN 'plugins/github'
+                WHEN fl.file LIKE 'remote/%' AND fl.project = 'plugins' THEN 'plugins/remote'
+                WHEN fl.file LIKE 'cpp-language/%' AND fl.project = 'plugins' THEN 'plugins/cpp-language'
+                WHEN fl.file LIKE 'python-language/%' AND fl.project = 'plugins' THEN 'plugins/python-language'
+                WHEN fl.file LIKE 'rust-language/%' AND fl.project = 'plugins' THEN 'plugins/rust-language'
+                WHEN fl.file LIKE 'javascript/%' AND fl.project = 'plugins' THEN 'plugins/javascript'
+                WHEN fl.file LIKE 'lua/%' AND fl.project = 'plugins' THEN 'plugins/lua'
+                WHEN fl.file LIKE 'lang-pack/%' AND fl.project = 'plugins' THEN 'plugins/lang-pack'
+                WHEN fl.file LIKE 'embedded-tools/%' AND fl.project = 'plugins' THEN 'plugins/embedded-tools'
+                WHEN fl.file LIKE 'serial-monitor/%' AND fl.project = 'plugins' THEN 'plugins/serial-monitor'
+                WHEN fl.file LIKE 'qt-tools/%' AND fl.project = 'plugins' THEN 'plugins/qt-tools'
+                WHEN fl.file LIKE 'claude/%' AND fl.project = 'plugins' THEN 'plugins/claude'
+                WHEN fl.file LIKE 'copilot/%' AND fl.project = 'plugins' THEN 'plugins/copilot'
+                WHEN fl.file LIKE 'codex/%' AND fl.project = 'plugins' THEN 'plugins/codex'
+                WHEN fl.file LIKE 'ollama/%' AND fl.project = 'plugins' THEN 'plugins/ollama'
+                WHEN fl.file LIKE 'byok/%' AND fl.project = 'plugins' THEN 'plugins/byok'
+                WHEN fl.file LIKE 'common/%' AND fl.project = 'plugins' THEN 'plugins/common'
+                WHEN fl.project = 'plugins' THEN 'plugins/' || SUBSTR(fl.file, 1, INSTR(fl.file, '/') - 1)
+                WHEN fl.file LIKE 'editor/%' AND fl.project = 'src' THEN 'src/editor'
+                WHEN fl.file LIKE 'lsp/%' AND fl.project = 'src' THEN 'src/lsp'
+                WHEN fl.file LIKE 'terminal/%' AND fl.project = 'src' THEN 'src/terminal'
+                WHEN fl.file LIKE 'agent/%' AND fl.project = 'src' THEN 'src/agent'
+                WHEN fl.file LIKE 'debug/%' AND fl.project = 'src' THEN 'src/debug'
+                WHEN fl.file LIKE 'problems/%' AND fl.project = 'src' THEN 'src/problems'
+                WHEN fl.file LIKE 'search/%' AND fl.project = 'src' THEN 'src/search'
+                WHEN fl.file LIKE 'git/%' AND fl.project = 'src' THEN 'src/git'
+                WHEN fl.file LIKE 'core/%' AND fl.project = 'src' THEN 'src/core'
+                WHEN fl.file LIKE 'sdk/%' AND fl.project = 'src' THEN 'src/sdk'
+                WHEN fl.file LIKE 'plugin/%' AND fl.project = 'src' THEN 'src/plugin'
+                WHEN fl.file LIKE 'ui/%' AND fl.project = 'src' THEN 'src/ui'
+                WHEN fl.file LIKE 'bootstrap/%' AND fl.project = 'src' THEN 'src/bootstrap'
+                WHEN fl.file LIKE 'process/%' AND fl.project = 'src' THEN 'src/process'
+                WHEN fl.file LIKE 'testing/%' AND fl.project = 'src' THEN 'src/testing'
+                WHEN fl.file LIKE 'build/%' AND fl.project = 'src' THEN 'src/build'
+                WHEN fl.project = 'src' THEN 'src/' || SUBSTR(fl.file, 1, INSTR(fl.file, '/') - 1)
+                ELSE fl.project
+            END AS subsystem,
+            COUNT(*) AS files,
+            SUM(fl.line_count) AS total_loc
+        FROM file_lines fl
+        WHERE (fl.project || '/' || fl.file) LIKE :scope
+           OR fl.project LIKE :scope
+        GROUP BY subsystem
+        ORDER BY total_loc DESC
+    """, {"scope": scope_filter}).fetchall()
+    if rows:
+        print(f"  {'subsystem':<30} {'files':>5} {'LOC':>7}")
+        print(f"  {'-'*30} {'-'*5} {'-'*7}")
+        for r in rows:
+            name = r['subsystem'] if r['subsystem'] else '(root)'
+            print(f"  {name:<30} {r['files']:>5} {r['total_loc']:>7}")
+        print()
+
+    # ── 2. Classes per subsystem ──────────────────────────────
+    print("  ── Classes & Interfaces ──")
+    cls_rows = conn.execute("""
+        SELECT c.name, c.header, c.cpp_file, c.parent_class, c.project,
+               CASE WHEN c.name LIKE 'I%' AND c.parent_class IS NULL THEN 1
+                    WHEN c.name LIKE 'I%' AND c.parent_class LIKE 'QObject' THEN 1
+                    ELSE 0 END AS is_interface,
+               CASE WHEN c.cpp_file IS NOT NULL AND c.cpp_file != '' THEN 'implemented'
+                    ELSE 'header-only' END AS status
+        FROM classes c
+        WHERE (c.project || '/' || COALESCE(c.header, '')) LIKE :scope
+           OR c.project LIKE :scope
+        ORDER BY c.project, c.name
+    """, {"scope": scope_filter}).fetchall()
+    if cls_rows:
+        iface_count = sum(1 for r in cls_rows if r['is_interface'])
+        impl_count = sum(1 for r in cls_rows if r['status'] == 'implemented')
+        ho_count = sum(1 for r in cls_rows if r['status'] == 'header-only')
+        print(f"  Total: {len(cls_rows)} classes, {iface_count} interfaces, {impl_count} implemented, {ho_count} header-only")
+        print()
+        # Show header-only non-interface classes (potential stubs)
+        ho_classes = [r for r in cls_rows if r['status'] == 'header-only' and not r['is_interface']]
+        if ho_classes:
+            print(f"  Header-only classes (may need .cpp):")
+            for r in ho_classes[:15]:
+                parent = f" : {r['parent_class']}" if r['parent_class'] else ""
+                print(f"    {r['name']}{parent}  [{r['header']}]")
+            if len(ho_classes) > 15:
+                print(f"    ... and {len(ho_classes) - 15} more")
+            print()
+
+    # ── 3. SDK Interface coverage ─────────────────────────────
+    print("  ── SDK Interface Coverage ──")
+    # Use class_parents table for multi-inheritance detection.
+    # Also check core/ interfaces (IDockManager, IMenuManager, etc.)
+    if scope and scope not in ("sdk", "src/sdk"):
+        sdk_interfaces = conn.execute("""
+            SELECT iface.name, iface.header,
+                   (SELECT GROUP_CONCAT(DISTINCT cp.class_name)
+                    FROM class_parents cp
+                    WHERE cp.parent_name = iface.name
+                      AND ((cp.project || '/' || COALESCE(cp.header, '')) LIKE :scope
+                           OR cp.project LIKE :scope)) AS implementors
+            FROM classes iface
+            WHERE (iface.header LIKE 'sdk/i%' OR iface.header LIKE 'core/i%'
+                   OR iface.header LIKE '%/sdk/i%' OR iface.header LIKE '%/core/i%')
+              AND iface.name LIKE 'I%'
+              AND iface.name NOT IN ('QObject', 'QWidget')
+            GROUP BY iface.name
+            HAVING iface.header = MIN(iface.header)
+               AND implementors IS NOT NULL
+            ORDER BY iface.name
+        """, {"scope": scope_filter}).fetchall()
+    else:
+        sdk_interfaces = conn.execute("""
+            SELECT c.name, c.header, c.cpp_file,
+                   (SELECT GROUP_CONCAT(DISTINCT cp.class_name)
+                    FROM class_parents cp
+                    WHERE cp.parent_name = c.name) AS implementors
+            FROM classes c
+            WHERE (c.header LIKE 'sdk/i%' OR c.header LIKE 'core/i%'
+                   OR c.header LIKE '%/sdk/i%' OR c.header LIKE '%/core/i%')
+              AND c.name LIKE 'I%'
+              AND c.name NOT IN ('QObject', 'QWidget')
+            GROUP BY c.name
+            HAVING c.header = MIN(c.header)
+            ORDER BY c.name
+        """).fetchall()
+    if sdk_interfaces:
+        print(f"  {'interface':<28} {'implementors':<50} {'status':>10}")
+        print(f"  {'-'*28} {'-'*50} {'-'*10}")
+        for r in sdk_interfaces:
+            impls = r['implementors'] if r['implementors'] else "(none)"
+            if len(impls) > 50:
+                impls = impls[:47] + "..."
+            status = "✅ OK" if r['implementors'] else "⚠ UNUSED"
+            print(f"  {r['name']:<28} {impls:<50} {status:>10}")
+    else:
+        if scope and scope not in ("sdk", "src/sdk"):
+            print("    (no SDK interfaces implemented in this scope)")
+        else:
+            print("    (no SDK interfaces found)")
+    print()
+
+    # ── 4. Stub detection (small .cpp files ≤ 30 LOC) ────────
+    print("  ── Potential Stubs (≤30 LOC .cpp files) ──")
+    stubs = conn.execute("""
+        SELECT fl.file, fl.project, fl.line_count
+        FROM file_lines fl
+        WHERE fl.line_count <= 30
+          AND fl.file LIKE '%.cpp'
+          AND ((fl.project || '/' || fl.file) LIKE :scope OR fl.project LIKE :scope)
+        ORDER BY fl.line_count ASC
+        LIMIT 20
+    """, {"scope": scope_filter}).fetchall()
+    if stubs:
+        for r in stubs:
+            print(f"    {r['project']}/{r['file']}  ({r['line_count']} lines)")
+    else:
+        print("    (none found)")
+    print()
+
+    # ── 5. Function density (files with 0 indexed functions) ──
+    print("  ── Files Without Indexed Functions ──")
+    no_funcs = conn.execute("""
+        SELECT fl.file, fl.project, fl.line_count
+        FROM file_lines fl
+        LEFT JOIN function_index fi ON fl.file = fi.file AND fl.project = fi.project
+        WHERE fi.id IS NULL
+          AND fl.file LIKE '%.cpp'
+          AND fl.line_count >= 50
+          AND ((fl.project || '/' || fl.file) LIKE :scope OR fl.project LIKE :scope)
+        ORDER BY fl.line_count DESC
+        LIMIT 15
+    """, {"scope": scope_filter}).fetchall()
+    if no_funcs:
+        for r in no_funcs:
+            print(f"    {r['project']}/{r['file']}  ({r['line_count']} lines, 0 functions indexed)")
+    else:
+        print("    (none — all .cpp files have indexed functions)")
+    print()
+
+    # ── 6. Plugin service registrations ───────────────────────
+    print("  ── Service Registrations ──")
+    svc_rows = conn.execute("""
+        SELECT fi.file, fi.project, fi.function_name, fi.class_name
+        FROM function_index fi
+        WHERE fi.function_name = 'initializePlugin'
+          AND ((fi.project || '/' || fi.file) LIKE :scope OR fi.project LIKE :scope)
+        ORDER BY fi.file
+    """, {"scope": scope_filter}).fetchall()
+    if svc_rows:
+        for r in svc_rows:
+            print(f"    {r['project']}/{r['file']}  {r['class_name']}::initializePlugin()")
+    else:
+        print("    (no initializePlugin found in scope)")
+    print()
+
+    # ── 7. Summary stats ──────────────────────────────────────
+    total_files = sum(r['files'] for r in rows) if rows else 0
+    total_loc = sum(r['total_loc'] for r in rows) if rows else 0
+    total_classes = len(cls_rows) if cls_rows else 0
+    total_interfaces = sum(1 for r in (sdk_interfaces or []) if r['implementors'])
+    total_sdk = len(sdk_interfaces) if sdk_interfaces else 0
+    print(f"  ── Summary ──")
+    print(f"  Files: {total_files}  |  LOC: {total_loc}  |  Classes: {total_classes}  |  SDK: {total_interfaces}/{total_sdk} implemented")
+    print()
+
+    conn.close()
+
+
+def suggest_cmd(scope=None):
+    """Suggest what to work on next based on analysis scores, TODOs, and gaps.
+
+    Combines: review queue (high-priority items), TODO/FIXME comments,
+    header-only classes needing .cpp, and AI memory blockers.
+    """
+    conn = get_conn()
+    print(f"\n  === Suggested Work Items ===\n")
+
+    # 1. Top review queue items (high score = needs attention)
+    rq = conn.execute(
+        "SELECT file, priority_score, rationale FROM review_queue "
+        "ORDER BY priority_score DESC LIMIT 8"
+    ).fetchall()
+    if rq:
+        print("  High-priority review queue:")
+        for r in rq:
+            rationale = r['rationale'] if r['rationale'] else "—"
+            if len(rationale) > 60:
+                rationale = rationale[:60] + "..."
+            print(f"    score={r['priority_score']:>3}  {r['file']}  [{rationale}]")
+
+    # 2. TODO/FIXME items
+    todos = conn.execute(
+        "SELECT file, line, todo_type, text FROM todos ORDER BY todo_type, file LIMIT 10"
+    ).fetchall()
+    if todos:
+        print(f"\n  Open TODOs/FIXMEs ({len(todos)}):")
+        for t in todos:
+            text = t['text'][:80] if t['text'] else ""
+            print(f"    [{t['todo_type']}] {t['file']}:{t['line']} {text}")
+
+    # 3. Header-only classes (need .cpp)
+    ho_classes = conn.execute(
+        "SELECT name, header FROM classes "
+        "WHERE (cpp_file IS NULL OR cpp_file = '') "
+        "AND header IS NOT NULL AND header != '' LIMIT 8"
+    ).fetchall()
+    if ho_classes:
+        print(f"\n  Header-only classes (need .cpp):")
+        for r in ho_classes:
+            print(f"    {r['name']}  [{r['header']}]")
+
+    # 4. AI Memory blockers
+    blockers = _query_ai_memory("blocker", limit=5)
+    if blockers:
+        print(f"\n  AI Memory — Blockers:")
+        for b in blockers:
+            val = b['value'][:100] if len(b['value']) > 100 else b['value']
+            print(f"    {b['key']}: {val}")
+
+    # 5. Low-coverage functions (if scope given)
+    if scope:
+        low_cov = conn.execute(
+            "SELECT function_name, file FROM function_index "
+            "WHERE file LIKE ? ORDER BY (end_line - start_line) DESC LIMIT 8",
+            (f"%{scope}%",)
+        ).fetchall()
+        if low_cov:
+            print(f"\n  Largest functions in '{scope}' (consider splitting):")
+            for r in low_cov:
+                print(f"    {r[0]}  [{r[1]}]")
+
+    conn.close()
+    print()
+
+
+def multi_cmd(raw_args):
+    """Execute multiple source graph commands in a single invocation.
+
+    Commands are separated by '---' (triple dash).
+    Example: multi find BuildPlugin --- context buildplugin --- body initializePlugin
+    """
+    # Split args by '---'
+    cmd_groups = []
+    current = []
+    for arg in raw_args:
+        if arg == '---':
+            if current:
+                cmd_groups.append(current)
+                current = []
+        else:
+            current.append(arg)
+    if current:
+        cmd_groups.append(current)
+
+    if not cmd_groups:
+        print("  Usage: multi <cmd1> [args] --- <cmd2> [args] --- ...")
+        return
+
+    dispatch = {
+        'find': lambda args: find_cmd(" ".join(args)),
+        'context': lambda args: context_cmd(args[0]) if args else print("  context needs arg"),
+        'func': lambda args: func_cmd(args[0]) if args else print("  func needs arg"),
+        'body': lambda args: body_cmd(args[0]) if args else print("  body needs arg"),
+        'class': lambda args: class_cmd(args[0]) if args else print("  class needs arg"),
+        'method': lambda args: method_cmd(args[0]) if args else print("  method needs arg"),
+        'deps': lambda args: deps_cmd(args[0]) if args else print("  deps needs arg"),
+        'calls': lambda args: calls_cmd(" ".join(args)),
+        'xref': lambda args: xref_cmd(args[0]) if args else print("  xref needs arg"),
+        'siblings': lambda args: siblings_cmd(args[0]) if args else print("  siblings needs arg"),
+        'implements': lambda args: implements_cmd(args[0]) if args else print("  implements needs arg"),
+        'who-calls': lambda args: whocalls_cmd(args[0]) if args else print("  who-calls needs arg"),
+        'called-by': lambda args: calledby_cmd(args[0]) if args else print("  called-by needs arg"),
+        'outline': lambda args: outline_cmd(args[0]) if args else print("  outline needs arg"),
+        'grep': lambda args: grep_cmd(args[0], args[1] if len(args) > 1 else None) if args else print("  grep needs arg"),
+        'read': lambda args: _multi_read_dispatch(args),
+        'edit-context': lambda args: editcontext_cmd(args[0], args[1]) if len(args) >= 2 else print("  edit-context needs file + line"),
+        'enum': lambda args: enum_cmd(args[0]) if args else print("  enum needs arg"),
+        'struct': lambda args: struct_cmd(args[0]) if args else print("  struct needs arg"),
+        'file': lambda args: file_cmd(args[0]) if args else print("  file needs arg"),
+        'summary': lambda args: summary_cmd(),
+        'stats': lambda args: stats_cmd(),
+        'todo': lambda args: todo_cmd(args[0] if args else None),
+        'impact': lambda args: impact_cmd(" ".join(args)),
+        'trace': lambda args: trace_cmd(" ".join(args)),
+        'smart': lambda args: smart_cmd(args[0]) if args else print("  smart needs arg"),
+        'learn': lambda args: learn_cmd(args[0], args[1], args[2] if len(args) > 2 else "") if len(args) >= 2 else print("  learn needs key + value"),
+        'recall': lambda args: recall_cmd(args[0]) if args else print("  recall needs arg"),
+        'history': lambda args: history_cmd(args[0]) if args else print("  history needs arg"),
+        'changes': lambda args: changes_cmd(args[0] if args else None),
+        'relate': lambda args: relate_cmd(args[0], args[1]) if len(args) >= 2 else print("  relate needs two symbols"),
+        'suggest': lambda args: suggest_cmd(args[0] if args else None),
+        'focus': lambda args: focus_cmd(args[0], int(args[1]) if len(args) > 1 else 80) if args else print("  focus needs arg"),
+        'slice': lambda args: slice_cmd(args[0], int(args[1]) if len(args) > 1 else 120) if args else print("  slice needs arg"),
+        'bundle': lambda args: bundle_cmd(args[0], args[1], 2000) if len(args) >= 2 else print("  bundle needs type + term"),
+        'bottlenecks': lambda args: bottlenecks_cmd(" ".join(args) if args else None),
+    }
+
+    for i, group in enumerate(cmd_groups):
+        subcmd = group[0].lower()
+        subargs = group[1:]
+        if i > 0:
+            print(f"\n{'='*60}")
+        handler = dispatch.get(subcmd)
+        if handler:
+            handler(subargs)
+        else:
+            print(f"  [!] Unknown sub-command: {subcmd}")
+
+
+def _multi_read_dispatch(args):
+    """Parse read args: read <file> [L<start>-L<end>]"""
+    if not args:
+        print("  read needs a file path")
+        return
+    filepath = args[0]
+    start, end = None, None
+    if len(args) > 1:
+        import re as _re
+        m = _re.match(r'L?(\d+)[-:]L?(\d+)', args[1])
+        if m:
+            start, end = int(m.group(1)), int(m.group(2))
+        else:
+            try:
+                start = int(args[1].lstrip('L'))
+                end = int(args[2].lstrip('L')) if len(args) > 2 else start + 50
+            except ValueError:
+                pass
+    read_cmd(filepath, start, end)
+
+
+# ============================================================
 # NEW COMMANDS: body, summarize, decide, decisions, bundle, claudemd, init, export-config
 # ============================================================
 
@@ -10091,6 +12381,75 @@ def main():
         sql_cmd(" ".join(sys.argv[2:]))
     elif cmd == "body" and len(sys.argv) > 2:
         body_cmd(sys.argv[2])
+    elif cmd == "grep" and len(sys.argv) > 2:
+        scope = None
+        max_r = 40
+        positional = []
+        i = 2
+        while i < len(sys.argv):
+            if sys.argv[i] == "--scope" and i + 1 < len(sys.argv):
+                scope = sys.argv[i + 1]; i += 2
+            elif sys.argv[i] == "--max" and i + 1 < len(sys.argv):
+                max_r = int(sys.argv[i + 1]); i += 2
+            else:
+                positional.append(sys.argv[i]); i += 1
+        grep_cmd(positional[0] if positional else "", scope or (positional[1] if len(positional) > 1 else None), max_r)
+    elif cmd == "read" and len(sys.argv) > 2:
+        _multi_read_dispatch(sys.argv[2:])
+    elif cmd == "xref" and len(sys.argv) > 2:
+        xref_cmd(sys.argv[2])
+    elif cmd == "siblings" and len(sys.argv) > 2:
+        siblings_cmd(sys.argv[2])
+    elif cmd == "implements" and len(sys.argv) > 2:
+        implements_cmd(sys.argv[2])
+    elif cmd in ("who-calls", "whocalls") and len(sys.argv) > 2:
+        whocalls_cmd(sys.argv[2])
+    elif cmd in ("called-by", "calledby") and len(sys.argv) > 2:
+        calledby_cmd(sys.argv[2])
+    elif cmd in ("edit-context", "editcontext") and len(sys.argv) > 3:
+        editcontext_cmd(sys.argv[2], sys.argv[3])
+    elif cmd == "outline" and len(sys.argv) > 2:
+        outline_cmd(sys.argv[2])
+    elif cmd == "smart" and len(sys.argv) > 2:
+        smart_cmd(sys.argv[2])
+    elif cmd == "learn" and len(sys.argv) > 3:
+        learn_cmd(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else "")
+    elif cmd == "recall" and len(sys.argv) > 2:
+        recall_cmd(sys.argv[2])
+    elif cmd == "history" and len(sys.argv) > 2:
+        history_cmd(sys.argv[2])
+    elif cmd == "changes":
+        changes_cmd(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif cmd == "relate" and len(sys.argv) > 3:
+        relate_cmd(sys.argv[2], sys.argv[3])
+    elif cmd == "suggest":
+        suggest_cmd(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif cmd == "audit":
+        audit_cmd(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif cmd == "dataflow":
+        dataflow_cmd(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif cmd == "invariant":
+        invariant_cmd(
+            sys.argv[2] if len(sys.argv) > 2 else None,
+            sys.argv[3] if len(sys.argv) > 3 else None
+        )
+    elif cmd == "hotpath":
+        scope = sys.argv[2] if len(sys.argv) > 2 else None
+        top_n = int(sys.argv[3]) if len(sys.argv) > 3 else 30
+        hotpath_cmd(scope, top_n)
+    elif cmd == "backend-map":
+        backend_map_cmd(
+            sys.argv[2] if len(sys.argv) > 2 else None,
+            sys.argv[3] if len(sys.argv) > 3 else None
+        )
+    elif cmd == "exploit":
+        exploit_cmd(
+            sys.argv[2] if len(sys.argv) > 2 else None,
+            sys.argv[3] if len(sys.argv) > 3 else None,
+            sys.argv[4] if len(sys.argv) > 4 else None
+        )
+    elif cmd == "multi" and len(sys.argv) > 2:
+        multi_cmd(sys.argv[2:])
     elif cmd == "summarize":
         summarize_cmd(sys.argv[2:])
     elif cmd == "decide" and len(sys.argv) > 2:

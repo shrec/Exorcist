@@ -16,7 +16,13 @@ DebugLaunchController::DebugLaunchController(QObject *parent)
 
 void DebugLaunchController::startDebugging(const DebugLaunchConfig &config)
 {
-    if (!config.isValid()) {
+    emit debugLog(QStringLiteral("[DEBUG] startDebugging: exe=%1 adapter=%2 cmake=%3")
+                  .arg(config.executable.isEmpty() ? QStringLiteral("(empty)") : config.executable,
+                       m_adapter ? QStringLiteral("yes") : QStringLiteral("NULL"),
+                       (m_cmake && m_cmake->hasCMakeProject()) ? QStringLiteral("yes") : QStringLiteral("no")));
+
+    // Allow empty exe when cmake project exists — we'll build first and auto-discover.
+    if (!config.isValid() && (!m_cmake || !m_cmake->hasCMakeProject())) {
         emit launchError(tr("No executable specified"));
         return;
     }
@@ -26,24 +32,8 @@ void DebugLaunchController::startDebugging(const DebugLaunchConfig &config)
         return;
     }
 
-    if (!QFileInfo::exists(config.executable) && m_buildBeforeRun && m_cmake) {
-        // Need to build first
-        m_pendingConfig = config;
-        m_pendingAction = PendingAction::Debug;
-        emit preBuildStarted();
-
-        auto conn = std::make_shared<QMetaObject::Connection>();
-        *conn = connect(m_cmake, &CMakeIntegration::buildFinished,
-                this, [this, conn](bool s, int c) {
-            disconnect(*conn);
-            onBuildFinished(s, c);
-        });
-        m_cmake->build();
-        return;
-    }
-
-    if (m_buildBeforeRun && m_cmake && m_cmake->hasCMakeProject()) {
-        // Build before debug even if executable exists (ensure up-to-date)
+    // Build before debug whenever we have a cmake project (ensures exe is up-to-date).
+    if (m_cmake && m_cmake->hasCMakeProject()) {
         m_pendingConfig = config;
         m_pendingAction = PendingAction::Debug;
         emit preBuildStarted();
@@ -65,12 +55,14 @@ void DebugLaunchController::startDebugging(const DebugLaunchConfig &config)
 
 void DebugLaunchController::startWithoutDebugging(const DebugLaunchConfig &config)
 {
-    if (!config.isValid()) {
+    // Allow empty exe when cmake project exists — we'll build first and auto-discover.
+    if (!config.isValid() && (!m_cmake || !m_cmake->hasCMakeProject())) {
         emit launchError(tr("No executable specified"));
         return;
     }
 
-    if (m_buildBeforeRun && m_cmake && m_cmake->hasCMakeProject()) {
+    // Build before run whenever we have a cmake project (ensures exe is up-to-date).
+    if (m_cmake && m_cmake->hasCMakeProject()) {
         m_pendingConfig = config;
         m_pendingAction = PendingAction::Run;
         emit preBuildStarted();
@@ -109,6 +101,9 @@ void DebugLaunchController::stopDebugging()
 
 void DebugLaunchController::onBuildFinished(bool success, int /*exitCode*/)
 {
+    emit debugLog(QStringLiteral("[DEBUG] onBuildFinished: success=%1 pendingAction=%2")
+                  .arg(success).arg(int(m_pendingAction)));
+
     if (!success) {
         emit launchError(tr("Build failed — cannot launch"));
         m_pendingAction = PendingAction::None;
@@ -117,12 +112,14 @@ void DebugLaunchController::onBuildFinished(bool success, int /*exitCode*/)
 
     switch (m_pendingAction) {
     case PendingAction::Debug:
+        emit debugLog(QStringLiteral("[DEBUG] → doLaunchDebug"));
         doLaunchDebug(m_pendingConfig);
         break;
     case PendingAction::Run:
         doLaunchRun(m_pendingConfig);
         break;
     case PendingAction::None:
+        emit debugLog(QStringLiteral("[DEBUG] pendingAction=None — skipped"));
         break;
     }
     m_pendingAction = PendingAction::None;
@@ -137,8 +134,22 @@ void DebugLaunchController::doLaunchDebug(const DebugLaunchConfig &config)
         return;
     }
 
-    if (!QFileInfo::exists(config.executable)) {
-        emit launchError(tr("Executable not found: %1").arg(config.executable));
+    QString exePath = config.executable;
+
+    // Auto-discover first executable when none was specified (build-before-debug flow).
+    if (exePath.isEmpty() && m_cmake) {
+        const QStringList targets = m_cmake->discoverTargets();
+        if (!targets.isEmpty())
+            exePath = targets.first();
+        emit debugLog(QStringLiteral("[DEBUG] auto-discovered exe=%1").arg(exePath));
+    }
+
+    emit debugLog(QStringLiteral("[DEBUG] doLaunchDebug: exe=%1").arg(exePath));
+
+    if (!QFileInfo::exists(exePath)) {
+        emit launchError(exePath.isEmpty()
+            ? tr("No executable found in build directory")
+            : tr("Executable not found: %1").arg(exePath));
         return;
     }
 
@@ -147,18 +158,34 @@ void DebugLaunchController::doLaunchDebug(const DebugLaunchConfig &config)
         ? resolveDebugger()
         : config.debuggerPath;
 
+    emit debugLog(QStringLiteral("[DEBUG] LAUNCHING: debugger=%1 exe=%2").arg(debuggerPath, exePath));
+
     // Apply debugger path to adapter
     if (m_adapter)
         m_adapter->setDebuggerPath(debuggerPath);
 
-    m_adapter->launch(config.executable, config.args,
+    m_adapter->launch(exePath, config.args,
                       config.workingDir, config.env);
+
+    emit debugLog(QStringLiteral("[DEBUG] launch() returned — adapter.isRunning=%1")
+                  .arg(m_adapter->isRunning() ? QStringLiteral("YES") : QStringLiteral("NO")));
 }
 
 void DebugLaunchController::doLaunchRun(const DebugLaunchConfig &config)
 {
-    if (!QFileInfo::exists(config.executable)) {
-        emit launchError(tr("Executable not found: %1").arg(config.executable));
+    QString exePath = config.executable;
+
+    // Auto-discover first executable when none was specified (build-before-run flow).
+    if (exePath.isEmpty() && m_cmake) {
+        const QStringList targets = m_cmake->discoverTargets();
+        if (!targets.isEmpty())
+            exePath = targets.first();
+    }
+
+    if (!QFileInfo::exists(exePath)) {
+        emit launchError(exePath.isEmpty()
+            ? tr("No executable found in build directory")
+            : tr("Executable not found: %1").arg(exePath));
         return;
     }
 
@@ -167,6 +194,14 @@ void DebugLaunchController::doLaunchRun(const DebugLaunchConfig &config)
         connect(m_runProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                 this, [this](int exitCode, QProcess::ExitStatus) {
             emit processFinished(exitCode);
+        });
+        connect(m_runProcess, &QProcess::readyReadStandardOutput, this, [this]() {
+            const QString text = QString::fromUtf8(m_runProcess->readAllStandardOutput());
+            emit processOutput(text, false);
+        });
+        connect(m_runProcess, &QProcess::readyReadStandardError, this, [this]() {
+            const QString text = QString::fromUtf8(m_runProcess->readAllStandardError());
+            emit processOutput(text, true);
         });
     }
 
@@ -181,8 +216,8 @@ void DebugLaunchController::doLaunchRun(const DebugLaunchConfig &config)
         m_runProcess->setProcessEnvironment(env);
     }
 
-    emit processStarted(config.executable);
-    m_runProcess->start(config.executable, config.args);
+    emit processStarted(exePath);
+    m_runProcess->start(exePath, config.args);
 }
 
 QString DebugLaunchController::resolveDebugger() const

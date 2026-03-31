@@ -27,7 +27,7 @@ PluginInfo EmbeddedToolsPlugin::info() const
         QStringLiteral("Embedded upload and monitor entry points for MCU workspaces."),
         QStringLiteral("Exorcist"),
         QStringLiteral("1.0"),
-        {}
+        {PluginPermission::WorkspaceRead, PluginPermission::TerminalExecute, PluginPermission::FilesystemRead}
     };
 }
 

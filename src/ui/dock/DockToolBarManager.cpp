@@ -4,98 +4,67 @@
 
 #include <QMainWindow>
 #include <QMenu>
-#include <QMenuBar>
-#include <QStatusBar>
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QVBoxLayout>
 #include <QApplication>
 #include <QEvent>
 #include <QTimer>
 
 namespace exdock {
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+static Qt::ToolBarArea toQtArea(ToolBarEdge edge)
+{
+    switch (edge) {
+    case ToolBarEdge::Top:    return Qt::TopToolBarArea;
+    case ToolBarEdge::Bottom: return Qt::BottomToolBarArea;
+    case ToolBarEdge::Left:   return Qt::LeftToolBarArea;
+    case ToolBarEdge::Right:  return Qt::RightToolBarArea;
+    }
+    return Qt::TopToolBarArea;
+}
+
+static ToolBarEdge fromQtArea(Qt::ToolBarArea area)
+{
+    switch (area) {
+    case Qt::TopToolBarArea:    return ToolBarEdge::Top;
+    case Qt::BottomToolBarArea: return ToolBarEdge::Bottom;
+    case Qt::LeftToolBarArea:   return ToolBarEdge::Left;
+    case Qt::RightToolBarArea:  return ToolBarEdge::Right;
+    default:                    return ToolBarEdge::Top;
+    }
+}
+
+// ── Construction ──────────────────────────────────────────────────────────────
+
 DockToolBarManager::DockToolBarManager(QMainWindow *mainWindow, QObject *parent)
     : QObject(parent)
     , m_mainWindow(mainWindow)
 {
-    installAreas();
-}
-
-void DockToolBarManager::installAreas()
-{
-    // Create one DockToolBarArea per edge as child widgets of the main window.
-    // They are positioned manually via repositionAreas().
-    m_areas[ToolBarEdge::Top]    = new DockToolBarArea(ToolBarEdge::Top, m_mainWindow);
+    // DockToolBarArea instances are kept as metadata holders and for context-
+    // menu generation; actual toolbar placement uses QMainWindow::addToolBar().
+    m_areas[ToolBarEdge::Top]    = new DockToolBarArea(ToolBarEdge::Top,    m_mainWindow);
     m_areas[ToolBarEdge::Bottom] = new DockToolBarArea(ToolBarEdge::Bottom, m_mainWindow);
-    m_areas[ToolBarEdge::Left]   = new DockToolBarArea(ToolBarEdge::Left, m_mainWindow);
-    m_areas[ToolBarEdge::Right]  = new DockToolBarArea(ToolBarEdge::Right, m_mainWindow);
-
-    // Track main window resize to reposition
-    m_mainWindow->installEventFilter(this);
-
-    // Deferred first pass — fires after the event loop starts and the window
-    // has its real geometry (avoids zero-size areas when toolbars are created
-    // during plugin init before the first resize event).
-    QTimer::singleShot(0, this, &DockToolBarManager::repositionAreas);
+    m_areas[ToolBarEdge::Left]   = new DockToolBarArea(ToolBarEdge::Left,   m_mainWindow);
+    m_areas[ToolBarEdge::Right]  = new DockToolBarArea(ToolBarEdge::Right,  m_mainWindow);
 }
 
-void DockToolBarManager::repositionAreas()
-{
-    const int menuH = m_mainWindow->menuBar()
-                      ? m_mainWindow->menuBar()->height() : 0;
-    const int statusH = m_mainWindow->statusBar()
-                        ? m_mainWindow->statusBar()->height() : 0;
-    const int winW = m_mainWindow->width();
-    const int winH = m_mainWindow->height();
+// repositionAreas() is a no-op with native placement — Qt handles geometry.
+void DockToolBarManager::installAreas()  {}
+void DockToolBarManager::repositionAreas() {}
 
-    const int barH = 24; // single-band toolbar height
-
-    // Top toolbar area: full width below menu bar
-    auto *topArea = m_areas[ToolBarEdge::Top];
-    if (topArea->isVisible()) {
-        topArea->setGeometry(0, menuH, winW, topArea->sizeHint().height());
-        topArea->raise();
-    }
-
-    // Bottom toolbar area: full width above status bar
-    auto *botArea = m_areas[ToolBarEdge::Bottom];
-    if (botArea->isVisible()) {
-        const int h = botArea->sizeHint().height();
-        botArea->setGeometry(0, winH - statusH - h, winW, h);
-        botArea->raise();
-    }
-
-    // Left/Right positioned between top toolbar area and bottom toolbar area
-    const int topH = topArea->isVisible() ? topArea->height() : 0;
-    const int botH = botArea->isVisible() ? botArea->height() : 0;
-    const int contentTop = menuH + topH;
-    const int contentH   = winH - contentTop - statusH - botH;
-
-    auto *leftArea = m_areas[ToolBarEdge::Left];
-    if (leftArea->isVisible()) {
-        leftArea->setGeometry(0, contentTop,
-                              leftArea->sizeHint().width(), contentH);
-        leftArea->raise();
-    }
-
-    auto *rightArea = m_areas[ToolBarEdge::Right];
-    if (rightArea->isVisible()) {
-        const int w = rightArea->sizeHint().width();
-        rightArea->setGeometry(winW - w, contentTop, w, contentH);
-        rightArea->raise();
-    }
-}
+// ── Toolbar lifecycle ─────────────────────────────────────────────────────────
 
 DockToolBar *DockToolBarManager::createToolBar(const QString &id,
                                                 const QString &title,
                                                 ToolBarEdge edge,
-                                                int band, int position)
+                                                int band, int /*position*/)
 {
     if (m_toolBars.contains(id))
         return nullptr;
 
-    auto *bar = new DockToolBar(id, title);
+    auto *bar = new DockToolBar(id, title, m_mainWindow);
     m_toolBars.insert(id, bar);
 
     connect(bar, &DockToolBar::dragStarted,
@@ -104,12 +73,14 @@ DockToolBar *DockToolBarManager::createToolBar(const QString &id,
             this, &DockToolBarManager::onToolBarDropped);
 
     bar->setLocked(m_allLocked);
+    bar->setEdge(edge);
+    bar->setBand(band);
 
-    // Add to the DockToolBarArea overlay (this also re-parents bar to the
-    // band container and calls bar->show()).
-    m_areas[edge]->addToolBar(bar, band, position);
+    // Use Qt's native toolbar layout — this properly inserts the toolbar
+    // between the menu bar and central widget, pushing content down.
+    m_mainWindow->addToolBar(toQtArea(edge), bar);
+    bar->show();
 
-    repositionAreas();
     emit toolBarCreated(bar);
     return bar;
 }
@@ -125,14 +96,9 @@ bool DockToolBarManager::removeToolBar(const QString &id)
     if (!bar)
         return false;
 
-    // Remove from its current area
-    for (auto *area : m_areas) {
-        if (area->removeToolBar(bar))
-            break;
-    }
-
+    m_mainWindow->removeToolBar(bar);
     m_toolBars.remove(id);
-    repositionAreas();
+
     emit toolBarRemoved(id);
     bar->deleteLater();
     return true;
@@ -149,20 +115,17 @@ QList<DockToolBar *> DockToolBarManager::toolBars() const
 }
 
 void DockToolBarManager::moveToolBar(const QString &id, ToolBarEdge edge,
-                                      int band, int position)
+                                      int band, int /*position*/)
 {
     auto *bar = m_toolBars.value(id, nullptr);
     if (!bar)
         return;
 
     const ToolBarEdge oldEdge = bar->edge();
+    bar->setEdge(edge);
+    bar->setBand(band);
 
-    // Remove from current area
-    for (auto *area : m_areas)
-        area->removeToolBar(bar);
-
-    // Add to new area
-    m_areas[edge]->addToolBar(bar, band, position);
+    m_mainWindow->addToolBar(toQtArea(edge), bar);
 
     if (oldEdge != edge)
         emit toolBarMoved(bar, oldEdge, edge);
@@ -171,11 +134,8 @@ void DockToolBarManager::moveToolBar(const QString &id, ToolBarEdge edge,
 void DockToolBarManager::setToolBarVisible(const QString &id, bool visible)
 {
     auto *bar = m_toolBars.value(id, nullptr);
-    if (!bar)
-        return;
-
-    bar->setVisible(visible);
-    m_areas[bar->edge()]->updateVisibility();
+    if (bar)
+        bar->setVisible(visible);
 }
 
 void DockToolBarManager::setAllLocked(bool locked)
@@ -194,22 +154,18 @@ QMenu *DockToolBarManager::createContextMenu(QWidget *parent) const
 {
     auto *menu = new QMenu(tr("Toolbars"), parent);
 
-    // Each toolbar gets a toggle action
     QList<DockToolBar *> bars = m_toolBars.values();
     std::sort(bars.begin(), bars.end(),
               [](const DockToolBar *a, const DockToolBar *b) {
                   return a->title() < b->title();
               });
 
-    for (auto *bar : bars) {
-        auto *action = bar->toggleViewAction();
-        menu->addAction(action);
-    }
+    for (auto *bar : bars)
+        menu->addAction(bar->toggleViewAction());
 
     if (!bars.isEmpty())
         menu->addSeparator();
 
-    // Lock all
     auto *lockAction = menu->addAction(tr("Lock Toolbars"));
     lockAction->setCheckable(true);
     lockAction->setChecked(m_allLocked);
@@ -220,7 +176,7 @@ QMenu *DockToolBarManager::createContextMenu(QWidget *parent) const
     return menu;
 }
 
-// ── State save/restore ───────────────────────────────────────────────────────
+// ── State save/restore ────────────────────────────────────────────────────────
 
 QJsonObject DockToolBarManager::saveState() const
 {
@@ -229,12 +185,12 @@ QJsonObject DockToolBarManager::saveState() const
 
     for (auto it = m_toolBars.cbegin(); it != m_toolBars.cend(); ++it) {
         const auto *bar = it.value();
+        const Qt::ToolBarArea qtArea = m_mainWindow->toolBarArea(bar);
         QJsonObject barObj;
-        barObj[QStringLiteral("id")]       = bar->toolBarId();
-        barObj[QStringLiteral("edge")]     = static_cast<int>(bar->edge());
-        barObj[QStringLiteral("band")]     = bar->band();
-        barObj[QStringLiteral("position")] = bar->bandPosition();
-        barObj[QStringLiteral("visible")]  = bar->isVisible();
+        barObj[QStringLiteral("id")]      = bar->toolBarId();
+        barObj[QStringLiteral("edge")]    = static_cast<int>(fromQtArea(qtArea));
+        barObj[QStringLiteral("band")]    = bar->band();
+        barObj[QStringLiteral("visible")] = bar->isVisible();
         barsArray.append(barObj);
     }
 
@@ -255,79 +211,41 @@ void DockToolBarManager::restoreState(const QJsonObject &state)
         if (!bar)
             continue;
 
-        const auto edge     = static_cast<ToolBarEdge>(barObj.value(QStringLiteral("edge")).toInt(0));
-        const int  band     = barObj.value(QStringLiteral("band")).toInt(0);
-        const int  position = barObj.value(QStringLiteral("position")).toInt(-1);
-        const bool visible  = barObj.value(QStringLiteral("visible")).toBool(true);
+        const auto edge    = static_cast<ToolBarEdge>(barObj.value(QStringLiteral("edge")).toInt(0));
+        const int  band    = barObj.value(QStringLiteral("band")).toInt(0);
+        const bool visible = barObj.value(QStringLiteral("visible")).toBool(true);
 
-        moveToolBar(id, edge, band, position);
+        moveToolBar(id, edge, band);
         bar->setVisible(visible);
         bar->setLocked(m_allLocked);
     }
-
-    for (auto *area : m_areas)
-        area->updateVisibility();
 }
 
-// ── Event filter ─────────────────────────────────────────────────────────────
+// ── Event filter (no-op with native placement) ────────────────────────────────
 
 bool DockToolBarManager::eventFilter(QObject *watched, QEvent *event)
 {
-    if (watched == m_mainWindow) {
-        const QEvent::Type t = event->type();
-        if (t == QEvent::Resize || t == QEvent::Show) {
-            repositionAreas();
-        } else if (t == QEvent::LayoutRequest) {
-            // Defer via singleShot to break potential re-entrancy:
-            // LayoutRequest can fire recursively when setGeometry() is
-            // called on child DockToolBarArea widgets inside repositionAreas().
-            QTimer::singleShot(0, this, &DockToolBarManager::repositionAreas);
-        }
-    }
     return QObject::eventFilter(watched, event);
 }
 
-// ── Drag handlers ────────────────────────────────────────────────────────────
+// ── Drag handlers ─────────────────────────────────────────────────────────────
 
 void DockToolBarManager::onToolBarDragStarted(DockToolBar *bar,
                                                const QPoint &globalPos)
 {
     Q_UNUSED(globalPos)
     Q_UNUSED(bar)
-    // Future: show drop indicator overlay
 }
 
 void DockToolBarManager::onToolBarDropped(DockToolBar *bar)
 {
-    // Determine which area the cursor is nearest to
-    const QPoint pos = QCursor::pos();
-    auto *target = areaAt(pos);
-    if (!target)
-        return;
-
-    const ToolBarEdge newEdge = edgeForArea(target);
-    if (newEdge != bar->edge()) {
-        moveToolBar(bar->toolBarId(), newEdge);
-    }
+    Q_UNUSED(bar)
 }
 
 DockToolBarArea *DockToolBarManager::areaAt(const QPoint &globalPos) const
 {
-    const QRect windowRect = m_mainWindow->geometry();
-    const QPoint local = m_mainWindow->mapFromGlobal(globalPos);
-
-    // Determine nearest edge by proximity
-    const int distTop    = local.y();
-    const int distBottom = windowRect.height() - local.y();
-    const int distLeft   = local.x();
-    const int distRight  = windowRect.width() - local.x();
-
-    const int minDist = std::min({distTop, distBottom, distLeft, distRight});
-
-    if (minDist == distTop)    return m_areas.value(ToolBarEdge::Top);
-    if (minDist == distLeft)   return m_areas.value(ToolBarEdge::Left);
-    if (minDist == distRight)  return m_areas.value(ToolBarEdge::Right);
-    return m_areas.value(ToolBarEdge::Bottom);
+    Q_UNUSED(globalPos)
+    return nullptr;
 }
 
 ToolBarEdge DockToolBarManager::edgeForArea(DockToolBarArea *area) const

@@ -320,6 +320,22 @@ void ContributionRegistry::registerViews(const QString &pluginId,
     if (!dm) return;
 
     for (const ViewContribution &view : views) {
+        // If a dock with this ID already exists (e.g. registered by DockBootstrap
+        // before plugins loaded), adopt it instead of creating a duplicate.
+        // Creating a second dock with the same ID would reparent the content
+        // widget away from the original dock, leaving it empty.
+        if (auto *existing = dm->dockWidget(view.id)) {
+            RegisteredView rv;
+            rv.pluginId = pluginId;
+            rv.viewId   = view.id;
+            rv.title    = view.title;
+            rv.location = view.location;
+            rv.dock     = existing;
+            m_registeredViews[view.id] = rv;
+            ids.append(view.id);
+            continue;
+        }
+
         RegisteredView rv;
         rv.pluginId = pluginId;
         rv.viewId = view.id;

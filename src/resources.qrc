@@ -1,6 +1,25 @@
 <RCC>
     <qresource prefix="/icons">
         <file>../icon.png</file>
+        <file alias="play.svg">resources/icons/play.svg</file>
+        <file alias="stop.svg">resources/icons/stop.svg</file>
+        <file alias="configure.svg">resources/icons/configure.svg</file>
+        <file alias="build.svg">resources/icons/build.svg</file>
+        <file alias="debug.svg">resources/icons/debug.svg</file>
+        <file alias="clean.svg">resources/icons/clean.svg</file>
+        <file alias="step-over.svg">resources/icons/step-over.svg</file>
+        <file alias="step-into.svg">resources/icons/step-into.svg</file>
+        <file alias="step-out.svg">resources/icons/step-out.svg</file>
+        <file alias="continue.svg">resources/icons/continue.svg</file>
+        <file alias="terminate.svg">resources/icons/terminate.svg</file>
+        <file alias="workspace.svg">resources/icons/workspace.svg</file>
+        <file alias="definition.svg">resources/icons/definition.svg</file>
+        <file alias="references.svg">resources/icons/references.svg</file>
+        <file alias="rename.svg">resources/icons/rename.svg</file>
+        <file alias="format.svg">resources/icons/format.svg</file>
+        <file alias="switch-file.svg">resources/icons/switch-file.svg</file>
+        <file alias="restart.svg">resources/icons/restart.svg</file>
+        <file alias="compiledb.svg">resources/icons/compiledb.svg</file>
     </qresource>
     <qresource prefix="/lang-icons">
         <file alias="cpp.svg">resources/lang-icons/cpp.svg</file>

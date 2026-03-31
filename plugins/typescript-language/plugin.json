@@ -1,0 +1,55 @@
+{
+    "id": "org.exorcist.typescript-language",
+    "name": "TypeScript/JavaScript Language Support",
+    "version": "1.0.0",
+    "description": "TypeScript and JavaScript support via typescript-language-server.",
+    "author": "Exorcist",
+    "license": "MIT",
+    "layer": "cpp-sdk",
+    "category": "language",
+    "activationEvents": [
+        "workspaceContains:tsconfig.json",
+        "workspaceContains:jsconfig.json",
+        "workspaceContains:package.json",
+        "workspaceContains:*.ts",
+        "workspaceContains:*.tsx",
+        "workspaceContains:*.js",
+        "workspaceContains:*.jsx"
+    ],
+    "contributions": {
+        "languages": [
+            {
+                "id": "typescript",
+                "name": "TypeScript",
+                "extensions": [".ts", ".tsx"],
+                "mimeTypes": ["text/typescript"],
+                "lspCommand": "typescript-language-server"
+            },
+            {
+                "id": "javascript",
+                "name": "JavaScript",
+                "extensions": [".js", ".jsx", ".mjs", ".cjs"],
+                "mimeTypes": ["text/javascript"],
+                "lspCommand": "typescript-language-server"
+            }
+        ],
+        "commands": [
+            { "id": "typescript.goToDefinition",       "title": "Go to Definition" },
+            { "id": "typescript.goToDeclaration",       "title": "Go to Declaration" },
+            { "id": "typescript.findReferences",        "title": "Find All References" },
+            { "id": "typescript.renameSymbol",          "title": "Rename Symbol" },
+            { "id": "typescript.formatDocument",        "title": "Format Document" },
+            { "id": "typescript.gotoWorkspaceSymbol",   "title": "Go to Symbol in Workspace" },
+            { "id": "typescript.restartLanguageServer", "title": "Restart Language Server" },
+            { "id": "typescript.npmInstall",            "title": "npm install" },
+            { "id": "typescript.npmBuild",              "title": "npm run build" },
+            { "id": "typescript.npmTest",               "title": "npm test" },
+            { "id": "typescript.npmStart",              "title": "npm start" },
+            { "id": "typescript.npmRunScript",          "title": "Run npm Script" },
+            { "id": "typescript.npxTsc",                "title": "TypeScript Compile" },
+            { "id": "typescript.npxEslint",             "title": "Run ESLint" },
+            { "id": "typescript.openPackageJson",       "title": "Open package.json" },
+            { "id": "typescript.openTsConfig",          "title": "Open tsconfig.json" }
+        ]
+    }
+}

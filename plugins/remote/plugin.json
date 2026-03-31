@@ -19,6 +19,7 @@
         "onCommand:remote.showExplorer",
         "onCommand:remote.connect"
     ],
+    "requestedPermissions": ["TerminalExecute", "NetworkAccess", "FilesystemRead"],
     "contributions": {
         "views": [
             {

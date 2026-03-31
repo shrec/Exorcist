@@ -12,6 +12,7 @@
         "workspaceContains:*.qrc",
         "workspaceContains:*.qml"
     ],
+    "requestedPermissions": ["WorkspaceRead", "TerminalExecute"],
     "contributions": {
         "commands": [
             { "id": "qt.openDesigner", "title": "Qt: Open Designer", "category": "Qt" },

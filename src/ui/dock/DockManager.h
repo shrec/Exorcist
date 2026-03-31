@@ -80,7 +80,8 @@ public:
     void closeDock(ExDockWidget *dock);
 
     /// Show a previously closed dock (adds it pinned).
-    void showDock(ExDockWidget *dock, SideBarArea preferredSide = SideBarArea::Left);
+    /// If preferredSide is None, uses the dock's stored preferred side.
+    void showDock(ExDockWidget *dock, SideBarArea preferredSide = SideBarArea::None);
 
     /// Toggle dock visibility.
     void toggleDock(ExDockWidget *dock);

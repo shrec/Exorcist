@@ -138,9 +138,13 @@ void CMakeIntegration::autoDetectConfigs()
                 if (!cxxCompiler.isEmpty() && !QFileInfo::exists(cxxCompiler))
                     viable = false;
 
-                // Presets with no explicit paths require Qt findable via system —
-                // skip them unless they have a matching build directory already
-                if (prefixPath.isEmpty() && cCompiler.isEmpty()) {
+                // Presets that specify a generator (e.g. "Ninja") or any
+                // compiler path are always viable — even if no build dir
+                // exists yet (it will be created on first configure).
+                // Presets with NO generator, NO compiler, and NO prefix path
+                // require an existing build dir as proof of prior configure.
+                if (cfg.generator.isEmpty() && prefixPath.isEmpty()
+                    && cCompiler.isEmpty() && cxxCompiler.isEmpty()) {
                     const QString bd = cfg.buildDir.isEmpty()
                         ? m_projectRoot + QStringLiteral("/build-") + preset
                         : cfg.buildDir;
@@ -226,6 +230,27 @@ void CMakeIntegration::autoDetectConfigs()
                 QStringLiteral("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON")
             };
             m_configs.append(cfg);
+        }
+    }
+
+    // Tier 4: If all tiers failed, scan immediate subdirectories for a CMake
+    // project.  This covers the VS-style solution layout where the .exsln
+    // solution root is one level above the actual CMake project directory.
+    if (m_configs.isEmpty()) {
+        const QDir root(m_projectRoot);
+        const QFileInfoList subDirs = root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QFileInfo &sub : subDirs) {
+            const QString subPath = sub.absoluteFilePath();
+            if (!QFileInfo::exists(subPath + QStringLiteral("/CMakeLists.txt")))
+                continue;
+
+            // Found a CMake project in a subdirectory — adopt it as project root
+            m_projectRoot = subPath;
+
+            // Re-run detection from the corrected root (only tiers 1-3).
+            // Clear m_configs first since it's still empty but re-entry is safe.
+            autoDetectConfigs();
+            return;  // recursive call already emitted configsChanged
         }
     }
 

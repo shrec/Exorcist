@@ -41,7 +41,7 @@ PluginInfo SerialMonitorPlugin::info() const
         QStringLiteral("Serial monitor dock and external monitor launcher for embedded workspaces."),
         QStringLiteral("Exorcist"),
         QStringLiteral("1.0"),
-        {}
+        {PluginPermission::WorkspaceRead, PluginPermission::TerminalExecute}
     };
 }
 

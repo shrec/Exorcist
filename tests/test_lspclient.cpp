@@ -508,6 +508,246 @@ private slots:
         const int id2 = transport.m_sent.last()["id"].toInt();
         QVERIFY(id2 > id1);
     }
+
+    void requestInlayHints_sendsCorrectPayload()
+    {
+        MockTransport transport;
+        LspClient client(&transport);
+
+        client.initialize("/ws");
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", transport.m_sent.last()["id"].toInt()},
+            {"result", QJsonObject{{"capabilities", QJsonObject{}}}},
+        });
+        transport.m_sent.clear();
+
+        client.requestInlayHints("file:///a.cpp", 0, 0, 50, 0);
+
+        QCOMPARE(transport.m_sent.size(), 1);
+        const auto params = transport.m_sent[0]["params"].toObject();
+        QCOMPARE(params["textDocument"].toObject()["uri"].toString(),
+                 QStringLiteral("file:///a.cpp"));
+        const auto range = params["range"].toObject();
+        QCOMPARE(range["start"].toObject()["line"].toInt(), 0);
+        QCOMPARE(range["end"].toObject()["line"].toInt(), 50);
+    }
+
+    void inlayHintsResponse_emitsSignal()
+    {
+        MockTransport transport;
+        LspClient client(&transport);
+
+        client.initialize("/ws");
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", transport.m_sent.last()["id"].toInt()},
+            {"result", QJsonObject{{"capabilities", QJsonObject{}}}},
+        });
+
+        QSignalSpy spy(&client, &LspClient::inlayHintsResult);
+        client.requestInlayHints("file:///a.cpp", 0, 0, 100, 0);
+        const int reqId = transport.m_sent.last()["id"].toInt();
+
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", reqId},
+            {"result", QJsonArray{
+                QJsonObject{
+                    {"position", QJsonObject{{"line", 5}, {"character", 10}}},
+                    {"label", "param: "},
+                    {"paddingLeft", true},
+                    {"paddingRight", false},
+                },
+                QJsonObject{
+                    {"position", QJsonObject{{"line", 12}, {"character", 3}}},
+                    {"label", QJsonArray{QJsonObject{{"value", "int"}}}},
+                },
+            }},
+        });
+
+        QCOMPARE(spy.count(), 1);
+        const auto args = spy.takeFirst();
+        QCOMPARE(args.at(0).toString(), QStringLiteral("file:///a.cpp"));
+        QCOMPARE(args.at(1).toJsonArray().size(), 2);
+    }
+
+    void requestTypeDefinition_sendsCorrectPayload()
+    {
+        MockTransport transport;
+        LspClient client(&transport);
+
+        client.initialize("/ws");
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", transport.m_sent.last()["id"].toInt()},
+            {"result", QJsonObject{{"capabilities", QJsonObject{}}}},
+        });
+        transport.m_sent.clear();
+
+        client.requestTypeDefinition("file:///a.cpp", 7, 14);
+
+        QCOMPARE(transport.m_sent.size(), 1);
+        QCOMPARE(transport.m_sent[0]["method"].toString(),
+                 QStringLiteral("textDocument/typeDefinition"));
+        const auto params = transport.m_sent[0]["params"].toObject();
+        QCOMPARE(params["textDocument"].toObject()["uri"].toString(),
+                 QStringLiteral("file:///a.cpp"));
+        QCOMPARE(params["position"].toObject()["line"].toInt(), 7);
+        QCOMPARE(params["position"].toObject()["character"].toInt(), 14);
+    }
+
+    void typeDefinitionResponse_singleLocation()
+    {
+        MockTransport transport;
+        LspClient client(&transport);
+
+        client.initialize("/ws");
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", transport.m_sent.last()["id"].toInt()},
+            {"result", QJsonObject{{"capabilities", QJsonObject{}}}},
+        });
+
+        QSignalSpy spy(&client, &LspClient::typeDefinitionResult);
+        client.requestTypeDefinition("file:///a.cpp", 3, 8);
+        const int reqId = transport.m_sent.last()["id"].toInt();
+
+        // Server returns single Location (not array)
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", reqId},
+            {"result", QJsonObject{
+                {"uri", "file:///types.h"},
+                {"range", QJsonObject{
+                    {"start", QJsonObject{{"line", 20}, {"character", 0}}},
+                    {"end",   QJsonObject{{"line", 20}, {"character", 10}}},
+                }},
+            }},
+        });
+
+        QCOMPARE(spy.count(), 1);
+        const auto args = spy.takeFirst();
+        QCOMPARE(args.at(0).toString(), QStringLiteral("file:///a.cpp"));
+        // Single location should be wrapped in array
+        QCOMPARE(args.at(1).toJsonArray().size(), 1);
+    }
+
+    void typeDefinitionResponse_arrayLocations()
+    {
+        MockTransport transport;
+        LspClient client(&transport);
+
+        client.initialize("/ws");
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", transport.m_sent.last()["id"].toInt()},
+            {"result", QJsonObject{{"capabilities", QJsonObject{}}}},
+        });
+
+        QSignalSpy spy(&client, &LspClient::typeDefinitionResult);
+        client.requestTypeDefinition("file:///a.cpp", 1, 0);
+        const int reqId = transport.m_sent.last()["id"].toInt();
+
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", reqId},
+            {"result", QJsonArray{
+                QJsonObject{
+                    {"uri", "file:///t1.h"},
+                    {"range", QJsonObject{
+                        {"start", QJsonObject{{"line", 5}, {"character", 0}}},
+                        {"end",   QJsonObject{{"line", 5}, {"character", 8}}},
+                    }},
+                },
+                QJsonObject{
+                    {"uri", "file:///t2.h"},
+                    {"range", QJsonObject{
+                        {"start", QJsonObject{{"line", 10}, {"character", 0}}},
+                        {"end",   QJsonObject{{"line", 10}, {"character", 6}}},
+                    }},
+                },
+            }},
+        });
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.takeFirst().at(1).toJsonArray().size(), 2);
+    }
+
+    void inlayHints_beforeInit_ignored()
+    {
+        MockTransport transport;
+        LspClient client(&transport);
+
+        // Not initialized — request should be silently ignored
+        transport.m_sent.clear();
+        client.requestInlayHints("file:///a.cpp", 0, 0, 50, 0);
+        QCOMPARE(transport.m_sent.size(), 0);
+    }
+
+    void typeDefinition_beforeInit_ignored()
+    {
+        MockTransport transport;
+        LspClient client(&transport);
+
+        // Not initialized — request should be silently ignored
+        transport.m_sent.clear();
+        client.requestTypeDefinition("file:///a.cpp", 0, 0);
+        QCOMPARE(transport.m_sent.size(), 0);
+    }
+
+    void typeDefinitionResponse_emptyResult()
+    {
+        MockTransport transport;
+        LspClient client(&transport);
+
+        client.initialize("/ws");
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", transport.m_sent.last()["id"].toInt()},
+            {"result", QJsonObject{{"capabilities", QJsonObject{}}}},
+        });
+
+        QSignalSpy spy(&client, &LspClient::typeDefinitionResult);
+        client.requestTypeDefinition("file:///a.cpp", 0, 0);
+        const int reqId = transport.m_sent.last()["id"].toInt();
+
+        // Empty array response
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", reqId},
+            {"result", QJsonArray{}},
+        });
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.takeFirst().at(1).toJsonArray().size(), 0);
+    }
+
+    void inlayHintsResponse_emptyResult()
+    {
+        MockTransport transport;
+        LspClient client(&transport);
+
+        client.initialize("/ws");
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", transport.m_sent.last()["id"].toInt()},
+            {"result", QJsonObject{{"capabilities", QJsonObject{}}}},
+        });
+
+        QSignalSpy spy(&client, &LspClient::inlayHintsResult);
+        client.requestInlayHints("file:///a.cpp", 0, 0, 100, 0);
+        const int reqId = transport.m_sent.last()["id"].toInt();
+
+        transport.injectMessage(QJsonObject{
+            {"jsonrpc", "2.0"},
+            {"id", reqId},
+            {"result", QJsonArray{}},
+        });
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.takeFirst().at(1).toJsonArray().size(), 0);
+    }
 };
 
 QTEST_MAIN(TestLspClient)

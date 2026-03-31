@@ -43,17 +43,16 @@ int PluginManager::loadPluginsFrom(const QString &path)
     filters << "*.so";
 #endif
 
+    // ── Step 1: load all plugin binaries ─────────────────────────────────
+    const int countBefore = m_loaded.size();
     const QFileInfoList entries = dir.entryInfoList(filters, QDir::Files);
     for (const QFileInfo &entry : entries) {
         auto *loader = new QPluginLoader(entry.absoluteFilePath(), this);
         QObject *instance = loader->instance();
         if (!instance) {
-            // QPluginLoader failed — try loading as a C ABI plugin.
             loader->deleteLater();
-
             if (tryLoadCAbi(entry.absoluteFilePath()))
                 continue;
-
             m_errors << QString("Not a Qt or C ABI plugin: %1").arg(entry.fileName());
             continue;
         }
@@ -67,20 +66,36 @@ int PluginManager::loadPluginsFrom(const QString &path)
         }
 
         m_loaded.push_back({plugin, loader});
-
-        // Try to load plugin.json manifest from the same directory
-        const QString manifestPath = entry.absolutePath() + "/" + entry.completeBaseName() + ".json";
-        if (QFile::exists(manifestPath)) {
-            QFile f(manifestPath);
-            if (f.open(QIODevice::ReadOnly)) {
-                const QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
-                m_loaded.back().manifest = PluginManifest::fromJson(obj);
-            }
-        }
-
     }
 
-    return m_loaded.size();
+    // ── Step 2: enumerate all JSON manifests in the directory and match
+    //           them to loaded plugins by the "id" field.
+    //           This avoids any filename convention dependency (lib prefix,
+    //           platform differences, etc.) — any .json with a matching id
+    //           is accepted automatically.
+    // Build id→index map for O(1) lookup instead of O(N*M) linear scan.
+    QHash<QString, int> idToIndex;
+    for (int i = 0; i < m_loaded.size(); ++i)
+        idToIndex.insert(m_loaded[i].instance->info().id, i);
+
+    const QFileInfoList jsonFiles = dir.entryInfoList(
+        QStringList{QStringLiteral("*.json")}, QDir::Files);
+    for (const QFileInfo &jf : jsonFiles) {
+        QFile f(jf.absoluteFilePath());
+        if (!f.open(QIODevice::ReadOnly))
+            continue;
+        const QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+        const QString manifestId = obj.value(QLatin1String("id")).toString();
+        if (manifestId.isEmpty())
+            continue;
+        // Find the loaded plugin whose info().id matches this manifest's id.
+        // Use index map for O(1) lookup instead of O(N) linear scan.
+        auto it = idToIndex.find(manifestId);
+        if (it != idToIndex.end() && m_loaded[it.value()].manifest.id.isEmpty())
+            m_loaded[it.value()].manifest = PluginManifest::fromJson(obj);
+    }
+
+    return m_loaded.size() - countBefore;
 }
 
 void PluginManager::initializeAll(IHostServices *host)
@@ -110,6 +125,7 @@ void PluginManager::initializeAll(IHostServices *host)
         }
     }
 
+    immediate = sortByDependencies(immediate);
     for (const LoadedPlugin &lp : immediate) {
         activatePlugin(lp);
     }
@@ -138,6 +154,66 @@ bool PluginManager::shouldDeferPlugin(const PluginManifest &manifest) const
             return false;  // Start immediately
     }
     return true;  // Has lazy activation events
+}
+
+// Kahn's algorithm — topological sort of plugins by declared dependencies.
+// Any plugin whose required dependency is not in this set activates last.
+// Cycles are broken by treating the cycle-closing edge as optional.
+QVector<PluginManager::LoadedPlugin> PluginManager::sortByDependencies(QVector<LoadedPlugin> plugins)
+{
+    // Build id → index map
+    QHash<QString, int> indexById;
+    for (int i = 0; i < plugins.size(); ++i) {
+        const QString id = plugins[i].manifest.id.isEmpty()
+            ? plugins[i].instance->info().id
+            : plugins[i].manifest.id;
+        indexById.insert(id, i);
+    }
+
+    const int n = plugins.size();
+    QVector<int> inDegree(n, 0);
+    QVector<QVector<int>> adj(n); // adj[i] = list of indices that depend on i
+
+    for (int i = 0; i < n; ++i) {
+        for (const PluginDependency &dep : plugins[i].manifest.dependencies) {
+            auto it = indexById.find(dep.pluginId);
+            if (it == indexById.end())
+                continue; // dependency not in this set — ignore (ok for optional; warn for required)
+            const int j = it.value();
+            adj[j].push_back(i);   // j must come before i (both required and optional define ordering)
+            ++inDegree[i];
+        }
+    }
+
+    // Standard BFS topological sort (Kahn's algorithm)
+    QVector<int> queue;
+    for (int i = 0; i < n; ++i)
+        if (inDegree[i] == 0)
+            queue.push_back(i);
+
+    QVector<LoadedPlugin> sorted;
+    sorted.reserve(n);
+    int head = 0;
+    while (head < queue.size()) {
+        const int cur = queue[head++];
+        sorted.push_back(plugins[cur]);
+        for (int next : adj[cur]) {
+            if (--inDegree[next] == 0)
+                queue.push_back(next);
+        }
+    }
+
+    // Any nodes not yet added are part of a cycle — append them as-is
+    if (sorted.size() < n) {
+        for (int i = 0; i < n; ++i) {
+            if (inDegree[i] > 0)
+                sorted.push_back(plugins[i]);
+        }
+        qWarning("[PluginManager] Dependency cycle detected — some plugins may "
+                 "initialize in an undefined order.");
+    }
+
+    return sorted;
 }
 
 void PluginManager::activatePlugin(const LoadedPlugin &lp)
@@ -177,6 +253,7 @@ int PluginManager::activateByEvent(const QString &event)
 {
     int activated = 0;
     QVector<DeferredPlugin> remaining;
+    QVector<LoadedPlugin> toActivate;
 
     for (const DeferredPlugin &dp : m_deferred) {
         bool matches = false;
@@ -187,10 +264,21 @@ int PluginManager::activateByEvent(const QString &event)
             }
         }
         if (matches) {
-            activatePlugin(dp.loaded);
-            ++activated;
+            toActivate.push_back(dp.loaded);
         } else {
             remaining.push_back(dp);
+        }
+    }
+
+    toActivate = sortByDependencies(toActivate);
+    for (const LoadedPlugin &lp : toActivate) {
+        activatePlugin(lp);
+        ++activated;
+        if (m_contributions && lp.manifest.hasContributions()) {
+            m_contributions->registerManifest(
+                lp.instance->info().id,
+                lp.manifest,
+                lp.instance);
         }
     }
 
@@ -203,7 +291,7 @@ int PluginManager::activateByWorkspace(const QString &workspaceRoot)
     if (workspaceRoot.isEmpty())
         return 0;
 
-    int activated = 0;
+    QVector<DeferredPlugin> toActivate;
     QVector<DeferredPlugin> remaining;
     const QDir wsDir(workspaceRoot);
 
@@ -220,16 +308,31 @@ int PluginManager::activateByWorkspace(const QString &workspaceRoot)
                 }
             }
         }
-        if (matches) {
-            activatePlugin(dp.loaded);
-            ++activated;
-        } else {
+        if (matches)
+            toActivate.push_back(dp);
+        else
             remaining.push_back(dp);
+    }
+
+    // Collect LoadedPlugins, sort by dependency order, then activate
+    QVector<LoadedPlugin> loaded;
+    loaded.reserve(toActivate.size());
+    for (const DeferredPlugin &dp : toActivate)
+        loaded.push_back(dp.loaded);
+    loaded = sortByDependencies(loaded);
+
+    for (const LoadedPlugin &lp : loaded) {
+        activatePlugin(lp);
+        if (m_contributions && lp.manifest.hasContributions()) {
+            m_contributions->registerManifest(
+                lp.instance->info().id,
+                lp.manifest,
+                lp.instance);
         }
     }
 
     m_deferred = remaining;
-    return activated;
+    return loaded.size();
 }
 
 void PluginManager::initializeAll(QObject *services)
@@ -242,6 +345,33 @@ void PluginManager::initializeAll(QObject *services)
             m_errors << QString("Plugin init failed: %1").arg(e.what());
         } catch (...) {
             m_errors << QString("Plugin init failed with unknown exception");
+        }
+    }
+}
+
+bool PluginManager::isPluginDeferred(const IPlugin *instance) const
+{
+    for (const DeferredPlugin &dp : m_deferred) {
+        if (dp.loaded.instance == instance)
+            return true;
+    }
+    return false;
+}
+
+void PluginManager::notifyWorkspaceChanged(const QString &root)
+{
+    // Build O(1) lookup set instead of calling isPluginDeferred() per plugin (O(N*M)).
+    QSet<const IPlugin *> deferredSet;
+    deferredSet.reserve(m_deferred.size());
+    for (const DeferredPlugin &dp : m_deferred)
+        deferredSet.insert(dp.loaded.instance);
+
+    for (const LoadedPlugin &lp : m_loaded) {
+        if (deferredSet.contains(lp.instance))
+            continue;
+        try {
+            lp.instance->onWorkspaceChanged(root);
+        } catch (...) {
         }
     }
 }
@@ -493,6 +623,12 @@ int PluginManager::activateByPluginId(const QString &pluginId)
         if (dp.loaded.manifest.id == pluginId) {
             activatePlugin(dp.loaded);
             ++activated;
+            if (m_contributions && dp.loaded.manifest.hasContributions()) {
+                m_contributions->registerManifest(
+                    dp.loaded.instance->info().id,
+                    dp.loaded.manifest,
+                    dp.loaded.instance);
+            }
         } else {
             remaining.push_back(dp);
         }

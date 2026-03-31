@@ -123,11 +123,13 @@ UltralightWidget::UltralightWidget(QWidget *parent)
 {
     setAttribute(Qt::WA_OpaquePaintEvent);
     // Allocate a persistent native HWND for this widget.
-    // Without this, Qt tears down and recreates the native window every time
-    // the widget is reparented (e.g. Closed → Docked dock cycle). The second
-    // native-window reconstruction corrupts Qt's internal widget state on
-    // Windows, causing a crash inside QWidget::showEvent (RBP=1, RAX=0xFFFF…).
-    // A stable HWND persists across setParent() calls and avoids the crash.
+    // When the parent ChatPanelWidget is reparented (e.g. between dock areas),
+    // Qt must move this widget's HWND in the Win32 hierarchy. WA_NativeWindow
+    // ensures SetParent() is used rather than destroy+recreate. Without it,
+    // HWND teardown can corrupt Qt's internal widget state (RBP=1, READ at -1).
+    // NOTE: ChatPanelWidget itself must also be created with a non-null parent
+    // (see DockBootstrap::initialize) so the initial setContentWidget() call
+    // is a child→child reparent rather than a top-level→child transition.
     setAttribute(Qt::WA_NativeWindow);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);

@@ -62,6 +62,7 @@ PluginInfo TerminalPlugin::info() const
     i.name        = QStringLiteral("Terminal");
     i.version     = QStringLiteral("1.0.0");
     i.description = QStringLiteral("Integrated terminal emulator with multi-tab support.");
+    i.requestedPermissions = {PluginPermission::TerminalExecute, PluginPermission::WorkspaceRead};
     return i;
 }
 
@@ -80,6 +81,12 @@ bool TerminalPlugin::initializePlugin()
 void TerminalPlugin::shutdownPlugin()
 {
     m_panel = nullptr;
+}
+
+void TerminalPlugin::onWorkspaceChanged(const QString &root)
+{
+    if (auto *ts = terminal())
+        ts->setWorkingDirectory(root);
 }
 
 QWidget *TerminalPlugin::createView(const QString &viewId, QWidget *parent)

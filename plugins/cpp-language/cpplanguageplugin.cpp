@@ -45,8 +45,16 @@ public:
     LspServiceBridge(ClangdManager *clangd, LspClient *lspClient, QObject *parent)
         : ILspService(parent), m_clangd(clangd), m_lspClient(lspClient)
     {
-        connect(m_clangd, &ClangdManager::serverReady,
-                this, &ILspService::serverReady);
+        connect(m_clangd, &ClangdManager::serverReady, this, [this]() {
+            // Plugin self-initializes the LSP handshake so it works
+            // regardless of whether MainWindow has wired serverReady.
+            // This is essential for deferred plugins that activate after
+            // loadPlugins() post-wiring has already run.
+            qWarning() << "[LSP-DIAG] serverReady fired, calling lspClient->initialize()" 
+                       << "workspaceRoot=" << m_clangd->workspaceRoot();
+            m_lspClient->initialize(m_clangd->workspaceRoot());
+            emit serverReady();
+        });
 
         // Go-to-Definition (F12) — also triggered from cpp.goToDefinition command
         connect(m_lspClient, &LspClient::definitionResult, this,
@@ -152,6 +160,11 @@ PluginInfo CppLanguagePlugin::info() const
     pi.id      = QStringLiteral("org.exorcist.cpp-language");
     pi.name    = QStringLiteral("C/C++ Language Support");
     pi.version = QStringLiteral("1.0.0");
+    pi.requestedPermissions = {
+        PluginPermission::WorkspaceRead,
+        PluginPermission::TerminalExecute,
+        PluginPermission::FilesystemRead,
+    };
     return pi;
 }
 
@@ -164,6 +177,24 @@ QWidget *CppLanguagePlugin::createView(const QString &viewId, QWidget *parent)
         m_workspacePanel = new CppWorkspacePanel(parent);
         connect(m_workspacePanel, &CppWorkspacePanel::commandRequested,
                 this, [this](const QString &commandId) {
+            // Handle per-target commands emitted by target context menu
+            if (commandId.startsWith(QLatin1String("cpp.buildTarget:"))) {
+                const QString target = commandId.mid(16);
+                if (m_buildSystem) m_buildSystem->build(target);
+                return;
+            }
+            if (commandId.startsWith(QLatin1String("cpp.runTarget:"))) {
+                const QString target = commandId.mid(14);
+                m_activeTarget = target;
+                executeCommand(QStringLiteral("cpp.runProject"));
+                return;
+            }
+            if (commandId.startsWith(QLatin1String("cpp.debugTarget:"))) {
+                const QString target = commandId.mid(16);
+                m_activeTarget = target;
+                executeCommand(QStringLiteral("cpp.debugProject"));
+                return;
+            }
             executeCommand(commandId);
             refreshWorkspaceSnapshot();
         });
@@ -186,6 +217,11 @@ QWidget *CppLanguagePlugin::createView(const QString &viewId, QWidget *parent)
                 this, [this](const QString &filePath) {
             if (editor())
                 editor()->openFile(filePath, -1, -1);
+        });
+        connect(m_workspacePanel, &CppWorkspacePanel::activeTargetChanged,
+                this, [this](const QString &targetName) {
+            m_activeTarget = targetName;
+            // The active target is used by Run/Debug commands
         });
     }
 
@@ -315,6 +351,8 @@ bool CppLanguagePlugin::initializePlugin()
                         tr("Starting clangd for the active workspace."));
     refreshWorkspaceSnapshot();
     m_workspaceRefreshTimer.start();
+    qWarning() << "[LSP-DIAG] CppLanguagePlugin::initializePlugin() starting clangd, root="
+               << languageWorkspaceRoot();
     m_clangd->start(languageWorkspaceRoot());
 
     return true;
@@ -619,7 +657,22 @@ void CppLanguagePlugin::registerCommands()
         QStringLiteral("cpp.runProject"),
         tr("Run Project"),
         [this]() {
-            executeCommand(QStringLiteral("build.run"));
+            if (m_launchService && !m_activeTarget.isEmpty() && m_buildSystem) {
+                const QString buildDir = m_buildSystem->buildDirectory();
+                LaunchConfig cfg;
+                cfg.name = m_activeTarget;
+#ifdef Q_OS_WIN
+                cfg.executable = buildDir + QLatin1Char('/') + m_activeTarget + QStringLiteral(".exe");
+                if (!QFileInfo::exists(cfg.executable))
+                    cfg.executable = buildDir + QLatin1Char('/') + m_activeTarget;
+#else
+                cfg.executable = buildDir + QLatin1Char('/') + m_activeTarget;
+#endif
+                cfg.workingDir = buildDir;
+                m_launchService->startWithoutDebugging(cfg);
+            } else {
+                executeCommand(QStringLiteral("build.run"));
+            }
             updateWorkspaceCard(QStringLiteral("debug"),
                                 tr("Launching"),
                                 tr("Run without debugging has been requested."));
@@ -629,7 +682,22 @@ void CppLanguagePlugin::registerCommands()
         QStringLiteral("cpp.debugProject"),
         tr("Debug Project"),
         [this]() {
-            executeCommand(QStringLiteral("build.debug"));
+            if (m_launchService && !m_activeTarget.isEmpty() && m_buildSystem) {
+                const QString buildDir = m_buildSystem->buildDirectory();
+                LaunchConfig cfg;
+                cfg.name = m_activeTarget;
+#ifdef Q_OS_WIN
+                cfg.executable = buildDir + QLatin1Char('/') + m_activeTarget + QStringLiteral(".exe");
+                if (!QFileInfo::exists(cfg.executable))
+                    cfg.executable = buildDir + QLatin1Char('/') + m_activeTarget;
+#else
+                cfg.executable = buildDir + QLatin1Char('/') + m_activeTarget;
+#endif
+                cfg.workingDir = buildDir;
+                m_launchService->startDebugging(cfg);
+            } else {
+                executeCommand(QStringLiteral("build.debug"));
+            }
             updateWorkspaceCard(QStringLiteral("debug"),
                                 tr("Launching"),
                                 tr("Debug launch has been requested."));
@@ -807,20 +875,16 @@ void CppLanguagePlugin::installMenus()
 void CppLanguagePlugin::installToolBar()
 {
     createToolBar(QLatin1String(kCppToolBarId), tr("C/C++"));
+    // C++-specific LSP/navigation actions only — Build/Run/Debug live in the Build toolbar.
     addToolBarCommands(QLatin1String(kCppToolBarId), {
-        { tr("Workspace"), QStringLiteral("cpp.showWorkspace") },
-        { tr("Definition"), QStringLiteral("cpp.goToDefinition"), QKeySequence(Qt::Key_F12) },
-        { tr("References"), QStringLiteral("cpp.findReferences"), QKeySequence(Qt::SHIFT | Qt::Key_F12) },
-        { tr("Rename"), QStringLiteral("cpp.renameSymbol"), QKeySequence(Qt::Key_F2), true },
-        { tr("Format"), QStringLiteral("cpp.formatDocument"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F) },
-        { tr("Switch"), QStringLiteral("cpp.switchHeaderSource"), QKeySequence(Qt::ALT | Qt::Key_O) },
-        { tr("Build"), QStringLiteral("cpp.buildProject"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B), true },
-        { tr("Run"), QStringLiteral("cpp.runProject"), QKeySequence(Qt::CTRL | Qt::Key_F5) },
-        { tr("Debug"), QStringLiteral("cpp.debugProject"), QKeySequence(Qt::Key_F5) },
-        { tr("Tests"), QStringLiteral("cpp.runAllTests"), {}, true },
-        { tr("Search"), QStringLiteral("cpp.focusSearch") },
-        { tr("Compile DB"), QStringLiteral("cpp.openCompileCommands"), {}, true },
-        { tr("Restart"), QStringLiteral("cpp.restartLanguageServer") },
+        { tr("Workspace"),  QStringLiteral("cpp.showWorkspace"),      {},                                           false, QStringLiteral("workspace")  },
+        { tr("Definition"), QStringLiteral("cpp.goToDefinition"),     QKeySequence(Qt::Key_F12),                   true,  QStringLiteral("definition") },
+        { tr("References"), QStringLiteral("cpp.findReferences"),     QKeySequence(Qt::SHIFT | Qt::Key_F12),       false, QStringLiteral("references") },
+        { tr("Rename"),     QStringLiteral("cpp.renameSymbol"),       QKeySequence(Qt::Key_F2),                    true,  QStringLiteral("rename")     },
+        { tr("Format"),     QStringLiteral("cpp.formatDocument"),     QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F), false, QStringLiteral("format")  },
+        { tr("Switch H↔S"), QStringLiteral("cpp.switchHeaderSource"), QKeySequence(Qt::ALT | Qt::Key_O),           false, QStringLiteral("switch-file") },
+        { tr("Compile DB"), QStringLiteral("cpp.openCompileCommands"), {},                                          true,  QStringLiteral("compiledb") },
+        { tr("Restart LSP"), QStringLiteral("cpp.restartLanguageServer"), {},                                       false, QStringLiteral("restart")   },
     }, this);
 }
 
@@ -1084,17 +1148,26 @@ void CppLanguagePlugin::updateWorkspacePanel()
                                     m_searchStatusTitle,
                                     m_searchStatusDetail);
 
-    const bool buildReady = m_buildSystem != nullptr;
-    const bool testsReady = m_testRunner != nullptr;
-    const bool searchReady = m_searchService != nullptr;
+    const bool buildReady  = m_buildSystem    != nullptr;
+    const bool launchReady = m_launchService  != nullptr;
+    const bool testsReady  = m_testRunner     != nullptr;
+    const bool searchReady = m_searchService  != nullptr;
     const bool canOpenBuildTerminal = terminal() != nullptr && !currentBuildDirectory().isEmpty();
 
+    // Update targets list — pick first target as default if none selected yet
+    const QStringList targets = m_buildSystem ? m_buildSystem->targets() : QStringList{};
+    if (m_activeTarget.isEmpty() && !targets.isEmpty())
+        m_activeTarget = targets.first();
+    m_workspacePanel->setTargets(targets, m_activeTarget);
+
     m_workspacePanel->setActionEnabled(QStringLiteral("cpp.configureProject"), buildReady);
-    m_workspacePanel->setActionEnabled(QStringLiteral("cpp.buildProject"), buildReady);
-    m_workspacePanel->setActionEnabled(QStringLiteral("cpp.cleanProject"), buildReady);
+    m_workspacePanel->setActionEnabled(QStringLiteral("cpp.buildProject"),     buildReady);
+    m_workspacePanel->setActionEnabled(QStringLiteral("cpp.cleanProject"),     buildReady);
+    m_workspacePanel->setActionEnabled(QStringLiteral("cpp.runProject"),       launchReady);
+    m_workspacePanel->setActionEnabled(QStringLiteral("cpp.debugProject"),     launchReady);
     m_workspacePanel->setActionEnabled(QStringLiteral("cpp.openBuildTerminal"), canOpenBuildTerminal);
-    m_workspacePanel->setActionEnabled(QStringLiteral("cpp.discoverTests"), testsReady);
-    m_workspacePanel->setActionEnabled(QStringLiteral("cpp.runAllTests"), testsReady);
+    m_workspacePanel->setActionEnabled(QStringLiteral("cpp.discoverTests"),    testsReady);
+    m_workspacePanel->setActionEnabled(QStringLiteral("cpp.runAllTests"),      testsReady);
     m_workspacePanel->setActionEnabled(QStringLiteral("cpp.reindexWorkspace"),
                                        searchReady && !languageWorkspaceRoot().isEmpty());
 }

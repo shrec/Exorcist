@@ -17,6 +17,7 @@ class BuildSystemService : public IBuildSystem
 public:
     explicit BuildSystemService(CMakeIntegration *cmake, QObject *parent = nullptr);
 
+    void setProjectRoot(const QString &root) override;
     bool hasProject() const override;
     void configure() override;
     void build(const QString &target = {}) override;

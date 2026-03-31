@@ -22,6 +22,7 @@ public:
 
     PluginInfo info() const override;
     void shutdownPlugin() override;
+    void onWorkspaceChanged(const QString &root) override;
 
     // IViewContributor
     QWidget *createView(const QString &viewId, QWidget *parent) override;

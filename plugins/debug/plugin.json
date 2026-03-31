@@ -8,6 +8,7 @@
     "layer":       "cpp-sdk",
     "category":    "core",
     "activationEvents": [
+        "onStartupFinished",
         "workspaceContains:CMakeLists.txt",
         "workspaceContains:Makefile",
         "workspaceContains:Cargo.toml"

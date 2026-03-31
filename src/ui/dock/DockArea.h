@@ -2,6 +2,7 @@
 
 #include "DockTypes.h"
 
+#include <QToolButton>
 #include <QWidget>
 #include <QList>
 
@@ -40,6 +41,9 @@ public:
 
     /// Get dock widget at tab index.
     ExDockWidget *dockWidget(int index) const;
+
+    /// Get index of a dock widget, or -1 if not in this area.
+    int indexOf(ExDockWidget *widget) const;
 
     /// Get the currently visible dock widget.
     ExDockWidget *currentDockWidget() const;
@@ -84,6 +88,9 @@ signals:
     /// User wants to close this area's current tab.
     void closeRequested();
 
+    /// User wants to close ALL tabs in this area (collapse panel).
+    void closeAllRequested();
+
 private slots:
     void onTabChanged(int index);
     void onTabCloseRequested(int index);
@@ -96,6 +103,8 @@ private:
     DockManager    *m_manager;
     DockTitleBar   *m_titleBar;
     DockTabBar     *m_tabBar;
+    QWidget        *m_tabRow;      // container: tab bar + collapse button
+    QToolButton    *m_collapseBtn; // ∧ close-panel button shown in tab bar row
     QStackedWidget *m_stack;
     QList<ExDockWidget *> m_widgets;
 };

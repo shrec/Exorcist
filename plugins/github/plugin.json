@@ -9,6 +9,7 @@
     "activationEvents": [
         "onStartupFinished"
     ],
+    "requestedPermissions": ["WorkspaceRead", "GitRead", "NetworkAccess"],
     "contributions": {
         "views": [
             {

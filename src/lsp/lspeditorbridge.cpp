@@ -8,6 +8,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QScrollBar>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTimer>
@@ -31,6 +32,7 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
       m_changeTimer(new QTimer(this)),
       m_symbolTimer(new QTimer(this)),
       m_hoverTimer(new QTimer(this)),
+      m_inlayHintTimer(new QTimer(this)),
       m_completion(new CompletionPopup(editor)),
       m_hoverTooltip(new HoverTooltipWidget(editor))
 {
@@ -51,6 +53,12 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
         if (m_hoverLine >= 0)
             m_client->requestHover(m_uri, m_hoverLine, m_hoverCol);
     });
+
+    // Inlay hints: re-request 500ms after last change or scroll
+    m_inlayHintTimer->setSingleShot(true);
+    m_inlayHintTimer->setInterval(500);
+    connect(m_inlayHintTimer, &QTimer::timeout,
+            this, &LspEditorBridge::requestInlayHints);
 
     // Install event filter on editor viewport for mouse tracking hover
     m_editor->viewport()->setMouseTracking(true);
@@ -85,6 +93,10 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
             this, &LspEditorBridge::onDocumentSymbolsResult);
     connect(m_client, &LspClient::codeActionResult,
             this, &LspEditorBridge::onCodeActionResult);
+    connect(m_client, &LspClient::inlayHintsResult,
+            this, &LspEditorBridge::onInlayHintsResult);
+    connect(m_client, &LspClient::typeDefinitionResult,
+            this, &LspEditorBridge::onTypeDefinitionResult);
 
     // Completion popup
     connect(m_completion, &CompletionPopup::itemAccepted,
@@ -180,18 +192,35 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
             this, &LspEditorBridge::requestCodeActions);
     editor->addAction(codeActionAction);
 
+    // Ctrl+Shift+D → go to type definition
+    auto *typeDefAction = new QAction(editor);
+    typeDefAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_D));
+    typeDefAction->setShortcutContext(Qt::WidgetShortcut);
+    connect(typeDefAction, &QAction::triggered, this, [this]() {
+        const QTextCursor cur = m_editor->textCursor();
+        m_client->requestTypeDefinition(m_uri, cur.blockNumber(),
+                                        cur.positionInBlock());
+    });
+    editor->addAction(typeDefAction);
+
+    // Re-request inlay hints on scroll
+    connect(m_editor->verticalScrollBar(), &QScrollBar::valueChanged,
+            this, [this]() { m_inlayHintTimer->start(); });
+
     // Send initial open notification, then request symbols
     if (m_client->isInitialized()) {
         m_client->didOpen(m_uri, m_languageId,
                           m_editor->toPlainText(), m_version);
         m_opened = true;
         QTimer::singleShot(500, this, &LspEditorBridge::sendDocumentSymbols);
+        QTimer::singleShot(800, this, &LspEditorBridge::requestInlayHints);
     } else {
         connect(m_client, &LspClient::initialized, this, [this]() {
             m_client->didOpen(m_uri, m_languageId,
                               m_editor->toPlainText(), m_version);
             m_opened = true;
             QTimer::singleShot(500, this, &LspEditorBridge::sendDocumentSymbols);
+            QTimer::singleShot(800, this, &LspEditorBridge::requestInlayHints);
         }, Qt::SingleShotConnection);
     }
 }
@@ -238,6 +267,7 @@ void LspEditorBridge::onDocumentChanged()
 {
     m_changeTimer->start();  // restart debounce
     m_symbolTimer->start();  // restart symbol outline refresh
+    m_inlayHintTimer->start(); // refresh inlay hints after edit
     m_hoverTimer->stop();
     m_hoverTooltip->hideTooltip();
 
@@ -564,7 +594,7 @@ void LspEditorBridge::onCodeActionResult(const QString &uri, int /*line*/,
     }
 
     if (menu->isEmpty()) {
-        delete menu;
+        menu->deleteLater();
         return;
     }
 
@@ -573,4 +603,79 @@ void LspEditorBridge::onCodeActionResult(const QString &uri, int /*line*/,
     const QPoint globalPos = m_editor->viewport()->mapToGlobal(
         curRect.bottomLeft());
     menu->popup(globalPos);
+}
+
+// ── Inlay Hints ──────────────────────────────────────────────────────────────
+
+void LspEditorBridge::requestInlayHints()
+{
+    if (!m_client->isInitialized()) return;
+
+    // Compute visible range
+    const int startLine = m_editor->firstVisibleBlockNumber();
+    // Estimate visible line count from viewport height
+    const int lineH = m_editor->fontMetrics().height();
+    const int visibleLines = lineH > 0 ? (m_editor->viewport()->height() / lineH) + 2 : 50;
+    const int endLine = startLine + visibleLines;
+
+    m_client->requestInlayHints(m_uri, startLine, 0, endLine, 0);
+}
+
+void LspEditorBridge::onInlayHintsResult(const QString &uri,
+                                         const QJsonArray &hints)
+{
+    if (uri != m_uri) return;
+
+    QList<EditorView::InlayHint> parsed;
+    parsed.reserve(hints.size());
+
+    for (const QJsonValue &v : hints) {
+        const QJsonObject h = v.toObject();
+        const QJsonObject pos = h[QLatin1String("position")].toObject();
+
+        EditorView::InlayHint hint;
+        hint.line      = pos[QLatin1String("line")].toInt();
+        hint.character = pos[QLatin1String("character")].toInt();
+
+        // Label can be a string or an array of InlayHintLabelPart
+        const QJsonValue labelVal = h[QLatin1String("label")];
+        if (labelVal.isString()) {
+            hint.label = labelVal.toString();
+        } else if (labelVal.isArray()) {
+            QString combined;
+            for (const QJsonValue &part : labelVal.toArray())
+                combined += part.toObject()[QLatin1String("value")].toString();
+            hint.label = combined;
+        }
+
+        hint.paddingLeft  = h[QLatin1String("paddingLeft")].toBool();
+        hint.paddingRight = h[QLatin1String("paddingRight")].toBool();
+
+        if (!hint.label.isEmpty())
+            parsed.append(hint);
+    }
+
+    m_editor->setInlayHints(parsed);
+}
+
+// ── Type Definition ──────────────────────────────────────────────────────────
+
+void LspEditorBridge::onTypeDefinitionResult(const QString &uri,
+                                             const QJsonArray &locations)
+{
+    if (uri != m_uri || locations.isEmpty()) return;
+
+    // Navigate to the first type definition location (same as definition handler)
+    const QJsonObject loc = locations.first().toObject();
+    const QString targetUri = loc[QLatin1String("uri")].toString();
+    const QString filePath  = QUrl(targetUri).toLocalFile();
+    const int line = loc[QLatin1String("range")].toObject()
+                        [QLatin1String("start")].toObject()
+                        [QLatin1String("line")].toInt();
+    const int character = loc[QLatin1String("range")].toObject()
+                             [QLatin1String("start")].toObject()
+                             [QLatin1String("character")].toInt();
+
+    if (!filePath.isEmpty())
+        emit navigateToLocation(filePath, line, character);
 }

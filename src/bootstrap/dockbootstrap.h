@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <functional>
 
 class ServiceRegistry;
 class ThemeManager;
@@ -24,15 +25,16 @@ class McpClient;
 class McpPanel;
 class PluginGalleryPanel;
 
-namespace exdock { class DockManager; }
+namespace exdock { class DockManager; class ExDockWidget; }
 
 /// DockBootstrap — creates and registers all non-central dock panels.
 ///
+/// Most panels are created **lazily** on first open to speed up startup.
+/// Only ChatPanelWidget (needs native HWND parent) and SettingsPanel
+/// (lightweight dialog) are created eagerly.
+///
 /// Ownership: DockBootstrap is a QObject; all created panels are Qt children
 /// of the parent widget passed in initialize(), so they are destroyed with it.
-///
-/// Signal wiring that accesses MainWindow state (editor tabs, currentEditor)
-/// stays in MainWindow — use the panel getters below after initialize().
 class DockBootstrap : public QObject
 {
     Q_OBJECT
@@ -53,26 +55,33 @@ public:
 
     void initialize(const Deps &deps);
 
-    // ── Panel accessors (valid after initialize()) ────────────────────────
+    // ── Panel accessors (lazy panels created on first call) ───────────────
     ChatPanelWidget     *chatPanel()          const { return m_chatPanel; }
-    AgentDashboardPanel *agentDashboard()     const { return m_agentDashboard; }
-    SymbolOutlinePanel  *symbolPanel()        const { return m_symbolPanel; }
-    ReferencesPanel     *referencesPanel()    const { return m_referencesPanel; }
-    RequestLogPanel     *requestLogPanel()    const { return m_requestLogPanel; }
-    TrajectoryPanel     *trajectoryPanel()    const { return m_trajectoryPanel; }
+    AgentDashboardPanel *agentDashboard();
+    SymbolOutlinePanel  *symbolPanel();
+    ReferencesPanel     *referencesPanel();
+    RequestLogPanel     *requestLogPanel();
+    TrajectoryPanel     *trajectoryPanel();
     SettingsPanel       *settingsPanel()      const { return m_settingsPanel; }
-    MemoryBrowserPanel  *memoryBrowser()      const { return m_memoryBrowser; }
-    ThemeGalleryPanel   *themeGallery()       const { return m_themeGallery; }
-    DiffViewerPanel     *diffViewer()         const { return m_diffViewer; }
-    ProposedEditPanel   *proposedEditPanel()  const { return m_proposedEditPanel; }
-    McpClient           *mcpClient()          const { return m_mcpClient; }
-    McpPanel            *mcpPanel()           const { return m_mcpPanel; }
-    PluginGalleryPanel  *pluginGallery()      const { return m_pluginGallery; }
+    MemoryBrowserPanel  *memoryBrowser();
+    ThemeGalleryPanel   *themeGallery();
+    DiffViewerPanel     *diffViewer();
+    ProposedEditPanel   *proposedEditPanel();
+    McpClient           *mcpClient();
+    McpPanel            *mcpPanel();
+    PluginGalleryPanel  *pluginGallery();
 
 private:
     void registerDock(exdock::DockManager *mgr, QWidget *parent,
                       const QString &id, const QString &title,
                       QWidget *widget, int area, bool startVisible = true);
+
+    /// Register a lazy dock — creates shell only, widget built on first open.
+    void registerLazyDock(exdock::DockManager *mgr, QWidget *parent,
+                          const QString &id, const QString &title,
+                          int area, std::function<QWidget *()> factory);
+
+    Deps m_deps;  // saved for lazy creation
 
     ChatPanelWidget     *m_chatPanel         = nullptr;
     AgentDashboardPanel *m_agentDashboard    = nullptr;

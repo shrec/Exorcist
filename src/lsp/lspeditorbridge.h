@@ -62,9 +62,12 @@ private slots:
     void onDocumentSymbolsResult(const QString &uri, const QJsonArray &symbols);
     void onCodeActionResult(const QString &uri, int line, int character,
                             const QJsonArray &actions);
+    void onInlayHintsResult(const QString &uri, const QJsonArray &hints);
+    void onTypeDefinitionResult(const QString &uri, const QJsonArray &locations);
     void onCompletionAccepted(const QString &insertText,
                               const QString &filterText);
     void sendDocumentSymbols();
+    void requestInlayHints();
 
 private:
     void sendDidChange();
@@ -83,6 +86,7 @@ private:
     QTimer          *m_changeTimer;
     QTimer          *m_symbolTimer;       // debounced 1s for documentSymbol
     QTimer          *m_hoverTimer;        // debounced 500ms for hover
+    QTimer          *m_inlayHintTimer;    // debounced 500ms for inlay hints
     CompletionPopup *m_completion;
     HoverTooltipWidget *m_hoverTooltip;
     QPoint           m_hoverGlobalPos;    // mouse position when hover was requested

@@ -54,6 +54,9 @@ signals:
     /// Process started (without debugger).
     void processStarted(const QString &executable);
 
+    /// Process output line (without debugger).
+    void processOutput(const QString &text, bool isError);
+
     /// Process finished (without debugger).
     void processFinished(int exitCode);
 
@@ -62,6 +65,9 @@ signals:
 
     /// Error occurred during launch.
     void launchError(const QString &message);
+
+    /// Diagnostic/log output (routed to output panel).
+    void debugLog(const QString &message);
 
 private slots:
     void onBuildFinished(bool success, int exitCode);
