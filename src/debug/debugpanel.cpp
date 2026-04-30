@@ -276,41 +276,32 @@ void DebugPanel::setAdapter(IDebugAdapter *adapter)
     m_watchModel->setAdapter(m_adapter);
     m_localsModel->setAdapter(m_adapter);
 
-    connect(m_adapter, &IDebugAdapter::started,
-            this, &DebugPanel::onAdapterStarted);
-    connect(m_adapter, &IDebugAdapter::terminated,
-            this, &DebugPanel::onAdapterTerminated);
-    connect(m_adapter, &IDebugAdapter::error,
-            this, &DebugPanel::onAdapterError);
-    connect(m_adapter, &IDebugAdapter::stopped,
-            this, &DebugPanel::onAdapterStopped);
-    connect(m_adapter, &IDebugAdapter::continued,
-            this, &DebugPanel::onAdapterContinued);
-    connect(m_adapter, &IDebugAdapter::threadsReceived,
-            this, &DebugPanel::onThreadsReceived);
-    connect(m_adapter, &IDebugAdapter::stackTraceReceived,
-            this, &DebugPanel::onStackTraceReceived);
-    connect(m_adapter, &IDebugAdapter::variablesReceived,
-            this, &DebugPanel::onVariablesReceived);
-    connect(m_adapter, &IDebugAdapter::evaluateResult,
-            this, &DebugPanel::onEvaluateResult);
-    connect(m_adapter, &IDebugAdapter::outputProduced,
-            this, &DebugPanel::onOutputProduced);
-    connect(m_adapter, &IDebugAdapter::breakpointSet,
-            this, [this](const DebugBreakpoint &bp) {
-        // Update breakpoint list to show verified status
-        for (int r = 0; r < m_breakpointsTable->rowCount(); ++r) {
-            const auto *fileItem = m_breakpointsTable->item(r, 1);
-            const auto *lineItem = m_breakpointsTable->item(r, 2);
-            if (fileItem && lineItem
-                && fileItem->text() == bp.filePath
-                && lineItem->text().toInt() == bp.line) {
-                m_breakpointsTable->item(r, 0)->setText(
-                    bp.verified ? tr("\u2714") : tr("\u25CB"));
-                break;
-            }
-        }
-    });
+    // All connections use SIGNAL/SLOT string syntax — PMF connect silently
+    // fails because IDebugAdapter MOC lives in the exe while DebugPanel
+    // is compiled into libdebug.dll (IndexOfMethod compares function pointers
+    // across DLL boundaries, which never match).
+    connect(m_adapter, SIGNAL(started()),
+            this, SLOT(onAdapterStarted()));
+    connect(m_adapter, SIGNAL(terminated()),
+            this, SLOT(onAdapterTerminated()));
+    connect(m_adapter, SIGNAL(error(QString)),
+            this, SLOT(onAdapterError(QString)));
+    connect(m_adapter, SIGNAL(stopped(int,DebugStopReason,QString)),
+            this, SLOT(onAdapterStopped(int,DebugStopReason,QString)));
+    connect(m_adapter, SIGNAL(continued(int)),
+            this, SLOT(onAdapterContinued(int)));
+    connect(m_adapter, SIGNAL(threadsReceived(QList<DebugThread>)),
+            this, SLOT(onThreadsReceived(QList<DebugThread>)));
+    connect(m_adapter, SIGNAL(stackTraceReceived(int,QList<DebugFrame>)),
+            this, SLOT(onStackTraceReceived(int,QList<DebugFrame>)));
+    connect(m_adapter, SIGNAL(variablesReceived(int,QList<DebugVariable>)),
+            this, SLOT(onVariablesReceived(int,QList<DebugVariable>)));
+    connect(m_adapter, SIGNAL(evaluateResult(QString,QString)),
+            this, SLOT(onEvaluateResult(QString,QString)));
+    connect(m_adapter, SIGNAL(outputProduced(QString,QString)),
+            this, SLOT(onOutputProduced(QString,QString)));
+    connect(m_adapter, SIGNAL(breakpointSet(DebugBreakpoint)),
+            this, SLOT(onBreakpointVerified(DebugBreakpoint)));
 }
 
 // ── Toolbar actions ───────────────────────────────────────────────────────────
@@ -463,6 +454,21 @@ void DebugPanel::onOutputProduced(const QString &text, const QString &category)
 {
     Q_UNUSED(category)
     m_outputText->appendPlainText(text);
+}
+
+void DebugPanel::onBreakpointVerified(const DebugBreakpoint &bp)
+{
+    for (int r = 0; r < m_breakpointsTable->rowCount(); ++r) {
+        const auto *fileItem = m_breakpointsTable->item(r, 1);
+        const auto *lineItem = m_breakpointsTable->item(r, 2);
+        if (fileItem && lineItem
+            && fileItem->text() == bp.filePath
+            && lineItem->text().toInt() == bp.line) {
+            m_breakpointsTable->item(r, 0)->setText(
+                bp.verified ? tr("\u2714") : tr("\u25CB"));
+            break;
+        }
+    }
 }
 
 void DebugPanel::onCallStackDoubleClicked(int row, int /*col*/)

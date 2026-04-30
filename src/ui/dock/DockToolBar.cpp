@@ -23,6 +23,7 @@ DockToolBar::DockToolBar(const QString &id, const QString &title,
     setMovable(false);
     setFloatable(false);
     setIconSize(QSize(16, 16));
+    setToolButtonStyle(Qt::ToolButtonIconOnly);
 
     // VS-style: compact spacing, no border by default
     setContentsMargins(0, 0, 0, 0);

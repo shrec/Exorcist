@@ -74,6 +74,7 @@ private slots:
     void onVariablesReceived(int ref, const QList<DebugVariable> &vars);
     void onEvaluateResult(const QString &expr, const QString &result);
     void onOutputProduced(const QString &text, const QString &category);
+    void onBreakpointVerified(const DebugBreakpoint &bp);
 
     void onCallStackDoubleClicked(int row, int col);
     void onLocalsContextMenu(const QPoint &pos);

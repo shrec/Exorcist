@@ -22,6 +22,11 @@ public:
     // IViewContributor
     QWidget *createView(const QString &viewId, QWidget *parent) override;
 
+private slots:
+    void onAdapterStartedShowDock();
+    void onDebugStoppedShowDock();
+    void onAdapterErrorShowInfo(const QString &msg);
+
 private:
     bool initializePlugin() override;
     void shutdownPlugin() override;

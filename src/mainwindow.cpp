@@ -20,6 +20,8 @@
 #include <QVBoxLayout>
 #include <QApplication>
 #include <QCoreApplication>
+#include <QKeyEvent>
+#include <QAbstractItemView>
 #include <QLineEdit>
 #include <QStatusBar>
 #include <QTextEdit>
@@ -974,12 +976,28 @@ void MainWindow::setupMenus()
     // Helper: dispatch edit actions to whichever text widget currently has focus.
     // Non-EditorView text widgets (output panels, search boxes, chat input etc.) must
     // receive Ctrl+C / Ctrl+A / Ctrl+X / Ctrl+V rather than the code editor.
-    auto dispatchEdit = [this](auto editorCall, auto pteFn, auto teFn, auto leFn) {
+    auto dispatchEdit = [this](auto editorCall, auto pteFn, auto teFn, auto leFn,
+                               QKeySequence::StandardKey stdKey) {
         QWidget *fw = QApplication::focusWidget();
         if (fw && !qobject_cast<EditorView *>(fw)) {
             if (auto *pte = qobject_cast<QPlainTextEdit *>(fw)) { (pte->*pteFn)(); return; }
             if (auto *te  = qobject_cast<QTextEdit *>(fw))      { (te->*teFn)();  return; }
             if (auto *le  = qobject_cast<QLineEdit *>(fw))      { (le->*leFn)();  return; }
+            // Tree/table/list views — let the widget's own handler process it.
+            // Re-deliver the key sequence as a synthetic event since our menu
+            // shortcut already consumed the original one.
+            if (qobject_cast<QAbstractItemView *>(fw)
+                || fw->inherits("QWebEngineView")
+                || fw->inherits("ChatTranscriptView")) {
+                const QKeySequence seq = QKeySequence(stdKey);
+                if (!seq.isEmpty()) {
+                    const int k = seq[0].toCombined();
+                    QKeyEvent press(QEvent::KeyPress, k & ~Qt::KeyboardModifierMask,
+                                    Qt::KeyboardModifiers(k & Qt::KeyboardModifierMask));
+                    QApplication::sendEvent(fw, &press);
+                }
+                return;
+            }
         }
         if (auto *e = m_editorMgr->currentEditor())
             editorCall(e);
@@ -989,14 +1007,16 @@ void MainWindow::setupMenus()
     undoAction->setShortcut(QKeySequence::Undo);
     connect(undoAction, &QAction::triggered, this, [this, dispatchEdit]() {
         dispatchEdit([](EditorView *e){ e->undo(); },
-                     &QPlainTextEdit::undo, &QTextEdit::undo, &QLineEdit::undo);
+                     &QPlainTextEdit::undo, &QTextEdit::undo, &QLineEdit::undo,
+                     QKeySequence::Undo);
     });
 
     QAction *redoAction = editMenu->addAction(tr("&Redo"));
     redoAction->setShortcut(QKeySequence::Redo);
     connect(redoAction, &QAction::triggered, this, [this, dispatchEdit]() {
         dispatchEdit([](EditorView *e){ e->redo(); },
-                     &QPlainTextEdit::redo, &QTextEdit::redo, &QLineEdit::redo);
+                     &QPlainTextEdit::redo, &QTextEdit::redo, &QLineEdit::redo,
+                     QKeySequence::Redo);
     });
 
     editMenu->addSeparator();
@@ -1005,21 +1025,24 @@ void MainWindow::setupMenus()
     cutAction->setShortcut(QKeySequence::Cut);
     connect(cutAction, &QAction::triggered, this, [this, dispatchEdit]() {
         dispatchEdit([](EditorView *e){ e->cut(); },
-                     &QPlainTextEdit::cut, &QTextEdit::cut, &QLineEdit::cut);
+                     &QPlainTextEdit::cut, &QTextEdit::cut, &QLineEdit::cut,
+                     QKeySequence::Cut);
     });
 
     QAction *copyAction = editMenu->addAction(tr("&Copy"));
     copyAction->setShortcut(QKeySequence::Copy);
     connect(copyAction, &QAction::triggered, this, [this, dispatchEdit]() {
         dispatchEdit([](EditorView *e){ e->copy(); },
-                     &QPlainTextEdit::copy, &QTextEdit::copy, &QLineEdit::copy);
+                     &QPlainTextEdit::copy, &QTextEdit::copy, &QLineEdit::copy,
+                     QKeySequence::Copy);
     });
 
     QAction *pasteAction = editMenu->addAction(tr("&Paste"));
     pasteAction->setShortcut(QKeySequence::Paste);
     connect(pasteAction, &QAction::triggered, this, [this, dispatchEdit]() {
         dispatchEdit([](EditorView *e){ e->paste(); },
-                     &QPlainTextEdit::paste, &QTextEdit::paste, &QLineEdit::paste);
+                     &QPlainTextEdit::paste, &QTextEdit::paste, &QLineEdit::paste,
+                     QKeySequence::Paste);
     });
 
     editMenu->addSeparator();
@@ -1028,7 +1051,8 @@ void MainWindow::setupMenus()
     selectAllAction->setShortcut(QKeySequence::SelectAll);
     connect(selectAllAction, &QAction::triggered, this, [this, dispatchEdit]() {
         dispatchEdit([](EditorView *e){ e->selectAll(); },
-                     &QPlainTextEdit::selectAll, &QTextEdit::selectAll, &QLineEdit::selectAll);
+                     &QPlainTextEdit::selectAll, &QTextEdit::selectAll, &QLineEdit::selectAll,
+                     QKeySequence::SelectAll);
     });
 
     editMenu->addSeparator();

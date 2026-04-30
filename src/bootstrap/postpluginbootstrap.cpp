@@ -43,46 +43,18 @@ void PostPluginBootstrap::wire(const Deps &deps)
     }
 
     // ── Debug service → editor integration ──
+    // Use SIGNAL/SLOT string-based connect — PMF connect silently fails
+    // across DLL boundaries (IDebugService MOC is in both exe and libdebug.dll).
     if (auto *debugSvc = services->service<IDebugService>(
             QStringLiteral("debugService"))) {
+        m_editorMgr = editorMgr;
 
-        // Navigate to source on stack frame double-click
-        connect(debugSvc, &IDebugService::navigateToSource,
-                this, [this](const QString &filePath, int line) {
-            emit navigateToSource(filePath, line - 1, 0);
-        });
-
-        // Highlight current stopped line in editor
-        connect(debugSvc, &IDebugService::debugStopped,
-                this, [this, editorMgr](const QList<DebugFrame> &frames) {
-            // Clear previous debug line marker from all open editors
-            for (int i = 0; i < editorMgr->tabs()->count(); ++i) {
-                auto *ed = editorMgr->editorAt(i);
-                if (ed) ed->setCurrentDebugLine(0);
-            }
-            if (!frames.isEmpty()) {
-                const auto &top = frames.first();
-                if (!top.filePath.isEmpty())
-                    emit navigateToSource(top.filePath, top.line - 1, 0);
-                // Set the yellow current-execution-line indicator
-                for (int i = 0; i < editorMgr->tabs()->count(); ++i) {
-                    auto *ed = editorMgr->editorAt(i);
-                    if (ed && ed->property("filePath").toString() == top.filePath) {
-                        ed->setCurrentDebugLine(top.line);
-                        break;
-                    }
-                }
-            }
-        });
-
-        // Clear debug line on session end
-        connect(debugSvc, &IDebugService::debugTerminated,
-                this, [editorMgr]() {
-            for (int i = 0; i < editorMgr->tabs()->count(); ++i) {
-                auto *ed = editorMgr->editorAt(i);
-                if (ed) ed->setCurrentDebugLine(0);
-            }
-        });
+        connect(debugSvc, SIGNAL(navigateToSource(QString,int)),
+                this, SLOT(onDebugNavigateToSource(QString,int)));
+        connect(debugSvc, SIGNAL(debugStopped(QList<DebugFrame>)),
+                this, SLOT(onDebugStopped(QList<DebugFrame>)));
+        connect(debugSvc, SIGNAL(debugTerminated()),
+                this, SLOT(onDebugTerminated()));
 
         // Sync all existing editor breakpoints into the adapter
         if (auto *adapter = services->service<IDebugAdapter>(
@@ -279,5 +251,45 @@ void PostPluginBootstrap::wire(const Deps &deps)
                 }
             }
         });
+    }
+}
+
+// ── Cross-DLL debug service slots ────────────────────────────────────────────
+
+void PostPluginBootstrap::onDebugNavigateToSource(const QString &filePath, int line)
+{
+    emit navigateToSource(filePath, line - 1, 0);
+}
+
+void PostPluginBootstrap::onDebugStopped(const QList<DebugFrame> &frames)
+{
+    if (!m_editorMgr) return;
+
+    // Clear previous debug line marker from all open editors
+    for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+        auto *ed = m_editorMgr->editorAt(i);
+        if (ed) ed->setCurrentDebugLine(0);
+    }
+    if (!frames.isEmpty()) {
+        const auto &top = frames.first();
+        if (!top.filePath.isEmpty())
+            emit navigateToSource(top.filePath, top.line - 1, 0);
+        // Set the yellow current-execution-line indicator
+        for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+            auto *ed = m_editorMgr->editorAt(i);
+            if (ed && ed->property("filePath").toString() == top.filePath) {
+                ed->setCurrentDebugLine(top.line);
+                break;
+            }
+        }
+    }
+}
+
+void PostPluginBootstrap::onDebugTerminated()
+{
+    if (!m_editorMgr) return;
+    for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+        auto *ed = m_editorMgr->editorAt(i);
+        if (ed) ed->setCurrentDebugLine(0);
     }
 }

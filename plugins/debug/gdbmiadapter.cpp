@@ -273,6 +273,8 @@ void GdbMiAdapter::requestThreads()
 
 void GdbMiAdapter::requestStackTrace(int threadId)
 {
+    emit outputProduced(QStringLiteral("[GDB] requestStackTrace thread=%1").arg(threadId),
+                        QStringLiteral("debug"));
     const int token = (threadId > 0)
         ? sendCommand(QStringLiteral("-stack-list-frames --thread %1").arg(threadId))
         : sendCommand(QStringLiteral("-stack-list-frames"));
@@ -629,6 +631,11 @@ void GdbMiAdapter::handleStackListResult(int token, const QHash<QString, QString
         }
     }
 
+    emit outputProduced(QStringLiteral("[GDB] stackTrace: %1 frames, top=%2:%3")
+                            .arg(frames.size())
+                            .arg(frames.isEmpty() ? QString() : frames.first().filePath)
+                            .arg(frames.isEmpty() ? 0 : frames.first().line),
+                        QStringLiteral("debug"));
     emit stackTraceReceived(threadId, frames);
 }
 

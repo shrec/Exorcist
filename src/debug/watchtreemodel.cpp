@@ -17,18 +17,20 @@ void WatchTreeModel::setAdapter(IDebugAdapter *adapter)
     m_adapter = adapter;
     if (!m_adapter) return;
 
-    connect(m_adapter, &IDebugAdapter::varObjectCreated,
-            this, &WatchTreeModel::onVarObjectCreated);
-    connect(m_adapter, &IDebugAdapter::varChildrenListed,
-            this, &WatchTreeModel::onVarChildrenListed);
-    connect(m_adapter, &IDebugAdapter::varObjectsUpdated,
-            this, &WatchTreeModel::onVarObjectsUpdated);
-    connect(m_adapter, &IDebugAdapter::varObjectDeleted,
-            this, &WatchTreeModel::onVarObjectDeleted);
-    connect(m_adapter, &IDebugAdapter::varValueAssigned,
-            this, &WatchTreeModel::onVarValueAssigned);
-    connect(m_adapter, &IDebugAdapter::varObjectError,
-            this, &WatchTreeModel::onVarObjectError);
+    // SIGNAL/SLOT string syntax — PMF connect fails across DLL boundary
+    // (IDebugAdapter MOC is in exe, WatchTreeModel is in libdebug.dll).
+    connect(m_adapter, SIGNAL(varObjectCreated(DebugVarObj)),
+            this, SLOT(onVarObjectCreated(DebugVarObj)));
+    connect(m_adapter, SIGNAL(varChildrenListed(QString,QList<DebugVarObj>)),
+            this, SLOT(onVarChildrenListed(QString,QList<DebugVarObj>)));
+    connect(m_adapter, SIGNAL(varObjectsUpdated(QList<DebugVarChange>)),
+            this, SLOT(onVarObjectsUpdated(QList<DebugVarChange>)));
+    connect(m_adapter, SIGNAL(varObjectDeleted(QString)),
+            this, SLOT(onVarObjectDeleted(QString)));
+    connect(m_adapter, SIGNAL(varValueAssigned(QString,QString)),
+            this, SLOT(onVarValueAssigned(QString,QString)));
+    connect(m_adapter, SIGNAL(varObjectError(QString,QString)),
+            this, SLOT(onVarObjectError(QString,QString)));
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

@@ -29,7 +29,15 @@ private:
     void installMenusAndToolBar();
     void wireBuildSystem();
 
+private slots:
+    // Cross-DLL slots — m_buildSystem comes from build plugin DLL, so PMF
+    // connect would silently fail; use SIGNAL/SLOT.
+    void onBuildFinished(bool success, int exitCode);
+    void onConfigureFinished(bool success, const QString &message);
+
+private:
     TestDiscoveryService *m_discoverySvc = nullptr;
     TestExplorerPanel    *m_panel        = nullptr;
     TestRunnerService    *m_runnerSvc    = nullptr;
+    QObject              *m_buildSys     = nullptr;
 };

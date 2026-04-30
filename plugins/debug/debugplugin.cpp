@@ -26,44 +26,28 @@ public:
                                 QObject *parent = nullptr)
         : IDebugService(parent), m_adapter(adapter), m_panel(panel)
     {
-        // Panel → navigate to source
-        connect(m_panel, &DebugPanel::navigateToSource,
-                this, &IDebugService::navigateToSource);
+        // Panel → navigate to source (signal-to-signal, cross-DLL safe)
+        connect(m_panel, SIGNAL(navigateToSource(QString,int)),
+                this, SIGNAL(navigateToSource(QString,int)));
 
         // Adapter stopped → request stack trace (use actual thread ID, not 0)
-        connect(m_adapter, &IDebugAdapter::stopped,
-                this, [this](int threadId, DebugStopReason, const QString &) {
-            m_adapter->requestStackTrace(threadId);
-        });
+        // Use SIGNAL/SLOT for cross-DLL safety (IDebugAdapter MOC is in the exe).
+        connect(m_adapter, SIGNAL(stopped(int,DebugStopReason,QString)),
+                this, SLOT(onAdapterStopped(int,DebugStopReason,QString)));
 
         // Stack trace received → debugStopped
-        connect(m_adapter, &IDebugAdapter::stackTraceReceived,
-                this, [this](int, const QList<DebugFrame> &frames) {
-            emit debugStopped(frames);
-        });
+        connect(m_adapter, SIGNAL(stackTraceReceived(int,QList<DebugFrame>)),
+                this, SLOT(onStackTraceReceived(int,QList<DebugFrame>)));
 
-        // Adapter terminated → debugTerminated; clear breakpoint ID map
-        connect(m_adapter, &IDebugAdapter::terminated,
-                this, [this]() {
-            m_bpIdMap.clear();
-            emit debugTerminated();
-        });
+        // Adapter terminated → debugTerminated
+        connect(m_adapter, SIGNAL(terminated()),
+                this, SLOT(onAdapterTerminated()));
 
         // Track confirmed breakpoint IDs so we can remove them by ID
-        connect(m_adapter, &IDebugAdapter::breakpointSet,
-                this, [this](const DebugBreakpoint &bp) {
-            if (bp.id >= 0)
-                m_bpIdMap.insert(locationKey(bp.filePath, bp.line), bp.id);
-        });
-        connect(m_adapter, &IDebugAdapter::breakpointRemoved,
-                this, [this](int bpId) {
-            for (auto it = m_bpIdMap.begin(); it != m_bpIdMap.end(); ) {
-                if (it.value() == bpId)
-                    it = m_bpIdMap.erase(it);
-                else
-                    ++it;
-            }
-        });
+        connect(m_adapter, SIGNAL(breakpointSet(DebugBreakpoint)),
+                this, SLOT(onBreakpointSet(DebugBreakpoint)));
+        connect(m_adapter, SIGNAL(breakpointRemoved(int)),
+                this, SLOT(onBreakpointRemoved(int)));
     }
 
     void addBreakpointEntry(const QString &filePath, int line) override
@@ -80,6 +64,39 @@ public:
     int breakpointIdForLocation(const QString &filePath, int line) const override
     {
         return m_bpIdMap.value(locationKey(filePath, line), -1);
+    }
+
+public slots:
+    void onAdapterStopped(int threadId, DebugStopReason /*reason*/, const QString & /*desc*/)
+    {
+        m_adapter->requestStackTrace(threadId);
+    }
+
+    void onStackTraceReceived(int /*threadId*/, const QList<DebugFrame> &frames)
+    {
+        emit debugStopped(frames);
+    }
+
+    void onAdapterTerminated()
+    {
+        m_bpIdMap.clear();
+        emit debugTerminated();
+    }
+
+    void onBreakpointSet(const DebugBreakpoint &bp)
+    {
+        if (bp.id >= 0)
+            m_bpIdMap.insert(locationKey(bp.filePath, bp.line), bp.id);
+    }
+
+    void onBreakpointRemoved(int bpId)
+    {
+        for (auto it = m_bpIdMap.begin(); it != m_bpIdMap.end(); ) {
+            if (it.value() == bpId)
+                it = m_bpIdMap.erase(it);
+            else
+                ++it;
+        }
     }
 
 private:
@@ -99,6 +116,25 @@ DebugPlugin::DebugPlugin(QObject *parent)
     : QObject(parent)
 {
 }
+
+// ── Cross-DLL adapter/service slots ──────────────────────────────────────────
+
+void DebugPlugin::onAdapterStartedShowDock()
+{
+    showPanel(QStringLiteral("DebugDock"));
+}
+
+void DebugPlugin::onDebugStoppedShowDock()
+{
+    showPanel(QStringLiteral("DebugDock"));
+}
+
+void DebugPlugin::onAdapterErrorShowInfo(const QString &msg)
+{
+    showInfo(tr("Debugger error: %1").arg(msg));
+}
+
+// ── Plugin lifecycle ─────────────────────────────────────────────────────────
 
 PluginInfo DebugPlugin::info() const
 {
@@ -124,18 +160,14 @@ bool DebugPlugin::initializePlugin()
     registerService(QStringLiteral("debugAdapter"), m_adapter);
     registerService(QStringLiteral("debugService"), m_debugService);
 
-    // Auto-show debug dock when debugger starts or stops
-    connect(m_adapter, &IDebugAdapter::started, this, [this]() {
-        showPanel(QStringLiteral("DebugDock"));
-    });
-    connect(m_debugService, &IDebugService::debugStopped,
-            this, [this](const QList<DebugFrame> &) {
-        showPanel(QStringLiteral("DebugDock"));
-    });
-    // Show adapter errors to the user
-    connect(m_adapter, &IDebugAdapter::error, this, [this](const QString &msg) {
-        showInfo(tr("Debugger error: %1").arg(msg));
-    });
+    // Auto-show debug dock when debugger starts or stops.
+    // Use SIGNAL/SLOT — PMF connect fails across DLL boundary.
+    connect(m_adapter, SIGNAL(started()),
+            this, SLOT(onAdapterStartedShowDock()));
+    connect(m_debugService, SIGNAL(debugStopped(QList<DebugFrame>)),
+            this, SLOT(onDebugStoppedShowDock()));
+    connect(m_adapter, SIGNAL(error(QString)),
+            this, SLOT(onAdapterErrorShowInfo(QString)));
 
     registerCommands();
     installMenusAndToolBar();
@@ -215,12 +247,14 @@ void DebugPlugin::installMenusAndToolBar()
         Qt::KeyboardModifiers mods;
         bool separatorBefore;
     } kActions[] = {
-        { QT_TR_NOOP("Launch"),    "debug.launch",    "play",      "#4cac47", Qt::Key_F5,  Qt::NoModifier,    false },
+        // No shortcuts here — shortcuts are on the menu actions (addMenuCommands below).
+        // Having the same shortcut on both toolbar + menu QActions causes Qt "ambiguous shortcut".
+        { QT_TR_NOOP("Launch"),    "debug.launch",    "play",      "#4cac47", Qt::Key_unknown, Qt::NoModifier, false },
         { QT_TR_NOOP("Continue"),  "debug.continue",  "continue",  nullptr,   Qt::Key_unknown, Qt::NoModifier, false },
-        { QT_TR_NOOP("Step Over"), "debug.stepOver",  "step-over", nullptr,   Qt::Key_F10, Qt::NoModifier,    true  },
-        { QT_TR_NOOP("Step Into"), "debug.stepInto",  "step-into", nullptr,   Qt::Key_F11, Qt::NoModifier,    false },
-        { QT_TR_NOOP("Step Out"),  "debug.stepOut",   "step-out",  nullptr,   Qt::Key_F11, Qt::ShiftModifier, false },
-        { QT_TR_NOOP("Stop"),      "debug.terminate", "terminate", "#c72e24", Qt::Key_F5,  Qt::ShiftModifier, true  },
+        { QT_TR_NOOP("Step Over"), "debug.stepOver",  "step-over", nullptr,   Qt::Key_unknown, Qt::NoModifier, true  },
+        { QT_TR_NOOP("Step Into"), "debug.stepInto",  "step-into", nullptr,   Qt::Key_unknown, Qt::NoModifier, false },
+        { QT_TR_NOOP("Step Out"),  "debug.stepOut",   "step-out",  nullptr,   Qt::Key_unknown, Qt::NoModifier, false },
+        { QT_TR_NOOP("Stop"),      "debug.terminate", "terminate", "#c72e24", Qt::Key_unknown, Qt::NoModifier, true  },
     };
 
     for (const auto &a : kActions) {
@@ -240,16 +274,19 @@ void DebugPlugin::installMenusAndToolBar()
                 ? QString::fromLatin1(a.iconColor)
                 : ThemeIcons::defaultColor();
             act->setIcon(ThemeIcons::icon(QString::fromLatin1(a.iconName), color));
+            // Icon-only in toolbar; text shows in tooltip and menu.
+            act->setToolTip(tr(a.text));
         }
     }
 
+    // F5 and Shift+F5 are registered by BuildPlugin (build.debug / build.stop).
+    // Only register step commands here to avoid Qt "ambiguous shortcut" errors.
+    // F5 is owned by BuildPlugin (build.debug handles both start + continue).
+    // Only register step/continue commands unique to debug plugin.
     addMenuCommands(IMenuManager::Debug, {
-        {tr("&Launch Debugger"), QStringLiteral("debug.launch"), QKeySequence(Qt::Key_F5), true},
-        {tr("&Continue"), QStringLiteral("debug.continue")},
-        {tr("Step &Over"), QStringLiteral("debug.stepOver"), QKeySequence(Qt::Key_F10)},
+        {tr("Step &Over"), QStringLiteral("debug.stepOver"), QKeySequence(Qt::Key_F10), true},
         {tr("Step &Into"), QStringLiteral("debug.stepInto"), QKeySequence(Qt::Key_F11)},
         {tr("Step O&ut"), QStringLiteral("debug.stepOut"), QKeySequence(Qt::SHIFT | Qt::Key_F11)},
-        {tr("&Terminate Debug Session"), QStringLiteral("debug.terminate"), QKeySequence(Qt::SHIFT | Qt::Key_F5), true},
     }, this);
 }
 

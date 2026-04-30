@@ -932,63 +932,14 @@ void CppLanguagePlugin::wireBuildSystem()
             ? tr("Build system detected. Configure the project to generate targets.")
             : tr("Build directory: %1").arg(QDir::toNativeSeparators(currentBuildDirectory())));
 
-    connect(m_buildSystem, &IBuildSystem::configureFinished,
-            this, [this](bool success, const QString &) {
-                const QString compileCommandsPath = currentCompileCommandsPath();
-                if (!success) {
-                    updateWorkspaceCard(
-                        QStringLiteral("build"),
-                        tr("Configure failed"),
-                        tr("Configuration failed. Check the Output dock for details."));
-                    return;
-                }
-
-                updateWorkspaceCard(
-                    QStringLiteral("build"),
-                    tr("Configured"),
-                    compileCommandsPath.isEmpty()
-                        ? tr("Configuration completed. Waiting for compile_commands.json.")
-                        : tr("Configuration completed with %1.")
-                              .arg(QDir::toNativeSeparators(compileCommandsPath)));
-
-                refreshWorkspaceSnapshot();
-
-                if (!m_clangd)
-                    return;
-                updateStatusPresentation(
-                    tr("C++: refreshing"),
-                    compileCommandsPath.isEmpty()
-                        ? tr("Build configuration changed. Refreshing clangd state.")
-                        : tr("Build configuration changed.\ncompile_commands.json: %1")
-                              .arg(QDir::toNativeSeparators(compileCommandsPath)));
-
-                if (!compileCommandsPath.isEmpty())
-                    showStatusMessage(tr("compile_commands.json updated — restarting clangd"), 4000);
-
-                m_expectRestart = true;
-                m_clangd->restart();
-            });
-
-    connect(m_buildSystem, &IBuildSystem::buildOutput,
-            this, [this](const QString &, bool) {
-                updateWorkspaceCard(
-                    QStringLiteral("build"),
-                    tr("Building"),
-                    currentBuildDirectory().isEmpty()
-                        ? tr("Build output is streaming to the Output dock.")
-                        : tr("Building in %1.")
-                              .arg(QDir::toNativeSeparators(currentBuildDirectory())));
-            });
-
-    connect(m_buildSystem, &IBuildSystem::buildFinished,
-            this, [this](bool success, int exitCode) {
-                updateWorkspaceCard(
-                    QStringLiteral("build"),
-                    success ? tr("Succeeded") : tr("Failed"),
-                    success
-                        ? tr("Build finished successfully.")
-                        : tr("Build failed with exit code %1.").arg(exitCode));
-            });
+    // SIGNAL/SLOT string-based connect — m_buildSystem comes from another DLL
+    // (build plugin); PMF connect silently fails when SDK MOC is duplicated.
+    connect(m_buildSystem, SIGNAL(configureFinished(bool,QString)),
+            this, SLOT(onCfgConfigureFinished(bool,QString)));
+    connect(m_buildSystem, SIGNAL(buildOutput(QString,bool)),
+            this, SLOT(onCfgBuildOutput(QString,bool)));
+    connect(m_buildSystem, SIGNAL(buildFinished(bool,int)),
+            this, SLOT(onCfgBuildFinished(bool,int)));
 }
 
 void CppLanguagePlugin::wireLaunchService()
@@ -998,33 +949,12 @@ void CppLanguagePlugin::wireLaunchService()
         return;
 
     m_launchSignalsWired = true;
-    connect(m_launchService, &ILaunchService::processStarted,
-            this, [this](const QString &executable) {
-                updateWorkspaceCard(
-                    QStringLiteral("debug"),
-                    tr("Running"),
-                    executable.isEmpty()
-                        ? tr("A run or debug session has started.")
-                        : tr("Running %1").arg(QDir::toNativeSeparators(executable)));
-            });
-
-    connect(m_launchService, &ILaunchService::processFinished,
-            this, [this](int exitCode) {
-                updateWorkspaceCard(
-                    QStringLiteral("debug"),
-                    tr("Finished"),
-                    tr("The last run or debug session exited with code %1.").arg(exitCode));
-            });
-
-    connect(m_launchService, &ILaunchService::launchError,
-            this, [this](const QString &message) {
-                updateWorkspaceCard(
-                    QStringLiteral("debug"),
-                    tr("Launch failed"),
-                    message.isEmpty()
-                        ? tr("The last launch request failed.")
-                        : message);
-            });
+    connect(m_launchService, SIGNAL(processStarted(QString)),
+            this, SLOT(onCfgProcessStarted(QString)));
+    connect(m_launchService, SIGNAL(processFinished(int)),
+            this, SLOT(onCfgProcessFinished(int)));
+    connect(m_launchService, SIGNAL(launchError(QString)),
+            this, SLOT(onCfgLaunchError(QString)));
 }
 
 void CppLanguagePlugin::wireTestRunner()
@@ -1041,46 +971,12 @@ void CppLanguagePlugin::wireTestRunner()
             ? tr("%1 tests are currently discovered.").arg(m_testRunner->tests().size())
             : tr("No tests discovered yet."));
 
-    connect(m_testRunner, &ITestRunner::discoveryFinished,
-            this, [this]() {
-                const int count = m_testRunner ? m_testRunner->tests().size() : 0;
-                updateWorkspaceCard(
-                    QStringLiteral("tests"),
-                    count > 0 ? tr("Discovered") : tr("No tests"),
-                    count > 0
-                        ? tr("%1 tests are available in Test Explorer.").arg(count)
-                        : tr("Test discovery completed, but no tests were found."));
-            });
-
-    connect(m_testRunner, &ITestRunner::testStarted,
-            this, [this](int index) {
-                updateWorkspaceCard(
-                    QStringLiteral("tests"),
-                    tr("Running"),
-                    tr("Running test #%1.").arg(index));
-            });
-
-    connect(m_testRunner, &ITestRunner::allTestsFinished,
-            this, [this]() {
-                int passed = 0;
-                int failed = 0;
-                int skipped = 0;
-                const auto tests = m_testRunner ? m_testRunner->tests() : QList<TestItem>{};
-                for (const auto &test : tests) {
-                    switch (test.status) {
-                    case TestItem::Passed: ++passed; break;
-                    case TestItem::Failed: ++failed; break;
-                    case TestItem::Skipped: ++skipped; break;
-                    default: break;
-                    }
-                }
-
-                updateWorkspaceCard(
-                    QStringLiteral("tests"),
-                    failed > 0 ? tr("Attention") : tr("Completed"),
-                    tr("%1 passed, %2 failed, %3 skipped.")
-                        .arg(passed).arg(failed).arg(skipped));
-            });
+    connect(m_testRunner, SIGNAL(discoveryFinished()),
+            this, SLOT(onCfgDiscoveryFinished()));
+    connect(m_testRunner, SIGNAL(testStarted(int)),
+            this, SLOT(onCfgTestStarted(int)));
+    connect(m_testRunner, SIGNAL(allTestsFinished()),
+            this, SLOT(onCfgAllTestsFinished()));
 }
 
 void CppLanguagePlugin::wireSearchService()
@@ -1103,23 +999,10 @@ void CppLanguagePlugin::wireDebugService()
         return;
 
     m_debugSignalsWired = true;
-    connect(m_debugService, &IDebugService::debugStopped,
-            this, [this](const QList<DebugFrame> &frames) {
-                updateWorkspaceCard(
-                    QStringLiteral("debug"),
-                    tr("Paused"),
-                    frames.isEmpty()
-                        ? tr("Debugger paused.")
-                        : tr("Paused in %1.").arg(frames.first().name));
-            });
-
-    connect(m_debugService, &IDebugService::debugTerminated,
-            this, [this]() {
-                updateWorkspaceCard(
-                    QStringLiteral("debug"),
-                    tr("Stopped"),
-                    tr("Debug session terminated."));
-            });
+    connect(m_debugService, SIGNAL(debugStopped(QList<DebugFrame>)),
+            this, SLOT(onCfgDebugStopped(QList<DebugFrame>)));
+    connect(m_debugService, SIGNAL(debugTerminated()),
+            this, SLOT(onCfgDebugTerminated()));
 }
 
 void CppLanguagePlugin::updateWorkspacePanel()
@@ -1300,6 +1183,148 @@ void CppLanguagePlugin::switchHeaderSource(const QString &filePath)
         tr("No corresponding %1 found")
             .arg(isHeader ? tr("source file") : tr("header file")),
         3000);
+}
+
+// ── Cross-DLL slots (for SIGNAL/SLOT string-based connect) ───────────────────
+
+void CppLanguagePlugin::onCfgConfigureFinished(bool success, const QString &)
+{
+    const QString compileCommandsPath = currentCompileCommandsPath();
+    if (!success) {
+        updateWorkspaceCard(
+            QStringLiteral("build"),
+            tr("Configure failed"),
+            tr("Configuration failed. Check the Output dock for details."));
+        return;
+    }
+    updateWorkspaceCard(
+        QStringLiteral("build"),
+        tr("Configured"),
+        compileCommandsPath.isEmpty()
+            ? tr("Configuration completed. Waiting for compile_commands.json.")
+            : tr("Configuration completed with %1.")
+                  .arg(QDir::toNativeSeparators(compileCommandsPath)));
+
+    refreshWorkspaceSnapshot();
+
+    if (!m_clangd) return;
+    updateStatusPresentation(
+        tr("C++: refreshing"),
+        compileCommandsPath.isEmpty()
+            ? tr("Build configuration changed. Refreshing clangd state.")
+            : tr("Build configuration changed.\ncompile_commands.json: %1")
+                  .arg(QDir::toNativeSeparators(compileCommandsPath)));
+
+    if (!compileCommandsPath.isEmpty())
+        showStatusMessage(tr("compile_commands.json updated — restarting clangd"), 4000);
+
+    m_expectRestart = true;
+    m_clangd->restart();
+}
+
+void CppLanguagePlugin::onCfgBuildOutput(const QString &, bool)
+{
+    updateWorkspaceCard(
+        QStringLiteral("build"),
+        tr("Building"),
+        currentBuildDirectory().isEmpty()
+            ? tr("Build output is streaming to the Output dock.")
+            : tr("Building in %1.")
+                  .arg(QDir::toNativeSeparators(currentBuildDirectory())));
+}
+
+void CppLanguagePlugin::onCfgBuildFinished(bool success, int exitCode)
+{
+    updateWorkspaceCard(
+        QStringLiteral("build"),
+        success ? tr("Succeeded") : tr("Failed"),
+        success
+            ? tr("Build finished successfully.")
+            : tr("Build failed with exit code %1.").arg(exitCode));
+}
+
+void CppLanguagePlugin::onCfgProcessStarted(const QString &executable)
+{
+    updateWorkspaceCard(
+        QStringLiteral("debug"),
+        tr("Running"),
+        executable.isEmpty()
+            ? tr("A run or debug session has started.")
+            : tr("Running %1").arg(QDir::toNativeSeparators(executable)));
+}
+
+void CppLanguagePlugin::onCfgProcessFinished(int exitCode)
+{
+    updateWorkspaceCard(
+        QStringLiteral("debug"),
+        tr("Finished"),
+        tr("The last run or debug session exited with code %1.").arg(exitCode));
+}
+
+void CppLanguagePlugin::onCfgLaunchError(const QString &message)
+{
+    updateWorkspaceCard(
+        QStringLiteral("debug"),
+        tr("Launch failed"),
+        message.isEmpty()
+            ? tr("The last launch request failed.")
+            : message);
+}
+
+void CppLanguagePlugin::onCfgDiscoveryFinished()
+{
+    const int count = m_testRunner ? m_testRunner->tests().size() : 0;
+    updateWorkspaceCard(
+        QStringLiteral("tests"),
+        count > 0 ? tr("Discovered") : tr("No tests"),
+        count > 0
+            ? tr("%1 tests are available in Test Explorer.").arg(count)
+            : tr("Test discovery completed, but no tests were found."));
+}
+
+void CppLanguagePlugin::onCfgTestStarted(int index)
+{
+    updateWorkspaceCard(
+        QStringLiteral("tests"),
+        tr("Running"),
+        tr("Running test #%1.").arg(index));
+}
+
+void CppLanguagePlugin::onCfgAllTestsFinished()
+{
+    int passed = 0, failed = 0, skipped = 0;
+    const auto tests = m_testRunner ? m_testRunner->tests() : QList<TestItem>{};
+    for (const auto &test : tests) {
+        switch (test.status) {
+        case TestItem::Passed: ++passed; break;
+        case TestItem::Failed: ++failed; break;
+        case TestItem::Skipped: ++skipped; break;
+        default: break;
+        }
+    }
+    updateWorkspaceCard(
+        QStringLiteral("tests"),
+        failed > 0 ? tr("Attention") : tr("Completed"),
+        tr("%1 passed, %2 failed, %3 skipped.")
+            .arg(passed).arg(failed).arg(skipped));
+}
+
+void CppLanguagePlugin::onCfgDebugStopped(const QList<DebugFrame> &frames)
+{
+    updateWorkspaceCard(
+        QStringLiteral("debug"),
+        tr("Paused"),
+        frames.isEmpty()
+            ? tr("Debugger paused.")
+            : tr("Paused in %1.").arg(frames.first().name));
+}
+
+void CppLanguagePlugin::onCfgDebugTerminated()
+{
+    updateWorkspaceCard(
+        QStringLiteral("debug"),
+        tr("Stopped"),
+        tr("Debug session terminated."));
 }
 
 #include "cpplanguageplugin.moc"

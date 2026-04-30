@@ -116,7 +116,7 @@ void BuildToolbar::setupUi()
     m_configureBtn->setIcon(ThemeIcons::icon(QStringLiteral("configure")));
     m_configureBtn->setIconSize(QSize(15, 15));
     m_configureBtn->setText(tr("Configure"));
-    m_configureBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_configureBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_configureBtn->setToolTip(tr("CMake Configure (Ctrl+Shift+C)"));
     m_configureBtn->setAutoRaise(true);
     m_configureBtn->setStyleSheet(QStringLiteral(
@@ -140,7 +140,7 @@ void BuildToolbar::setupUi()
     m_buildBtn->setIcon(ThemeIcons::icon(QStringLiteral("build")));
     m_buildBtn->setIconSize(QSize(15, 15));
     m_buildBtn->setText(tr("Build"));
-    m_buildBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_buildBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_buildBtn->setToolTip(tr("Build Solution  Ctrl+Shift+B"));
     m_buildBtn->setAutoRaise(true);
     m_buildBtn->setStyleSheet(QStringLiteral(
@@ -168,7 +168,7 @@ void BuildToolbar::setupUi()
     m_runBtn->setIcon(ThemeIcons::icon(QStringLiteral("play"), QStringLiteral("#4ec9b0")));
     m_runBtn->setIconSize(QSize(14, 14));
     m_runBtn->setText(tr("Run"));
-    m_runBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_runBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_runBtn->setToolTip(tr("Start Without Debugging  Ctrl+F5"));
     m_runBtn->setAutoRaise(true);
     m_runBtn->setStyleSheet(QStringLiteral(
@@ -195,7 +195,7 @@ void BuildToolbar::setupUi()
     m_debugBtn = new QToolButton(this);
     m_debugBtn->setIcon(ThemeIcons::icon(QStringLiteral("play"), QStringLiteral("#ffffff")));
     m_debugBtn->setIconSize(QSize(14, 14));
-    m_debugBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_debugBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_debugBtn->setToolTip(tr("Start Debugging  F5"));
     m_debugBtn->setAutoRaise(true);
     m_debugBtn->setStyleSheet(QStringLiteral(
@@ -254,7 +254,7 @@ void BuildToolbar::setupUi()
     m_cleanBtn->setIcon(ThemeIcons::icon(QStringLiteral("clean")));
     m_cleanBtn->setIconSize(QSize(14, 14));
     m_cleanBtn->setText(tr("Clean"));
-    m_cleanBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_cleanBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_cleanBtn->setToolTip(tr("Clean Build Output"));
     m_cleanBtn->setAutoRaise(true);
     m_cleanBtn->setStyleSheet(QStringLiteral(

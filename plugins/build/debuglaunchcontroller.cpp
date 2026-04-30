@@ -222,11 +222,26 @@ void DebugLaunchController::doLaunchRun(const DebugLaunchConfig &config)
 
 QString DebugLaunchController::resolveDebugger() const
 {
-    if (!m_toolchainMgr) return QStringLiteral("gdb");
+    // 1. Toolchain-detected debugger (best — respects user's kit selection)
+    if (m_toolchainMgr) {
+        const Toolchain tc = m_toolchainMgr->defaultToolchain();
+        if (tc.debugger.isValid())
+            return tc.debugger.path;
+    }
 
-    const Toolchain tc = m_toolchainMgr->defaultToolchain();
-    if (tc.debugger.isValid())
-        return tc.debugger.path;
+    // 2. Probe well-known Windows GDB locations (detection may still be running)
+    static const char *const kProbe[] = {
+        "C:/Qt/Tools/mingw1310_64/bin/gdb.exe",
+        "C:/Qt/Tools/mingw1120_64/bin/gdb.exe",
+        "C:/msys64/ucrt64/bin/gdb.exe",
+        "C:/msys64/mingw64/bin/gdb.exe",
+        "C:/mingw64/bin/gdb.exe",
+    };
+    for (const char *p : kProbe) {
+        if (QFile::exists(QString::fromLatin1(p)))
+            return QString::fromLatin1(p);
+    }
 
+    // 3. Bare name — relies on PATH
     return QStringLiteral("gdb");
 }

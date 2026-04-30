@@ -8,6 +8,9 @@
 #include <QPointer>
 #include <QTimer>
 #include <QString>
+#include <QList>
+
+#include "sdk/idebugadapter.h"  // DebugFrame
 
 class ClangdManager;
 class CppWorkspacePanel;
@@ -45,6 +48,23 @@ private:
     void wireTestRunner();
     void wireSearchService();
     void wireDebugService();
+
+private slots:
+    // Cross-DLL slots — used with SIGNAL/SLOT string-based connect to avoid
+    // silent PMF failures when SDK MOC is compiled into multiple plugin DLLs.
+    void onCfgConfigureFinished(bool success, const QString &message);
+    void onCfgBuildOutput(const QString &text, bool isError);
+    void onCfgBuildFinished(bool success, int exitCode);
+    void onCfgProcessStarted(const QString &executable);
+    void onCfgProcessFinished(int exitCode);
+    void onCfgLaunchError(const QString &message);
+    void onCfgDiscoveryFinished();
+    void onCfgTestStarted(int index);
+    void onCfgAllTestsFinished();
+    void onCfgDebugStopped(const QList<DebugFrame> &frames);
+    void onCfgDebugTerminated();
+
+private:
     void updateStatusPresentation(const QString &text, const QString &tooltip = QString());
     void updateWorkspacePanel();
     void updateWorkspaceCard(const QString &cardId,

@@ -101,22 +101,31 @@ void TestingPlugin::wireBuildSystem()
         m_discoverySvc->discoverTests();
     }
 
-    connect(buildSys, &IBuildSystem::buildFinished,
-            this, [this](bool success, int) {
-        if (success && !m_discoverySvc->buildDirectory().isEmpty())
-            m_discoverySvc->discoverTests();
-    });
+    // SIGNAL/SLOT string-based connect — buildSys lives in another DLL.
+    m_buildSys = buildSys;
+    connect(buildSys, SIGNAL(buildFinished(bool,int)),
+            this, SLOT(onBuildFinished(bool,int)));
+    connect(buildSys, SIGNAL(configureFinished(bool,QString)),
+            this, SLOT(onConfigureFinished(bool,QString)));
+}
 
-    connect(buildSys, &IBuildSystem::configureFinished,
-            this, [this, buildSys](bool success, const QString &) {
-        if (!success)
-            return;
+void TestingPlugin::onBuildFinished(bool success, int /*exitCode*/)
+{
+    if (success && m_discoverySvc && !m_discoverySvc->buildDirectory().isEmpty())
+        m_discoverySvc->discoverTests();
+}
 
-        const QString buildDir = buildSys->buildDirectory();
-        if (!buildDir.isEmpty())
-            m_discoverySvc->setBuildDirectory(buildDir);
+void TestingPlugin::onConfigureFinished(bool success, const QString & /*message*/)
+{
+    if (!success || !m_discoverySvc || !m_buildSys) return;
 
-        if (!m_discoverySvc->buildDirectory().isEmpty())
-            m_discoverySvc->discoverTests();
-    });
+    auto *buildSys = qobject_cast<IBuildSystem *>(m_buildSys);
+    if (!buildSys) return;
+
+    const QString buildDir = buildSys->buildDirectory();
+    if (!buildDir.isEmpty())
+        m_discoverySvc->setBuildDirectory(buildDir);
+
+    if (!m_discoverySvc->buildDirectory().isEmpty())
+        m_discoverySvc->discoverTests();
 }

@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QObject>
+#include <QList>
 
+struct DebugFrame;
 class ServiceRegistry;
 class HostServices;
 class AgentPlatformBootstrap;
@@ -42,4 +44,14 @@ public:
 signals:
     /// Emitted when a service requests navigation to a source location.
     void navigateToSource(const QString &filePath, int line, int character);
+
+private slots:
+    // Cross-DLL slots for IDebugService signals (SIGNAL/SLOT string-based
+    // connect is required — PMF connect silently fails across DLL boundaries).
+    void onDebugNavigateToSource(const QString &filePath, int line);
+    void onDebugStopped(const QList<DebugFrame> &frames);
+    void onDebugTerminated();
+
+private:
+    EditorManager *m_editorMgr = nullptr;
 };
