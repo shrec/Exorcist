@@ -833,29 +833,33 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
             painter.drawText(10, top, m_lineNumberArea->width() - 18,
                              lineH, Qt::AlignRight, number);
 
-            // Diagnostic dot (4 px wide, vertically centered)
-            if (lineToSeverity.contains(blockNumber)) {
-                const DiagSeverity sev = lineToSeverity[blockNumber];
-                QColor dot;
-                switch (sev) {
-                case DiagSeverity::Error:   dot = QColor(0xF4, 0x47, 0x47); break;
-                case DiagSeverity::Warning: dot = QColor(0xFF, 0xCC, 0x00); break;
-                default:                    dot = QColor(0x75, 0xBF, 0xFF); break;
-                }
-                painter.setPen(Qt::NoPen);
-                painter.setBrush(dot);
-                const int dotSize = 5;
-                painter.drawEllipse(2, top + (lineH - dotSize) / 2,
-                                    dotSize, dotSize);
-            }
-
-            // Breakpoint indicator (red filled circle, 1-based line)
+            // Breakpoint indicator (red filled circle, 1-based line) — drawn
+            // FIRST so the breakpoint zone is the leftmost gutter strip.
             if (m_breakpointLines.contains(blockNumber + 1)) {
                 painter.setPen(Qt::NoPen);
                 painter.setBrush(QColor(0xE5, 0x1A, 0x1A));
                 const int bpSize = 10;
                 painter.drawEllipse(2, top + (lineH - bpSize) / 2,
                                     bpSize, bpSize);
+            }
+
+            // Diagnostic indicator — drawn as a vertical bar on the RIGHT
+            // edge of the gutter (next to the code area) so it can't be
+            // confused with the breakpoint dot on the left. Error = red,
+            // warning = yellow, info = blue.
+            if (lineToSeverity.contains(blockNumber)) {
+                const DiagSeverity sev = lineToSeverity[blockNumber];
+                QColor diag;
+                switch (sev) {
+                case DiagSeverity::Error:   diag = QColor(0xF4, 0x47, 0x47); break;
+                case DiagSeverity::Warning: diag = QColor(0xFF, 0xCC, 0x00); break;
+                default:                    diag = QColor(0x75, 0xBF, 0xFF); break;
+                }
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(diag);
+                const int barW = 3;
+                const int barX = m_lineNumberArea->width() - barW;
+                painter.drawRect(barX, top, barW, lineH);
             }
 
             // Current debug line highlight (yellow arrow)
