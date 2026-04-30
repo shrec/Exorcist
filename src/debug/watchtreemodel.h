@@ -52,6 +52,13 @@ public:
     /// Clear all watches and delete their var-objects.
     void clearAll();
 
+    /// Replace top-level entries with the given locals snapshot. Populates
+    /// the tree synchronously (no async var-object round-trip), so the
+    /// Locals panel shows values immediately when GDB stops. Use this for
+    /// frame-locals; addWatch() is still appropriate for user-typed
+    /// expressions that need expandable structure via var-objects.
+    void setLocals(const QList<DebugVariable> &locals);
+
     /// Called when the debugger stops — issues `-var-update *`.
     void onDebuggerStopped();
 

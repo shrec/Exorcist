@@ -436,10 +436,11 @@ void DebugPanel::onStackTraceReceived(int /*threadId*/, const QList<DebugFrame> 
 
 void DebugPanel::onVariablesReceived(int /*ref*/, const QList<DebugVariable> &vars)
 {
-    m_localsModel->clearAll();
-    for (const auto &v : vars) {
-        m_localsModel->addWatch(v.name);
-    }
+    // Populate Locals tree directly from the snapshot (synchronous). The
+    // previous clearAll() + addWatch() approach left the tree empty until
+    // async var-object creates returned, which made Locals appear blank
+    // and would then race with onAdapterContinued()'s clearAll() on resume.
+    m_localsModel->setLocals(vars);
 }
 
 void DebugPanel::onEvaluateResult(const QString &expr, const QString &result)

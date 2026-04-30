@@ -270,19 +270,30 @@ void PostPluginBootstrap::onDebugStopped(const QList<DebugFrame> &frames)
         auto *ed = m_editorMgr->editorAt(i);
         if (ed) ed->setCurrentDebugLine(0);
     }
-    if (!frames.isEmpty()) {
-        const auto &top = frames.first();
-        if (!top.filePath.isEmpty())
-            emit navigateToSource(top.filePath, top.line - 1, 0);
-        // Set the yellow current-execution-line indicator
+    if (frames.isEmpty()) return;
+
+    const auto &top = frames.first();
+    if (top.filePath.isEmpty()) return;
+
+    // navigateToSource is queued/asynchronous: it triggers MainWindow to
+    // open the file in a new tab. We must wait until that's done before
+    // searching for the editor that holds the file. Defer the search +
+    // setCurrentDebugLine to the next event loop iteration so the file
+    // open completes first.
+    emit navigateToSource(top.filePath, top.line - 1, 0);
+
+    const QString targetPath = top.filePath;
+    const int     targetLine = top.line;
+    QTimer::singleShot(0, this, [this, targetPath, targetLine]() {
+        if (!m_editorMgr) return;
         for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
             auto *ed = m_editorMgr->editorAt(i);
-            if (ed && ed->property("filePath").toString() == top.filePath) {
-                ed->setCurrentDebugLine(top.line);
-                break;
+            if (ed && ed->property("filePath").toString() == targetPath) {
+                ed->setCurrentDebugLine(targetLine);
+                return;
             }
         }
-    }
+    });
 }
 
 void PostPluginBootstrap::onDebugTerminated()

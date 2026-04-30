@@ -90,6 +90,35 @@ void WatchTreeModel::clearAll()
     endResetModel();
 }
 
+void WatchTreeModel::setLocals(const QList<DebugVariable> &locals)
+{
+    beginResetModel();
+
+    // Delete any prior var-objects on GDB side (best-effort cleanup).
+    if (m_adapter) {
+        for (auto &child : m_root->children) {
+            if (!child->varName.isEmpty())
+                m_adapter->deleteVarObject(child->varName);
+        }
+    }
+    m_root->children.clear();
+    m_varNameMap.clear();
+    m_pendingCreates.clear();
+
+    // Populate directly with the snapshot — no async round-trip.
+    for (const DebugVariable &v : locals) {
+        if (v.name.isEmpty()) continue;
+        auto node = std::make_unique<WatchNode>();
+        node->expression = v.name;
+        node->value      = v.value;
+        node->type       = v.type;
+        node->parent     = m_root.get();
+        m_root->children.push_back(std::move(node));
+    }
+
+    endResetModel();
+}
+
 void WatchTreeModel::onDebuggerStopped()
 {
     if (m_adapter) {
