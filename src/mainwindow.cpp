@@ -1550,14 +1550,21 @@ void MainWindow::createDockWidgets()
     m_centralStack->setCurrentIndex(0);  // start on welcome
     updateMenuBarVisibility(false);
 
-    // Toggle dock infrastructure and toolbar with welcome ↔ editor transitions
+    // Toggle dock infrastructure and toolbar with welcome ↔ editor transitions.
+    // Order matters: show toolbars and update menu bar BEFORE repositioning the
+    // dock sidebars, so repositionSideBars() sees the final menu+toolbar heights
+    // and doesn't place sidebars at Y=0 (which would obscure menu bar items).
     connect(m_centralStack, &QStackedWidget::currentChanged, this, [this](int index) {
         const bool editing = (index != 0);
-        m_dockManager->setDockLayoutVisible(editing);
         // Hide/show all toolbars on welcome page
         for (auto *tb : findChildren<QToolBar *>())
             tb->setVisible(editing);
         updateMenuBarVisibility(editing);
+        // Defer reposition to next event loop tick so menu+toolbar geometry is
+        // settled when DockManager reads their heights.
+        QTimer::singleShot(0, this, [this, editing]() {
+            m_dockManager->setDockLayoutVisible(editing);
+        });
     });
 
     // Wire welcome signals
@@ -2972,6 +2979,15 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
     // Ensure the application quits even if child widgets/processes linger.
     QMetaObject::invokeMethod(qApp, &QCoreApplication::quit, Qt::QueuedConnection);
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    // Keep custom dock sidebars (which are children of MainWindow, not part of
+    // QMainWindow's central layout) sized to match the new window geometry.
+    if (m_dockManager)
+        m_dockManager->repositionSideBars();
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)

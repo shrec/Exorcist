@@ -109,6 +109,7 @@ private:
     void loadSettings();
     void saveSettings();
     void closeEvent(QCloseEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
     void showTabContextMenu(int tabIndex, const QPoint &globalPos);
 
