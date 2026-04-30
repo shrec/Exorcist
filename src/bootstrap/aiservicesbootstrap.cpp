@@ -94,6 +94,9 @@ void AIServicesBootstrap::initialize(QStatusBar *statusBar)
 
     // ── API Key Manager Widget ────────────────────────────────────────────
     m_apiKeyManager = new APIKeyManagerWidget(qobject_cast<QWidget *>(parent()));
+    // Hide until explicitly invoked from settings — prevents the widget from
+    // rendering at MainWindow (0,0) and obscuring menu bar items.
+    m_apiKeyManager->hide();
     connect(m_apiKeyManager, &APIKeyManagerWidget::keySaved, this,
             [this](const QString &provider, const QString &key) {
         m_keyStorage->storeKey(provider, key);

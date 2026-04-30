@@ -8,6 +8,7 @@
 #include <QDirIterator>
 #include <QDir>
 #include <QFile>
+#include <QTextStream>
 #include <QFileInfo>
 #include <QFileDialog>
 #include <QStandardPaths>

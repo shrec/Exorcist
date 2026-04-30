@@ -229,8 +229,13 @@ DiffViewerPanel *DockBootstrap::diffViewer()
 
 ProposedEditPanel *DockBootstrap::proposedEditPanel()
 {
-    if (!m_proposedEditPanel)
+    if (!m_proposedEditPanel) {
         m_proposedEditPanel = new ProposedEditPanel(m_deps.parent);
+        // Hide until explicitly shown — prevents the panel's Accept/Reject
+        // buttons (green and red bordered) from rendering at MainWindow (0,0)
+        // and obscuring the menu bar.
+        m_proposedEditPanel->hide();
+    }
     return m_proposedEditPanel;
 }
 
