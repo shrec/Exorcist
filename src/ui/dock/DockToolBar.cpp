@@ -25,10 +25,13 @@ DockToolBar::DockToolBar(const QString &id, const QString &title,
     setIconSize(QSize(16, 16));
     setToolButtonStyle(Qt::ToolButtonIconOnly);
 
-    // VS-style: compact spacing, no border by default
+    // VS-style: compact spacing with vertical breathing room so embedded
+    // widgets (combos, status labels) don't sit flush against the bottom
+    // border and don't render with inconsistent heights.
     setContentsMargins(0, 0, 0, 0);
-    layout()->setSpacing(1);
-    layout()->setContentsMargins(4, 0, 2, 0);
+    setFixedHeight(32);
+    layout()->setSpacing(2);
+    layout()->setContentsMargins(4, 4, 4, 4);
 }
 
 void DockToolBar::setTitle(const QString &title)

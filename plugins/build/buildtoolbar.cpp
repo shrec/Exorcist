@@ -40,7 +40,7 @@ static QString comboStyle()
         "  border: 1px solid %3;"
         "  border-radius: 2px;"
         "  padding: 1px 6px 1px 6px;"
-        "  min-height: 20px;"
+        "  min-height: 22px;"
         "  font-size: 12px;"
         "  selection-background-color: #094771;"
         "}"
@@ -68,7 +68,7 @@ static QFrame *makeSeparator(QWidget *parent)
     auto *sep = new QFrame(parent);
     sep->setFrameShape(QFrame::VLine);
     sep->setFixedWidth(1);
-    sep->setFixedHeight(18);
+    sep->setFixedHeight(20);
     sep->setStyleSheet(QStringLiteral("background: %1;").arg(VST::Separator));
     return sep;
 }
@@ -84,8 +84,9 @@ BuildToolbar::BuildToolbar(QWidget *parent)
 void BuildToolbar::setupUi()
 {
     auto *layout = new QHBoxLayout(this);
-    layout->setContentsMargins(6, 2, 6, 2);
+    layout->setContentsMargins(6, 0, 6, 0);
     layout->setSpacing(4);
+    layout->setAlignment(Qt::AlignVCenter);
 
     // ── Configuration combo (Debug / Release / preset) ─────────────────────
     m_configCombo = new QComboBox(this);
@@ -126,7 +127,7 @@ void BuildToolbar::setupUi()
         "  border-radius: 2px;"
         "  padding: 2px 8px;"
         "  font-size: 12px;"
-        "  min-height: 20px;"
+        "  min-height: 22px;"
         "}"
         "QToolButton:hover { background: %3; border-color: #007acc; }"
         "QToolButton:pressed { background: #0d6ea8; }"
@@ -151,7 +152,7 @@ void BuildToolbar::setupUi()
         "  padding: 2px 10px;"
         "  font-size: 12px;"
         "  font-weight: 600;"
-        "  min-height: 20px;"
+        "  min-height: 22px;"
         "}"
         "QToolButton:hover { background: %3; border-color: #007acc; }"
         "QToolButton:pressed { background: #0d6ea8; }"
@@ -180,7 +181,7 @@ void BuildToolbar::setupUi()
         "  padding: 2px 10px;"
         "  font-size: 12px;"
         "  font-weight: 600;"
-        "  min-height: 20px;"
+        "  min-height: 22px;"
         "}"
         "QToolButton:hover { color: #5ee3ca; background: #1e3a35; border-color: #4ec9b0; }"
         "QToolButton:pressed { background: #0e2822; }"
@@ -237,7 +238,7 @@ void BuildToolbar::setupUi()
         "  padding: 2px 8px;"
         "  font-size: 14px;"
         "  font-weight: 700;"
-        "  min-height: 20px;"
+        "  min-height: 22px;"
         "}"
         "QToolButton:hover { background: %4; border-color: %1; }"
         "QToolButton:pressed { background: #8a1010; }"
@@ -273,8 +274,10 @@ void BuildToolbar::setupUi()
     // ── Status label ───────────────────────────────────────────────────────
     m_statusLabel = new QLabel(tr("Ready"), this);
     m_statusLabel->setStyleSheet(QStringLiteral(
-        "QLabel { color: %1; padding: 0 10px; font-size: 11px; background: transparent; }")
+        "QLabel { color: %1; padding: 0 10px; font-size: 12px; background: transparent;"
+        " min-height: 22px; }")
         .arg(VST::TxtMuted));
+    m_statusLabel->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
     layout->addWidget(m_statusLabel);
 
     layout->addStretch();
