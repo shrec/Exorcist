@@ -295,49 +295,72 @@ void GitPlugin::wireCommitMessageGeneration()
     if (!m_gitPanel || !m_git) return;
 
     // Step 1: GitPanel requests commit message → trigger async diff
+    // GitPanel lives in this plugin DLL, so PMF connect is safe here.
     connect(m_gitPanel, &GitPanel::generateCommitMessageRequested,
-            this, [this]() {
-        if (!m_git || !m_git->isGitRepo()) return;
-        // Manifesto §2: never block UI thread — use async diff
-        m_git->diffAsync({});
-    });
+            this, &GitPlugin::onGenerateCommitMessageRequested);
 
     // Step 2: Diff arrives → generate via AgentOrchestrator → fill commit input
-    connect(m_git, &GitService::diffReady,
-            this, [this](const QString & /*filePath*/, const QString &diff) {
-        if (diff.trimmed().isEmpty()) return;
+    // SIGNAL/SLOT string-based connect — m_git (GitService) lives in the main
+    // binary; PMF connect silently fails when SDK MOC is duplicated.
+    connect(m_git, SIGNAL(diffReady(QString,QString)),
+            this, SLOT(onGitDiffReady(QString,QString)));
+}
 
-        auto *orchestrator = service<AgentOrchestrator>(
-            QStringLiteral("agentOrchestrator"));
-        if (!orchestrator || !orchestrator->activeProvider()) return;
+void GitPlugin::onGenerateCommitMessageRequested()
+{
+    if (!m_git || !m_git->isGitRepo()) return;
+    // Manifesto §2: never block UI thread — use async diff
+    m_git->diffAsync({});
+}
 
-        const QString prompt = tr("Generate a concise, conventional commit message "
-                                  "for these changes:\n\n```diff\n%1\n```")
-                                   .arg(diff.left(8000));
+void GitPlugin::onGitDiffReady(const QString & /*filePath*/, const QString &diff)
+{
+    if (diff.trimmed().isEmpty()) return;
 
-        AgentRequest req;
-        req.requestId  = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        req.intent     = AgentIntent::SuggestCommitMessage;
-        req.userPrompt = prompt;
+    auto *orchestrator = service<AgentOrchestrator>(
+        QStringLiteral("agentOrchestrator"));
+    if (!orchestrator || !orchestrator->activeProvider()) return;
 
-        // One-shot connection: receive response and fill the commit message input
-        auto conn = std::make_shared<QMetaObject::Connection>();
-        *conn = connect(orchestrator, &AgentOrchestrator::responseFinished,
-                        this, [this, conn](const QString &, const AgentResponse &resp) {
-            disconnect(*conn);
-            QString msg = resp.text.trimmed();
-            // Strip any markdown code fence wrapping
-            if (msg.startsWith(QLatin1String("```")))
-                msg = msg.mid(msg.indexOf(QLatin1Char('\n')) + 1);
-            if (msg.endsWith(QLatin1String("```")))
-                msg.chop(3);
-            msg = msg.trimmed();
-            if (m_gitPanel)
-                m_gitPanel->commitMessageInput()->setText(msg);
-        });
+    const QString prompt = tr("Generate a concise, conventional commit message "
+                              "for these changes:\n\n```diff\n%1\n```")
+                               .arg(diff.left(8000));
 
-        orchestrator->sendRequest(req);
-    });
+    AgentRequest req;
+    req.requestId  = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    req.intent     = AgentIntent::SuggestCommitMessage;
+    req.userPrompt = prompt;
+
+    // One-shot connection: receive response and fill the commit message input.
+    // SIGNAL/SLOT string-based connect — AgentOrchestrator lives in the main
+    // binary; PMF connect silently fails when SDK MOC is duplicated.
+    if (m_pendingCommitMsgConn)
+        QObject::disconnect(m_pendingCommitMsgConn);
+    m_pendingCommitMsgConn = connect(
+        orchestrator,
+        SIGNAL(responseFinished(QString,AgentResponse)),
+        this,
+        SLOT(onAgentResponseFinished(QString,AgentResponse)));
+
+    orchestrator->sendRequest(req);
+}
+
+void GitPlugin::onAgentResponseFinished(const QString & /*requestId*/,
+                                        const AgentResponse &resp)
+{
+    // One-shot — disconnect so subsequent responses don't refill commit msg.
+    if (m_pendingCommitMsgConn) {
+        QObject::disconnect(m_pendingCommitMsgConn);
+        m_pendingCommitMsgConn = QMetaObject::Connection();
+    }
+    QString msg = resp.text.trimmed();
+    // Strip any markdown code fence wrapping
+    if (msg.startsWith(QLatin1String("```")))
+        msg = msg.mid(msg.indexOf(QLatin1Char('\n')) + 1);
+    if (msg.endsWith(QLatin1String("```")))
+        msg.chop(3);
+    msg = msg.trimmed();
+    if (m_gitPanel)
+        m_gitPanel->commitMessageInput()->setText(msg);
 }
 
 // ── Merge-conflict AI resolution ──────────────────────────────────────────────
@@ -346,30 +369,34 @@ void GitPlugin::wireConflictResolution()
 {
     if (!m_gitPanel || !m_git) return;
 
+    // GitPanel lives in this plugin DLL, so PMF connect is safe here.
     connect(m_gitPanel, &GitPanel::resolveConflictsRequested,
-            this, [this]() {
-        if (!m_git || !m_git->isGitRepo()) return;
+            this, &GitPlugin::onResolveConflictsRequested);
+}
 
-        const QStringList conflicts = m_git->conflictFiles();
-        if (conflicts.isEmpty()) return;
+void GitPlugin::onResolveConflictsRequested()
+{
+    if (!m_git || !m_git->isGitRepo()) return;
 
-        QString prompt = tr("Resolve the following merge conflicts. "
-                            "For each file, output the fully resolved content.\n\n");
-        for (const QString &file : conflicts) {
-            const QString content = m_git->conflictContent(file);
-            prompt += QStringLiteral("### %1\n```\n%2\n```\n\n")
-                          .arg(file, content.left(4000));
-        }
-        const QString fullPrompt = QStringLiteral("/resolve ") + prompt.left(12000);
+    const QStringList conflicts = m_git->conflictFiles();
+    if (conflicts.isEmpty()) return;
 
-        // Forward to ChatPanelWidget if registered
-        auto *chat = service<ChatPanelWidget>(QStringLiteral("chatPanel"));
-        if (chat) {
-            chat->setInputText(fullPrompt);
-            chat->focusInput();
-        }
+    QString prompt = tr("Resolve the following merge conflicts. "
+                        "For each file, output the fully resolved content.\n\n");
+    for (const QString &file : conflicts) {
+        const QString content = m_git->conflictContent(file);
+        prompt += QStringLiteral("### %1\n```\n%2\n```\n\n")
+                      .arg(file, content.left(4000));
+    }
+    const QString fullPrompt = QStringLiteral("/resolve ") + prompt.left(12000);
 
-        // Show the AI dock so the user sees the pre-filled request
-        showPanel(QStringLiteral("AIDock"));
-    });
+    // Forward to ChatPanelWidget if registered
+    auto *chat = service<ChatPanelWidget>(QStringLiteral("chatPanel"));
+    if (chat) {
+        chat->setInputText(fullPrompt);
+        chat->focusInput();
+    }
+
+    // Show the AI dock so the user sees the pre-filled request
+    showPanel(QStringLiteral("AIDock"));
 }

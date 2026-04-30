@@ -1,9 +1,11 @@
 #pragma once
 
 #include <QObject>
+#include <QMetaObject>
 #include "plugin/iviewcontributor.h"
 #include "plugin/workbenchpluginbase.h"
 #include "agent/iagentplugin.h"
+#include "aiinterface.h"
 
 #include <memory>
 #include <vector>
@@ -36,6 +38,16 @@ public:
     QStringList contexts() const override { return {QStringLiteral("git")}; }
     std::vector<std::unique_ptr<ITool>> createTools() override;
 
+private slots:
+    // Slot signatures must match SDK signal exactly so SIGNAL/SLOT string-based
+    // connect can resolve across DLL boundaries (PMF connect silently fails
+    // when SDK MOC is duplicated into multiple plugin DLLs).
+    void onGenerateCommitMessageRequested();
+    void onGitDiffReady(const QString &filePath, const QString &diff);
+    void onAgentResponseFinished(const QString &requestId,
+                                 const AgentResponse &response);
+    void onResolveConflictsRequested();
+
 private:
     bool initializePlugin() override;
     void shutdownPlugin() override;
@@ -43,8 +55,11 @@ private:
     void wireCommitMessageGeneration();
     void wireConflictResolution();
 
-    GitService        *m_git         = nullptr;
-    GitPanel          *m_gitPanel    = nullptr;
+    GitService        *m_git          = nullptr;
+    GitPanel          *m_gitPanel     = nullptr;
     DiffExplorerPanel *m_diffExplorer = nullptr;
     MergeEditor       *m_mergeEditor  = nullptr;
+
+    // One-shot connection for the next AgentOrchestrator response (commit msg)
+    QMetaObject::Connection m_pendingCommitMsgConn;
 };

@@ -102,13 +102,10 @@ void RemoteLspManager::connectSocket()
     m_transport->connectToServer(QStringLiteral("127.0.0.1"), m_localPort);
 
     // Detect connection success
-    connect(m_transport.get(), &SocketLspTransport::transportError,
-            this, [this](const QString &err) {
-        if (m_running) {
-            m_running = false;
-            emit error(tr("LSP socket error: %1").arg(err));
-        }
-    });
+    // SIGNAL/SLOT string-based connect — SocketLspTransport lives in the main
+    // binary; PMF connect silently fails when SDK MOC is duplicated.
+    connect(m_transport.get(), SIGNAL(transportError(QString)),
+            this, SLOT(onTransportError(QString)));
 
     // Socket connected → ready
     // Use a small delay to ensure the connection is fully established
@@ -160,4 +157,12 @@ void RemoteLspManager::stop()
 LspTransport *RemoteLspManager::transport() const
 {
     return m_transport.get();
+}
+
+void RemoteLspManager::onTransportError(const QString &err)
+{
+    if (m_running) {
+        m_running = false;
+        emit error(tr("LSP socket error: %1").arg(err));
+    }
 }

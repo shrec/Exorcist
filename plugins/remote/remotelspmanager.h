@@ -42,6 +42,12 @@ signals:
     void stopped();
     void error(const QString &message);
 
+private slots:
+    /// Slot wired via SIGNAL/SLOT to SocketLspTransport::transportError.
+    /// SocketLspTransport lives in the main binary; PMF connect across DLL
+    /// boundaries silently fails when SDK MOC is duplicated.
+    void onTransportError(const QString &err);
+
 private:
     void startPortForward();
     void connectSocket();
