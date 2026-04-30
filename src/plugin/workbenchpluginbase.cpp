@@ -224,8 +224,12 @@ QAction *WorkbenchPluginBase::makeCommandAction(const QString &text,
         return nullptr;
 
     auto *action = new QAction(text, owner);
-    if (!shortcut.isEmpty())
+    if (!shortcut.isEmpty()) {
         action->setShortcut(shortcut);
+        // Application-wide so debug F5/F10/F11, build Ctrl+B, etc. fire even
+        // when a chat input, dock, or sidebar widget has focus.
+        action->setShortcutContext(Qt::ApplicationShortcut);
+    }
 
     QObject::connect(action, &QAction::triggered, owner, [commandService, commandId]() {
         commandService->executeCommand(commandId);

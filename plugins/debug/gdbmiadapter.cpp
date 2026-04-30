@@ -283,8 +283,8 @@ void GdbMiAdapter::requestStackTrace(int threadId)
 
 void GdbMiAdapter::requestScopes(int /*frameId*/)
 {
-    // GDB/MI doesn't have scopes — we list locals directly
-    sendCommand(QStringLiteral("-stack-list-locals --simple-values"));
+    // GDB/MI doesn't have scopes — we list locals with full values + types.
+    sendCommand(QStringLiteral("-stack-list-locals --all-values"));
 }
 
 void GdbMiAdapter::requestVariables(int /*variablesReference*/)
@@ -466,6 +466,8 @@ void GdbMiAdapter::parseMiLine(const QString &line)
                 handleStackListResult(token, attrs);
             } else if (body.contains(QStringLiteral("threads="))) {
                 handleThreadInfoResult(token, attrs);
+            } else if (body.contains(QStringLiteral("locals="))) {
+                handleLocalsResult(token, attrs);
             } else if (body.contains(QStringLiteral("value="))) {
                 handleEvaluateResult(token, attrs);
             }
@@ -672,6 +674,46 @@ void GdbMiAdapter::handleEvaluateResult(int /*token*/, const QHash<QString, QStr
 {
     const QString value = attrs.value(QStringLiteral("value"));
     emit evaluateResult(QString(), value);
+}
+
+void GdbMiAdapter::handleLocalsResult(int /*token*/, const QHash<QString, QString> &attrs)
+{
+    // Parse locals=[{name="argc",value="1",type="int"},{name="argv",value="0x..."},...]
+    const QString locals = attrs.value(QStringLiteral("locals"));
+    QList<DebugVariable> result;
+
+    if (!locals.isEmpty()) {
+        // Walk through {...} groups inside the brackets
+        int i = 0;
+        while (i < locals.length()) {
+            const int open = locals.indexOf(QLatin1Char('{'), i);
+            if (open < 0) break;
+            int depth = 1;
+            int j = open + 1;
+            while (j < locals.length() && depth > 0) {
+                if (locals.at(j) == QLatin1Char('"')) {
+                    ++j;
+                    while (j < locals.length() && locals.at(j) != QLatin1Char('"')) {
+                        if (locals.at(j) == QLatin1Char('\\')) ++j;
+                        ++j;
+                    }
+                } else if (locals.at(j) == QLatin1Char('{')) ++depth;
+                else if (locals.at(j) == QLatin1Char('}')) --depth;
+                ++j;
+            }
+            const QString body = locals.mid(open + 1, j - open - 2);
+            const auto fields = parseMiBody(body);
+            DebugVariable v;
+            v.name  = fields.value(QStringLiteral("name"));
+            v.value = fields.value(QStringLiteral("value"));
+            v.type  = fields.value(QStringLiteral("type"));
+            if (!v.name.isEmpty())
+                result.append(v);
+            i = j;
+        }
+    }
+
+    emit variablesReceived(0, result);
 }
 
 // ── Variable Object result handlers ───────────────────────────────────────────

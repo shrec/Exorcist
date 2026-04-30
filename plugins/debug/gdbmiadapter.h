@@ -82,6 +82,7 @@ private:
     void handleStackListResult(int token, const QHash<QString, QString> &attrs);
     void handleThreadInfoResult(int token, const QHash<QString, QString> &attrs);
     void handleVarResult(int token, const QHash<QString, QString> &attrs);
+    void handleLocalsResult(int token, const QHash<QString, QString> &attrs);
     void handleEvaluateResult(int token, const QHash<QString, QString> &attrs);
 
     // Variable Object result handlers
