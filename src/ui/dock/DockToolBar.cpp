@@ -29,7 +29,8 @@ DockToolBar::DockToolBar(const QString &id, const QString &title,
     // widgets (combos, status labels) don't sit flush against the bottom
     // border and don't render with inconsistent heights.
     setContentsMargins(0, 0, 0, 0);
-    setFixedHeight(32);
+    // Fixed height = button(22) + padding(2+2) + border(1+1) + margin(4+4) = 36
+    setFixedHeight(36);
     layout()->setSpacing(2);
     layout()->setContentsMargins(4, 4, 4, 4);
 
