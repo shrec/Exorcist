@@ -32,6 +32,43 @@ DockToolBar::DockToolBar(const QString &id, const QString &title,
     setFixedHeight(32);
     layout()->setSpacing(2);
     layout()->setContentsMargins(4, 4, 4, 4);
+
+    // Default styling for action buttons (QActions added via addAction).
+    // Plugin-provided custom widgets keep their own styling. This ensures
+    // every plugin's toolbar buttons share a consistent height and padding
+    // so the toolbar row looks uniform across plugins.
+    setStyleSheet(QStringLiteral(
+        "QToolButton {"
+        "  color: #c8c8c8;"
+        "  background: transparent;"
+        "  border: 1px solid transparent;"
+        "  border-radius: 2px;"
+        "  padding: 2px 6px;"
+        "  min-height: 22px;"
+        "  min-width: 22px;"
+        "  font-size: 12px;"
+        "}"
+        "QToolButton:hover {"
+        "  background: #3e3e42;"
+        "  border-color: #4a4a4f;"
+        "}"
+        "QToolButton:pressed {"
+        "  background: #094771;"
+        "  border-color: #007acc;"
+        "}"
+        "QToolButton:checked {"
+        "  background: #094771;"
+        "  border-color: #007acc;"
+        "}"
+        "QToolButton:disabled {"
+        "  color: #555558;"
+        "}"
+        "QToolBar::separator {"
+        "  background: #3a3a3a;"
+        "  width: 1px;"
+        "  margin: 4px 4px;"
+        "}"
+    ));
 }
 
 void DockToolBar::setTitle(const QString &title)
