@@ -103,6 +103,10 @@ private:
     WatchNode *findNodeByVarName(const QString &varName) const;
     WatchNode *findNodeByVarNameRecursive(WatchNode *node, const QString &varName) const;
 
+    /// Heuristic: does this type look complex (struct/class/array/pointer/reference)
+    /// and therefore worth creating a var-object for so it can be expanded?
+    static bool typeLooksExpandable(const QString &type);
+
     IDebugAdapter *m_adapter = nullptr;
 
     /// Virtual root that holds all top-level watch nodes.

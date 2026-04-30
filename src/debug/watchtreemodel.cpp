@@ -2,6 +2,7 @@
 
 #include <QBrush>
 #include <QFont>
+#include <QSet>
 
 WatchTreeModel::WatchTreeModel(QObject *parent)
     : QAbstractItemModel(parent)
@@ -106,6 +107,12 @@ void WatchTreeModel::setLocals(const QList<DebugVariable> &locals)
     m_pendingCreates.clear();
 
     // Populate directly with the snapshot — no async round-trip.
+    // For complex-typed locals (struct/class/array/pointer/reference) we
+    // additionally fire `createVarObject` so the user can lazy-expand the
+    // node via `-var-list-children`. The flat value/type from the snapshot
+    // is shown immediately; the var-object name is attached when the
+    // adapter responds (see onVarObjectCreated).
+    QStringList complexExpressions;
     for (const DebugVariable &v : locals) {
         if (v.name.isEmpty()) continue;
         auto node = std::make_unique<WatchNode>();
@@ -113,10 +120,23 @@ void WatchTreeModel::setLocals(const QList<DebugVariable> &locals)
         node->value      = v.value;
         node->type       = v.type;
         node->parent     = m_root.get();
+
+        if (m_adapter && typeLooksExpandable(v.type)) {
+            m_pendingCreates.insert(v.name, true);
+            complexExpressions.append(v.name);
+        }
+
         m_root->children.push_back(std::move(node));
     }
 
     endResetModel();
+
+    // Fire the var-object creates AFTER endResetModel so the adapter's
+    // synchronous-style replies (if any) update an already-visible tree.
+    if (m_adapter) {
+        for (const QString &expr : complexExpressions)
+            m_adapter->createVarObject(expr);
+    }
 }
 
 void WatchTreeModel::onDebuggerStopped()
@@ -253,26 +273,43 @@ bool WatchTreeModel::hasChildren(const QModelIndex &parent) const
     WatchNode *node = parent.isValid() ? nodeFromIndex(parent) : m_root.get();
     if (!node) return false;
 
-    // Has children if numChildren > 0, even if not yet fetched
-    return node->numChildren > 0 || !node->children.empty();
+    // Already populated children — definitely has children.
+    if (!node->children.empty()) return true;
+
+    // GDB confirmed there are children to fetch.
+    if (node->numChildren > 0) return true;
+
+    // Var-object exists but the create response is still in flight or the
+    // children count hasn't been resolved yet — assume there might be
+    // children so the expand arrow shows. If the type turns out to be
+    // primitive (numChildren == 0), the arrow disappears once the listing
+    // completes.
+    if (!node->varName.isEmpty()) return true;
+
+    return false;
 }
 
 bool WatchTreeModel::canFetchMore(const QModelIndex &parent) const
 {
-    WatchNode *node = parent.isValid() ? nodeFromIndex(parent) : nullptr;
+    if (!parent.isValid()) return false;
+    WatchNode *node = nodeFromIndex(parent);
     if (!node) return false;
 
-    return node->numChildren > 0 && !node->childrenFetched;
+    // Need a live var-object to ask GDB for children.
+    if (node->varName.isEmpty()) return false;
+    if (node->childrenFetched)   return false;
+    return node->numChildren > 0;
 }
 
 void WatchTreeModel::fetchMore(const QModelIndex &parent)
 {
-    WatchNode *node = parent.isValid() ? nodeFromIndex(parent) : nullptr;
-    if (!node || !m_adapter) return;
+    if (!parent.isValid() || !m_adapter) return;
+    WatchNode *node = nodeFromIndex(parent);
+    if (!node || node->varName.isEmpty()) return;
 
     if (node->numChildren > 0 && !node->childrenFetched) {
         node->childrenFetched = true; // prevent multiple fetches
-        m_adapter->listVarChildren(node->varName);
+        m_adapter->listVarChildren(node->varName, 0, node->numChildren);
     }
 }
 
@@ -309,39 +346,51 @@ bool WatchTreeModel::setData(const QModelIndex &index, const QVariant &value,
 
 void WatchTreeModel::onVarObjectCreated(const DebugVarObj &varObj)
 {
-    // Check if this is a response to one of our pending creates
-    if (!m_pendingCreates.remove(varObj.expression)) {
-        // Not ours — might be from a different model (e.g. hover tooltip)
-        // Still register if we have the expression
-        bool found = false;
-        for (auto &child : m_root->children) {
-            if (child->expression == varObj.expression) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) return;
-    }
+    // Whether this varObj corresponds to a pending create we issued.
+    const bool wasPending = m_pendingCreates.remove(varObj.expression);
 
-    // Check if we already have a node for this expression (re-create scenario)
+    // First, try to attach to an existing top-level node with the same
+    // expression. This covers BOTH paths:
+    //   - addWatch():   row was inserted with empty varName at addWatch time
+    //                   (currently skipped — see below) or via a re-create.
+    //   - setLocals():  row was inserted synchronously (with type/value but
+    //                   no varName); now we attach the GDB var-obj name and
+    //                   record numChildren so the expand arrow works.
     for (size_t i = 0; i < m_root->children.size(); ++i) {
         auto *existing = m_root->children[i].get();
-        if (existing->expression == varObj.expression) {
-            existing->varName = varObj.varName;
+        if (existing->expression != varObj.expression) continue;
+
+        // If the existing node already has a varName different from this
+        // one, drop the old mapping so we don't leak it.
+        if (!existing->varName.isEmpty() && existing->varName != varObj.varName)
+            m_varNameMap.remove(existing->varName);
+
+        existing->varName     = varObj.varName;
+        // Prefer the var-object's value/type if the snapshot didn't carry
+        // them; otherwise keep the snapshot strings (they were just shown
+        // to the user and refreshing them on every var-create would flicker).
+        if (existing->value.isEmpty() || !varObj.value.isEmpty())
             existing->value = varObj.value;
+        if (existing->type.isEmpty() || !varObj.type.isEmpty())
             existing->type = varObj.type;
-            existing->numChildren = varObj.numChildren;
-            existing->childrenFetched = false;
-            existing->changed = false;
-            existing->children.clear();
-            m_varNameMap.insert(varObj.varName, existing);
-            const QModelIndex idx = index(static_cast<int>(i), 0);
-            emit dataChanged(idx, index(static_cast<int>(i), ColumnCount - 1));
-            return;
-        }
+        existing->numChildren     = varObj.numChildren;
+        existing->childrenFetched = false;
+        existing->changed         = false;
+        existing->children.clear();
+
+        m_varNameMap.insert(varObj.varName, existing);
+
+        const QModelIndex topLeft  = index(static_cast<int>(i), 0);
+        const QModelIndex botRight = index(static_cast<int>(i), ColumnCount - 1);
+        emit dataChanged(topLeft, botRight);
+        return;
     }
 
-    // New top-level entry
+    // No existing node — only insert a new row if this var-obj was created
+    // as a response to a pending request from us. Otherwise the var-obj
+    // was meant for a different model (e.g. hover tooltip) and we ignore.
+    if (!wasPending) return;
+
     const int row = static_cast<int>(m_root->children.size());
     beginInsertRows(QModelIndex(), row, row);
 
@@ -505,4 +554,61 @@ WatchNode *WatchTreeModel::findNodeByVarNameRecursive(WatchNode *node,
             return found;
     }
     return nullptr;
+}
+
+bool WatchTreeModel::typeLooksExpandable(const QString &type)
+{
+    if (type.isEmpty()) return false;
+
+    // Pointers, references, and arrays are always expandable in GDB.
+    if (type.contains(QLatin1Char('*'))) return true;
+    if (type.contains(QLatin1Char('&'))) return true;
+    if (type.contains(QLatin1Char('['))) return true;
+
+    // Heuristic: anything that's not a known scalar/primitive is treated as
+    // expandable. GDB will set numChildren=0 for the var-object if the type
+    // turns out to be primitive after all, and the expand arrow disappears.
+    static const QSet<QString> primitives = {
+        QStringLiteral("char"),
+        QStringLiteral("signed char"),
+        QStringLiteral("unsigned char"),
+        QStringLiteral("short"),
+        QStringLiteral("unsigned short"),
+        QStringLiteral("short int"),
+        QStringLiteral("unsigned short int"),
+        QStringLiteral("int"),
+        QStringLiteral("unsigned int"),
+        QStringLiteral("unsigned"),
+        QStringLiteral("long"),
+        QStringLiteral("unsigned long"),
+        QStringLiteral("long int"),
+        QStringLiteral("unsigned long int"),
+        QStringLiteral("long long"),
+        QStringLiteral("unsigned long long"),
+        QStringLiteral("long long int"),
+        QStringLiteral("unsigned long long int"),
+        QStringLiteral("float"),
+        QStringLiteral("double"),
+        QStringLiteral("long double"),
+        QStringLiteral("bool"),
+        QStringLiteral("void"),
+        QStringLiteral("size_t"),
+        QStringLiteral("ssize_t"),
+        QStringLiteral("ptrdiff_t"),
+        QStringLiteral("int8_t"),
+        QStringLiteral("uint8_t"),
+        QStringLiteral("int16_t"),
+        QStringLiteral("uint16_t"),
+        QStringLiteral("int32_t"),
+        QStringLiteral("uint32_t"),
+        QStringLiteral("int64_t"),
+        QStringLiteral("uint64_t"),
+    };
+
+    const QString trimmed = type.trimmed();
+    if (primitives.contains(trimmed)) return false;
+
+    // Anything else (struct, class, union, std::string, custom typedefs,
+    // template instantiations) — let GDB tell us via numChildren.
+    return true;
 }
