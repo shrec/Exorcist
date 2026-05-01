@@ -23,4 +23,5 @@ public:
 
 private:
     IHostServices *m_host = nullptr;
+    QObject       *m_services = nullptr;
 };

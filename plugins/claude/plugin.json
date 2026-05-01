@@ -2,7 +2,7 @@
     "id": "org.exorcist.claude",
     "name": "Anthropic Claude",
     "version": "1.0.0",
-    "description": "Anthropic Claude AI assistant — chat and agent support via Claude API.",
+    "description": "Anthropic Claude — full Messages API integration with tool use, streaming, and agent support (Claude Code-level).",
     "author": "Exorcist",
     "license": "MIT",
     "layer": "cpp-sdk",
@@ -18,6 +18,76 @@
                 "category": "AI Providers",
                 "type": "boolean",
                 "default": true
+            },
+            {
+                "key": "claude.model",
+                "title": "Default Model",
+                "description": "Claude model used for chat and agent requests.",
+                "category": "AI Providers",
+                "type": "string",
+                "default": "claude-sonnet-4-5-20250929",
+                "enum": [
+                    "claude-opus-4-5-20250929",
+                    "claude-sonnet-4-5-20250929",
+                    "claude-haiku-4-5-20251001",
+                    "claude-opus-4-1-20250805",
+                    "claude-sonnet-4-20250514",
+                    "claude-3-5-haiku-latest"
+                ]
+            },
+            {
+                "key": "claude.maxTokens",
+                "title": "Max Output Tokens",
+                "description": "Maximum number of output tokens per response (0 = use model default).",
+                "category": "AI Providers",
+                "type": "integer",
+                "default": 0,
+                "minimum": 0,
+                "maximum": 200000
+            },
+            {
+                "key": "claude.temperature",
+                "title": "Temperature",
+                "description": "Sampling temperature (0.0 - 1.0). Lower is more deterministic.",
+                "category": "AI Providers",
+                "type": "number",
+                "default": 1.0,
+                "minimum": 0.0,
+                "maximum": 1.0
+            },
+            {
+                "key": "claude.reasoningEffort",
+                "title": "Reasoning Effort",
+                "description": "Extended-thinking budget for Opus/Sonnet 4 models. Empty disables thinking.",
+                "category": "AI Providers",
+                "type": "string",
+                "default": "",
+                "enum": ["", "low", "medium", "high"]
+            },
+            {
+                "key": "claude.systemPrompt",
+                "title": "Custom System Prompt",
+                "description": "Optional text appended to Claude's system prompt for every request.",
+                "category": "AI Providers",
+                "type": "string",
+                "default": ""
+            }
+        ],
+        "commands": [
+            {
+                "id": "claude.toggleEnabled",
+                "title": "Claude: Toggle Enabled",
+                "category": "AI Providers"
+            },
+            {
+                "id": "claude.editApiKey",
+                "title": "Claude: Edit API Key",
+                "category": "AI Providers"
+            },
+            {
+                "id": "claude.clearApiKey",
+                "title": "Claude: Clear API Key",
+                "category": "AI Providers"
             }
         ]
     }

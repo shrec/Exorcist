@@ -21,7 +21,7 @@ add_subdirectory(serial-monitor)
 add_subdirectory(automation)
 add_subdirectory(devops)
 add_subdirectory(javascript-sdk)
-# add_subdirectory(claude)   # disabled — Copilot-first
+add_subdirectory(claude)
 # add_subdirectory(codex)    # disabled — Copilot-first
 # add_subdirectory(ollama)   # disabled — Copilot-first
 # add_subdirectory(byok)     # disabled — Copilot-first
