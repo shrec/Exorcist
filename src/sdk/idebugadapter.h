@@ -5,6 +5,7 @@
 #include <QStringList>
 #include <QList>
 #include <QJsonObject>
+#include <QByteArray>
 
 // ── Debug data types ──────────────────────────────────────────────────────────
 
@@ -197,6 +198,15 @@ public:
     /// Assign a new value to a variable object.
     virtual void assignVarValue(const QString &varName, const QString &newValue) = 0;
 
+    // ── Memory inspection ────────────────────────────────────────────────
+    //
+    // Default no-op implementation — adapters that support raw memory reads
+    // (e.g. GdbMiAdapter via -data-read-memory-bytes) override and emit
+    // memoryReceived when the read completes.
+
+    /// Read raw memory bytes at the given address.
+    virtual void readMemory(quint64 addr, int count) { Q_UNUSED(addr) Q_UNUSED(count) }
+
 signals:
     // ── Lifecycle signals ─────────────────────────────────────────────────
 
@@ -248,4 +258,9 @@ signals:
 
     /// An error occurred in a variable object operation.
     void varObjectError(const QString &expression, const QString &message);
+
+    // ── Memory inspection signals ─────────────────────────────────────────
+
+    /// Emitted when readMemory completes.
+    void memoryReceived(quint64 addr, const QByteArray &bytes);
 };

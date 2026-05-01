@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QByteArray>
 
 class QLineEdit;
 class QPushButton;
@@ -40,6 +41,7 @@ public slots:
 
 private slots:
     void onEvaluateResult(const QString &expression, const QString &result);
+    void onMemoryReceived(quint64 addr, const QByteArray &bytes);
 
 private:
     void setupUi();

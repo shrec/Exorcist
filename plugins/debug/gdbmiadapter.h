@@ -67,6 +67,9 @@ public:
     void deleteVarObject(const QString &varName) override;
     void assignVarValue(const QString &varName, const QString &newValue) override;
 
+    // ── Memory inspection ────────────────────────────────────────────────
+    void readMemory(quint64 addr, int count) override;
+
 private slots:
     void onReadyRead();
     void onProcessStarted();
@@ -104,6 +107,9 @@ private:
     void handleVarUpdateResult(int token, const QHash<QString, QString> &attrs);
     void handleVarDeleteResult(int token, const QHash<QString, QString> &attrs);
     void handleVarAssignResult(int token, const QHash<QString, QString> &attrs);
+
+    // Memory read result handler
+    void handleMemoryReadResult(int token, const QHash<QString, QString> &attrs);
 
     /// Parse a list of changelist entries from -var-update output.
     QList<DebugVarChange> parseChangeList(const QString &raw);
@@ -169,4 +175,8 @@ private:
 
     // Next unique var-object name counter
     int m_nextVarId = 1;
+
+    // Memory read tracking: token → request (addr + count).
+    struct MemReq { quint64 addr; int count; };
+    QHash<int, MemReq> m_pendingMemReads;
 };

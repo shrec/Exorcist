@@ -460,6 +460,36 @@ void GdbMiAdapter::assignVarValue(const QString &varName, const QString &newValu
     m_varAssignNames.insert(token, varName);
 }
 
+// ── Memory inspection ─────────────────────────────────────────────────────────
+
+void GdbMiAdapter::readMemory(quint64 addr, int count)
+{
+    const QString cmd = QStringLiteral("-data-read-memory-bytes 0x%1 %2")
+                            .arg(addr, 0, 16).arg(count);
+    int token = sendCommand(cmd);
+    m_pendingMemReads.insert(token, {addr, count});
+}
+
+void GdbMiAdapter::handleMemoryReadResult(int token, const QHash<QString, QString> &attrs)
+{
+    const auto req = m_pendingMemReads.take(token);
+
+    // The MI response shape is:
+    //   memory=[{begin="0x...",offset="0x0",end="0x...",contents="48656c6c6f..."}]
+    // The body is captured as a single string blob by parseMiBody — pull
+    // contents="..." out with a regex.
+    const QString memory = attrs.value(QStringLiteral("memory"));
+    QByteArray bytes;
+    static const QRegularExpression contentsRx(
+        QStringLiteral("contents=\"([0-9A-Fa-f]+)\""));
+    auto m = contentsRx.match(memory);
+    if (m.hasMatch()) {
+        const QString hex = m.captured(1);
+        bytes = QByteArray::fromHex(hex.toLatin1());
+    }
+    emit memoryReceived(req.addr, bytes);
+}
+
 // ── MI command sending ────────────────────────────────────────────────────────
 
 int GdbMiAdapter::sendCommand(const QString &miCommand)
@@ -585,6 +615,8 @@ void GdbMiAdapter::parseMiLine(const QString &line)
                 handleBreakInsertResult(token, attrs);
             } else if (m_pendingWatchpoints.contains(token)) {
                 handleBreakWatchResult(token, attrs);
+            } else if (m_pendingMemReads.contains(token)) {
+                handleMemoryReadResult(token, attrs);
             } else if (m_stackTraceRequests.contains(token)) {
                 handleStackListResult(token, attrs);
             } else if (body.contains(QStringLiteral("threads="))) {
@@ -1009,6 +1041,7 @@ void GdbMiAdapter::onProcessFinished(int exitCode, QProcess::ExitStatus status)
     m_varListParents.clear();
     m_varDeleteNames.clear();
     m_varAssignNames.clear();
+    m_pendingMemReads.clear();
     emit terminated();
 }
 

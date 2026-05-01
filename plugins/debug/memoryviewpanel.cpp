@@ -130,6 +130,8 @@ void MemoryViewPanel::setAdapter(IDebugAdapter *adapter)
         // is in the host exe).
         disconnect(m_adapter, SIGNAL(evaluateResult(QString,QString)),
                    this, SLOT(onEvaluateResult(QString,QString)));
+        disconnect(m_adapter, SIGNAL(memoryReceived(quint64,QByteArray)),
+                   this, SLOT(onMemoryReceived(quint64,QByteArray)));
     }
 
     m_adapter = adapter;
@@ -137,6 +139,8 @@ void MemoryViewPanel::setAdapter(IDebugAdapter *adapter)
     if (m_adapter) {
         connect(m_adapter, SIGNAL(evaluateResult(QString,QString)),
                 this, SLOT(onEvaluateResult(QString,QString)));
+        connect(m_adapter, SIGNAL(memoryReceived(quint64,QByteArray)),
+                this, SLOT(onMemoryReceived(quint64,QByteArray)));
     }
 }
 
@@ -164,12 +168,11 @@ void MemoryViewPanel::readMemory()
         m_awaitingResult = true;
         setStatus(tr("Reading %1 bytes at 0x%2...").arg(total)
                       .arg(addr, 0, 16));
-        // frameId 0 → use the currently selected frame.
-        m_adapter->evaluate(m_pendingExpression, 0);
+        // Issue a real -data-read-memory-bytes via the adapter.
+        // Result arrives asynchronously via memoryReceived → onMemoryReceived.
+        m_adapter->readMemory(addr, total);
     } else {
         // No live debugger — render a synthetic block so the UI is testable.
-        // TODO: wire to GDB `-data-read-memory-bytes` once a non-evaluate
-        //       memory API is available on IDebugAdapter.
         setStatus(tr("Debugger not running — showing synthetic dump"));
         renderFakeDump(addr, total);
     }
@@ -187,7 +190,7 @@ void MemoryViewPanel::refresh()
         setStatus(tr("Refreshing %1 bytes at 0x%2...")
                       .arg(m_pendingTotalBytes)
                       .arg(m_pendingAddress, 0, 16));
-        m_adapter->evaluate(m_pendingExpression, 0);
+        m_adapter->readMemory(m_pendingAddress, m_pendingTotalBytes);
     } else {
         setStatus(tr("Debugger not running — showing synthetic dump"));
         renderFakeDump(m_pendingAddress, m_pendingTotalBytes);
@@ -218,6 +221,29 @@ void MemoryViewPanel::onEvaluateResult(const QString &expression,
                   .arg(bytes.size())
                   .arg(m_pendingAddress, 0, 16));
     renderDump(m_pendingAddress, bytes);
+}
+
+void MemoryViewPanel::onMemoryReceived(quint64 addr, const QByteArray &bytes)
+{
+    // Filter responses that don't belong to our pending request — another
+    // panel could trigger reads on the same adapter in the future.
+    if (!m_awaitingResult || addr != m_pendingAddress)
+        return;
+
+    m_awaitingResult = false;
+
+    if (bytes.isEmpty()) {
+        setStatus(tr("Could not read %1 bytes at 0x%2")
+                      .arg(m_pendingTotalBytes)
+                      .arg(m_pendingAddress, 0, 16),
+                  /*isError=*/true);
+        return;
+    }
+
+    setStatus(tr("Read %1 bytes at 0x%2")
+                  .arg(bytes.size())
+                  .arg(addr, 0, 16));
+    renderDump(addr, bytes);
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────────
