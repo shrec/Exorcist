@@ -3,9 +3,10 @@
 #include <QDir>
 #include <QEvent>
 #include <QFileInfo>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QListWidget>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QSettings>
 #include <QVBoxLayout>
@@ -98,23 +99,28 @@ WelcomeWidget::WelcomeWidget(QWidget *parent)
         + QStringLiteral(" margin-top: 18px;"));
     leftCol->addWidget(m_recentLabel);
 
-    m_recentList = new QListWidget(this);
-    m_recentList->setFixedWidth(420);
-    m_recentList->setMaximumHeight(200);
-    m_recentList->setFrameShape(QFrame::NoFrame);
-    m_recentList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_recentList->setStyleSheet(QStringLiteral(
-        "QListWidget { background: transparent; border: none; }"
-        "QListWidget::item { padding: 4px 0; color: #3794ff; font-size: 13px; }"
-        "QListWidget::item:hover { color: #4fc3f7; background: transparent; }"));
-    m_recentList->setCursor(Qt::PointingHandCursor);
-    leftCol->addWidget(m_recentList);
+    m_recentContainer = new QWidget(this);
+    m_recentContainer->setFixedWidth(420);
+    m_recentLayout = new QVBoxLayout(m_recentContainer);
+    m_recentLayout->setContentsMargins(0, 0, 0, 0);
+    m_recentLayout->setSpacing(2);
+    leftCol->addWidget(m_recentContainer);
 
-    connect(m_recentList, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
-        const QString path = item->data(Qt::UserRole).toString();
-        if (!path.isEmpty())
-            emit openFolderRequested(path);
-    });
+    // Empty-state placeholder (created up-front, toggled in refreshRecent).
+    m_recentEmpty = new QLabel(tr("No recent folders"), this);
+    m_recentEmpty->setStyleSheet(QStringLiteral(
+        "color: #707070; font-size: 12px; font-style: italic; padding: 4px 0;"));
+    m_recentLayout->addWidget(m_recentEmpty);
+
+    // Clear Recent link (hidden when list empty).
+    m_clearRecent = new QLabel(tr("Clear Recent"), this);
+    m_clearRecent->setCursor(Qt::PointingHandCursor);
+    m_clearRecent->setStyleSheet(QStringLiteral(
+        "QLabel { color: #808080; font-size: 12px; padding: 8px 0 0 0; }"
+        "QLabel:hover { color: #4fc3f7; text-decoration: underline; }"));
+    m_clearRecent->installEventFilter(this);
+    m_clearRecent->setProperty("action", QStringLiteral("clearRecent"));
+    leftCol->addWidget(m_clearRecent);
 
     leftCol->addStretch();
     contentRow->addLayout(leftCol);
@@ -179,37 +185,121 @@ bool WelcomeWidget::eventFilter(QObject *obj, QEvent *event)
 {
     if (event->type() == QEvent::MouseButtonRelease) {
         const QString action = obj->property("action").toString();
-        if (action == QLatin1String("openFolder"))
+        if (action == QLatin1String("openFolder")) {
             emit openFolderBrowseRequested();
-        else if (action == QLatin1String("newProject"))
+            return true;
+        }
+        if (action == QLatin1String("newProject")) {
             emit newProjectRequested();
-        else if (action == QLatin1String("newFile"))
+            return true;
+        }
+        if (action == QLatin1String("newFile")) {
             emit newFileRequested();
-        else if (action == QLatin1String("openFile"))
+            return true;
+        }
+        if (action == QLatin1String("openFile")) {
             emit openFileRequested();
-        return true;
+            return true;
+        }
+        if (action == QLatin1String("clearRecent")) {
+            QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+            s.remove(QStringLiteral("recentFolders"));
+            refreshRecent();
+            return true;
+        }
+        if (action == QLatin1String("openRecent")) {
+            const QString path = obj->property("path").toString();
+            if (!path.isEmpty())
+                emit openFolderRequested(path);
+            return true;
+        }
     }
     return QWidget::eventFilter(obj, event);
 }
 
 void WelcomeWidget::refreshRecent()
 {
-    m_recentList->clear();
-
-    QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
-    const QStringList folders = s.value(QStringLiteral("recentFolders")).toStringList();
-
-    for (const QString &folder : folders) {
-        if (!QDir(folder).exists())
+    // Wipe all dynamic entry rows, but keep m_recentEmpty + m_clearRecent
+    // (which are owned by m_recentLayout permanently).
+    QList<QWidget *> toRemove;
+    for (int i = 0; i < m_recentLayout->count(); ++i) {
+        QLayoutItem *it = m_recentLayout->itemAt(i);
+        if (!it)
             continue;
-        const QString name = QFileInfo(folder).fileName();
-        const QString display = QStringLiteral("%1   %2").arg(name, folder);
-        auto *item = new QListWidgetItem(display);
-        item->setData(Qt::UserRole, folder);
-        m_recentList->addItem(item);
+        QWidget *w = it->widget();
+        if (!w)
+            continue;
+        if (w == m_recentEmpty || w == m_clearRecent)
+            continue;
+        toRemove.append(w);
+    }
+    for (QWidget *w : toRemove) {
+        m_recentLayout->removeWidget(w);
+        w->deleteLater();
     }
 
-    const bool hasRecent = m_recentList->count() > 0;
-    m_recentList->setVisible(hasRecent);
-    m_recentLabel->setVisible(hasRecent);
+    QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+    QStringList folders = s.value(QStringLiteral("recentFolders")).toStringList();
+
+    // Drop dead paths and cap at 10 (most-recent-first).
+    QStringList valid;
+    valid.reserve(folders.size());
+    for (const QString &folder : folders) {
+        if (QDir(folder).exists())
+            valid.append(folder);
+        if (valid.size() >= 10)
+            break;
+    }
+
+    const bool hasRecent = !valid.isEmpty();
+    m_recentEmpty->setVisible(!hasRecent);
+    m_clearRecent->setVisible(hasRecent);
+
+    if (!hasRecent)
+        return;
+
+    // Insert each entry above the empty/clear rows.
+    const int insertBase = m_recentLayout->indexOf(m_recentEmpty);
+    int insertAt = (insertBase >= 0) ? insertBase : 0;
+
+    const int maxPathPx = 400;
+    QFontMetrics fmPath(font());
+
+    for (const QString &folder : valid) {
+        const QString name = QFileInfo(folder).fileName().isEmpty()
+            ? folder
+            : QFileInfo(folder).fileName();
+
+        auto *entry = new QWidget(m_recentContainer);
+        auto *lay = new QVBoxLayout(entry);
+        lay->setContentsMargins(0, 2, 0, 2);
+        lay->setSpacing(0);
+
+        auto *nameLbl = new QLabel(name, entry);
+        nameLbl->setCursor(Qt::PointingHandCursor);
+        nameLbl->setStyleSheet(QStringLiteral(
+            "QLabel { color: #3794ff; font-size: 13px; padding: 0; }"
+            "QLabel:hover { color: #4fc3f7; text-decoration: underline; }"));
+        nameLbl->setProperty("action", QStringLiteral("openRecent"));
+        nameLbl->setProperty("path", folder);
+        nameLbl->installEventFilter(this);
+        nameLbl->setToolTip(folder);
+
+        const QString elided = fmPath.elidedText(
+            QDir::toNativeSeparators(folder), Qt::ElideMiddle, maxPathPx);
+        auto *pathLbl = new QLabel(elided, entry);
+        pathLbl->setCursor(Qt::PointingHandCursor);
+        pathLbl->setStyleSheet(QStringLiteral(
+            "QLabel { color: #707070; font-size: 11px; padding: 0; }"
+            "QLabel:hover { color: #999999; }"));
+        pathLbl->setProperty("action", QStringLiteral("openRecent"));
+        pathLbl->setProperty("path", folder);
+        pathLbl->installEventFilter(this);
+        pathLbl->setToolTip(folder);
+
+        lay->addWidget(nameLbl);
+        lay->addWidget(pathLbl);
+
+        m_recentLayout->insertWidget(insertAt++, entry);
+    }
 }

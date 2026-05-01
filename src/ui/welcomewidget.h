@@ -3,8 +3,8 @@
 #include <QWidget>
 
 class QEvent;
-class QListWidget;
 class QLabel;
+class QVBoxLayout;
 
 /// Welcome page shown when no project is open.
 /// VS Code–style layout: Start links on the left, info on the right.
@@ -38,6 +38,9 @@ protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
 
 private:
-    QListWidget *m_recentList = nullptr;
     QLabel *m_recentLabel = nullptr;
+    QWidget *m_recentContainer = nullptr;
+    QVBoxLayout *m_recentLayout = nullptr;
+    QLabel *m_recentEmpty = nullptr;
+    QLabel *m_clearRecent = nullptr;
 };
