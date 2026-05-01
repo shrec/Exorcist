@@ -154,6 +154,7 @@
 #include "project/projectmanager.h"
 #include "project/projecttemplateregistry.h"
 #include "project/newprojectwizard.h"
+#include "project/filetemplatedialog.h"
 #include "project/solutiontreemodel.h"
 #include "git/gitservice.h"
 #include "build/outputpanel.h"
@@ -883,7 +884,10 @@ void MainWindow::setupMenus()
     QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
 
     QAction *newTabAction = fileMenu->addAction(tr("New &Tab"));
-    newTabAction->setShortcut(QKeySequence::New);
+    newTabAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_T));
+
+    QAction *newFromTemplateAction = fileMenu->addAction(tr("New From &Template..."));
+    newFromTemplateAction->setShortcut(QKeySequence::New);
 
     QAction *openAction = fileMenu->addAction(tr("&Open File..."));
     openAction->setShortcut(QKeySequence::Open);
@@ -929,6 +933,19 @@ void MainWindow::setupMenus()
     quitAction->setShortcut(QKeySequence::Quit);
 
     connect(newTabAction, &QAction::triggered, this, &MainWindow::openNewTab);
+    connect(newFromTemplateAction, &QAction::triggered, this, [this]() {
+        QString defaultFolder;
+        if (m_editorMgr)
+            defaultFolder = m_editorMgr->currentFolder();
+        if (defaultFolder.isEmpty())
+            defaultFolder = QDir::homePath();
+        FileTemplateDialog dlg(defaultFolder, this);
+        connect(&dlg, &FileTemplateDialog::templateSelected,
+                this, [this](const QString &filePath, const QString & /*content*/) {
+            openFile(filePath);
+        });
+        dlg.exec();
+    });
     connect(openAction, &QAction::triggered, this, [this]() {
         const QString path = QFileDialog::getOpenFileName(this, tr("Open File"));
         if (!path.isEmpty()) openFile(path);
