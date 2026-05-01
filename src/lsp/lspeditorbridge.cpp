@@ -2,9 +2,13 @@
 
 #include <QAction>
 #include <QEvent>
+#include <QFrame>
+#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QJsonObject>
+#include <QKeyEvent>
 #include <QKeySequence>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMouseEvent>
@@ -63,6 +67,39 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
     // Install event filter on editor viewport for mouse tracking hover
     m_editor->viewport()->setMouseTracking(true);
     m_editor->viewport()->installEventFilter(this);
+    // Also filter editor key events so we can dismiss signature popup on Esc
+    m_editor->installEventFilter(this);
+
+    // ── Signature help popup (small floating frame, rich-text label) ──────
+    m_signaturePopup = new QFrame(m_editor);
+    m_signaturePopup->setObjectName("LspSignaturePopup");
+    m_signaturePopup->setFrameShape(QFrame::StyledPanel);
+    m_signaturePopup->setFrameShadow(QFrame::Plain);
+    m_signaturePopup->setWindowFlags(Qt::ToolTip | Qt::FramelessWindowHint
+                                     | Qt::NoDropShadowWindowHint);
+    m_signaturePopup->setAttribute(Qt::WA_ShowWithoutActivating);
+    m_signaturePopup->setFocusPolicy(Qt::NoFocus);
+    m_signaturePopup->setStyleSheet(
+        "QFrame#LspSignaturePopup {"
+        "  background: #252526;"
+        "  border: 1px solid #454545;"
+        "  border-radius: 3px;"
+        "}"
+        "QLabel {"
+        "  color: #d4d4d4;"
+        "  background: transparent;"
+        "  font-family: Consolas, 'Courier New', monospace;"
+        "  font-size: 9pt;"
+        "  padding: 4px 8px;"
+        "}");
+    auto *sigLayout = new QHBoxLayout(m_signaturePopup);
+    sigLayout->setContentsMargins(0, 0, 0, 0);
+    sigLayout->setSpacing(0);
+    m_signatureLabel = new QLabel(m_signaturePopup);
+    m_signatureLabel->setTextFormat(Qt::RichText);
+    m_signatureLabel->setTextInteractionFlags(Qt::NoTextInteraction);
+    sigLayout->addWidget(m_signatureLabel);
+    m_signaturePopup->hide();
 
     // Editor signals
     connect(m_editor->document(), &QTextDocument::contentsChanged,
@@ -203,9 +240,13 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
     });
     editor->addAction(typeDefAction);
 
-    // Re-request inlay hints on scroll
+    // Re-request inlay hints on scroll; also keep signature popup glued
     connect(m_editor->verticalScrollBar(), &QScrollBar::valueChanged,
-            this, [this]() { m_inlayHintTimer->start(); });
+            this, [this]() {
+        m_inlayHintTimer->start();
+        if (m_signaturePopup && m_signaturePopup->isVisible())
+            positionSignaturePopup();
+    });
 
     // Send initial open notification, then request symbols
     if (m_client->isInitialized()) {
@@ -229,6 +270,7 @@ LspEditorBridge::~LspEditorBridge()
 {
     m_completion->dismiss();
     m_hoverTooltip->hideTooltip();
+    if (m_signaturePopup) m_signaturePopup->hide();
     m_client->didClose(m_uri);
 }
 
@@ -236,6 +278,21 @@ LspEditorBridge::~LspEditorBridge()
 
 bool LspEditorBridge::eventFilter(QObject *obj, QEvent *event)
 {
+    // Esc dismisses the signature popup before any other handling
+    if (obj == m_editor && event->type() == QEvent::KeyPress) {
+        auto *ke = static_cast<QKeyEvent *>(event);
+        if (ke->key() == Qt::Key_Escape && m_signaturePopup
+            && m_signaturePopup->isVisible()) {
+            hideSignaturePopup();
+            return true;  // swallow Esc so it doesn't cancel selection too
+        }
+    }
+    // Hide popup when editor loses focus or scrolls noticeably
+    if (obj == m_editor && (event->type() == QEvent::FocusOut
+                             || event->type() == QEvent::Hide)) {
+        hideSignaturePopup();
+    }
+
     if (obj == m_editor->viewport()) {
         if (event->type() == QEvent::MouseMove) {
             auto *me = static_cast<QMouseEvent *>(event);
@@ -307,13 +364,26 @@ void LspEditorBridge::onDocumentChanged()
                                         tc.positionInBlock(),
                                         2, QString(prevChar));
         }
-        // Signature help on '('
+        // Signature help: open on '(' and refresh on ',' (next active param)
         if (prevChar == '(') {
             m_changeTimer->stop();
             sendDidChange();
             const int line = cur.blockNumber();
             const int col  = cur.positionInBlock();
+            // Anchor at the '(' so we can detect when cursor leaves the call
+            m_signatureAnchorLine = line;
+            m_signatureAnchorCol  = col - 1;
             m_client->requestSignatureHelp(m_uri, line, col);
+        } else if (prevChar == ',' && m_signaturePopup
+                   && m_signaturePopup->isVisible()) {
+            m_changeTimer->stop();
+            sendDidChange();
+            const int line = cur.blockNumber();
+            const int col  = cur.positionInBlock();
+            m_client->requestSignatureHelp(m_uri, line, col);
+        } else if (prevChar == ')') {
+            // End of argument list — dismiss popup
+            hideSignaturePopup();
         }
 
         // Format on type: \n, }, ;
@@ -337,6 +407,19 @@ void LspEditorBridge::onCursorPositionChanged()
         QTextCursor word = cur;
         word.select(QTextCursor::WordUnderCursor);
         m_completion->filterByPrefix(word.selectedText());
+    }
+
+    // Signature help: dismiss if cursor moved off the anchor line, or
+    // before the '(' position; otherwise keep the popup glued near cursor.
+    if (m_signaturePopup && m_signaturePopup->isVisible()) {
+        const QTextCursor cur = m_editor->textCursor();
+        const int line = cur.blockNumber();
+        const int col  = cur.positionInBlock();
+        if (line != m_signatureAnchorLine || col <= m_signatureAnchorCol) {
+            hideSignaturePopup();
+        } else {
+            positionSignaturePopup();
+        }
     }
 }
 
@@ -399,26 +482,114 @@ void LspEditorBridge::onSignatureHelpResult(const QString &uri, int /*line*/,
 {
     if (uri != m_uri) return;
     const QJsonArray sigs = result["signatures"].toArray();
-    if (sigs.isEmpty()) return;
+    if (sigs.isEmpty()) {
+        hideSignaturePopup();
+        return;
+    }
 
-    const QJsonObject sig    = sigs[0].toObject();
-    const int activeParam    = result["activeParameter"].toInt(
-                                   sig["activeParameter"].toInt(0));
-    const QJsonArray params  = sig["parameters"].toArray();
-    QString label            = sig["label"].toString();
+    // Per LSP spec: activeSignature picks which signature, activeParameter
+    // applies to that signature unless the signature has its own override.
+    const int activeSig    = result["activeSignature"].toInt(0);
+    const int sigIdx       = (activeSig >= 0 && activeSig < sigs.size())
+                                 ? activeSig : 0;
+    const QJsonObject sig  = sigs[sigIdx].toObject();
+    const int activeParam  = sig.contains("activeParameter")
+                                 ? sig["activeParameter"].toInt(0)
+                                 : result["activeParameter"].toInt(0);
+    const QJsonArray params = sig["parameters"].toArray();
+    const QString label     = sig["label"].toString();
+    if (label.isEmpty()) {
+        hideSignaturePopup();
+        return;
+    }
 
-    // Bold the active parameter if possible
+    // Highlight the active parameter. parameter.label is either a string
+    // (substring of the signature label) or a [startUtf16, endUtf16] pair.
+    QString rich;
+    auto htmlEscape = [](const QString &s) {
+        QString out;
+        out.reserve(s.size());
+        for (QChar c : s) {
+            if      (c == '<') out += "&lt;";
+            else if (c == '>') out += "&gt;";
+            else if (c == '&') out += "&amp;";
+            else               out += c;
+        }
+        return out;
+    };
+
+    int hlStart = -1;
+    int hlEnd   = -1;
     if (activeParam >= 0 && activeParam < params.size()) {
         const QJsonValue pLabel = params[activeParam].toObject()["label"];
-        if (pLabel.isString()) {
+        if (pLabel.isArray()) {
+            const QJsonArray range = pLabel.toArray();
+            if (range.size() == 2) {
+                hlStart = range[0].toInt(-1);
+                hlEnd   = range[1].toInt(-1);
+            }
+        } else if (pLabel.isString()) {
             const QString p = pLabel.toString();
-            label.replace(p, "<b>" + p + "</b>");
+            if (!p.isEmpty()) {
+                hlStart = label.indexOf(p);
+                if (hlStart >= 0) hlEnd = hlStart + p.size();
+            }
         }
     }
 
-    const QPoint globalPos = m_editor->viewport()->mapToGlobal(
-        m_editor->cursorRect().topLeft());
-    QToolTip::showText(globalPos, label, m_editor);
+    if (hlStart >= 0 && hlEnd > hlStart && hlEnd <= label.size()) {
+        rich  = htmlEscape(label.left(hlStart));
+        rich += "<b style=\"color:#569cd6\">"
+              + htmlEscape(label.mid(hlStart, hlEnd - hlStart))
+              + "</b>";
+        rich += htmlEscape(label.mid(hlEnd));
+    } else {
+        rich = htmlEscape(label);
+    }
+
+    // Append doc/overload hint if multiple signatures exist
+    if (sigs.size() > 1) {
+        rich += QString("<span style=\"color:#808080\"> &nbsp;(%1/%2)</span>")
+                    .arg(sigIdx + 1).arg(sigs.size());
+    }
+
+    showSignaturePopup(rich);
+}
+
+// ── Signature help popup helpers ──────────────────────────────────────────────
+
+void LspEditorBridge::showSignaturePopup(const QString &richLabel)
+{
+    if (!m_signaturePopup || !m_signatureLabel) return;
+    m_signatureLabel->setText(richLabel);
+    m_signaturePopup->adjustSize();
+    positionSignaturePopup();
+    m_signaturePopup->show();
+    m_signaturePopup->raise();
+}
+
+void LspEditorBridge::hideSignaturePopup()
+{
+    if (m_signaturePopup && m_signaturePopup->isVisible())
+        m_signaturePopup->hide();
+    m_signatureAnchorLine = -1;
+    m_signatureAnchorCol  = -1;
+}
+
+void LspEditorBridge::positionSignaturePopup()
+{
+    if (!m_signaturePopup || !m_editor) return;
+    // Anchor above the current line so the popup never covers what's typed
+    const QRect cr = m_editor->cursorRect();
+    QPoint anchor = m_editor->viewport()->mapToGlobal(cr.topLeft());
+    const int popupH = m_signaturePopup->sizeHint().height();
+    anchor.ry() -= popupH + 2;
+    if (anchor.y() < 0) {
+        // Not enough space above; place below the line instead
+        anchor = m_editor->viewport()->mapToGlobal(cr.bottomLeft());
+        anchor.ry() += 2;
+    }
+    m_signaturePopup->move(anchor);
 }
 
 void LspEditorBridge::onDiagnosticsPublished(const QString &uri,

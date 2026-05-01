@@ -6,6 +6,8 @@
 #include <QString>
 
 class QTimer;
+class QFrame;
+class QLabel;
 class EditorView;
 class LspClient;
 class CompletionPopup;
@@ -75,6 +77,10 @@ private:
     void requestCodeActions();
     bool isCompletionTrigger(QChar ch) const;
     bool isFormatOnTypeTrigger(QChar ch) const;
+    void requestSignatureHelpAtCursor();
+    void showSignaturePopup(const QString &richLabel);
+    void hideSignaturePopup();
+    void positionSignaturePopup();
 
     EditorView      *m_editor;
     LspClient       *m_client;
@@ -89,6 +95,10 @@ private:
     QTimer          *m_inlayHintTimer;    // debounced 500ms for inlay hints
     CompletionPopup *m_completion;
     HoverTooltipWidget *m_hoverTooltip;
+    QFrame          *m_signaturePopup = nullptr;  // floating signature help popup
+    QLabel          *m_signatureLabel = nullptr;  // rich-text label inside popup
+    int              m_signatureAnchorLine = -1;  // line where '(' was typed
+    int              m_signatureAnchorCol  = -1;  // column of the '('
     QPoint           m_hoverGlobalPos;    // mouse position when hover was requested
     int              m_hoverLine = -1;
     int              m_hoverCol  = -1;
