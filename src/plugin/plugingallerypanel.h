@@ -13,8 +13,9 @@ class PluginManager;
 /// Panel for browsing installed and available plugins.
 ///
 /// Shows two tabs: Installed (from PluginManager) and Available (from a
-/// JSON registry file). Each plugin card shows name, version, author,
-/// description, and an enable/disable or install button.
+/// JSON registry file). Each plugin is rendered as a card with name,
+/// version, author, description, and action buttons (Enable/Disable,
+/// Open Folder, Reload, or Install).
 class PluginGalleryPanel : public QWidget
 {
     Q_OBJECT
@@ -40,6 +41,9 @@ signals:
     /// Emitted when the user toggles a plugin enabled/disabled.
     void pluginToggled(const QString &pluginId, bool enabled);
 
+    /// Emitted when the user requests a plugin reload (best-effort).
+    void pluginReloadRequested(const QString &pluginId);
+
 private slots:
     void onInstalledItemClicked(QListWidgetItem *item);
     void onAvailableItemClicked(QListWidgetItem *item);
@@ -49,21 +53,18 @@ private:
     void setupUi();
     void populateInstalled();
     void populateAvailable();
-    QWidget *createDetailWidget(const QString &name, const QString &version,
-                                const QString &author, const QString &description,
-                                const QString &homepage, bool installed);
+    void updateEmptyStates();
 
-    PluginManager *m_pluginManager = nullptr;
-    QLineEdit     *m_filterEdit    = nullptr;
-    QListWidget   *m_installedList = nullptr;
-    QListWidget   *m_availableList = nullptr;
-    QStackedWidget *m_detailStack  = nullptr;
-    QLabel        *m_detailName    = nullptr;
-    QLabel        *m_detailVersion = nullptr;
-    QLabel        *m_detailAuthor  = nullptr;
-    QLabel        *m_detailDesc    = nullptr;
-    QLabel        *m_detailHomepage = nullptr;
-    QPushButton   *m_actionButton  = nullptr;
+    struct InstalledRow {
+        QString id;
+        QString name;
+        QString version;
+        QString author;
+        QString description;
+        QString filePath;   // .dll / .so or .lua path
+        bool    isLua = false;
+        bool    disabled = false;
+    };
 
     struct RegistryEntry {
         QString id;
@@ -74,5 +75,28 @@ private:
         QString homepage;
         QString downloadUrl;
     };
+
+    /// Build the card widget displayed inside a QListWidgetItem for the
+    /// Installed list.
+    QWidget *buildInstalledCard(const InstalledRow &row);
+
+    /// Build the card widget displayed inside a QListWidgetItem for the
+    /// Available list.
+    QWidget *buildAvailableCard(const RegistryEntry &entry, bool alreadyInstalled);
+
+    PluginManager  *m_pluginManager  = nullptr;
+    QLineEdit      *m_filterEdit     = nullptr;
+    QListWidget    *m_installedList  = nullptr;
+    QListWidget    *m_availableList  = nullptr;
+    QLabel         *m_installedEmpty = nullptr;
+    QLabel         *m_availableEmpty = nullptr;
+    QStackedWidget *m_detailStack    = nullptr;
+    QLabel         *m_detailName     = nullptr;
+    QLabel         *m_detailVersion  = nullptr;
+    QLabel         *m_detailAuthor   = nullptr;
+    QLabel         *m_detailDesc     = nullptr;
+    QLabel         *m_detailHomepage = nullptr;
+    QPushButton    *m_actionButton   = nullptr;
+
     QList<RegistryEntry> m_registryEntries;
 };
