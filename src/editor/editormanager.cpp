@@ -2,6 +2,7 @@
 
 #include "editorview.h"
 #include "highlighterfactory.h"
+#include "imagepreviewwidget.h"
 #include "largefileloader.h"
 
 #include "../core/ifilesystem.h"
@@ -13,6 +14,7 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QFontMetricsF>
+#include <QSet>
 #include <QSettings>
 #include <QStackedWidget>
 #include <QTabWidget>
@@ -52,6 +54,32 @@ void EditorManager::openFile(const QString &path)
     for (int i = 0; i < m_tabs->count(); ++i) {
         if (m_tabs->widget(i)->property("filePath").toString() == path) {
             m_tabs->setCurrentIndex(i);
+            return;
+        }
+    }
+
+    // ── Image preview path: open .png/.jpg/.jpeg/.bmp/.gif/.svg in a viewer
+    //    instead of the binary text editor.  ImagePreviewWidget is a plain
+    //    QWidget (not EditorView); currentEditor()/editorAt() qobject_cast to
+    //    EditorView and return nullptr for these tabs, so existing flows are
+    //    safe.
+    {
+        const QString ext = QFileInfo(path).suffix().toLower();
+        static const QSet<QString> kImageExts = {
+            QStringLiteral("png"), QStringLiteral("jpg"), QStringLiteral("jpeg"),
+            QStringLiteral("bmp"), QStringLiteral("gif"), QStringLiteral("svg")
+        };
+        if (kImageExts.contains(ext)) {
+            auto *preview = new ImagePreviewWidget();
+            const bool ok = preview->loadImage(path);
+            if (!ok)
+                emit statusMessage(tr("Failed to open image: %1").arg(path), 4000);
+            preview->setProperty("filePath", path);
+
+            const QString title = QFileInfo(path).fileName();
+            const int index = m_tabs->addTab(preview, title);
+            m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
+            m_tabs->setCurrentIndex(index);
             return;
         }
     }

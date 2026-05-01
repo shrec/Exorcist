@@ -33,6 +33,8 @@ add_executable(exorcist WIN32
     editor/highlighterfactory.h
     editor/editormanager.h
     editor/editormanager.cpp
+    editor/imagepreviewwidget.h
+    editor/imagepreviewwidget.cpp
     # Language highlighting data moved to plugins/lang-pack (compiled there only)
     editor/textbuffer.h
     editor/piecetablebuffer.cpp
