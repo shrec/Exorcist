@@ -13,6 +13,8 @@ add_library(debug_plugin SHARED
     ${CMAKE_SOURCE_DIR}/src/debug/watchtreemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/debug/quickwatchdialog.h
     ${CMAKE_SOURCE_DIR}/src/debug/quickwatchdialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/debug/watchpointdialog.h
+    ${CMAKE_SOURCE_DIR}/src/debug/watchpointdialog.cpp
 )
 
 target_link_libraries(debug_plugin PRIVATE Qt6::Widgets Qt6::Svg plugin_common exorcist)

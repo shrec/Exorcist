@@ -2,6 +2,7 @@
 #include "sdk/idebugadapter.h"
 #include "watchtreemodel.h"
 #include "quickwatchdialog.h"
+#include "watchpointdialog.h"
 
 #include <QAction>
 #include <QApplication>
@@ -12,6 +13,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QPlainTextEdit>
+#include <QSpinBox>
 #include <QSplitter>
 #include <QTabWidget>
 #include <QTableWidget>
@@ -216,19 +218,87 @@ void DebugPanel::setupBreakpointsTab()
     auto *w = new QWidget(this);
     auto *lay = new QVBoxLayout(w);
     lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(0);
 
-    m_breakpointsTable = new QTableWidget(0, 3, w);
-    m_breakpointsTable->setHorizontalHeaderLabels({tr("Enabled"), tr("File"), tr("Line")});
-    m_breakpointsTable->horizontalHeader()->setStretchLastSection(true);
+    // ── Top toolbar: + Watchpoint, Hit Count editor ─────────────────────────
+    auto *barW = new QWidget(w);
+    auto *bar = new QHBoxLayout(barW);
+    bar->setContentsMargins(4, 4, 4, 4);
+    bar->setSpacing(6);
+    barW->setStyleSheet(QStringLiteral(
+        "QWidget { background: #2d2d30; }"
+        "QLabel  { color: #cccccc; font-size: 11px; }"
+        "QToolButton { color: #d4d4d4; background: transparent; "
+        "  padding: 3px 8px; border: 1px solid #3c3c3c; border-radius: 2px; }"
+        "QToolButton:hover { background: #3e3e42; }"
+        "QToolButton:pressed { background: #094771; }"
+        "QToolButton:disabled { color: #6e6e6e; border-color: #2d2d30; }"
+        "QSpinBox { background: #2b2b2b; color: #d4d4d4; "
+        "  border: 1px solid #3c3c3c; padding: 2px 4px; min-width: 50px; }"
+        "QSpinBox:focus { border: 1px solid #007acc; }"
+        "QSpinBox:disabled { color: #6e6e6e; background: #252526; }"));
+
+    m_addWatchpointBtn = new QToolButton(barW);
+    m_addWatchpointBtn->setText(tr("+ Watchpoint"));
+    m_addWatchpointBtn->setToolTip(tr("Add a data breakpoint (watchpoint) on a variable or memory expression"));
+    bar->addWidget(m_addWatchpointBtn);
+
+    bar->addSpacing(12);
+
+    auto *hcLbl = new QLabel(tr("Hit Count:"), barW);
+    bar->addWidget(hcLbl);
+
+    m_hitCountSpin = new QSpinBox(barW);
+    m_hitCountSpin->setRange(0, 1000000);
+    m_hitCountSpin->setValue(0);
+    m_hitCountSpin->setSpecialValueText(tr("always"));
+    m_hitCountSpin->setToolTip(tr("Break only after this many hits (0 = always). "
+                                  "Select a breakpoint then click Apply."));
+    bar->addWidget(m_hitCountSpin);
+
+    m_applyHitCountBtn = new QToolButton(barW);
+    m_applyHitCountBtn->setText(tr("Apply"));
+    m_applyHitCountBtn->setToolTip(tr("Apply hit-count to the selected breakpoint"));
+    bar->addWidget(m_applyHitCountBtn);
+
+    bar->addStretch();
+    lay->addWidget(barW);
+
+    // ── Table — 5 columns: Kind / Enabled / File or Expression / Line / Hit ─
+    m_breakpointsTable = new QTableWidget(0, 5, w);
+    m_breakpointsTable->setHorizontalHeaderLabels(
+        {tr("Kind"), tr("Enabled"), tr("File / Expression"), tr("Line"), tr("Hit Count")});
     m_breakpointsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_breakpointsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_breakpointsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_breakpointsTable->verticalHeader()->hide();
     m_breakpointsTable->setAlternatingRowColors(true);
-    m_breakpointsTable->setColumnWidth(0, 60);
-    m_breakpointsTable->setColumnWidth(1, 250);
+    m_breakpointsTable->setColumnWidth(0, 60);   // Kind
+    m_breakpointsTable->setColumnWidth(1, 60);   // Enabled
+    m_breakpointsTable->setColumnWidth(2, 280);  // File / Expression
+    m_breakpointsTable->setColumnWidth(3, 60);   // Line
+    m_breakpointsTable->setColumnWidth(4, 80);   // Hit Count
+    m_breakpointsTable->horizontalHeader()->setStretchLastSection(true);
     m_breakpointsTable->setStyleSheet(QLatin1String(kDebugTableStyle));
 
-    lay->addWidget(m_breakpointsTable);
+    lay->addWidget(m_breakpointsTable, 1);
+
+    connect(m_addWatchpointBtn, &QToolButton::clicked,
+            this, &DebugPanel::onAddWatchpointClicked);
+    connect(m_applyHitCountBtn, &QToolButton::clicked,
+            this, &DebugPanel::onBreakpointHitCountChanged);
+
+    // Reflect the selected row's existing hit-count into the spinner so
+    // the user has a sensible starting value before editing.
+    connect(m_breakpointsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
+        const int row = m_breakpointsTable->currentRow();
+        if (row < 0 || !m_hitCountSpin) return;
+        const auto *hcItem = m_breakpointsTable->item(row, 4);
+        if (!hcItem) return;
+        QSignalBlocker b(m_hitCountSpin);
+        m_hitCountSpin->setValue(hcItem->text().toInt());
+    });
+
     m_tabs->addTab(w, tr("Breakpoints"));
 }
 
@@ -362,6 +432,11 @@ void DebugPanel::setAdapter(IDebugAdapter *adapter)
             this, SLOT(onOutputProduced(QString,QString)));
     connect(m_adapter, SIGNAL(breakpointSet(DebugBreakpoint)),
             this, SLOT(onBreakpointVerified(DebugBreakpoint)));
+    // Watchpoint signals — same SIGNAL/SLOT cross-DLL pattern.
+    connect(m_adapter, SIGNAL(watchpointSet(DebugWatchpoint)),
+            this, SLOT(onWatchpointSet(DebugWatchpoint)));
+    connect(m_adapter, SIGNAL(watchpointRemoved(int)),
+            this, SLOT(onWatchpointRemoved(int)));
 }
 
 // ── Toolbar actions ───────────────────────────────────────────────────────────
@@ -564,14 +639,67 @@ void DebugPanel::onOutputProduced(const QString &text, const QString &category)
 void DebugPanel::onBreakpointVerified(const DebugBreakpoint &bp)
 {
     for (int r = 0; r < m_breakpointsTable->rowCount(); ++r) {
-        const auto *fileItem = m_breakpointsTable->item(r, 1);
-        const auto *lineItem = m_breakpointsTable->item(r, 2);
+        const auto *kindItem = m_breakpointsTable->item(r, 0);
+        if (kindItem && kindItem->text() != tr("Break"))
+            continue; // skip watchpoint rows
+        const auto *fileItem = m_breakpointsTable->item(r, 2);
+        const auto *lineItem = m_breakpointsTable->item(r, 3);
         if (fileItem && lineItem
             && fileItem->text() == bp.filePath
             && lineItem->text().toInt() == bp.line) {
-            m_breakpointsTable->item(r, 0)->setText(
+            m_breakpointsTable->item(r, 1)->setText(
                 bp.verified ? tr("\u2714") : tr("\u25CB"));
+            // Persist adapter-assigned id and hit-count for later edits.
+            m_breakpointsTable->item(r, 0)->setData(Qt::UserRole, bp.id);
+            if (auto *hcItem = m_breakpointsTable->item(r, 4)) {
+                hcItem->setText(QString::number(bp.hitCount));
+            }
             break;
+        }
+    }
+}
+
+void DebugPanel::onWatchpointSet(const DebugWatchpoint &wp)
+{
+    // First try to update an existing pending row matching this expression.
+    for (int r = 0; r < m_breakpointsTable->rowCount(); ++r) {
+        const auto *kindItem = m_breakpointsTable->item(r, 0);
+        if (!kindItem || kindItem->text() != tr("Watch"))
+            continue;
+        const auto *exprItem = m_breakpointsTable->item(r, 2);
+        if (exprItem && exprItem->text() == wp.expression
+            && m_breakpointsTable->item(r, 0)->data(Qt::UserRole).toInt() <= 0) {
+            m_breakpointsTable->item(r, 0)->setData(Qt::UserRole, wp.id);
+            m_breakpointsTable->item(r, 1)->setText(
+                wp.verified ? tr("\u2714") : tr("\u25CB"));
+            return;
+        }
+    }
+
+    // Otherwise insert a fresh row (e.g. created from elsewhere).
+    const int row = m_breakpointsTable->rowCount();
+    m_breakpointsTable->insertRow(row);
+    auto *kindItem = new QTableWidgetItem(tr("Watch"));
+    kindItem->setData(Qt::UserRole, wp.id);
+    // type stored in UserRole+1 so a future edit dialog can re-show it.
+    kindItem->setData(Qt::UserRole + 1, static_cast<int>(wp.type));
+    m_breakpointsTable->setItem(row, 0, kindItem);
+    m_breakpointsTable->setItem(row, 1,
+        new QTableWidgetItem(wp.verified ? tr("\u2714") : tr("\u25CB")));
+    m_breakpointsTable->setItem(row, 2, new QTableWidgetItem(wp.expression));
+    m_breakpointsTable->setItem(row, 3, new QTableWidgetItem(QString())); // no line
+    m_breakpointsTable->setItem(row, 4, new QTableWidgetItem(QString())); // no hit-count
+}
+
+void DebugPanel::onWatchpointRemoved(int watchpointId)
+{
+    for (int r = 0; r < m_breakpointsTable->rowCount(); ++r) {
+        const auto *kindItem = m_breakpointsTable->item(r, 0);
+        if (!kindItem || kindItem->text() != tr("Watch"))
+            continue;
+        if (kindItem->data(Qt::UserRole).toInt() == watchpointId) {
+            m_breakpointsTable->removeRow(r);
+            return;
         }
     }
 }
@@ -637,18 +765,24 @@ void DebugPanel::onThreadClicked(int row, int /*col*/)
 
 void DebugPanel::addBreakpointEntry(const QString &filePath, int line)
 {
-    // Check for duplicate
+    // Check for duplicate (Break rows only — Watch rows have no file/line)
     for (int r = 0; r < m_breakpointsTable->rowCount(); ++r) {
-        if (m_breakpointsTable->item(r, 1)->text() == filePath
-            && m_breakpointsTable->item(r, 2)->text().toInt() == line)
+        const auto *kindItem = m_breakpointsTable->item(r, 0);
+        if (kindItem && kindItem->text() != tr("Break")) continue;
+        if (m_breakpointsTable->item(r, 2)->text() == filePath
+            && m_breakpointsTable->item(r, 3)->text().toInt() == line)
             return; // already exists
     }
 
     const int row = m_breakpointsTable->rowCount();
     m_breakpointsTable->insertRow(row);
-    m_breakpointsTable->setItem(row, 0, new QTableWidgetItem(tr("\u25CB"))); // pending
-    m_breakpointsTable->setItem(row, 1, new QTableWidgetItem(filePath));
-    m_breakpointsTable->setItem(row, 2, new QTableWidgetItem(QString::number(line)));
+    auto *kindItem = new QTableWidgetItem(tr("Break"));
+    kindItem->setData(Qt::UserRole, -1); // adapter-id unset
+    m_breakpointsTable->setItem(row, 0, kindItem);
+    m_breakpointsTable->setItem(row, 1, new QTableWidgetItem(tr("\u25CB"))); // pending
+    m_breakpointsTable->setItem(row, 2, new QTableWidgetItem(filePath));
+    m_breakpointsTable->setItem(row, 3, new QTableWidgetItem(QString::number(line)));
+    m_breakpointsTable->setItem(row, 4, new QTableWidgetItem(QStringLiteral("0")));
 
     // Send to adapter if active
     if (m_adapter && m_adapter->isRunning()) {
@@ -662,8 +796,10 @@ void DebugPanel::addBreakpointEntry(const QString &filePath, int line)
 void DebugPanel::removeBreakpointEntry(const QString &filePath, int line)
 {
     for (int r = 0; r < m_breakpointsTable->rowCount(); ++r) {
-        if (m_breakpointsTable->item(r, 1)->text() == filePath
-            && m_breakpointsTable->item(r, 2)->text().toInt() == line) {
+        const auto *kindItem = m_breakpointsTable->item(r, 0);
+        if (kindItem && kindItem->text() != tr("Break")) continue;
+        if (m_breakpointsTable->item(r, 2)->text() == filePath
+            && m_breakpointsTable->item(r, 3)->text().toInt() == line) {
             m_breakpointsTable->removeRow(r);
             break;
         }
@@ -759,4 +895,79 @@ void DebugPanel::onWatchContextMenu(const QPoint &pos)
     });
 
     menu.exec(m_watchView->viewport()->mapToGlobal(pos));
+}
+
+// ── Watchpoint dialog launcher ───────────────────────────────────────────────
+
+void DebugPanel::onAddWatchpointClicked()
+{
+    auto *dlg = new WatchpointDialog(this);
+    connect(dlg, &WatchpointDialog::watchpointConfigured,
+            this, [this](const QString &expr, int type) {
+        // Insert a placeholder row immediately for instant feedback;
+        // onWatchpointSet() will fill in the adapter-assigned id once
+        // the backend confirms.
+        const int row = m_breakpointsTable->rowCount();
+        m_breakpointsTable->insertRow(row);
+        auto *kindItem = new QTableWidgetItem(tr("Watch"));
+        kindItem->setData(Qt::UserRole, -1);            // pending id
+        kindItem->setData(Qt::UserRole + 1, type);      // store type for re-edit
+        m_breakpointsTable->setItem(row, 0, kindItem);
+        m_breakpointsTable->setItem(row, 1, new QTableWidgetItem(QStringLiteral("○")));
+        m_breakpointsTable->setItem(row, 2, new QTableWidgetItem(expr));
+        m_breakpointsTable->setItem(row, 3, new QTableWidgetItem(QString()));
+        m_breakpointsTable->setItem(row, 4, new QTableWidgetItem(QString()));
+
+        if (!m_adapter) {
+            m_breakpointsTable->item(row, 1)->setText(QStringLiteral("?"));
+            return;
+        }
+        DebugWatchpoint wp;
+        wp.expression = expr;
+        wp.type = static_cast<DebugWatchpoint::Type>(type);
+        m_adapter->addWatchpoint(wp);
+    });
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+}
+
+// ── Hit-count edit on selected breakpoint ────────────────────────────────────
+
+void DebugPanel::onBreakpointHitCountChanged()
+{
+    if (m_updatingHitCount) return;
+    if (!m_breakpointsTable || !m_hitCountSpin) return;
+
+    const int row = m_breakpointsTable->currentRow();
+    if (row < 0) return;
+
+    const auto *kindItem = m_breakpointsTable->item(row, 0);
+    if (!kindItem || kindItem->text() != tr("Break")) return;
+
+    const auto *fileItem = m_breakpointsTable->item(row, 2);
+    const auto *lineItem = m_breakpointsTable->item(row, 3);
+    if (!fileItem || !lineItem) return;
+
+    const int newHitCount = m_hitCountSpin->value();
+    const int oldId = kindItem->data(Qt::UserRole).toInt();
+
+    // Update the table cell now; backend confirmation will arrive via
+    // onBreakpointVerified and re-write the cell to the same value.
+    m_updatingHitCount = true;
+    m_breakpointsTable->item(row, 4)->setText(QString::number(newHitCount));
+    m_updatingHitCount = false;
+
+    if (!m_adapter || !m_adapter->isRunning()) return;
+
+    // Re-create the breakpoint with the new hit-count. Adapters that
+    // don't support live -break-after editing handle this via the
+    // remove/add pair (mirrors the existing condition flow).
+    if (oldId > 0)
+        m_adapter->removeBreakpoint(oldId);
+
+    DebugBreakpoint bp;
+    bp.filePath = fileItem->text();
+    bp.line     = lineItem->text().toInt();
+    bp.hitCount = newHitCount;
+    m_adapter->addBreakpoint(bp);
 }

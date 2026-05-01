@@ -15,10 +15,12 @@ class QLabel;
 class IDebugAdapter;
 class WatchTreeModel;
 class QuickWatchDialog;
+class QSpinBox;
 struct DebugBreakpoint;
 struct DebugFrame;
 struct DebugVariable;
 struct DebugThread;
+struct DebugWatchpoint;
 enum class DebugStopReason;
 
 /// Main debug panel containing control bar + tabs for
@@ -77,12 +79,17 @@ private slots:
     void onEvaluateResult(const QString &expr, const QString &result);
     void onOutputProduced(const QString &text, const QString &category);
     void onBreakpointVerified(const DebugBreakpoint &bp);
+    void onWatchpointSet(const DebugWatchpoint &wp);
+    void onWatchpointRemoved(int watchpointId);
 
     void onCallStackDoubleClicked(int row, int col);
     void onCallStackClicked(int row, int col);
     void onThreadClicked(int row, int col);
     void onLocalsContextMenu(const QPoint &pos);
     void onWatchContextMenu(const QPoint &pos);
+
+    void onAddWatchpointClicked();
+    void onBreakpointHitCountChanged();
 
 private:
     void setupToolBar();
@@ -128,7 +135,15 @@ private:
     WatchTreeModel   *m_localsModel;
 
     // Breakpoints tab
+    // Columns: 0=Kind ("Break"/"Watch"), 1=Enabled, 2=File / Expression,
+    //          3=Line, 4=Hit Count
     QTableWidget     *m_breakpointsTable;
+    QToolButton      *m_addWatchpointBtn = nullptr;
+    QSpinBox         *m_hitCountSpin     = nullptr;
+    QToolButton      *m_applyHitCountBtn = nullptr;
+    // Re-entry guard: programmatic edits of the hit-count cell would
+    // otherwise re-trigger the change handler → re-add → emit signal → loop.
+    bool              m_updatingHitCount = false;
 
     // Output tab
     QPlainTextEdit   *m_outputText;
