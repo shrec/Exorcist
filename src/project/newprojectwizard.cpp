@@ -19,6 +19,7 @@ bool NewProjectWizard::languageUsesKit(const QString &language)
 {
     return language == QLatin1String("C++")
         || language == QLatin1String("C")
+        || language == QLatin1String("Qt")
         || language == QLatin1String("Zig");
 }
 

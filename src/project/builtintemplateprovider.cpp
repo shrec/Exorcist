@@ -145,6 +145,31 @@ QList<ProjectTemplate> BuiltinTemplateProvider::templates() const
          tr("SBT Project"),
          tr("A Scala project with build.sbt."),
          QStringLiteral(":/lang-icons/scala.svg")},
+
+        // ── Qt ───────────────────────────────────────────────────────────
+        {QStringLiteral("qt-widget-app"), QStringLiteral("Qt"),
+         tr("Qt Widget Application"),
+         tr("A Qt 6 desktop GUI application using QWidget. "
+            "Includes QMainWindow subclass, .ui form, and CMake build with "
+            "AUTOMOC/AUTOUIC/AUTORCC enabled."),
+         QStringLiteral(":/lang-icons/cpp.svg")},
+        {QStringLiteral("qt-quick-app"), QStringLiteral("Qt"),
+         tr("Qt Quick Application"),
+         tr("A Qt 6 application using QML and Qt Quick. "
+            "Uses qt_add_qml_module with the modern resource layout under "
+            "/qt/qml/<project>/."),
+         QStringLiteral(":/lang-icons/cpp.svg")},
+        {QStringLiteral("qt-plugin"), QStringLiteral("Qt"),
+         tr("Qt Plugin"),
+         tr("A generic Qt 6 plugin shared library (MODULE) with plugin.json "
+            "metadata, exporting a Q_PLUGIN_METADATA-tagged class implementing "
+            "an interface."),
+         QStringLiteral(":/lang-icons/cpp.svg")},
+        {QStringLiteral("qt-console-app"), QStringLiteral("Qt"),
+         tr("Qt Console Application"),
+         tr("A non-GUI Qt 6 application using QCoreApplication. "
+            "Demonstrates the Qt event loop with QTimer + signals/slots."),
+         QStringLiteral(":/lang-icons/cpp.svg")},
     };
 }
 
@@ -189,6 +214,15 @@ bool BuiltinTemplateProvider::createProject(const QString &templateId,
     // Zig
     if (templateId == QLatin1String("zig-project"))
         return createZigProject(projectName, location, error);
+    // Qt
+    if (templateId == QLatin1String("qt-widget-app"))
+        return createQtWidgetApp(projectName, location, error);
+    if (templateId == QLatin1String("qt-quick-app"))
+        return createQtQuickApp(projectName, location, error);
+    if (templateId == QLatin1String("qt-plugin"))
+        return createQtPlugin(projectName, location, error);
+    if (templateId == QLatin1String("qt-console-app"))
+        return createQtConsoleApp(projectName, location, error);
 
     // ── Generic single-file scaffolds ────────────────────────────────────
     // Java
@@ -1014,4 +1048,501 @@ bool BuiltinTemplateProvider::createZigProject(const QString &name,
     return writeProjectFile(dir, name, QStringLiteral("Zig"),
                             QStringLiteral("zig-project"), QStringLiteral("zig"),
                             {QStringLiteral("src/main.zig")}, {}, error);
+}
+
+// ── Qt ───────────────────────────────────────────────────────────────────────
+//
+// All Qt templates use Qt 6 with CMake. Substitution placeholders are
+// rendered via QString::arg(name) — the "{{PROJECT_NAME}}" style is mapped
+// to %1 / %2 here for parity with the rest of the file.
+
+bool BuiltinTemplateProvider::createQtWidgetApp(const QString &name,
+                                                const QString &dir,
+                                                QString *error)
+{
+    if (!ensureDir(dir, error)) return false;
+    QDir d(dir);
+    if (!d.mkpath(QStringLiteral("src"))) {
+        if (error) *error = tr("Cannot create project directories: %1").arg(dir);
+        return false;
+    }
+
+    // ── CMakeLists.txt ───────────────────────────────────────────────────
+    const QString cmake = QStringLiteral(
+        "cmake_minimum_required(VERSION 3.21)\n"
+        "project(%1\n"
+        "    VERSION 0.1.0\n"
+        "    LANGUAGES CXX\n"
+        "    DESCRIPTION \"%1 Qt Widget application\"\n"
+        ")\n\n"
+        "set(CMAKE_CXX_STANDARD 17)\n"
+        "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n"
+        "set(CMAKE_AUTOMOC ON)\n"
+        "set(CMAKE_AUTOUIC ON)\n"
+        "set(CMAKE_AUTORCC ON)\n\n"
+        "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\n\n"
+        "find_package(Qt6 REQUIRED COMPONENTS Widgets)\n\n"
+        "qt_standard_project_setup()\n\n"
+        "qt_add_executable(%1 WIN32 MACOSX_BUNDLE\n"
+        "    src/main.cpp\n"
+        "    src/mainwindow.cpp\n"
+        "    src/mainwindow.h\n"
+        "    src/mainwindow.ui\n"
+        ")\n\n"
+        "target_link_libraries(%1 PRIVATE Qt6::Widgets)\n\n"
+        "install(TARGETS %1\n"
+        "    BUNDLE  DESTINATION .\n"
+        "    RUNTIME DESTINATION bin\n"
+        ")\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("CMakeLists.txt")), cmake, error))
+        return false;
+
+    // ── src/main.cpp ─────────────────────────────────────────────────────
+    const QString mainCpp = QStringLiteral(
+        "#include \"mainwindow.h\"\n\n"
+        "#include <QApplication>\n\n"
+        "int main(int argc, char *argv[])\n"
+        "{\n"
+        "    QApplication app(argc, argv);\n"
+        "    QApplication::setApplicationName(QStringLiteral(\"%1\"));\n"
+        "    QApplication::setOrganizationName(QStringLiteral(\"%1\"));\n\n"
+        "    MainWindow w;\n"
+        "    w.show();\n"
+        "    return app.exec();\n"
+        "}\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("src/main.cpp")), mainCpp, error))
+        return false;
+
+    // ── src/mainwindow.h ─────────────────────────────────────────────────
+    const QString mwH = QStringLiteral(
+        "#pragma once\n\n"
+        "#include <QMainWindow>\n\n"
+        "QT_BEGIN_NAMESPACE\n"
+        "namespace Ui { class MainWindow; }\n"
+        "QT_END_NAMESPACE\n\n"
+        "class MainWindow : public QMainWindow\n"
+        "{\n"
+        "    Q_OBJECT\n\n"
+        "public:\n"
+        "    explicit MainWindow(QWidget *parent = nullptr);\n"
+        "    ~MainWindow() override;\n\n"
+        "private slots:\n"
+        "    void onAboutTriggered();\n"
+        "    void onQuitTriggered();\n\n"
+        "private:\n"
+        "    Ui::MainWindow *ui;\n"
+        "};\n");
+
+    if (!writeFile(d.filePath(QStringLiteral("src/mainwindow.h")), mwH, error))
+        return false;
+
+    // ── src/mainwindow.cpp ───────────────────────────────────────────────
+    const QString mwCpp = QStringLiteral(
+        "#include \"mainwindow.h\"\n"
+        "#include \"ui_mainwindow.h\"\n\n"
+        "#include <QAction>\n"
+        "#include <QApplication>\n"
+        "#include <QMenuBar>\n"
+        "#include <QMessageBox>\n"
+        "#include <QStatusBar>\n\n"
+        "MainWindow::MainWindow(QWidget *parent)\n"
+        "    : QMainWindow(parent)\n"
+        "    , ui(new Ui::MainWindow)\n"
+        "{\n"
+        "    ui->setupUi(this);\n"
+        "    setWindowTitle(QStringLiteral(\"%1\"));\n\n"
+        "    auto *fileMenu = menuBar()->addMenu(tr(\"&File\"));\n"
+        "    auto *quitAct  = fileMenu->addAction(tr(\"&Quit\"));\n"
+        "    quitAct->setShortcut(QKeySequence::Quit);\n"
+        "    connect(quitAct, &QAction::triggered,\n"
+        "            this, &MainWindow::onQuitTriggered);\n\n"
+        "    auto *helpMenu = menuBar()->addMenu(tr(\"&Help\"));\n"
+        "    auto *aboutAct = helpMenu->addAction(tr(\"&About\"));\n"
+        "    connect(aboutAct, &QAction::triggered,\n"
+        "            this, &MainWindow::onAboutTriggered);\n\n"
+        "    statusBar()->showMessage(tr(\"Ready\"));\n"
+        "}\n\n"
+        "MainWindow::~MainWindow()\n"
+        "{\n"
+        "    delete ui;\n"
+        "}\n\n"
+        "void MainWindow::onAboutTriggered()\n"
+        "{\n"
+        "    QMessageBox::about(this, tr(\"About %1\"),\n"
+        "        tr(\"<b>%1</b><br/>A Qt Widget application.\"));\n"
+        "}\n\n"
+        "void MainWindow::onQuitTriggered()\n"
+        "{\n"
+        "    QApplication::quit();\n"
+        "}\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("src/mainwindow.cpp")), mwCpp, error))
+        return false;
+
+    // ── src/mainwindow.ui (Qt Designer XML) ──────────────────────────────
+    const QString mwUi = QStringLiteral(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<ui version=\"4.0\">\n"
+        " <class>MainWindow</class>\n"
+        " <widget class=\"QMainWindow\" name=\"MainWindow\">\n"
+        "  <property name=\"geometry\">\n"
+        "   <rect>\n"
+        "    <x>0</x>\n"
+        "    <y>0</y>\n"
+        "    <width>640</width>\n"
+        "    <height>480</height>\n"
+        "   </rect>\n"
+        "  </property>\n"
+        "  <property name=\"windowTitle\">\n"
+        "   <string>%1</string>\n"
+        "  </property>\n"
+        "  <widget class=\"QWidget\" name=\"centralwidget\">\n"
+        "   <layout class=\"QVBoxLayout\" name=\"verticalLayout\">\n"
+        "    <item>\n"
+        "     <widget class=\"QLabel\" name=\"label\">\n"
+        "      <property name=\"text\">\n"
+        "       <string>Welcome to %1!</string>\n"
+        "      </property>\n"
+        "      <property name=\"alignment\">\n"
+        "       <set>Qt::AlignCenter</set>\n"
+        "      </property>\n"
+        "     </widget>\n"
+        "    </item>\n"
+        "   </layout>\n"
+        "  </widget>\n"
+        " </widget>\n"
+        " <resources/>\n"
+        " <connections/>\n"
+        "</ui>\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("src/mainwindow.ui")), mwUi, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("Qt"),
+                            QStringLiteral("qt-widget-app"),
+                            QStringLiteral("cmake"),
+                            {QStringLiteral("src/main.cpp"),
+                             QStringLiteral("src/mainwindow.cpp"),
+                             QStringLiteral("src/mainwindow.h"),
+                             QStringLiteral("src/mainwindow.ui")},
+                            {QStringLiteral("src")}, error);
+}
+
+bool BuiltinTemplateProvider::createQtQuickApp(const QString &name,
+                                               const QString &dir,
+                                               QString *error)
+{
+    if (!ensureDir(dir, error)) return false;
+    QDir d(dir);
+    if (!d.mkpath(QStringLiteral("src")) ||
+        !d.mkpath(QStringLiteral("qml"))) {
+        if (error) *error = tr("Cannot create project directories: %1").arg(dir);
+        return false;
+    }
+
+    // ── CMakeLists.txt ───────────────────────────────────────────────────
+    const QString cmake = QStringLiteral(
+        "cmake_minimum_required(VERSION 3.21)\n"
+        "project(%1\n"
+        "    VERSION 0.1.0\n"
+        "    LANGUAGES CXX\n"
+        "    DESCRIPTION \"%1 Qt Quick application\"\n"
+        ")\n\n"
+        "set(CMAKE_CXX_STANDARD 17)\n"
+        "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n"
+        "set(CMAKE_AUTOMOC ON)\n"
+        "set(CMAKE_AUTOUIC ON)\n"
+        "set(CMAKE_AUTORCC ON)\n\n"
+        "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\n\n"
+        "find_package(Qt6 REQUIRED COMPONENTS Quick Qml)\n\n"
+        "qt_standard_project_setup(REQUIRES 6.5)\n\n"
+        "qt_add_executable(%1app\n"
+        "    src/main.cpp\n"
+        ")\n\n"
+        "qt_add_qml_module(%1app\n"
+        "    URI %1\n"
+        "    VERSION 1.0\n"
+        "    QML_FILES\n"
+        "        qml/Main.qml\n"
+        ")\n\n"
+        "target_link_libraries(%1app PRIVATE\n"
+        "    Qt6::Quick\n"
+        "    Qt6::Qml\n"
+        ")\n\n"
+        "install(TARGETS %1app\n"
+        "    BUNDLE  DESTINATION .\n"
+        "    RUNTIME DESTINATION bin\n"
+        ")\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("CMakeLists.txt")), cmake, error))
+        return false;
+
+    // ── src/main.cpp ─────────────────────────────────────────────────────
+    const QString mainCpp = QStringLiteral(
+        "#include <QGuiApplication>\n"
+        "#include <QQmlApplicationEngine>\n\n"
+        "int main(int argc, char *argv[])\n"
+        "{\n"
+        "    QGuiApplication app(argc, argv);\n"
+        "    QGuiApplication::setApplicationName(QStringLiteral(\"%1\"));\n"
+        "    QGuiApplication::setOrganizationName(QStringLiteral(\"%1\"));\n\n"
+        "    QQmlApplicationEngine engine;\n"
+        "    QObject::connect(\n"
+        "        &engine, &QQmlApplicationEngine::objectCreationFailed,\n"
+        "        &app,    []() { QCoreApplication::exit(-1); },\n"
+        "        Qt::QueuedConnection);\n\n"
+        "    engine.loadFromModule(QStringLiteral(\"%1\"),\n"
+        "                          QStringLiteral(\"Main\"));\n\n"
+        "    return app.exec();\n"
+        "}\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("src/main.cpp")), mainCpp, error))
+        return false;
+
+    // ── qml/Main.qml ─────────────────────────────────────────────────────
+    const QString mainQml = QStringLiteral(
+        "import QtQuick\n"
+        "import QtQuick.Window\n"
+        "import QtQuick.Controls\n\n"
+        "Window {\n"
+        "    width: 640\n"
+        "    height: 480\n"
+        "    visible: true\n"
+        "    title: qsTr(\"%1\")\n\n"
+        "    Text {\n"
+        "        anchors.centerIn: parent\n"
+        "        text: qsTr(\"Welcome to %1!\")\n"
+        "        font.pixelSize: 24\n"
+        "    }\n"
+        "}\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("qml/Main.qml")), mainQml, error))
+        return false;
+
+    // ── qml.qrc (legacy resource — kept for reference; modern builds use\n
+    //   qt_add_qml_module which auto-generates the resource at /qt/qml/<name>/) ─
+    const QString qmlQrc = QStringLiteral(
+        "<RCC>\n"
+        "    <qresource prefix=\"/qt/qml/%1/\">\n"
+        "        <file alias=\"Main.qml\">qml/Main.qml</file>\n"
+        "    </qresource>\n"
+        "</RCC>\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("qml.qrc")), qmlQrc, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("Qt"),
+                            QStringLiteral("qt-quick-app"),
+                            QStringLiteral("cmake"),
+                            {QStringLiteral("src/main.cpp"),
+                             QStringLiteral("qml/Main.qml")},
+                            {QStringLiteral("src"), QStringLiteral("qml")},
+                            error);
+}
+
+bool BuiltinTemplateProvider::createQtPlugin(const QString &name,
+                                             const QString &dir,
+                                             QString *error)
+{
+    if (!ensureDir(dir, error)) return false;
+    QDir d(dir);
+    if (!d.mkpath(QStringLiteral("src"))) {
+        if (error) *error = tr("Cannot create project directories: %1").arg(dir);
+        return false;
+    }
+
+    // ── CMakeLists.txt ───────────────────────────────────────────────────
+    const QString cmake = QStringLiteral(
+        "cmake_minimum_required(VERSION 3.21)\n"
+        "project(%1\n"
+        "    VERSION 0.1.0\n"
+        "    LANGUAGES CXX\n"
+        "    DESCRIPTION \"%1 Qt plugin\"\n"
+        ")\n\n"
+        "set(CMAKE_CXX_STANDARD 17)\n"
+        "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n"
+        "set(CMAKE_AUTOMOC ON)\n\n"
+        "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\n\n"
+        "find_package(Qt6 REQUIRED COMPONENTS Core)\n\n"
+        "add_library(%1 MODULE\n"
+        "    src/plugin.cpp\n"
+        "    src/plugin.h\n"
+        ")\n\n"
+        "target_include_directories(%1 PUBLIC\n"
+        "    ${CMAKE_CURRENT_SOURCE_DIR}/src\n"
+        ")\n\n"
+        "target_link_libraries(%1 PRIVATE Qt6::Core)\n\n"
+        "set_target_properties(%1 PROPERTIES\n"
+        "    PREFIX \"\"\n"
+        ")\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("CMakeLists.txt")), cmake, error))
+        return false;
+
+    // ── src/plugin.h ─────────────────────────────────────────────────────
+    const QString pluginH = QStringLiteral(
+        "#pragma once\n\n"
+        "#include <QObject>\n"
+        "#include <QtPlugin>\n\n"
+        "// ── Generic plugin interface ────────────────────────────────────\n"
+        "class IPlugin\n"
+        "{\n"
+        "public:\n"
+        "    virtual ~IPlugin() = default;\n"
+        "    virtual QString name() const    = 0;\n"
+        "    virtual QString version() const = 0;\n"
+        "    virtual bool    initialize()    = 0;\n"
+        "    virtual void    shutdown()      = 0;\n"
+        "};\n\n"
+        "#define %2_PLUGIN_IID \"org.example.%1.IPlugin/1.0\"\n"
+        "Q_DECLARE_INTERFACE(IPlugin, %2_PLUGIN_IID)\n\n"
+        "// ── Plugin implementation ───────────────────────────────────────\n"
+        "class %1Plugin : public QObject, public IPlugin\n"
+        "{\n"
+        "    Q_OBJECT\n"
+        "    Q_PLUGIN_METADATA(IID %2_PLUGIN_IID FILE \"plugin.json\")\n"
+        "    Q_INTERFACES(IPlugin)\n\n"
+        "public:\n"
+        "    explicit %1Plugin(QObject *parent = nullptr);\n"
+        "    ~%1Plugin() override;\n\n"
+        "    QString name()    const override;\n"
+        "    QString version() const override;\n"
+        "    bool    initialize() override;\n"
+        "    void    shutdown()   override;\n"
+        "};\n").arg(name, name.toUpper());
+
+    if (!writeFile(d.filePath(QStringLiteral("src/plugin.h")), pluginH, error))
+        return false;
+
+    // ── src/plugin.cpp ───────────────────────────────────────────────────
+    const QString pluginCpp = QStringLiteral(
+        "#include \"plugin.h\"\n\n"
+        "#include <QDebug>\n\n"
+        "%1Plugin::%1Plugin(QObject *parent)\n"
+        "    : QObject(parent)\n"
+        "{\n"
+        "}\n\n"
+        "%1Plugin::~%1Plugin() = default;\n\n"
+        "QString %1Plugin::name() const\n"
+        "{\n"
+        "    return QStringLiteral(\"%1\");\n"
+        "}\n\n"
+        "QString %1Plugin::version() const\n"
+        "{\n"
+        "    return QStringLiteral(\"0.1.0\");\n"
+        "}\n\n"
+        "bool %1Plugin::initialize()\n"
+        "{\n"
+        "    qDebug() << \"%1Plugin: initialize()\";\n"
+        "    return true;\n"
+        "}\n\n"
+        "void %1Plugin::shutdown()\n"
+        "{\n"
+        "    qDebug() << \"%1Plugin: shutdown()\";\n"
+        "}\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("src/plugin.cpp")), pluginCpp, error))
+        return false;
+
+    // ── plugin.json (metadata) ───────────────────────────────────────────
+    const QString pluginJson = QStringLiteral(
+        "{\n"
+        "    \"name\":        \"%1\",\n"
+        "    \"version\":     \"0.1.0\",\n"
+        "    \"description\": \"%1 Qt plugin\",\n"
+        "    \"author\":      \"\",\n"
+        "    \"license\":     \"\",\n"
+        "    \"dependencies\": []\n"
+        "}\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("plugin.json")), pluginJson, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("Qt"),
+                            QStringLiteral("qt-plugin"),
+                            QStringLiteral("cmake"),
+                            {QStringLiteral("src/plugin.cpp"),
+                             QStringLiteral("src/plugin.h")},
+                            {QStringLiteral("src")}, error);
+}
+
+bool BuiltinTemplateProvider::createQtConsoleApp(const QString &name,
+                                                 const QString &dir,
+                                                 QString *error)
+{
+    if (!ensureDir(dir, error)) return false;
+    QDir d(dir);
+    if (!d.mkpath(QStringLiteral("src"))) {
+        if (error) *error = tr("Cannot create project directories: %1").arg(dir);
+        return false;
+    }
+
+    // ── CMakeLists.txt ───────────────────────────────────────────────────
+    const QString cmake = QStringLiteral(
+        "cmake_minimum_required(VERSION 3.21)\n"
+        "project(%1\n"
+        "    VERSION 0.1.0\n"
+        "    LANGUAGES CXX\n"
+        "    DESCRIPTION \"%1 Qt console application\"\n"
+        ")\n\n"
+        "set(CMAKE_CXX_STANDARD 17)\n"
+        "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n"
+        "set(CMAKE_AUTOMOC ON)\n\n"
+        "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\n\n"
+        "find_package(Qt6 REQUIRED COMPONENTS Core)\n\n"
+        "qt_standard_project_setup()\n\n"
+        "qt_add_executable(%1\n"
+        "    src/main.cpp\n"
+        ")\n\n"
+        "target_link_libraries(%1 PRIVATE Qt6::Core)\n\n"
+        "install(TARGETS %1 RUNTIME DESTINATION bin)\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("CMakeLists.txt")), cmake, error))
+        return false;
+
+    // ── src/main.cpp ─────────────────────────────────────────────────────
+    const QString mainCpp = QStringLiteral(
+        "#include <QCoreApplication>\n"
+        "#include <QDebug>\n"
+        "#include <QObject>\n"
+        "#include <QTimer>\n\n"
+        "// Tiny worker that demonstrates the Qt event loop +\n"
+        "// signals/slots in a non-GUI program.\n"
+        "class Worker : public QObject\n"
+        "{\n"
+        "    Q_OBJECT\n"
+        "public:\n"
+        "    explicit Worker(QObject *parent = nullptr) : QObject(parent) {}\n\n"
+        "public slots:\n"
+        "    void run()\n"
+        "    {\n"
+        "        qInfo().noquote() << QStringLiteral(\"Hello from %1!\");\n"
+        "        emit finished();\n"
+        "    }\n\n"
+        "signals:\n"
+        "    void finished();\n"
+        "};\n\n"
+        "#include \"main.moc\"\n\n"
+        "int main(int argc, char *argv[])\n"
+        "{\n"
+        "    QCoreApplication app(argc, argv);\n"
+        "    QCoreApplication::setApplicationName(QStringLiteral(\"%1\"));\n\n"
+        "    Worker worker;\n"
+        "    QObject::connect(&worker, &Worker::finished,\n"
+        "                     &app,    &QCoreApplication::quit);\n\n"
+        "    // Kick off after the event loop has started.\n"
+        "    QTimer::singleShot(0, &worker, &Worker::run);\n\n"
+        "    return app.exec();\n"
+        "}\n").arg(name);
+
+    if (!writeFile(d.filePath(QStringLiteral("src/main.cpp")), mainCpp, error))
+        return false;
+
+    return writeProjectFile(dir, name, QStringLiteral("Qt"),
+                            QStringLiteral("qt-console-app"),
+                            QStringLiteral("cmake"),
+                            {QStringLiteral("src/main.cpp")},
+                            {QStringLiteral("src")}, error);
 }

@@ -37,6 +37,12 @@ private:
     bool createWebProject(const QString &name, const QString &dir, QString *error);
     bool createZigProject(const QString &name, const QString &dir, QString *error);
 
+    // Qt
+    bool createQtWidgetApp(const QString &name, const QString &dir, QString *error);
+    bool createQtQuickApp(const QString &name, const QString &dir, QString *error);
+    bool createQtPlugin(const QString &name, const QString &dir, QString *error);
+    bool createQtConsoleApp(const QString &name, const QString &dir, QString *error);
+
     // Generic scaffold (creates dir + single source file + project file)
     bool createGenericProject(const QString &name, const QString &dir,
                               const QString &filename, const QString &content,
