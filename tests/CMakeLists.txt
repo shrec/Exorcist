@@ -1,4 +1,5 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Widgets Network Concurrent Sql)
+find_package(Qt6 OPTIONAL_COMPONENTS Quick Qml QuickWidgets UiTools)
 
 # ── LanguageProfile tests ─────────────────────────────────────────────────────
 add_executable(test_languageprofile
@@ -800,6 +801,47 @@ target_link_libraries(test_solutiontreemodel PRIVATE Qt6::Test Qt6::Widgets Qt6:
 target_include_directories(test_solutiontreemodel PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME SolutionTreeModel COMMAND test_solutiontreemodel)
 
+# ── UiXmlIO tests (form editor .ui XML round-trip) ────────────────────────────
+if(TARGET Qt6::UiTools)
+    add_executable(test_uixmlio
+        test_uixmlio.cpp
+        ${CMAKE_SOURCE_DIR}/src/forms/formeditor/uixmlio.cpp
+        ${CMAKE_SOURCE_DIR}/src/forms/formeditor/uixmlio.h
+    )
+    target_link_libraries(test_uixmlio PRIVATE Qt6::Test Qt6::Widgets Qt6::UiTools)
+    target_include_directories(test_uixmlio PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # signalsloteditor.h has Q_OBJECT (QDialog) but its .cpp is not linked here.
+    # Skip AUTOMOC for that header so the SignalSlotEditor metaobject is NOT
+    # generated — uixmlio.cpp only uses the FormConnection struct.
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/src/forms/formeditor/signalsloteditor.h
+        PROPERTIES SKIP_AUTOMOC TRUE)
+    add_test(NAME UiXmlIO COMMAND test_uixmlio)
+endif()
+
+# ── TsXmlIO tests (Qt Linguist .ts XML round-trip) ────────────────────────────
+add_executable(test_tsxmlio
+    test_tsxmlio.cpp
+    ${CMAKE_SOURCE_DIR}/src/forms/linguist/tsxmlio.cpp
+    ${CMAKE_SOURCE_DIR}/src/forms/linguist/tsxmlio.h
+)
+target_link_libraries(test_tsxmlio PRIVATE Qt6::Test Qt6::Core)
+target_include_directories(test_tsxmlio PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME TsXmlIO COMMAND test_tsxmlio)
+
+# ── QmlPreviewPane tests (live QML preview behaviour + error reporting) ───────
+if(TARGET Qt6::Quick AND TARGET Qt6::Qml AND TARGET Qt6::QuickWidgets)
+    add_executable(test_qmlpreviewpane
+        test_qmlpreviewpane.cpp
+        ${CMAKE_SOURCE_DIR}/src/forms/qmleditor/qmlpreviewpane.cpp
+        ${CMAKE_SOURCE_DIR}/src/forms/qmleditor/qmlpreviewpane.h
+    )
+    target_link_libraries(test_qmlpreviewpane PRIVATE
+        Qt6::Test Qt6::Widgets Qt6::Quick Qt6::Qml Qt6::QuickWidgets)
+    target_include_directories(test_qmlpreviewpane PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME QmlPreviewPane COMMAND test_qmlpreviewpane)
+endif()
+
 # Deploy Qt DLLs so tests can run (Windows)
 if(WIN32 AND EXORCIST_DEPLOY_QT)
     find_program(WINDEPLOYQT windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")
@@ -813,6 +855,18 @@ if(WIN32 AND EXORCIST_DEPLOY_QT)
             COMMAND "${WINDEPLOYQT}" --compiler-runtime "$<TARGET_FILE:test_codegraph>"
             COMMENT "Deploying Qt (with Sql) for codegraph tests"
         )
+        if(TARGET test_qmlpreviewpane)
+            add_custom_command(TARGET test_qmlpreviewpane POST_BUILD
+                COMMAND "${WINDEPLOYQT}" --compiler-runtime "$<TARGET_FILE:test_qmlpreviewpane>"
+                COMMENT "Deploying Qt (with Quick/QuickWidgets) for QML preview tests"
+            )
+        endif()
+        if(TARGET test_uixmlio)
+            add_custom_command(TARGET test_uixmlio POST_BUILD
+                COMMAND "${WINDEPLOYQT}" --compiler-runtime "$<TARGET_FILE:test_uixmlio>"
+                COMMENT "Deploying Qt (with UiTools) for UiXmlIO tests"
+            )
+        endif()
     endif()
 endif()
 
