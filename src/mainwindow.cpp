@@ -122,6 +122,7 @@
 #include "ui/keymapdialog.h"
 #include "ui/workspacesymbolsdialog.h"
 #include "ui/gotolinedialog.h"
+#include "ui/kitmanagerdialog.h"
 #include "ui/quickopendialog.h"
 #include "ui/dock/DockManager.h"
 #include "ui/dock/ExDockWidget.h"
@@ -188,6 +189,8 @@
 #include "ui/welcomewidget.h"
 #include "ui/keymapmanager.h"
 #include "ui/markdownpreviewpanel.h"
+#include "ui/qthelpdock.h"
+#include <QShortcut>
 
 #include <QStackedWidget>
 #include "agent/backgroundcompactor.h"
@@ -1278,6 +1281,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     QAction *toggleDebugAction     = viewMenu->addAction(tr("&Debug panel"));
     QAction *toggleProblemsAction  = viewMenu->addAction(tr("&Problems panel"));
     QAction *toggleMarkdownPreviewAction = viewMenu->addAction(tr("Toggle &Markdown Preview"));
+    QAction *toggleQtHelpAction          = viewMenu->addAction(tr("Toggle Qt &Help"));
     viewMenu->addSeparator();
     QAction *toggleBlameAction     = viewMenu->addAction(tr("Toggle Git &Blame"));
     toggleBlameAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_B));
@@ -1394,6 +1398,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleProblemsAction->setChecked(false);
     toggleMarkdownPreviewAction->setCheckable(true);
     toggleMarkdownPreviewAction->setChecked(false);
+    toggleQtHelpAction->setCheckable(true);
+    toggleQtHelpAction->setChecked(false);
 
     // ── Window ────────────────────────────────────────────────────────────
     QMenu *windowMenu = menuBar()->addMenu(tr("&Window"));
@@ -1460,6 +1466,17 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
             a->setChecked(i == tabs->currentIndex());
             connect(a, &QAction::triggered, this, [tabs, i]() { tabs->setCurrentIndex(i); });
         }
+    });
+
+    // ── Tools ─────────────────────────────────────────────────────────────
+    // (acts as the "Settings" surface for build/toolchain configuration)
+    QMenu *toolsMenu = menuBar()->addMenu(tr("&Tools"));
+    QAction *manageKitsAction = toolsMenu->addAction(tr("&Manage Kits..."));
+    manageKitsAction->setStatusTip(
+        tr("Manage Qt kits — pairings of Qt version and C++ toolchain"));
+    connect(manageKitsAction, &QAction::triggered, this, [this]() {
+        KitManagerDialog dlg(this);
+        dlg.exec();
     });
 
     // ── Help ──────────────────────────────────────────────────────────────
@@ -1601,6 +1618,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     connect(toggleDebugAction,  &QAction::toggled, this, dockToggle(QStringLiteral("DebugDock")));
     connect(toggleProblemsAction, &QAction::toggled, this, dockToggle(QStringLiteral("ProblemsDock")));
     connect(toggleMarkdownPreviewAction, &QAction::toggled, this, dockToggle(QStringLiteral("MarkdownPreviewDock")));
+    connect(toggleQtHelpAction,         &QAction::toggled, this, dockToggle(QStringLiteral("QtHelpDock")));
 
     // Sync View-menu checkbox with dock state changes.
     // Use QSignalBlocker to prevent setChecked from firing toggled,
@@ -1631,6 +1649,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     syncAction(toggleDebugAction,      dock(QStringLiteral("DebugDock")));
     syncAction(toggleProblemsAction,   dock(QStringLiteral("ProblemsDock")));
     syncAction(toggleMarkdownPreviewAction, dock(QStringLiteral("MarkdownPreviewDock")));
+    syncAction(toggleQtHelpAction,         dock(QStringLiteral("QtHelpDock")));
 }
 
 void MainWindow::setupToolBar()
@@ -2024,6 +2043,36 @@ void MainWindow::createDockWidgets()
         // Also refresh when the user switches tabs.
         connect(m_editorMgr->tabs(), &QTabWidget::currentChanged, this,
                 [debounce](int) { debounce->start(0); });
+    }
+
+    // ── Qt Help dock ─────────────────────────────────────────────────────
+    // F1 over a Qt class/function name in the editor opens the dock and
+    // jumps to the matching keyword via QHelpEngineCore.
+    {
+        auto *qtHelp = new QtHelpDock(this);
+        m_services->registerService(QStringLiteral("qtHelpDock"), qtHelp);
+        registerShellDock(QStringLiteral("QtHelpDock"),
+                          tr("Qt Help"),
+                          qtHelp, IDockManager::Right);
+
+        // F1 → look up word under cursor in the active editor and show dock.
+        auto *helpShortcut = new QShortcut(QKeySequence(Qt::Key_F1), this);
+        helpShortcut->setContext(Qt::ApplicationShortcut);
+        connect(helpShortcut, &QShortcut::activated, this, [this, qtHelp]() {
+            QString word;
+            if (auto *ed = currentEditor()) {
+                QTextCursor cur = ed->textCursor();
+                cur.select(QTextCursor::WordUnderCursor);
+                word = cur.selectedText().trimmed();
+            }
+            // Show the dock regardless — the user may want to browse.
+            if (m_dockManager) {
+                auto *d = dock(QStringLiteral("QtHelpDock"));
+                if (d) m_dockManager->showDock(d, m_dockManager->inferSide(d));
+            }
+            if (!word.isEmpty())
+                qtHelp->lookupKeyword(word);
+        });
     }
 
     // ── Diff Explorer + Merge Editor — contributed by git plugin ─────────
