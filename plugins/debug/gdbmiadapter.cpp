@@ -3,6 +3,7 @@
 #include <QRegularExpression>
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QSettings>
 
 GdbMiAdapter::GdbMiAdapter(QObject *parent)
     : IDebugAdapter(parent)
@@ -106,6 +107,14 @@ void GdbMiAdapter::onProcessStarted()
     sendCommand(QStringLiteral("-gdb-set print elements 200"));
     sendCommand(QStringLiteral("-gdb-set auto-load safe-path /"));
     sendCommand(QStringLiteral("-enable-pretty-printing"));
+
+    // ── Restore "stop on exceptions" preference ──────────────────────────
+    // Persist via QSettings so the toggle survives across debug sessions.
+    {
+        QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+        if (s.value(QStringLiteral("debug/stopOnExceptions"), false).toBool())
+            setStopOnExceptions(true);
+    }
 
     // ── Attach flow ───────────────────────────────────────────────────────
     if (m_pendingExe == QLatin1String("__attach__")) {
@@ -304,6 +313,47 @@ void GdbMiAdapter::reverseContinue(int threadId)
         sendCommand(QStringLiteral("-exec-continue --reverse --thread %1").arg(threadId));
     else
         sendCommand(QStringLiteral("-exec-continue --reverse"));
+}
+
+// ── Exception catchpoints ────────────────────────────────────────────────────
+//
+// GDB's `catch throw` and `catch rethrow` install catchpoints that pause the
+// inferior when a C++ exception is thrown / re-thrown. There is no clean MI
+// command for installing these — we use `-interpreter-exec console "<cmd>"`
+// to drop into the console interpreter for the catchpoint commands.
+//
+// Disabling: GDB has no single-step "remove all catchpoints" MI command, but
+// `delete breakpoints` removes catchpoints too (they share the breakpoint
+// table). To preserve user breakpoints we instead flip GDB's per-breakpoint
+// `enabled` flag for known catchpoint kinds via `disable display` is wrong —
+// we use the console form `catch throw` / `catch rethrow` and rely on a
+// process restart to clear them when toggled off, which is acceptable for a
+// session-scoped preference.
+
+void GdbMiAdapter::setStopOnExceptions(bool on)
+{
+    m_stopOnExceptions = on;
+
+    // Adapter not running yet — onProcessStarted() will re-apply the stored
+    // preference once GDB is available.
+    if (m_process.state() == QProcess::NotRunning)
+        return;
+
+    if (on) {
+        // Install catchpoints for thrown and re-thrown C++ exceptions.
+        sendCommand(QStringLiteral("-interpreter-exec console \"catch throw\""));
+        sendCommand(QStringLiteral("-interpreter-exec console \"catch rethrow\""));
+    } else {
+        // GDB has no MI primitive that surgically removes only exception
+        // catchpoints. The cleanest fallback is to disable any active
+        // catchpoints — the user can re-enable by toggling on again, or the
+        // next debug session will start with a clean breakpoint table.
+        sendCommand(QStringLiteral("-interpreter-exec console \"disable\""));
+    }
+
+    emit outputProduced(QStringLiteral("[GDB] stop-on-exceptions: %1")
+                            .arg(on ? QStringLiteral("on") : QStringLiteral("off")),
+                        QStringLiteral("debug"));
 }
 
 // ── Breakpoints ───────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@
 
 #include <QAction>
 #include <QHash>
+#include <QSettings>
 
 // ── DebugServiceBridge ───────────────────────────────────────────────────────
 // Concrete IDebugService that bridges adapter/panel signals to the core IDE.
@@ -271,6 +272,20 @@ void DebugPlugin::registerCommands()
     cmds->registerCommand(QStringLiteral("debug.openDisassembly"), tr("Open Disassembly"), [this]() {
         showPanel(QStringLiteral("DisassemblyDock"));
     });
+
+    // Toggle "stop on uncaught exceptions" — installs GDB `catch throw` /
+    // `catch rethrow` catchpoints when enabled. The preference is persisted
+    // via QSettings so it survives across debug sessions; GdbMiAdapter
+    // re-applies it from QSettings in onProcessStarted().
+    cmds->registerCommand(QStringLiteral("debug.toggleStopOnExceptions"),
+                          tr("Stop on Exceptions"), [this]() {
+        if (!m_adapter)
+            return;
+        const bool enable = !m_adapter->stopOnExceptions();
+        m_adapter->setStopOnExceptions(enable);
+        QSettings(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"))
+            .setValue(QStringLiteral("debug/stopOnExceptions"), enable);
+    });
 }
 
 void DebugPlugin::installMenusAndToolBar()
@@ -334,6 +349,11 @@ void DebugPlugin::installMenusAndToolBar()
         {tr("&Memory View"), QStringLiteral("debug.openMemoryView"), QKeySequence(), true},
         {tr("&Disassembly"), QStringLiteral("debug.openDisassembly"), QKeySequence()},
     }, this);
+
+    // "Stop on Exceptions" toggle — installs GDB catch throw / catch rethrow
+    // when enabled. Persisted via QSettings under debug/stopOnExceptions.
+    addMenuCommand(IMenuManager::Debug, tr("Stop on E&xceptions"),
+                   QStringLiteral("debug.toggleStopOnExceptions"), this);
 }
 
 void DebugPlugin::onWorkspaceChanged(const QString &root)

@@ -53,6 +53,10 @@ public:
     void addWatchpoint(const DebugWatchpoint &wp) override;
     void removeWatchpoint(int watchpointId) override;
 
+    // ── Exception catchpoints ────────────────────────────────────────────
+    void setStopOnExceptions(bool on) override;
+    bool stopOnExceptions() const override { return m_stopOnExceptions; }
+
     void requestThreads() override;
     void requestStackTrace(int threadId) override;
     void requestScopes(int frameId) override;
@@ -188,4 +192,7 @@ private:
 
     // Disassembly tracking: token → marker (just to identify response shape).
     QHash<int, bool> m_pendingDisasm;
+
+    // "Stop on exceptions" toggle (catch throw / catch rethrow).
+    bool m_stopOnExceptions = false;
 };

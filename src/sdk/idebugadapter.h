@@ -178,6 +178,17 @@ public:
     virtual void addWatchpoint(const DebugWatchpoint &wp) { Q_UNUSED(wp); }
     virtual void removeWatchpoint(int watchpointId) { Q_UNUSED(watchpointId); }
 
+    // ── Exception catchpoints ─────────────────────────────────────────────
+    //
+    // Default no-op implementations — not all adapters support catching
+    // language exceptions. Adapters that do (e.g. GdbMiAdapter via GDB's
+    // `catch throw` / `catch rethrow`) override these to pause the debugger
+    // when a C++ exception is thrown.
+
+    /// Toggle "stop on uncaught/all exceptions" — sends GDB `catch throw` etc.
+    virtual void setStopOnExceptions(bool on) { Q_UNUSED(on) }
+    virtual bool stopOnExceptions() const { return false; }
+
     // ── Inspection ────────────────────────────────────────────────────────
 
     virtual void requestThreads() = 0;
