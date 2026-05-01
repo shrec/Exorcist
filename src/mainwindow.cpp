@@ -37,6 +37,7 @@
 #include <QDesktopServices>
 #include <QMessageBox>
 #include <QScrollBar>
+#include <QTextDocument>
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -183,6 +184,7 @@
 #include "agent/memoryfileeditor.h"
 #include "ui/welcomewidget.h"
 #include "ui/keymapmanager.h"
+#include "ui/markdownpreviewpanel.h"
 
 #include <QStackedWidget>
 #include "agent/backgroundcompactor.h"
@@ -1240,6 +1242,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     QAction *toggleRunAction       = viewMenu->addAction(tr("&Run panel"));
     QAction *toggleDebugAction     = viewMenu->addAction(tr("&Debug panel"));
     QAction *toggleProblemsAction  = viewMenu->addAction(tr("&Problems panel"));
+    QAction *toggleMarkdownPreviewAction = viewMenu->addAction(tr("Toggle &Markdown Preview"));
     viewMenu->addSeparator();
     QAction *toggleBlameAction     = viewMenu->addAction(tr("Toggle Git &Blame"));
     toggleBlameAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_B));
@@ -1354,6 +1357,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleDebugAction->setChecked(false);
     toggleProblemsAction->setCheckable(true);
     toggleProblemsAction->setChecked(false);
+    toggleMarkdownPreviewAction->setCheckable(true);
+    toggleMarkdownPreviewAction->setChecked(false);
 
     // ── Help ──────────────────────────────────────────────────────────────
     QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
@@ -1493,6 +1498,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     connect(toggleRunAction,    &QAction::toggled, this, dockToggle(QStringLiteral("RunDock")));
     connect(toggleDebugAction,  &QAction::toggled, this, dockToggle(QStringLiteral("DebugDock")));
     connect(toggleProblemsAction, &QAction::toggled, this, dockToggle(QStringLiteral("ProblemsDock")));
+    connect(toggleMarkdownPreviewAction, &QAction::toggled, this, dockToggle(QStringLiteral("MarkdownPreviewDock")));
 
     // Sync View-menu checkbox with dock state changes.
     // Use QSignalBlocker to prevent setChecked from firing toggled,
@@ -1522,6 +1528,7 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     syncAction(toggleRunAction,        dock(QStringLiteral("RunDock")));
     syncAction(toggleDebugAction,      dock(QStringLiteral("DebugDock")));
     syncAction(toggleProblemsAction,   dock(QStringLiteral("ProblemsDock")));
+    syncAction(toggleMarkdownPreviewAction, dock(QStringLiteral("MarkdownPreviewDock")));
 }
 
 void MainWindow::setupToolBar()
@@ -1867,6 +1874,54 @@ void MainWindow::createDockWidgets()
 
         connect(problemsPanel, &ProblemsPanel::navigateToFile,
                 this, &MainWindow::navigateToLocation);
+    }
+
+    // ── Markdown Preview panel ────────────────────────────────────────────
+    // Renders the active editor's .md/.markdown buffer as HTML on the right.
+    {
+        auto *mdPanel = new MarkdownPreviewPanel(this);
+        m_services->registerService(QStringLiteral("markdownPreviewPanel"), mdPanel);
+        registerShellDock(QStringLiteral("MarkdownPreviewDock"),
+                          tr("Markdown Preview"),
+                          mdPanel, IDockManager::Right);
+
+        // Debounced refresh: any time the active document changes, reschedule
+        // a render after 250 ms of quiet — avoids re-parsing on every keystroke.
+        auto *debounce = new QTimer(this);
+        debounce->setSingleShot(true);
+        debounce->setInterval(250);
+
+        auto refreshNow = [this, mdPanel]() {
+            EditorView *editor = currentEditor();
+            if (!editor) {
+                mdPanel->setMarkdown(QString());
+                return;
+            }
+            const QString path = editor->property("filePath").toString();
+            if (!MarkdownPreviewPanel::isMarkdownPath(path)) {
+                mdPanel->setMarkdown(QString());
+                return;
+            }
+            mdPanel->setMarkdown(editor->toPlainText());
+        };
+        connect(debounce, &QTimer::timeout, this, refreshNow);
+
+        // Wire whenever a new editor opens — track its document for changes,
+        // and trigger an immediate refresh if it's the active tab.
+        connect(m_editorMgr, &EditorManager::editorOpened, this,
+                [this, debounce](EditorView *editor, const QString &path) {
+            if (!editor) return;
+            if (auto *doc = editor->document()) {
+                connect(doc, &QTextDocument::contentsChange, this,
+                        [debounce]() { debounce->start(); });
+            }
+            if (MarkdownPreviewPanel::isMarkdownPath(path))
+                debounce->start(0);
+        });
+
+        // Also refresh when the user switches tabs.
+        connect(m_editorMgr->tabs(), &QTabWidget::currentChanged, this,
+                [debounce](int) { debounce->start(0); });
     }
 
     // ── Diff Explorer + Merge Editor — contributed by git plugin ─────────

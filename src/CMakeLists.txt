@@ -295,6 +295,8 @@ add_executable(exorcist WIN32
     agent/workspacecontextdetector.h
     ui/markdownrenderer.cpp
     ui/markdownrenderer.h
+    ui/markdownpreviewpanel.cpp
+    ui/markdownpreviewpanel.h
     agent/promptfileloader.h
     agent/promptfileloader.cpp
     agent/quickchatdialog.cpp
