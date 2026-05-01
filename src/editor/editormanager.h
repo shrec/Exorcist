@@ -1,14 +1,18 @@
 #pragma once
 
+#include <QHash>
 #include <QMetaObject>
 #include <QObject>
 #include <QString>
 #include <QStringList>
 
+#include <functional>
+
 class EditorView;
 class QTabWidget;
 class QTreeView;
 class QStackedWidget;
+class QWidget;
 class SolutionTreeModel;
 class ProjectManager;
 class BreadcrumbBar;
@@ -76,6 +80,23 @@ public:
     /// Close every tab except the one at keepIndex.
     void closeOtherTabs(int keepIndex);
 
+    // ── Plugin extension point: file-extension handlers ────────────────────
+    //
+    // Plugins claim file extensions (.ui, .ts, .qml, .qss, etc.) by
+    // registering a handler.  The handler returns a QWidget for the file
+    // (or nullptr to fall through to the default text editor).
+    //
+    // EditorManager owns the tab lifecycle: it places the widget in a tab,
+    // sets the "filePath" property, and generically wires
+    //     modificationChanged(bool)   ← if signal exists
+    //     statusMessage(QString,int)  ← if signal exists
+    // via QMetaObject probing — the plugin widget does not need to know
+    // about EditorManager at all.
+
+    using FileExtensionHandler = std::function<QWidget*(const QString &path)>;
+    void registerFileExtensionHandler(const QStringList &extensions,
+                                      FileExtensionHandler handler);
+
 signals:
     /// Fired after a new EditorView is added to the tab strip.
     /// Connect to wire LSP bridges, AI actions, inline chat, breakpoints, etc.
@@ -86,6 +107,12 @@ signals:
 
     /// Fired when a tab is closed; path is empty for unsaved/untitled editors.
     void tabClosed(const QString &path);
+
+private slots:
+    /// Wired to plugin extension widgets that emit modificationChanged(bool).
+    /// Updates the asterisk in the tab title using sender() and the
+    /// "__exoTabTitle" property set in openFile().
+    void onExtensionTabModified(bool modified);
 
 private:
     QTabWidget             *m_tabs           = nullptr;
@@ -101,4 +128,7 @@ private:
     IFileSystem            *m_fileSystem    = nullptr;
     QStackedWidget         *m_centralStack  = nullptr;
     LanguageProfileManager *m_langProfile   = nullptr;
+
+    // Plugin-contributed file-extension handlers (lowercase ext → factory)
+    QHash<QString, FileExtensionHandler> m_extHandlers;
 };

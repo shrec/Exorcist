@@ -19,7 +19,7 @@
 #include <QWidget>
 #include <QXmlStreamReader>
 
-#include "forms/formeditor/uixmlio.h"
+#include "formeditor/uixmlio.h"
 // uixmlio.h transitively includes signalsloteditor.h for the FormConnection
 // struct.  We deliberately do NOT compile signalsloteditor.cpp into this test
 // — including it would force linking the SignalSlotEditor QDialog class and

@@ -15,7 +15,7 @@
 #include <QSignalSpy>
 #include <QTest>
 
-#include "forms/qmleditor/qmlpreviewpane.h"
+#include "qmleditor/qmlpreviewpane.h"
 
 using exo::forms::QmlPreviewPane;
 

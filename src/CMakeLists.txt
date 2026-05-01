@@ -96,8 +96,6 @@ add_executable(exorcist WIN32
     project/newprojectwizard.h
     project/newpluginwizard.cpp
     project/newpluginwizard.h
-    project/newqtclasswizard.cpp
-    project/newqtclasswizard.h
     project/filetemplatedialog.cpp
     project/filetemplatedialog.h
     git/gitservice.cpp
@@ -311,8 +309,6 @@ add_executable(exorcist WIN32
     ui/markdownrenderer.h
     ui/markdownpreviewpanel.cpp
     ui/markdownpreviewpanel.h
-    ui/qthelpdock.cpp
-    ui/qthelpdock.h
     agent/promptfileloader.h
     agent/promptfileloader.cpp
     agent/quickchatdialog.cpp
@@ -356,8 +352,6 @@ add_executable(exorcist WIN32
     ui/workspacesymbolsdialog.h
     ui/gotolinedialog.cpp
     ui/gotolinedialog.h
-    ui/kitmanagerdialog.cpp
-    ui/kitmanagerdialog.h
     ui/quickopendialog.cpp
     ui/quickopendialog.h
     ui/dockautohidemanager.cpp
@@ -625,34 +619,6 @@ add_executable(exorcist WIN32
     settings/languageprofile.cpp
     settings/scopedsettings.h
     settings/scopedsettings.cpp
-    forms/formeditor/uiformeditor.h
-    forms/formeditor/uiformeditor.cpp
-    forms/formeditor/widgetpalette.h
-    forms/formeditor/widgetpalette.cpp
-    forms/formeditor/formcanvas.h
-    forms/formeditor/formcanvas.cpp
-    forms/formeditor/propertyinspector.h
-    forms/formeditor/propertyinspector.cpp
-    forms/formeditor/uixmlio.h
-    forms/formeditor/uixmlio.cpp
-    forms/formeditor/inlinelabeleditor.h
-    forms/formeditor/inlinelabeleditor.cpp
-    forms/formeditor/signalsloteditor.h
-    forms/formeditor/signalsloteditor.cpp
-    forms/formeditor/promotedialog.h
-    forms/formeditor/promotedialog.cpp
-    forms/qmleditor/qmleditorwidget.h
-    forms/qmleditor/qmleditorwidget.cpp
-    forms/qmleditor/qmlpreviewpane.h
-    forms/qmleditor/qmlpreviewpane.cpp
-    forms/qsseditor/qsseditorwidget.h
-    forms/qsseditor/qsseditorwidget.cpp
-    forms/qsseditor/qsspreviewpane.h
-    forms/qsseditor/qsspreviewpane.cpp
-    forms/linguist/linguisteditor.h
-    forms/linguist/linguisteditor.cpp
-    forms/linguist/tsxmlio.h
-    forms/linguist/tsxmlio.cpp
 )
 
 # ── Chat renderer: Ultralight (HTML/JS) vs Qt widgets ────────────────────────
@@ -686,26 +652,11 @@ else()
     )
 endif()
 
-# Qt6::UiTools — required by the custom .ui form editor (QUiLoader).
-find_package(Qt6 REQUIRED COMPONENTS UiTools)
-
-find_package(Qt6 REQUIRED COMPONENTS Quick Qml QuickWidgets)
-
-target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent Qt6::Sql Qt6::Svg Qt6::UiTools Qt6::Quick Qt6::Qml Qt6::QuickWidgets libluajit)
+# Container-only Qt modules. Qt-specific feature modules (UiTools, Quick,
+# Qml, QuickWidgets, Help) live in plugins/qt-tools/ — see manifesto rules.
+target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent Qt6::Sql Qt6::Svg libluajit)
 if(WIN32)
     target_link_libraries(exorcist PRIVATE dbghelp)
-endif()
-
-# ── Qt6::Help (optional) — backs the QtHelpDock for F1 lookup ──────────
-# Many Qt installs ship the Help module with the SDK; some minimal
-# packagings omit it. We treat it as optional so the build degrades to
-# a "Qt docs unavailable" runtime fallback when the component is missing.
-find_package(Qt6 QUIET COMPONENTS Help)
-if(Qt6Help_FOUND)
-    target_link_libraries(exorcist PRIVATE Qt6::Help)
-    target_compile_definitions(exorcist PRIVATE EXORCIST_HAS_QT_HELP=1)
-else()
-    message(STATUS "Qt6::Help not found — QtHelpDock will run in fallback mode (no docs).")
 endif()
 target_include_directories(exorcist PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 

@@ -122,7 +122,7 @@
 #include "ui/keymapdialog.h"
 #include "ui/workspacesymbolsdialog.h"
 #include "ui/gotolinedialog.h"
-#include "ui/kitmanagerdialog.h"
+// kitmanagerdialog moved to plugins/qt-tools/ — accessed via "qt.manageKits" command
 #include "ui/quickopendialog.h"
 #include "ui/dock/DockManager.h"
 #include "ui/dock/ExDockWidget.h"
@@ -159,7 +159,7 @@
 #include "project/projecttemplateregistry.h"
 #include "project/newprojectwizard.h"
 #include "project/newpluginwizard.h"
-#include "project/newqtclasswizard.h"
+// newqtclasswizard moved to plugins/qt-tools/ — accessed via "qt.newClass" command
 #include "project/filetemplatedialog.h"
 #include "project/solutiontreemodel.h"
 #include "git/gitservice.h"
@@ -190,7 +190,7 @@
 #include "ui/welcomewidget.h"
 #include "ui/keymapmanager.h"
 #include "ui/markdownpreviewpanel.h"
-#include "ui/qthelpdock.h"
+// qthelpdock moved to plugins/qt-tools/ — registered as dock by qt-tools plugin
 #include <QShortcut>
 
 #include <QStackedWidget>
@@ -292,6 +292,7 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     m_services->registerService("mainwindow", this);
+    m_services->registerService(QStringLiteral("editorManager"), m_editorMgr);
     m_services->registerService("agentOrchestrator", m_agentOrchestrator);
     m_services->registerService(QStringLiteral("gitService"), m_gitService);
     if (m_aiServices && m_aiServices->keyStorage())
@@ -911,7 +912,8 @@ void MainWindow::setupMenus()
     newFromTemplateAction->setShortcut(QKeySequence::New);
 
     QAction *newPluginAction = fileMenu->addAction(tr("New &Plugin..."));
-    QAction *newQtClassAction = fileMenu->addAction(tr("New Qt &Class..."));
+    // "New Qt Class" action is contributed by the qt-tools plugin via
+    // IMenuManager::File menu location (command: qt.newClass).
 
     QAction *openAction = fileMenu->addAction(tr("&Open File..."));
     openAction->setShortcut(QKeySequence::Open);
@@ -989,14 +991,7 @@ void MainWindow::setupMenus()
                 openFile(primary);
         }
     });
-    connect(newQtClassAction, &QAction::triggered, this, [this]() {
-        NewQtClassWizard dlg(this);
-        if (dlg.exec() == QDialog::Accepted) {
-            const QString hdr = dlg.headerPath();
-            if (!hdr.isEmpty() && QFileInfo::exists(hdr))
-                openFile(hdr);
-        }
-    });
+    // newQtClassAction handler is in qt-tools plugin (command: qt.newClass).
     connect(openAction, &QAction::triggered, this, [this]() {
         const QString path = QFileDialog::getOpenFileName(this, tr("Open File"));
         if (!path.isEmpty()) openFile(path);
@@ -1284,7 +1279,8 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     QAction *toggleDebugAction     = viewMenu->addAction(tr("&Debug panel"));
     QAction *toggleProblemsAction  = viewMenu->addAction(tr("&Problems panel"));
     QAction *toggleMarkdownPreviewAction = viewMenu->addAction(tr("Toggle &Markdown Preview"));
-    QAction *toggleQtHelpAction          = viewMenu->addAction(tr("Toggle Qt &Help"));
+    // "Toggle Qt Help" view action: contributed by the qt-tools plugin via
+    // IDockManager::panelToggleAction("QtHelpDock").
     viewMenu->addSeparator();
     QAction *toggleBlameAction     = viewMenu->addAction(tr("Toggle Git &Blame"));
     toggleBlameAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_B));
@@ -1401,8 +1397,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleProblemsAction->setChecked(false);
     toggleMarkdownPreviewAction->setCheckable(true);
     toggleMarkdownPreviewAction->setChecked(false);
-    toggleQtHelpAction->setCheckable(true);
-    toggleQtHelpAction->setChecked(false);
 
     // ── Focus / Zen Mode ──────────────────────────────────────────────────
     // Hides toolbars + dock sidebars + status bar — distraction-free editing.
@@ -1495,15 +1489,9 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     });
 
     // ── Tools ─────────────────────────────────────────────────────────────
-    // (acts as the "Settings" surface for build/toolchain configuration)
-    QMenu *toolsMenu = menuBar()->addMenu(tr("&Tools"));
-    QAction *manageKitsAction = toolsMenu->addAction(tr("&Manage Kits..."));
-    manageKitsAction->setStatusTip(
-        tr("Manage Qt kits — pairings of Qt version and C++ toolchain"));
-    connect(manageKitsAction, &QAction::triggered, this, [this]() {
-        KitManagerDialog dlg(this);
-        dlg.exec();
-    });
+    // Container creates the empty Tools menu; plugins (qt-tools, etc.)
+    // contribute actions via IMenuManager::Tools.
+    menuBar()->addMenu(tr("&Tools"));
 
     // ── Help ──────────────────────────────────────────────────────────────
     QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
@@ -1644,7 +1632,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     connect(toggleDebugAction,  &QAction::toggled, this, dockToggle(QStringLiteral("DebugDock")));
     connect(toggleProblemsAction, &QAction::toggled, this, dockToggle(QStringLiteral("ProblemsDock")));
     connect(toggleMarkdownPreviewAction, &QAction::toggled, this, dockToggle(QStringLiteral("MarkdownPreviewDock")));
-    connect(toggleQtHelpAction,         &QAction::toggled, this, dockToggle(QStringLiteral("QtHelpDock")));
 
     // Sync View-menu checkbox with dock state changes.
     // Use QSignalBlocker to prevent setChecked from firing toggled,
@@ -1675,7 +1662,6 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     syncAction(toggleDebugAction,      dock(QStringLiteral("DebugDock")));
     syncAction(toggleProblemsAction,   dock(QStringLiteral("ProblemsDock")));
     syncAction(toggleMarkdownPreviewAction, dock(QStringLiteral("MarkdownPreviewDock")));
-    syncAction(toggleQtHelpAction,         dock(QStringLiteral("QtHelpDock")));
 }
 
 void MainWindow::setupToolBar()
@@ -2071,35 +2057,8 @@ void MainWindow::createDockWidgets()
                 [debounce](int) { debounce->start(0); });
     }
 
-    // ── Qt Help dock ─────────────────────────────────────────────────────
-    // F1 over a Qt class/function name in the editor opens the dock and
-    // jumps to the matching keyword via QHelpEngineCore.
-    {
-        auto *qtHelp = new QtHelpDock(this);
-        m_services->registerService(QStringLiteral("qtHelpDock"), qtHelp);
-        registerShellDock(QStringLiteral("QtHelpDock"),
-                          tr("Qt Help"),
-                          qtHelp, IDockManager::Right);
-
-        // F1 → look up word under cursor in the active editor and show dock.
-        auto *helpShortcut = new QShortcut(QKeySequence(Qt::Key_F1), this);
-        helpShortcut->setContext(Qt::ApplicationShortcut);
-        connect(helpShortcut, &QShortcut::activated, this, [this, qtHelp]() {
-            QString word;
-            if (auto *ed = currentEditor()) {
-                QTextCursor cur = ed->textCursor();
-                cur.select(QTextCursor::WordUnderCursor);
-                word = cur.selectedText().trimmed();
-            }
-            // Show the dock regardless — the user may want to browse.
-            if (m_dockManager) {
-                auto *d = dock(QStringLiteral("QtHelpDock"));
-                if (d) m_dockManager->showDock(d, m_dockManager->inferSide(d));
-            }
-            if (!word.isEmpty())
-                qtHelp->lookupKeyword(word);
-        });
-    }
+    // Qt Help dock + F1 lookup are contributed by the qt-tools plugin via
+    // IDockManager::addPanel("QtHelpDock", ...) in QtToolsPlugin::initializePlugin().
 
     // ── Diff Explorer + Merge Editor — contributed by git plugin ─────────
     // DiffExplorerDock and MergeEditorDock are registered by plugins/git/.

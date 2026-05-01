@@ -12,7 +12,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 
-#include "forms/linguist/tsxmlio.h"
+#include "linguist/tsxmlio.h"
 
 using exo::forms::linguist::TsContext;
 using exo::forms::linguist::TsFile;

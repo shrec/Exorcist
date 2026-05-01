@@ -807,16 +807,18 @@ add_test(NAME SolutionTreeModel COMMAND test_solutiontreemodel)
 if(TARGET Qt6::UiTools)
     add_executable(test_uixmlio
         test_uixmlio.cpp
-        ${CMAKE_SOURCE_DIR}/src/forms/formeditor/uixmlio.cpp
-        ${CMAKE_SOURCE_DIR}/src/forms/formeditor/uixmlio.h
+        ${CMAKE_SOURCE_DIR}/plugins/qt-tools/formeditor/uixmlio.cpp
+        ${CMAKE_SOURCE_DIR}/plugins/qt-tools/formeditor/uixmlio.h
     )
     target_link_libraries(test_uixmlio PRIVATE Qt6::Test Qt6::Widgets Qt6::UiTools)
-    target_include_directories(test_uixmlio PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_include_directories(test_uixmlio PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/plugins/qt-tools)
     # signalsloteditor.h has Q_OBJECT (QDialog) but its .cpp is not linked here.
     # Skip AUTOMOC for that header so the SignalSlotEditor metaobject is NOT
     # generated — uixmlio.cpp only uses the FormConnection struct.
     set_source_files_properties(
-        ${CMAKE_SOURCE_DIR}/src/forms/formeditor/signalsloteditor.h
+        ${CMAKE_SOURCE_DIR}/plugins/qt-tools/formeditor/signalsloteditor.h
         PROPERTIES SKIP_AUTOMOC TRUE)
     add_test(NAME UiXmlIO COMMAND test_uixmlio)
 endif()
@@ -824,23 +826,27 @@ endif()
 # ── TsXmlIO tests (Qt Linguist .ts XML round-trip) ────────────────────────────
 add_executable(test_tsxmlio
     test_tsxmlio.cpp
-    ${CMAKE_SOURCE_DIR}/src/forms/linguist/tsxmlio.cpp
-    ${CMAKE_SOURCE_DIR}/src/forms/linguist/tsxmlio.h
+    ${CMAKE_SOURCE_DIR}/plugins/qt-tools/linguist/tsxmlio.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/qt-tools/linguist/tsxmlio.h
 )
 target_link_libraries(test_tsxmlio PRIVATE Qt6::Test Qt6::Core)
-target_include_directories(test_tsxmlio PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(test_tsxmlio PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/plugins/qt-tools)
 add_test(NAME TsXmlIO COMMAND test_tsxmlio)
 
 # ── QmlPreviewPane tests (live QML preview behaviour + error reporting) ───────
 if(TARGET Qt6::Quick AND TARGET Qt6::Qml AND TARGET Qt6::QuickWidgets)
     add_executable(test_qmlpreviewpane
         test_qmlpreviewpane.cpp
-        ${CMAKE_SOURCE_DIR}/src/forms/qmleditor/qmlpreviewpane.cpp
-        ${CMAKE_SOURCE_DIR}/src/forms/qmleditor/qmlpreviewpane.h
+        ${CMAKE_SOURCE_DIR}/plugins/qt-tools/qmleditor/qmlpreviewpane.cpp
+        ${CMAKE_SOURCE_DIR}/plugins/qt-tools/qmleditor/qmlpreviewpane.h
     )
     target_link_libraries(test_qmlpreviewpane PRIVATE
         Qt6::Test Qt6::Widgets Qt6::Quick Qt6::Qml Qt6::QuickWidgets)
-    target_include_directories(test_qmlpreviewpane PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_include_directories(test_qmlpreviewpane PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/plugins/qt-tools)
     add_test(NAME QmlPreviewPane COMMAND test_qmlpreviewpane)
 endif()
 

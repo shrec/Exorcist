@@ -6,10 +6,6 @@
 #include "imagepreviewwidget.h"
 #include "largefileloader.h"
 #include "qrceditorwidget.h"
-#include "../forms/formeditor/uiformeditor.h"
-#include "../forms/linguist/linguisteditor.h"
-#include "../forms/qmleditor/qmleditorwidget.h"
-#include "../forms/qsseditor/qsseditorwidget.h"
 
 #include "../core/ifilesystem.h"
 #include "../lsp/lspclient.h"
@@ -65,40 +61,45 @@ void EditorManager::openFile(const QString &path)
         }
     }
 
-    // ── QSS path: open .qss files in our split-view QssEditorWidget (text
-    //    editor on the left, live-styled sample-widget gallery on the right).
-    //    Same pattern as .qml / .ui / .qrc above — plain QWidget, not an
-    //    EditorView, so editorAt()/currentEditor() qobject_cast<EditorView*>
-    //    guards safely return nullptr for these tabs.
+    // ── Plugin-contributed file-extension handlers ─────────────────────────
+    //    Plugins (e.g. qt-tools for .ui/.ts/.qml/.qss) register handlers
+    //    via registerFileExtensionHandler().  EditorManager owns tab
+    //    lifecycle and generically wires modificationChanged(bool) and
+    //    statusMessage(QString,int) signals if the widget exposes them
+    //    (probed via QMetaObject so the manager doesn't depend on plugin
+    //    types).
     {
         const QString ext = QFileInfo(path).suffix().toLower();
-        if (ext == QStringLiteral("qss")) {
-            auto *qss = new exo::forms::QssEditorWidget();
-            const bool ok = qss->loadFromFile(path);
-            if (!ok)
-                emit statusMessage(tr("Failed to open .qss: %1").arg(path), 4000);
-            qss->setProperty("filePath", path);
+        const auto it = m_extHandlers.constFind(ext);
+        if (it != m_extHandlers.constEnd()) {
+            QWidget *w = it.value()(path);
+            if (w) {
+                w->setProperty("filePath", path);
+                const QString title = QFileInfo(path).fileName();
+                const int index = m_tabs->addTab(w, title);
+                m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
+                m_tabs->setCurrentIndex(index);
 
-            const QString title = QFileInfo(path).fileName();
-            const int index = m_tabs->addTab(qss, title);
-            m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
-            m_tabs->setCurrentIndex(index);
+                const QMetaObject *mo = w->metaObject();
+                w->setProperty("__exoTabTitle", title);
 
-            // Mirror modified flag in tab title (asterisk suffix), same as
-            // .qml / .ui / .qrc editors.
-            QTabWidget *tabsRef = m_tabs;
-            connect(qss, &exo::forms::QssEditorWidget::modificationChanged, tabsRef,
-                    [tabsRef, qss, title](bool modified) {
-                        const int idx = tabsRef->indexOf(qss);
-                        if (idx < 0) return;
-                        tabsRef->setTabText(idx, modified
-                                            ? title + QStringLiteral(" *")
-                                            : title);
-                    });
-            // Forward QSS editor status messages out to MainWindow's status bar.
-            connect(qss, &exo::forms::QssEditorWidget::statusMessage,
-                    this, &EditorManager::statusMessage);
-            return;
+                // Generic: tab-title asterisk on modificationChanged(bool)
+                if (mo->indexOfSignal(
+                        QMetaObject::normalizedSignature("modificationChanged(bool)").constData()) >= 0) {
+                    QObject::connect(w, SIGNAL(modificationChanged(bool)),
+                                     this, SLOT(onExtensionTabModified(bool)),
+                                     Qt::UniqueConnection);
+                }
+                // Generic: forward statusMessage(QString,int) to status bar
+                if (mo->indexOfSignal(
+                        QMetaObject::normalizedSignature("statusMessage(QString,int)").constData()) >= 0) {
+                    QObject::connect(w, SIGNAL(statusMessage(QString,int)),
+                                     this, SIGNAL(statusMessage(QString,int)),
+                                     Qt::UniqueConnection);
+                }
+                return;
+            }
+            // Handler returned nullptr — fall through to default text editor.
         }
     }
 
@@ -128,106 +129,8 @@ void EditorManager::openFile(const QString &path)
         }
     }
 
-    // ── QML path: open in our split-view QmlEditorWidget (text editor on
-    //    the left, live QQuickWidget preview on the right).  The widget is a
-    //    plain QWidget — not an EditorView — so editorAt()/currentEditor()
-    //    qobject_cast<EditorView*> guards safely return nullptr for these
-    //    tabs, mirroring the pattern used by ImagePreviewWidget / UiFormEditor
-    //    above.
-    {
-        const QString ext = QFileInfo(path).suffix().toLower();
-        if (ext == QStringLiteral("qml")) {
-            auto *qml = new exo::forms::QmlEditorWidget();
-            const bool ok = qml->loadFromFile(path);
-            if (!ok)
-                emit statusMessage(tr("Failed to open .qml: %1").arg(path), 4000);
-            qml->setProperty("filePath", path);
-
-            const QString title = QFileInfo(path).fileName();
-            const int index = m_tabs->addTab(qml, title);
-            m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
-            m_tabs->setCurrentIndex(index);
-
-            // Mirror modified flag in tab title (asterisk suffix), same as
-            // .qrc / .ui editors above.
-            QTabWidget *tabsRef = m_tabs;
-            connect(qml, &exo::forms::QmlEditorWidget::modificationChanged, tabsRef,
-                    [tabsRef, qml, title](bool modified) {
-                        const int idx = tabsRef->indexOf(qml);
-                        if (idx < 0) return;
-                        tabsRef->setTabText(idx, modified
-                                            ? title + QStringLiteral(" *")
-                                            : title);
-                    });
-            // Forward QML editor status messages out to MainWindow's status bar.
-            connect(qml, &exo::forms::QmlEditorWidget::statusMessage,
-                    this, &EditorManager::statusMessage);
-            return;
-        }
-    }
-
-    // ── Qt Designer .ui path: open in our custom UiFormEditor instead of
-    //    the text editor.  UiFormEditor is a plain QWidget so the existing
-    //    qobject_cast<EditorView*> guards in editorAt()/currentEditor() will
-    //    safely return nullptr for these tabs.
-    {
-        const QString ext = QFileInfo(path).suffix().toLower();
-        if (ext == QStringLiteral("ui")) {
-            auto *form = new exo::forms::UiFormEditor();
-            const bool ok = form->loadFromFile(path);
-            if (!ok)
-                emit statusMessage(tr("Failed to parse .ui: %1").arg(path), 4000);
-            form->setProperty("filePath", path);
-
-            const QString title = QFileInfo(path).fileName();
-            const int index = m_tabs->addTab(form, title);
-            m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
-            m_tabs->setCurrentIndex(index);
-
-            // Reflect "modified" via tab-title asterisk, mirroring the .qrc
-            // editor's pattern below.
-            QTabWidget *tabsRef = m_tabs;
-            connect(form, &exo::forms::UiFormEditor::modificationChanged, tabsRef,
-                    [tabsRef, form, title](bool modified) {
-                        const int idx = tabsRef->indexOf(form);
-                        if (idx < 0) return;
-                        tabsRef->setTabText(idx, modified
-                                            ? title + QStringLiteral(" *")
-                                            : title);
-                    });
-            return;
-        }
-    }
-
-    // ── Qt Linguist (.ts) path: route to LinguistEditor instead of the raw
-    //    XML text editor.  Mirrors the .qrc / .ui pattern: plain QWidget so
-    //    editorAt()/currentEditor() qobject_cast<EditorView*> guards safely
-    //    return nullptr for these tabs.
-    {
-        const QString ext = QFileInfo(path).suffix().toLower();
-        if (ext == QStringLiteral("ts")) {
-            auto *ling = new exo::forms::linguist::LinguistEditor();
-            const bool ok = ling->loadFromFile(path);
-            if (!ok)
-                emit statusMessage(tr("Failed to parse .ts: %1").arg(path), 4000);
-            ling->setProperty("filePath", path);
-
-            const QString title = QFileInfo(path).fileName();
-            const int index = m_tabs->addTab(ling, title);
-            m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
-            m_tabs->setCurrentIndex(index);
-
-            // Mirror modified flag in tab title (asterisk suffix).
-            QTabWidget *tabsRef = m_tabs;
-            connect(ling, &exo::forms::linguist::LinguistEditor::modificationChanged, tabsRef,
-                    [tabsRef, ling, title](bool modified) {
-                        const int idx = tabsRef->indexOf(ling);
-                        if (idx < 0) return;
-                        tabsRef->setTabText(idx, modified ? title + QStringLiteral(" *") : title);
-                    });
-            return;
-        }
-    }
+    // (Qt-specific .qml/.ui/.ts/.qss handlers are now contributed by the
+    //  qt-tools plugin via registerFileExtensionHandler() above.)
 
     // ── Qt Resource Collection (.qrc) path: route to a structured tree-based
     //    editor instead of a raw XML view.  QrcEditorWidget is a plain QWidget
@@ -403,4 +306,26 @@ void EditorManager::closeOtherTabs(int keepIndex)
         if (m_tabs->widget(i) != keep)
             closeTab(i);
     }
+}
+
+// ── Plugin file-extension handlers ─────────────────────────────────────────
+
+void EditorManager::registerFileExtensionHandler(const QStringList &extensions,
+                                                 FileExtensionHandler handler)
+{
+    if (!handler) return;
+    for (const QString &ext : extensions)
+        m_extHandlers.insert(ext.toLower(), handler);
+}
+
+void EditorManager::onExtensionTabModified(bool modified)
+{
+    if (!m_tabs) return;
+    auto *w = qobject_cast<QWidget *>(sender());
+    if (!w) return;
+    const int idx = m_tabs->indexOf(w);
+    if (idx < 0) return;
+    const QString title = w->property("__exoTabTitle").toString();
+    if (title.isEmpty()) return;
+    m_tabs->setTabText(idx, modified ? title + QStringLiteral(" *") : title);
 }
