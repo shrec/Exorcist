@@ -134,6 +134,8 @@ void DebugPanel::setupCallStackTab()
 
     connect(m_callStackTable, &QTableWidget::cellDoubleClicked,
             this, &DebugPanel::onCallStackDoubleClicked);
+    connect(m_callStackTable, &QTableWidget::cellClicked,
+            this, &DebugPanel::onCallStackClicked);
 
     lay->addWidget(m_callStackTable);
     m_tabs->addTab(w, tr("Call Stack"));
@@ -424,6 +426,7 @@ void DebugPanel::onAdapterStopped(int threadId, DebugStopReason reason,
                                    const QString &description)
 {
     Q_UNUSED(reason)
+    m_currentThread = threadId;
     setRunning(true, true);
     m_statusLabel->setText(tr("Paused: %1 (thread %2)").arg(description).arg(threadId));
     m_statusLabel->setStyleSheet(QStringLiteral(
@@ -517,13 +520,33 @@ void DebugPanel::onBreakpointVerified(const DebugBreakpoint &bp)
     }
 }
 
-void DebugPanel::onCallStackDoubleClicked(int row, int /*col*/)
+void DebugPanel::onCallStackDoubleClicked(int row, int col)
+{
+    // Same behaviour as a single click — kept for users who instinctively
+    // double-click rows in tables.
+    onCallStackClicked(row, col);
+}
+
+void DebugPanel::onCallStackClicked(int row, int /*col*/)
 {
     if (row < 0 || row >= m_callStackTable->rowCount()) return;
 
+    auto *idItem  = m_callStackTable->item(row, 0);
     auto *locItem = m_callStackTable->item(row, 2);
-    if (!locItem) return;
+    if (!idItem || !locItem) return;
 
+    // Highlight the selected row so the user sees which frame is active.
+    m_callStackTable->selectRow(row);
+
+    // Tell GDB to switch context to this frame so subsequent locals/eval
+    // commands run against it. The adapter also re-requests the stack
+    // and locals so the Locals tab refreshes for the new frame.
+    bool ok = false;
+    const int frameId = idItem->text().toInt(&ok);
+    if (ok && m_adapter)
+        m_adapter->stackSelectFrame(frameId);
+
+    // Move the editor cursor to the source location of the selected frame.
     const QString filePath = locItem->data(Qt::UserRole).toString();
     const int line = locItem->data(Qt::UserRole + 1).toInt();
     if (!filePath.isEmpty() && line > 0)

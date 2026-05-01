@@ -132,6 +132,11 @@ public:
     virtual void requestVariables(int variablesReference) = 0;
     virtual void evaluate(const QString &expression, int frameId = 0) = 0;
 
+    /// Switch the debugger's current stack frame. Subsequent inspection
+    /// commands (-stack-list-locals, -data-evaluate-expression, etc.) will
+    /// operate on this frame until another frame is selected.
+    virtual void stackSelectFrame(int frameId) = 0;
+
     // ── Variable Objects (lazy tree expansion) ────────────────────────────
 
     /// Create a variable object for an expression in the given frame.

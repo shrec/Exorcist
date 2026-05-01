@@ -79,6 +79,7 @@ private slots:
     void onBreakpointVerified(const DebugBreakpoint &bp);
 
     void onCallStackDoubleClicked(int row, int col);
+    void onCallStackClicked(int row, int col);
     void onLocalsContextMenu(const QPoint &pos);
     void onWatchContextMenu(const QPoint &pos);
 
@@ -112,6 +113,10 @@ private:
 
     // Call Stack tab
     QTableWidget     *m_callStackTable;
+
+    // Last thread the adapter reported via *stopped — used so frame
+    // selections re-issue stack/locals queries on the right thread.
+    int               m_currentThread = 0;
 
     // Locals tab — tree view backed by WatchTreeModel
     QTreeView        *m_localsView;

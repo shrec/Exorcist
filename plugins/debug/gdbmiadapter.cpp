@@ -198,6 +198,9 @@ void GdbMiAdapter::continueExecution(int threadId)
 
 void GdbMiAdapter::stepOver(int threadId)
 {
+    emit outputProduced(QStringLiteral("[GDB] stepOver thread=%1 launched=%2 procState=%3")
+                            .arg(threadId).arg(m_launched).arg(int(m_process.state())),
+                        QStringLiteral("debug"));
     if (threadId > 0)
         sendCommand(QStringLiteral("-exec-next --thread %1").arg(threadId));
     else
@@ -206,6 +209,9 @@ void GdbMiAdapter::stepOver(int threadId)
 
 void GdbMiAdapter::stepInto(int threadId)
 {
+    emit outputProduced(QStringLiteral("[GDB] stepInto thread=%1 launched=%2")
+                            .arg(threadId).arg(m_launched),
+                        QStringLiteral("debug"));
     if (threadId > 0)
         sendCommand(QStringLiteral("-exec-step --thread %1").arg(threadId));
     else
@@ -214,6 +220,9 @@ void GdbMiAdapter::stepInto(int threadId)
 
 void GdbMiAdapter::stepOut(int threadId)
 {
+    emit outputProduced(QStringLiteral("[GDB] stepOut thread=%1 launched=%2")
+                            .arg(threadId).arg(m_launched),
+                        QStringLiteral("debug"));
     if (threadId > 0)
         sendCommand(QStringLiteral("-exec-finish --thread %1").arg(threadId));
     else
@@ -297,6 +306,18 @@ void GdbMiAdapter::evaluate(const QString &expression, int frameId)
     Q_UNUSED(frameId)
     sendCommand(QStringLiteral("-data-evaluate-expression \"%1\"")
                     .arg(expression));
+}
+
+void GdbMiAdapter::stackSelectFrame(int frameId)
+{
+    emit outputProduced(QStringLiteral("[GDB] stackSelectFrame frame=%1")
+                            .arg(frameId),
+                        QStringLiteral("debug"));
+    sendCommand(QStringLiteral("-stack-select-frame %1").arg(frameId));
+
+    // Refresh stack + locals for the newly selected frame so UI updates.
+    requestStackTrace(m_currentThread);
+    sendCommand(QStringLiteral("-stack-list-locals --all-values"));
 }
 
 // ── Variable Objects ──────────────────────────────────────────────────────────
@@ -557,6 +578,7 @@ void GdbMiAdapter::handleStopped(const QHash<QString, QString> &attrs)
 {
     const int threadId = attrs.value(QStringLiteral("thread-id"), QStringLiteral("0")).toInt();
     const QString reason = attrs.value(QStringLiteral("reason"));
+    m_currentThread = threadId;
 
     emit outputProduced(QStringLiteral("[GDB] *stopped reason=%1 thread=%2")
                             .arg(reason, QString::number(threadId)),

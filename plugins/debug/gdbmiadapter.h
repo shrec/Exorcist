@@ -47,6 +47,7 @@ public:
     void requestScopes(int frameId) override;
     void requestVariables(int variablesReference) override;
     void evaluate(const QString &expression, int frameId = 0) override;
+    void stackSelectFrame(int frameId) override;
 
     // ── Variable Objects ─────────────────────────────────────────────────
     void createVarObject(const QString &expression, int frameId = 0) override;
@@ -127,6 +128,10 @@ private:
 
     // For requestStackTrace: token → threadId
     QHash<int, int> m_stackTraceRequests;
+
+    // Last thread reported by handleStopped — used to re-request stack/locals
+    // after stackSelectFrame() so the UI refreshes for the new frame.
+    int m_currentThread = 0;
 
     // Variable Object tracking: token → command type
     enum class VarObjCmd { Create, ListChildren, Update, Delete, Assign };
