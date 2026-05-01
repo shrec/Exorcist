@@ -336,6 +336,18 @@ private:
     QTimer                  m_todoRescanTimer;   // debounced rescan on edits
     void                    rescanTodoMarkers();
 
+    // ── Inline color swatches (hex literals) ──────────────────────────────
+    // Cache of hex color codes per visible block. Maps block number
+    // (0-based) → list of (column, hex-string) tuples. Recomputed on
+    // contentsChange (debounced 250ms) so paintEvent stays cheap.
+    QHash<int, QList<QPair<int, QString>>> m_colorSwatches;
+    QTimer                                  m_colorRescanTimer;
+    void                                    rescanColorSwatches();
+    /// Hit-test a viewport click against m_colorSwatches. Returns true if
+    /// the click landed on a swatch and the user picked a new color (which
+    /// has already been applied to the document).
+    bool                                    handleColorSwatchClick(const QPoint &viewportPos);
+
     // Shadow buffer kept in sync with QTextDocument via contentsChanged
     std::unique_ptr<PieceTableBuffer> m_buffer;
     bool                     m_bufferSyncing = false;  // guard re-entrant syncs

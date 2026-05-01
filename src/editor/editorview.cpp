@@ -7,6 +7,7 @@
 #include "vimhandler.h"
 
 #include <QCheckBox>
+#include <QColorDialog>
 #include <QContextMenuEvent>
 #include <QEvent>
 #include <QHBoxLayout>
@@ -293,6 +294,21 @@ EditorView::EditorView(QWidget *parent)
     connect(document(), &QTextDocument::contentsChange,
             this, [this](int, int, int) {
                 m_todoRescanTimer.start();
+            });
+
+    // Inline color swatch scan — debounced 250ms on edits. Caches hex
+    // codes per block so paintEvent doesn't have to re-run the regex on
+    // every frame, and so mousePressEvent has a fast hit-test set.
+    m_colorRescanTimer.setSingleShot(true);
+    m_colorRescanTimer.setInterval(250);
+    connect(&m_colorRescanTimer, &QTimer::timeout,
+            this, [this]() {
+                rescanColorSwatches();
+                viewport()->update();
+            });
+    connect(document(), &QTextDocument::contentsChange,
+            this, [this](int, int, int) {
+                m_colorRescanTimer.start();
             });
 
     updateLineNumberAreaWidth(0);
@@ -791,6 +807,18 @@ void EditorView::keyPressEvent(QKeyEvent *event)
 
 void EditorView::mousePressEvent(QMouseEvent *event)
 {
+    // Color swatch click — open QColorDialog and replace literal in place.
+    // Checked before any other modifier-aware handling so a plain left-click
+    // on a swatch never starts a text selection.
+    if (event->button() == Qt::LeftButton &&
+        event->modifiers() == Qt::NoModifier)
+    {
+        if (handleColorSwatchClick(event->pos())) {
+            event->accept();
+            return;
+        }
+    }
+
     // Alt+Click — add a cursor at the click position
     if (event->button() == Qt::LeftButton &&
         event->modifiers() == Qt::AltModifier)
@@ -1033,6 +1061,197 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
 // match inside identifiers like "MYTODO" or "fixmeup". Followed by ":" to
 // avoid matching the bare word inside string literals or prose. Matches are
 // stored in m_todoMarkers keyed by 1-based line number.
+// ── Inline color swatches ──────────────────────────────────────────────────
+//
+// Render a small filled square next to each `#rgb`, `#rrggbb` or `#rrggbbaa`
+// literal. Clicking the square opens QColorDialog and replaces the literal
+// with the picked color. The matched range is cached per block so paintEvent
+// stays O(visible blocks * matches/block) and mouse hit-test is O(matches).
+
+namespace {
+
+// Regex used both for paint-time scan and for click-time replacement.
+// `\b` word-boundary on the trailing side keeps us from gobbling characters
+// from an adjacent identifier (e.g. `#deadbeefxyz`).
+const QRegularExpression &colorSwatchRegex()
+{
+    static const QRegularExpression re(QStringLiteral("#[0-9A-Fa-f]{3,8}\\b"));
+    return re;
+}
+
+// Decode a hex literal (3, 4, 6, or 8 hex digits) into a QColor.
+// Returns invalid QColor for unsupported lengths (e.g. 5 or 7).
+QColor colorFromHex(const QString &hex)
+{
+    if (hex.size() < 2 || hex[0] != QLatin1Char('#'))
+        return QColor();
+    const int n = hex.size() - 1;
+    if (n != 3 && n != 4 && n != 6 && n != 8)
+        return QColor();
+    // QColor accepts #rgb, #rrggbb, #aarrggbb. For #rrggbbaa (8-digit, alpha
+    // last) we have to swap the alpha to the front because Qt expects ARGB.
+    if (n == 8) {
+        const QString rgb = hex.mid(1, 6);
+        const QString aa  = hex.mid(7, 2);
+        QColor c;
+        c.setNamedColor(QStringLiteral("#") + aa + rgb);
+        return c;
+    }
+    if (n == 4) {
+        // #rgba (4-digit, alpha last) → expand and swap to #aarrggbb.
+        const QString r = hex.mid(1, 1);
+        const QString g = hex.mid(2, 1);
+        const QString b = hex.mid(3, 1);
+        const QString a = hex.mid(4, 1);
+        QColor c;
+        c.setNamedColor(QStringLiteral("#") + a + a + r + r + g + g + b + b);
+        return c;
+    }
+    QColor c;
+    c.setNamedColor(hex);
+    return c;
+}
+
+// Format a QColor as a hex string with the same shape as `original`. We
+// preserve case (uppercase/lowercase) and length (3/4/6/8 digits) so a
+// round-trip through the swatch picker doesn't cause noisy diffs.
+QString hexFromColor(const QColor &color, const QString &original)
+{
+    const bool upper = std::any_of(
+        original.cbegin(), original.cend(),
+        [](QChar ch) { return ch.isLetter() && ch.isUpper(); });
+    const int n = original.size() - 1;
+
+    auto fmt = [upper](int v) {
+        return QString(QStringLiteral("%1"))
+            .arg(v & 0xff, 2, 16, QLatin1Char('0'))
+            .toUpper();
+    };
+    auto fmtLower = [](int v) {
+        return QString(QStringLiteral("%1"))
+            .arg(v & 0xff, 2, 16, QLatin1Char('0'));
+    };
+
+    QString rr, gg, bb, aa;
+    if (upper) {
+        rr = fmt(color.red()); gg = fmt(color.green()); bb = fmt(color.blue());
+        aa = fmt(color.alpha());
+    } else {
+        rr = fmtLower(color.red()); gg = fmtLower(color.green());
+        bb = fmtLower(color.blue()); aa = fmtLower(color.alpha());
+    }
+
+    // Try to keep the original length: 3/6 digits drop alpha; 4/8 keep it.
+    if (n == 3) {
+        // Best-effort short form: only emit #rgb if each channel's two
+        // hex digits are equal; otherwise widen to 6 digits.
+        if (rr[0] == rr[1] && gg[0] == gg[1] && bb[0] == bb[1])
+            return QStringLiteral("#") + rr.left(1) + gg.left(1) + bb.left(1);
+        return QStringLiteral("#") + rr + gg + bb;
+    }
+    if (n == 4) {
+        if (rr[0] == rr[1] && gg[0] == gg[1] && bb[0] == bb[1] && aa[0] == aa[1])
+            return QStringLiteral("#") + rr.left(1) + gg.left(1) + bb.left(1) + aa.left(1);
+        return QStringLiteral("#") + rr + gg + bb + aa;
+    }
+    if (n == 8 || color.alpha() != 255) {
+        return QStringLiteral("#") + rr + gg + bb + aa;
+    }
+    return QStringLiteral("#") + rr + gg + bb;
+}
+
+// Swatch geometry (kept small and consistent with VS Code's color preview).
+constexpr int kSwatchSize    = 12;   // px, both width and height
+constexpr int kSwatchPadding = 3;    // px gap to the left of the literal
+
+} // namespace
+
+void EditorView::rescanColorSwatches()
+{
+    QHash<int, QList<QPair<int, QString>>> next;
+    const QRegularExpression &re = colorSwatchRegex();
+
+    QTextBlock block = document()->firstBlock();
+    while (block.isValid()) {
+        const QString text = block.text();
+        if (text.contains(QLatin1Char('#'))) {
+            QList<QPair<int, QString>> matches;
+            QRegularExpressionMatchIterator it = re.globalMatch(text);
+            while (it.hasNext()) {
+                QRegularExpressionMatch m = it.next();
+                // Skip lengths Qt won't accept (5 or 7 hex digits).
+                const int digits = m.capturedLength() - 1;
+                if (digits != 3 && digits != 4 && digits != 6 && digits != 8)
+                    continue;
+                matches.append(qMakePair(m.capturedStart(), m.captured()));
+            }
+            if (!matches.isEmpty())
+                next.insert(block.blockNumber(), std::move(matches));
+        }
+        block = block.next();
+    }
+
+    if (next != m_colorSwatches)
+        m_colorSwatches = std::move(next);
+}
+
+bool EditorView::handleColorSwatchClick(const QPoint &viewportPos)
+{
+    if (m_colorSwatches.isEmpty())
+        return false;
+
+    QTextCursor clickCur = cursorForPosition(viewportPos);
+    if (clickCur.isNull())
+        return false;
+
+    const QTextBlock block = clickCur.block();
+    if (!block.isValid())
+        return false;
+
+    const auto it = m_colorSwatches.constFind(block.blockNumber());
+    if (it == m_colorSwatches.constEnd())
+        return false;
+
+    const QFontMetrics fm(font());
+    const QRectF blockGeo = blockBoundingGeometry(block).translated(contentOffset());
+    const int swatchY = qRound(blockGeo.top() + (blockGeo.height() - kSwatchSize) / 2.0);
+
+    for (const auto &entry : it.value()) {
+        const int   col = entry.first;
+        const QString &hex = entry.second;
+        const QString prefix = block.text().left(col);
+        const int charX = qRound(blockGeo.left() + fm.horizontalAdvance(prefix));
+        const QRect swatchRect(charX - kSwatchSize - kSwatchPadding,
+                               swatchY, kSwatchSize, kSwatchSize);
+        if (!swatchRect.contains(viewportPos))
+            continue;
+
+        QColor current = colorFromHex(hex);
+        if (!current.isValid())
+            current = Qt::white;
+        QColor picked = QColorDialog::getColor(
+            current, this, tr("Pick Color"),
+            QColorDialog::ShowAlphaChannel);
+        if (!picked.isValid())
+            return true;  // user cancelled — still consumed the click
+
+        const QString replacement = hexFromColor(picked, hex);
+        if (replacement.isEmpty() || replacement == hex)
+            return true;
+
+        // Replace the matched range in the document.
+        QTextCursor edit(document());
+        edit.setPosition(block.position() + col);
+        edit.setPosition(block.position() + col + hex.size(),
+                         QTextCursor::KeepAnchor);
+        edit.beginEditBlock();
+        edit.insertText(replacement);
+        edit.endEditBlock();
+        return true;
+    }
+    return false;
+}
+
 void EditorView::rescanTodoMarkers()
 {
     static const QRegularExpression re(
@@ -1638,6 +1857,60 @@ void EditorView::paintEvent(QPaintEvent *event)
                     const int x = qRound(baseX + fm.horizontalAdvance(text.left(i)));
                     painter.drawText(QPointF(x + 2, y), tabGlyph);
                 }
+            }
+
+            block = block.next();
+        }
+    }
+
+    // ── Inline color swatches ────────────────────────────────────────────
+    // Draw a small filled square in front of every cached `#hex` literal
+    // on a visible block. The cache (m_colorSwatches) is rebuilt out of
+    // band on contentsChange so this loop just walks visible blocks and
+    // paints — no regex per frame.
+    if (!m_colorSwatches.isEmpty()) {
+        QPainter painter(viewport());
+        painter.setRenderHint(QPainter::Antialiasing, true);
+
+        const QFontMetrics fm(font());
+        const int viewportH = viewport()->height();
+        const QPen borderPen(QColor(0x33, 0x33, 0x33));
+
+        QTextBlock block = firstVisibleBlock();
+        while (block.isValid()) {
+            const QRectF geo = blockBoundingGeometry(block).translated(contentOffset());
+            if (geo.top() > viewportH)
+                break;
+            if (geo.bottom() < 0) {
+                block = block.next();
+                continue;
+            }
+
+            const auto it = m_colorSwatches.constFind(block.blockNumber());
+            if (it == m_colorSwatches.constEnd()) {
+                block = block.next();
+                continue;
+            }
+
+            const int swatchY = qRound(geo.top() + (geo.height() - kSwatchSize) / 2.0);
+            const QString text = block.text();
+
+            for (const auto &entry : it.value()) {
+                const int   col = entry.first;
+                const QString &hex = entry.second;
+                if (col < 0 || col > text.size())
+                    continue;
+                const int charX = qRound(geo.left() + fm.horizontalAdvance(text.left(col)));
+                const QRect swatchRect(charX - kSwatchSize - kSwatchPadding,
+                                       swatchY, kSwatchSize, kSwatchSize);
+
+                QColor fill = colorFromHex(hex);
+                if (!fill.isValid())
+                    continue;
+
+                painter.setPen(borderPen);
+                painter.setBrush(fill);
+                painter.drawRoundedRect(swatchRect, 2, 2);
             }
 
             block = block.next();
