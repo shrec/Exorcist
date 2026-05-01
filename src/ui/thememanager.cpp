@@ -7,6 +7,8 @@
 #include <QString>
 #include <QStringLiteral>
 #include <QStyleFactory>
+#include <QStyleHints>
+#include <QGuiApplication>
 
 namespace Exorcist
 {
@@ -638,6 +640,16 @@ void ThemeManager::apply(QApplication &app)
     app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     app.setPalette(m_dark ? darkPalette() : lightPalette());
     app.setStyleSheet(stylesheet(m_dark));
+
+    // Force OS-level title bar / window frame color to match the theme.
+    // Without this, on Windows 10/11 the native title bar always uses the
+    // OS color scheme even when our Qt content is dark — the result is a
+    // white title bar over a dark window. QStyleHints::setColorScheme is
+    // honored by QPA on Windows (DWMWA_USE_IMMERSIVE_DARK_MODE), macOS,
+    // and KDE/GNOME (Qt 6.8+).
+    if (auto *hints = QGuiApplication::styleHints())
+        hints->setColorScheme(m_dark ? Qt::ColorScheme::Dark
+                                     : Qt::ColorScheme::Light);
 }
 
 void ThemeManager::setDark(bool dark)

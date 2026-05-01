@@ -138,6 +138,7 @@ CppWorkspacePanel::CppWorkspacePanel(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName(QStringLiteral("cppWorkspacePanel"));
+    setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet(QStringLiteral("QWidget#cppWorkspacePanel { background: %1; }")
                   .arg(VS::BgPanel));
 

@@ -145,6 +145,7 @@ void PropertyInspector::buildUi() {
     connect(m_btnMod, &QPushButton::clicked, this,
             [this](){ m_filter = ShowModified; applyFilter(); });
 
+    setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet("QWidget{background:#1e1e1e;}");
 }
 

@@ -134,6 +134,10 @@ ImagePreviewWidget::ImagePreviewWidget(QWidget *parent)
 
     root->addWidget(statusBar);
 
+    // Plain QWidget subclasses need WA_StyledBackground for type-selector QSS
+    // to actually paint the background (otherwise the widget falls back to
+    // the Fusion default white).
+    setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet(QStringLiteral("ImagePreviewWidget { background: %1; }").arg(kBackground));
 }
 

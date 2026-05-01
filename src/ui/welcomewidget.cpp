@@ -38,6 +38,12 @@ static QLabel *makeSectionHeader(const QString &text, QWidget *parent)
 WelcomeWidget::WelcomeWidget(QWidget *parent)
     : QWidget(parent)
 {
+    // Plain QWidget subclasses ignore type-selector QSS background for
+    // their own paint unless WA_StyledBackground is set.  Without this,
+    // the widget falls through to a Fusion-default white background even
+    // when the qApp dark theme is active (the visible "white welcome page
+    // on dark theme" bug).
+    setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet(QStringLiteral("WelcomeWidget { background: #1e1e1e; }"));
 
     auto *root = new QVBoxLayout(this);

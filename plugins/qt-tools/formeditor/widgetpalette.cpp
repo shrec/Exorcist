@@ -133,6 +133,7 @@ void WidgetPalette::buildUi() {
         if (!cls.isEmpty()) emit widgetActivated(cls);
     });
 
+    setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet("QWidget{background:#1e1e1e;}");
 }
 
