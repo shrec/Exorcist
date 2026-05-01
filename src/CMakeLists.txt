@@ -90,6 +90,8 @@ add_executable(exorcist WIN32
     project/builtintemplateprovider.h
     project/newprojectwizard.cpp
     project/newprojectwizard.h
+    project/newpluginwizard.cpp
+    project/newpluginwizard.h
     project/filetemplatedialog.cpp
     project/filetemplatedialog.h
     git/gitservice.cpp

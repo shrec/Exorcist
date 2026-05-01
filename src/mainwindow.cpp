@@ -157,6 +157,7 @@
 #include "project/projectmanager.h"
 #include "project/projecttemplateregistry.h"
 #include "project/newprojectwizard.h"
+#include "project/newpluginwizard.h"
 #include "project/filetemplatedialog.h"
 #include "project/solutiontreemodel.h"
 #include "git/gitservice.h"
@@ -904,6 +905,8 @@ void MainWindow::setupMenus()
     QAction *newFromTemplateAction = fileMenu->addAction(tr("New From &Template..."));
     newFromTemplateAction->setShortcut(QKeySequence::New);
 
+    QAction *newPluginAction = fileMenu->addAction(tr("New &Plugin..."));
+
     QAction *openAction = fileMenu->addAction(tr("&Open File..."));
     openAction->setShortcut(QKeySequence::Open);
 
@@ -971,6 +974,14 @@ void MainWindow::setupMenus()
             openFile(filePath);
         });
         dlg.exec();
+    });
+    connect(newPluginAction, &QAction::triggered, this, [this]() {
+        NewPluginWizard dlg(this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const QString primary = dlg.primarySourceFile();
+            if (!primary.isEmpty() && QFileInfo::exists(primary))
+                openFile(primary);
+        }
     });
     connect(openAction, &QAction::triggered, this, [this]() {
         const QString path = QFileDialog::getOpenFileName(this, tr("Open File"));
