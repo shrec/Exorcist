@@ -120,6 +120,7 @@
 #include "ui/themegallerypanel.h"
 #include "ui/keymapdialog.h"
 #include "ui/workspacesymbolsdialog.h"
+#include "ui/gotolinedialog.h"
 #include "ui/dock/DockManager.h"
 #include "ui/dock/ExDockWidget.h"
 #include "pluginmanager.h"
@@ -1072,6 +1073,23 @@ void MainWindow::setupMenus()
     connect(findReplAction, &QAction::triggered, this, [this]() {
         if (auto *e = m_editorMgr->currentEditor())
             e->showFindBar();
+    });
+
+    QAction *gotoLineAction = editMenu->addAction(tr("&Go to Line..."));
+    gotoLineAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_G));
+    connect(gotoLineAction, &QAction::triggered, this, [this]() {
+        auto *editor = m_editorMgr->currentEditor();
+        if (!editor) return;
+        const int curLine = editor->textCursor().blockNumber() + 1;
+        const int total   = editor->document()->blockCount();
+        GoToLineDialog dlg(curLine, total, this);
+        connect(&dlg, &GoToLineDialog::lineSelected, this, [editor](int line, int col) {
+            QTextCursor cur(editor->document()->findBlockByNumber(line - 1));
+            if (col > 0) cur.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, col - 1);
+            editor->setTextCursor(cur);
+            editor->centerCursor();
+        });
+        dlg.exec();
     });
 
     QAction *gotoSymbolAction = editMenu->addAction(tr("Go to Symbol in &Workspace..."));
