@@ -119,6 +119,7 @@
 #include "ui/recentfilesmanager.h"
 #include "ui/themegallerypanel.h"
 #include "ui/keymapdialog.h"
+#include "ui/workspacesymbolsdialog.h"
 #include "ui/dock/DockManager.h"
 #include "ui/dock/ExDockWidget.h"
 #include "pluginmanager.h"
@@ -1071,6 +1072,18 @@ void MainWindow::setupMenus()
     connect(findReplAction, &QAction::triggered, this, [this]() {
         if (auto *e = m_editorMgr->currentEditor())
             e->showFindBar();
+    });
+
+    QAction *gotoSymbolAction = editMenu->addAction(tr("Go to Symbol in &Workspace..."));
+    gotoSymbolAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_T));
+    connect(gotoSymbolAction, &QAction::triggered, this, [this]() {
+        WorkspaceSymbolsDialog dlg(this);
+        dlg.setLspClient(m_services->service<LspClient>(QStringLiteral("lspClient")));
+        connect(&dlg, &WorkspaceSymbolsDialog::symbolActivated, this,
+                [this](const QString &fp, int line, int ch) {
+            navigateToLocation(fp, line, ch);
+        });
+        dlg.exec();
     });
 
     editMenu->addSeparator();

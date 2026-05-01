@@ -328,6 +328,8 @@ add_executable(exorcist WIN32
     ui/keymapmanager.h
     ui/keymapdialog.cpp
     ui/keymapdialog.h
+    ui/workspacesymbolsdialog.cpp
+    ui/workspacesymbolsdialog.h
     ui/dockautohidemanager.cpp
     ui/dockautohidemanager.h
     ui/dock/DockTypes.h
