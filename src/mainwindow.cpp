@@ -149,6 +149,7 @@
 #include "bootstrap/workbenchstatebootstrap.h"
 #include "bootstrap/postpluginbootstrap.h"
 #include "bootstrap/autosavemanager.h"
+#include "bootstrap/globalshortcutdispatcher.h"
 #include "editor/symboloutlinepanel.h"
 #include "sdk/iterminalservice.h"
 #include "project/projectmanager.h"
@@ -3699,6 +3700,47 @@ void MainWindow::loadPlugins()
 
     // Give PluginManager access to ContributionRegistry for suspend/resume
     m_pluginManager->setContributionRegistry(m_contributions);
+
+    // ── Global shortcut dispatcher ───────────────────────────────────────
+    //
+    // Plugins attach hot-keys to QActions inside docks/menus, but those
+    // shortcuts often don't fire when focus is on a non-window child widget
+    // (chat panel, sidebars, dock contents) because the focused widget
+    // consumes the key event before Qt's shortcut machinery walks up.
+    //
+    // The dispatcher installs a QApplication-level event filter, maps key
+    // sequences -> command ids, and routes through ICommandService —
+    // independent of focus. Plugins keep their existing QAction shortcuts;
+    // when the dispatcher consumes a matching event, the QAction simply
+    // doesn't fire (no double-dispatch).
+    {
+        auto *globalDispatch = new GlobalShortcutDispatcher(this);
+        globalDispatch->setCommandService(m_hostServices->commandService());
+
+        // Build / Run / Debug
+        globalDispatch->registerShortcut(QKeySequence(Qt::Key_F5),
+                                         QStringLiteral("build.debug"));
+        globalDispatch->registerShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F5),
+                                         QStringLiteral("build.stop"));
+
+        // Debug stepping (works regardless of which dock has focus)
+        globalDispatch->registerShortcut(QKeySequence(Qt::Key_F10),
+                                         QStringLiteral("debug.stepOver"));
+        globalDispatch->registerShortcut(QKeySequence(Qt::Key_F11),
+                                         QStringLiteral("debug.stepInto"));
+        globalDispatch->registerShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F11),
+                                         QStringLiteral("debug.stepOut"));
+
+        // Plugin-supplied formatters / refactors
+        globalDispatch->registerShortcut(
+            QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F),
+            QStringLiteral("cpp.formatDocument"));
+
+        // Note: Ctrl+T (go-to-symbol) and Ctrl+G (goto-line) are wired
+        // through MainWindow Edit-menu lambdas without command ids, so we
+        // intentionally don't bind them here to avoid silent no-ops. If
+        // those get promoted to plugin commands later, register them here.
+    }
 
     // Set active language profiles before plugin initialization.
     // Language-specific plugins only load when their profile is enabled.

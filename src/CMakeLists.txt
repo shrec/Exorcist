@@ -133,6 +133,8 @@ add_executable(exorcist WIN32
     bootstrap/postpluginbootstrap.cpp
     bootstrap/workbenchservicesbootstrap.h
     bootstrap/workbenchservicesbootstrap.cpp
+    bootstrap/globalshortcutdispatcher.h
+    bootstrap/globalshortcutdispatcher.cpp
     profile/profilemanifest.h
     profile/profilemanifest.cpp
     profile/profilemanager.h
