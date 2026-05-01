@@ -78,6 +78,16 @@ struct DebugWatchpoint
     bool    verified = false;   // confirmed by debugger backend
 };
 
+/// One disassembled instruction. Returned in lists by
+/// `IDebugAdapter::disassemblyReceived`.
+struct DisasmLine
+{
+    quint64 address = 0;        // absolute instruction address
+    QString function;           // containing function name (optional)
+    int     offset  = 0;        // offset within `function`
+    QString instruction;        // raw assembly text (mnemonic + operands)
+};
+
 // ── Stop reason ───────────────────────────────────────────────────────────────
 
 enum class DebugStopReason
@@ -207,6 +217,23 @@ public:
     /// Read raw memory bytes at the given address.
     virtual void readMemory(quint64 addr, int count) { Q_UNUSED(addr) Q_UNUSED(count) }
 
+    // ── Disassembly ──────────────────────────────────────────────────────
+    //
+    // Default no-op implementation — adapters that support raw disassembly
+    // (e.g. GdbMiAdapter via -data-disassemble) override and emit
+    // `disassemblyReceived` when the request completes.
+    //
+    // `mode` matches GDB/MI's -data-disassemble mode flag:
+    //   0 = plain assembly only
+    //   1 = mixed source + assembly (deprecated 5; mode 1 is the typical UI choice)
+
+    /// Disassemble a memory range. Adapters compute an upper bound from
+    /// `instructionCount` (heuristic: ~16 bytes/instr for x86-64).
+    virtual void disassemble(quint64 startAddr, int instructionCount, int mode)
+    {
+        Q_UNUSED(startAddr) Q_UNUSED(instructionCount) Q_UNUSED(mode)
+    }
+
 signals:
     // ── Lifecycle signals ─────────────────────────────────────────────────
 
@@ -263,4 +290,12 @@ signals:
 
     /// Emitted when readMemory completes.
     void memoryReceived(quint64 addr, const QByteArray &bytes);
+
+    // ── Disassembly signals ──────────────────────────────────────────────
+
+    /// Emitted when disassemble() completes.
+    void disassemblyReceived(const QList<DisasmLine> &lines);
 };
+
+Q_DECLARE_METATYPE(DisasmLine)
+Q_DECLARE_METATYPE(QList<DisasmLine>)

@@ -70,6 +70,9 @@ public:
     // ── Memory inspection ────────────────────────────────────────────────
     void readMemory(quint64 addr, int count) override;
 
+    // ── Disassembly ──────────────────────────────────────────────────────
+    void disassemble(quint64 startAddr, int instructionCount, int mode) override;
+
 private slots:
     void onReadyRead();
     void onProcessStarted();
@@ -110,6 +113,9 @@ private:
 
     // Memory read result handler
     void handleMemoryReadResult(int token, const QHash<QString, QString> &attrs);
+
+    // Disassembly result handler
+    void handleDisassemblyResult(int token, const QHash<QString, QString> &attrs);
 
     /// Parse a list of changelist entries from -var-update output.
     QList<DebugVarChange> parseChangeList(const QString &raw);
@@ -179,4 +185,7 @@ private:
     // Memory read tracking: token → request (addr + count).
     struct MemReq { quint64 addr; int count; };
     QHash<int, MemReq> m_pendingMemReads;
+
+    // Disassembly tracking: token → marker (just to identify response shape).
+    QHash<int, bool> m_pendingDisasm;
 };

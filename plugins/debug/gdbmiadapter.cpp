@@ -490,6 +490,104 @@ void GdbMiAdapter::handleMemoryReadResult(int token, const QHash<QString, QStrin
     emit memoryReceived(req.addr, bytes);
 }
 
+// ── Disassembly ───────────────────────────────────────────────────────────────
+
+void GdbMiAdapter::disassemble(quint64 startAddr, int instructionCount, int mode)
+{
+    // -data-disassemble -s <start> -e <end> -- <mode>
+    //   mode 0 = plain assembly only
+    //   mode 1 = mixed source + assembly (deprecated forms 2/3 use the same shape)
+    //
+    // GDB requires an end-address; use a generous upper bound based on
+    // instructionCount so we always cover the requested window. Real x86-64
+    // instructions average ~4 bytes (max ~15) — 16 bytes/instr is a safe
+    // overshoot. GDB will simply stop emitting once the range ends.
+    if (instructionCount <= 0) instructionCount = 1;
+    const quint64 endAddr = startAddr + static_cast<quint64>(instructionCount) * 16ULL;
+
+    const QString cmd = QStringLiteral("-data-disassemble -s 0x%1 -e 0x%2 -- %3")
+                            .arg(startAddr, 0, 16)
+                            .arg(endAddr,   0, 16)
+                            .arg(mode);
+    const int token = sendCommand(cmd);
+    m_pendingDisasm.insert(token, true);
+}
+
+void GdbMiAdapter::handleDisassemblyResult(int token, const QHash<QString, QString> &attrs)
+{
+    m_pendingDisasm.remove(token);
+
+    QList<DisasmLine> result;
+
+    // The MI response shape (mode 0) is:
+    //   asm_insns=[{address="0x...",func-name="main",offset="12",inst="mov ..."},...]
+    // For mode 1 (source + asm) the shape is grouped per source line:
+    //   asm_insns=[src_and_asm_line={line="...",file="...",
+    //              line_asm_insn=[{address="0x...",inst="..."},...]},...]
+    // Either way, the inner instruction objects are flat {...} groups with
+    // address= / inst= fields, so a brace-aware scan extracts both.
+    const QString asmInsns = attrs.value(QStringLiteral("asm_insns"));
+    if (asmInsns.isEmpty()) {
+        emit disassemblyReceived(result);
+        return;
+    }
+
+    // Walk every {...} group and only keep ones that look like an instruction
+    // record (have an `address=` field). This skips the outer src_and_asm_line
+    // wrapper for mode 1 while still picking up its nested instruction list.
+    int i = 0;
+    while (i < asmInsns.length()) {
+        const int open = asmInsns.indexOf(QLatin1Char('{'), i);
+        if (open < 0) break;
+        int depth = 1;
+        int j = open + 1;
+        while (j < asmInsns.length() && depth > 0) {
+            const QChar ch = asmInsns.at(j);
+            if (ch == QLatin1Char('"')) {
+                ++j;
+                while (j < asmInsns.length() && asmInsns.at(j) != QLatin1Char('"')) {
+                    if (asmInsns.at(j) == QLatin1Char('\\')) ++j;
+                    ++j;
+                }
+            } else if (ch == QLatin1Char('{')) {
+                ++depth;
+            } else if (ch == QLatin1Char('}')) {
+                --depth;
+            }
+            ++j;
+        }
+
+        const QString body = asmInsns.mid(open + 1, j - open - 2);
+        const auto fields  = parseMiBody(body);
+
+        // Skip groups that don't carry an instruction (e.g. mode-1 wrappers).
+        const QString addrStr = fields.value(QStringLiteral("address"));
+        const QString inst    = fields.value(QStringLiteral("inst"));
+        if (!addrStr.isEmpty() && !inst.isEmpty()) {
+            DisasmLine d;
+            // address comes as "0x..." — strip prefix before base-16 parse.
+            QString hex = addrStr;
+            if (hex.startsWith(QStringLiteral("0x")) || hex.startsWith(QStringLiteral("0X")))
+                hex = hex.mid(2);
+            bool okHex = false;
+            d.address     = hex.toULongLong(&okHex, 16);
+            d.function    = fields.value(QStringLiteral("func-name"));
+            d.offset      = fields.value(QStringLiteral("offset"),
+                                         QStringLiteral("0")).toInt();
+            d.instruction = inst;
+            if (okHex)
+                result.append(d);
+        }
+
+        // Advance past this group, but step *into* nested groups so that
+        // mode-1's `line_asm_insn=[{...},{...}]` instruction children are
+        // also picked up.
+        i = open + 1;
+    }
+
+    emit disassemblyReceived(result);
+}
+
 // ── MI command sending ────────────────────────────────────────────────────────
 
 int GdbMiAdapter::sendCommand(const QString &miCommand)
@@ -617,6 +715,8 @@ void GdbMiAdapter::parseMiLine(const QString &line)
                 handleBreakWatchResult(token, attrs);
             } else if (m_pendingMemReads.contains(token)) {
                 handleMemoryReadResult(token, attrs);
+            } else if (m_pendingDisasm.contains(token)) {
+                handleDisassemblyResult(token, attrs);
             } else if (m_stackTraceRequests.contains(token)) {
                 handleStackListResult(token, attrs);
             } else if (body.contains(QStringLiteral("threads="))) {
@@ -1042,6 +1142,7 @@ void GdbMiAdapter::onProcessFinished(int exitCode, QProcess::ExitStatus status)
     m_varDeleteNames.clear();
     m_varAssignNames.clear();
     m_pendingMemReads.clear();
+    m_pendingDisasm.clear();
     emit terminated();
 }
 

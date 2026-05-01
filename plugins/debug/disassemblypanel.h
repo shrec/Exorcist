@@ -1,5 +1,8 @@
 #pragma once
 
+#include "sdk/idebugadapter.h"  // DisasmLine + IDebugAdapter (for SLOT signature)
+
+#include <QList>
 #include <QWidget>
 
 class QComboBox;
@@ -7,28 +10,19 @@ class QLabel;
 class QLineEdit;
 class QPushButton;
 class QTextEdit;
-class IDebugAdapter;
 
 /// Disassembly inspector dock for the Debug plugin.
 ///
 /// Shows GDB disassembly for the current frame's PC (default) or for a
-/// user-supplied function name. Mirrors `MemoryViewPanel`'s wiring strategy:
+/// user-supplied function name. Wiring strategy:
 ///
-///   - The panel calls `IDebugAdapter::evaluate(<expr>)` and listens to the
-///     `evaluateResult(expression, result)` signal (cross-DLL safe).
-///   - For the "current frame" mode the panel queries `$pc` to learn the
-///     program counter, then emits an evaluate that approximates a
-///     disassembly request. Real `-data-disassemble` requires a direct
-///     command channel that the SDK does not currently expose, so the
-///     first pass renders a labelled placeholder when no live debugger is
-///     attached.
-///   - When no adapter is set or the debugger is not running, the panel
-///     falls back to a synthetic listing so the UI is verifiable in
+///   - The panel first calls `IDebugAdapter::evaluate("(void*)$pc")` (or
+///     `"(void*)&fn"`) and parses the result to learn the absolute PC.
+///   - It then calls `IDebugAdapter::disassemble(pc, count, mode)` and
+///     renders the `disassemblyReceived(QList<DisasmLine>)` signal payload.
+///   - When no adapter is attached or the debugger is not running, the
+///     panel falls back to a synthetic listing so the UI is verifiable in
 ///     isolation.
-///
-/// TODO: once `IDebugAdapter` exposes a raw `-data-disassemble` channel
-///       (or a typed disassembly API), replace the placeholder rendering
-///       with parsed real instructions.
 class DisassemblyPanel : public QWidget
 {
     Q_OBJECT
@@ -52,6 +46,7 @@ public slots:
 
 private slots:
     void onEvaluateResult(const QString &expression, const QString &result);
+    void onDisassemblyReceived(const QList<DisasmLine> &lines);
 
 private:
     void setupUi();

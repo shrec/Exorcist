@@ -124,6 +124,8 @@ void DisassemblyPanel::setAdapter(IDebugAdapter *adapter)
         // is in the host exe).
         disconnect(m_adapter, SIGNAL(evaluateResult(QString,QString)),
                    this, SLOT(onEvaluateResult(QString,QString)));
+        disconnect(m_adapter, SIGNAL(disassemblyReceived(QList<DisasmLine>)),
+                   this, SLOT(onDisassemblyReceived(QList<DisasmLine>)));
     }
 
     m_adapter = adapter;
@@ -131,6 +133,8 @@ void DisassemblyPanel::setAdapter(IDebugAdapter *adapter)
     if (m_adapter) {
         connect(m_adapter, SIGNAL(evaluateResult(QString,QString)),
                 this, SLOT(onEvaluateResult(QString,QString)));
+        connect(m_adapter, SIGNAL(disassemblyReceived(QList<DisasmLine>)),
+                this, SLOT(onDisassemblyReceived(QList<DisasmLine>)));
     }
 }
 
@@ -153,9 +157,9 @@ void DisassemblyPanel::refresh()
         // frameId 0 → use the currently selected frame.
         m_adapter->evaluate(m_pendingPcExpression, 0);
     } else {
-        // No live debugger — render a synthetic listing so the UI is testable.
-        // TODO: once IDebugAdapter exposes a direct -data-disassemble channel,
-        //       replace the placeholder with real parsed instructions.
+        // No live debugger — render a synthetic listing so the UI is testable
+        // in isolation. Real -data-disassemble takes over once a session is
+        // active (see onEvaluateResult → m_adapter->disassemble()).
         setStatus(tr("Debugger not running — showing synthetic listing"));
         const QString label = fn.isEmpty() ? QStringLiteral("<current frame>") : fn;
         renderFakeListing(label, /*baseAddress=*/0x0000000000401000ULL);
@@ -187,13 +191,59 @@ void DisassemblyPanel::onEvaluateResult(const QString &expression,
         return;
     }
 
-    setStatus(tr("PC for %1: 0x%2").arg(label).arg(pc, 0, 16));
+    setStatus(tr("PC for %1: 0x%2 — disassembling...").arg(label).arg(pc, 0, 16));
 
-    // TODO: real -data-disassemble wiring needs a direct command channel
-    //       (the SDK only exposes evaluate()). Until that exists, render a
-    //       placeholder listing anchored at the resolved PC so the UI is
-    //       still useful as a sanity check.
-    renderFakeListing(label, pc);
+    // Now request real disassembly via -data-disassemble. The result arrives
+    // asynchronously through `disassemblyReceived` → `onDisassemblyReceived`.
+    if (m_adapter && m_adapter->isRunning()) {
+        const auto mode = static_cast<Mode>(
+            m_modeCombo ? m_modeCombo->currentData().toInt()
+                        : static_cast<int>(Mode::SourceAndAsm));
+        // Mode mapping: GDB/MI 0 = plain asm, 1 = mixed source+asm.
+        const int gdbMode = (mode == Mode::SourceAndAsm) ? 1 : 0;
+        m_adapter->disassemble(pc, /*instructionCount=*/64, gdbMode);
+    } else {
+        // No live debugger — fall back to the synthetic listing so the UI
+        // still shows something coherent.
+        renderFakeListing(label, pc);
+    }
+}
+
+// ── Real disassembly result handler ──────────────────────────────────────────
+
+void DisassemblyPanel::onDisassemblyReceived(const QList<DisasmLine> &lines)
+{
+    const QString label = m_pendingFunction.isEmpty()
+        ? QStringLiteral("<current frame>")
+        : m_pendingFunction;
+
+    if (lines.isEmpty()) {
+        setStatus(tr("No instructions returned for %1").arg(label),
+                  /*isError=*/true);
+        m_listingView->clear();
+        return;
+    }
+
+    // Format each line as: 0x<address>  <function>+<offset>:  <instruction>
+    QStringList formatted;
+    formatted.reserve(lines.size());
+    for (const DisasmLine &d : lines) {
+        QString fnTag;
+        if (!d.function.isEmpty())
+            fnTag = QStringLiteral("<%1+%2>").arg(d.function).arg(d.offset);
+        else
+            fnTag = QStringLiteral("<+%1>").arg(d.offset);
+
+        formatted << QStringLiteral("0x%1  %2:  %3")
+                         .arg(d.address, 16, 16, QLatin1Char('0'))
+                         .arg(fnTag, -24)
+                         .arg(d.instruction);
+    }
+
+    const quint64 base = lines.first().address;
+    setStatus(tr("Disassembled %1 instructions for %2 @ 0x%3")
+                  .arg(lines.size()).arg(label).arg(base, 0, 16));
+    renderListing(label, base, formatted);
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────────
