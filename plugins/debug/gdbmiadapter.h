@@ -42,6 +42,10 @@ public:
     void removeBreakpoint(int breakpointId) override;
     void removeAllBreakpoints() override;
 
+    // ── Watchpoints (data breakpoints) ───────────────────────────────────
+    void addWatchpoint(const DebugWatchpoint &wp) override;
+    void removeWatchpoint(int watchpointId) override;
+
     void requestThreads() override;
     void requestStackTrace(int threadId) override;
     void requestScopes(int frameId) override;
@@ -80,6 +84,7 @@ private:
 
     /// Handle result records from specific commands.
     void handleBreakInsertResult(int token, const QHash<QString, QString> &attrs);
+    void handleBreakWatchResult(int token, const QHash<QString, QString> &attrs);
     void handleStackListResult(int token, const QHash<QString, QString> &attrs);
     void handleThreadInfoResult(int token, const QHash<QString, QString> &attrs);
     void handleVarResult(int token, const QHash<QString, QString> &attrs);
@@ -125,6 +130,12 @@ private:
 
     // Active breakpoints: GDB id → DebugBreakpoint
     QHash<int, DebugBreakpoint> m_breakpoints;
+
+    // Pending watchpoints: token → original watchpoint request.
+    QHash<int, DebugWatchpoint> m_pendingWatchpoints;
+
+    // Active watchpoints: GDB id → DebugWatchpoint
+    QHash<int, DebugWatchpoint> m_watchpoints;
 
     // For requestStackTrace: token → threadId
     QHash<int, int> m_stackTraceRequests;

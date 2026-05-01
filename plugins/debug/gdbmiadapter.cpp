@@ -297,6 +297,33 @@ void GdbMiAdapter::removeAllBreakpoints()
         removeBreakpoint(id);
 }
 
+// ── Watchpoints (data breakpoints) ────────────────────────────────────────────
+
+void GdbMiAdapter::addWatchpoint(const DebugWatchpoint &wp)
+{
+    // -break-watch [-r|-a] EXPR
+    //   (no flag) write watchpoint  — break on value change
+    //   -r       read watchpoint   — break on read
+    //   -a       access watchpoint — break on read or write
+    QString cmd = QStringLiteral("-break-watch ");
+    if (wp.type == DebugWatchpoint::Read)
+        cmd += QStringLiteral("-r ");
+    else if (wp.type == DebugWatchpoint::Access)
+        cmd += QStringLiteral("-a ");
+    cmd += wp.expression;
+
+    const int token = sendCommand(cmd);
+    m_pendingWatchpoints.insert(token, wp);
+}
+
+void GdbMiAdapter::removeWatchpoint(int watchpointId)
+{
+    // GDB uses the same -break-delete for both breakpoints and watchpoints.
+    sendCommand(QStringLiteral("-break-delete %1").arg(watchpointId));
+    m_watchpoints.remove(watchpointId);
+    emit watchpointRemoved(watchpointId);
+}
+
 // ── Inspection ────────────────────────────────────────────────────────────────
 
 void GdbMiAdapter::requestThreads()
@@ -474,6 +501,10 @@ void GdbMiAdapter::parseMiLine(const QString &line)
         if (resultClass == QStringLiteral("error")) {
             auto attrs = parseMiBody(body);
             const QString msg = attrs.value(QStringLiteral("msg"), QStringLiteral("Unknown error"));
+            // Drop any pending watchpoint tied to this token so it isn't
+            // mistakenly applied to a later result.
+            if (m_pendingWatchpoints.contains(token))
+                m_pendingWatchpoints.remove(token);
             // If a var-obj command failed, route the error to the var-obj signal
             if (m_varObjRequests.contains(token)) {
                 const auto cmd = m_varObjRequests.take(token);
@@ -507,6 +538,8 @@ void GdbMiAdapter::parseMiLine(const QString &line)
                 }
             } else if (m_pendingBps.contains(token)) {
                 handleBreakInsertResult(token, attrs);
+            } else if (m_pendingWatchpoints.contains(token)) {
+                handleBreakWatchResult(token, attrs);
             } else if (m_stackTraceRequests.contains(token)) {
                 handleStackListResult(token, attrs);
             } else if (body.contains(QStringLiteral("threads="))) {
@@ -650,6 +683,32 @@ void GdbMiAdapter::handleBreakInsertResult(int token, const QHash<QString, QStri
 
     m_breakpoints.insert(bp.id, bp);
     emit breakpointSet(bp);
+}
+
+void GdbMiAdapter::handleBreakWatchResult(int token, const QHash<QString, QString> &attrs)
+{
+    auto wp = m_pendingWatchpoints.take(token);
+
+    // GDB returns one of: wpt, hw-wpt, hw-rwpt, hw-awpt depending on the type
+    // of watchpoint that was created. Try each in order.
+    QString wptStr = attrs.value(QStringLiteral("wpt"));
+    if (wptStr.isEmpty()) wptStr = attrs.value(QStringLiteral("hw-wpt"));
+    if (wptStr.isEmpty()) wptStr = attrs.value(QStringLiteral("hw-rwpt"));
+    if (wptStr.isEmpty()) wptStr = attrs.value(QStringLiteral("hw-awpt"));
+
+    if (!wptStr.isEmpty()) {
+        // Strip surrounding {} and parse number=...,exp=...
+        auto wptAttrs = parseMiBody(wptStr.mid(1, wptStr.length() - 2));
+        wp.id = wptAttrs.value(QStringLiteral("number"), QStringLiteral("-1")).toInt();
+        const QString exp = wptAttrs.value(QStringLiteral("exp"));
+        if (!exp.isEmpty()) wp.expression = exp;
+        wp.verified = true;
+    }
+
+    if (wp.id > 0)
+        m_watchpoints.insert(wp.id, wp);
+
+    emit watchpointSet(wp);
 }
 
 void GdbMiAdapter::handleStackListResult(int token, const QHash<QString, QString> &attrs)
@@ -897,6 +956,8 @@ void GdbMiAdapter::onProcessFinished(int exitCode, QProcess::ExitStatus status)
 
     m_pending.clear();
     m_pendingBps.clear();
+    m_pendingWatchpoints.clear();
+    m_watchpoints.clear();
     m_stackTraceRequests.clear();
     m_varObjRequests.clear();
     m_varCreateExprs.clear();

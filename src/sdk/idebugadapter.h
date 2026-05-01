@@ -66,6 +66,17 @@ struct DebugThread
     bool    stopped = false;
 };
 
+/// Data breakpoint — fires when a memory location's value changes
+/// (write), is read, or is accessed (read or write).
+struct DebugWatchpoint
+{
+    int     id = -1;            // adapter-assigned ID (-1 = unset)
+    QString expression;         // expression to watch (e.g. "myVar", "*p", "arr[3]")
+    enum Type { Write, Read, Access } type = Write;
+    bool    enabled = true;
+    bool    verified = false;   // confirmed by debugger backend
+};
+
 // ── Stop reason ───────────────────────────────────────────────────────────────
 
 enum class DebugStopReason
@@ -125,6 +136,15 @@ public:
     virtual void removeBreakpoint(int breakpointId) = 0;
     virtual void removeAllBreakpoints() = 0;
 
+    // ── Watchpoints (data breakpoints) ────────────────────────────────────
+    //
+    // Default no-op implementations — not all adapters support data
+    // breakpoints. Adapters that do (e.g. GdbMiAdapter via -break-watch)
+    // override these and emit watchpointSet / watchpointRemoved.
+
+    virtual void addWatchpoint(const DebugWatchpoint &wp) { Q_UNUSED(wp); }
+    virtual void removeWatchpoint(int watchpointId) { Q_UNUSED(watchpointId); }
+
     // ── Inspection ────────────────────────────────────────────────────────
 
     virtual void requestThreads() = 0;
@@ -173,6 +193,11 @@ signals:
 
     void breakpointSet(const DebugBreakpoint &bp);
     void breakpointRemoved(int breakpointId);
+
+    // ── Watchpoint signals ────────────────────────────────────────────────
+
+    void watchpointSet(const DebugWatchpoint &wp);
+    void watchpointRemoved(int watchpointId);
 
     // ── Data signals ──────────────────────────────────────────────────────
 
