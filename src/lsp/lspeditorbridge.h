@@ -1,9 +1,12 @@
 #pragma once
 
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QObject>
 #include <QPoint>
+#include <QRect>
 #include <QString>
+#include <QVector>
 
 class QTimer;
 class QFrame;
@@ -12,6 +15,17 @@ class EditorView;
 class LspClient;
 class CompletionPopup;
 class HoverTooltipWidget;
+class CodeLensOverlay;
+
+// Code lens datum used by both the bridge and the overlay widget.
+struct LspCodeLens {
+    int        line = 0;       // 0-based
+    int        character = 0;  // 0-based
+    QString    title;          // command title shown above the line
+    QString    command;        // command id (for executeCommand)
+    QJsonArray arguments;      // command arguments
+    QRect      hitRect;        // last painted rect in viewport coords
+};
 
 // ── LspEditorBridge ───────────────────────────────────────────────────────────
 //
@@ -66,6 +80,8 @@ private slots:
                             const QJsonArray &actions);
     void onInlayHintsResult(const QString &uri, const QJsonArray &hints);
     void onTypeDefinitionResult(const QString &uri, const QJsonArray &locations);
+    void onCodeLensResult(const QString &uri, const QJsonArray &lenses);
+    void requestCodeLens();
     void onCompletionAccepted(const QString &insertText,
                               const QString &filterText);
     void sendDocumentSymbols();
@@ -93,6 +109,13 @@ private:
     QTimer          *m_symbolTimer;       // debounced 1s for documentSymbol
     QTimer          *m_hoverTimer;        // debounced 500ms for hover
     QTimer          *m_inlayHintTimer;    // debounced 500ms for inlay hints
+    QTimer          *m_codeLensTimer;     // debounced 1500ms for code lens
+
+    // Code-lens data (cached per editor)
+    using CodeLens = LspCodeLens;
+    QVector<CodeLens> m_codeLenses;
+    bool             m_codeLensEnabled = true;
+    CodeLensOverlay *m_codeLensOverlay = nullptr;
     CompletionPopup *m_completion;
     HoverTooltipWidget *m_hoverTooltip;
     QFrame          *m_signaturePopup = nullptr;  // floating signature help popup

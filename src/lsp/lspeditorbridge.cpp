@@ -2,6 +2,9 @@
 
 #include <QAction>
 #include <QEvent>
+#include <QFont>
+#include <QFontMetrics>
+#include <QWidget>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -12,7 +15,11 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QPaintEvent>
+#include <QPainter>
+#include <QPen>
 #include <QScrollBar>
+#include <QSettings>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTimer>
@@ -23,6 +30,116 @@
 #include "completionpopup.h"
 #include "hovertooltipwidget.h"
 #include "lspclient.h"
+
+// ── CodeLensOverlay ──────────────────────────────────────────────────────────
+//
+// A transparent child widget that sits on top of the editor's viewport and
+// paints code-lens labels just above function lines. Click forwarding falls
+// back to the editor for empty regions; clicks on a lens hit-rect execute the
+// associated LSP command.
+
+class CodeLensOverlay : public QWidget
+{
+public:
+    explicit CodeLensOverlay(EditorView *editor, LspClient *client)
+        : QWidget(editor->viewport()),
+          m_editor(editor),
+          m_client(client)
+    {
+        // Mouse events fall through to the editor by default; clicks on
+        // a lens hit-rect are handled by the bridge's viewport eventFilter
+        // which forwards to executeCommand.
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        setAttribute(Qt::WA_NoSystemBackground, true);
+        setAttribute(Qt::WA_TranslucentBackground, true);
+        setFocusPolicy(Qt::NoFocus);
+        setGeometry(editor->viewport()->rect());
+        editor->viewport()->installEventFilter(this);
+        show();
+        raise();
+    }
+
+    const QVector<LspCodeLens> &lenses() const { return m_lenses; }
+
+    void setLenses(const QVector<LspCodeLens> &lenses)
+    {
+        m_lenses = lenses;
+        update();
+    }
+
+    void clear()
+    {
+        m_lenses.clear();
+        update();
+    }
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override
+    {
+        if (obj == m_editor->viewport()
+            && event->type() == QEvent::Resize) {
+            setGeometry(m_editor->viewport()->rect());
+            raise();
+        }
+        return QWidget::eventFilter(obj, event);
+    }
+
+    void paintEvent(QPaintEvent * /*event*/) override
+    {
+        if (m_lenses.isEmpty()) return;
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, false);
+
+        QFont f = m_editor->font();
+        f.setItalic(true);
+        int sz = f.pointSize();
+        if (sz <= 0) sz = QFontMetrics(m_editor->font()).height() * 3 / 4;
+        f.setPointSize(qMax(7, sz - 1));
+        p.setFont(f);
+        p.setPen(QPen(QColor(0x7e, 0x7e, 0x7e)));
+
+        const QFontMetrics fm(f);
+        const int viewportH = height();
+
+        for (LspCodeLens &lens : m_lenses) {
+            const QTextBlock block =
+                m_editor->document()->findBlockByNumber(lens.line);
+            if (!block.isValid() || !block.isVisible()) {
+                lens.hitRect = QRect();
+                continue;
+            }
+            // QPlainTextEdit::cursorRect gives viewport-relative coords for a
+            // QTextCursor anchored at the block; this avoids touching protected
+            // QPlainTextEdit geometry helpers.
+            QTextCursor anchor(block);
+            const QRect cr = m_editor->cursorRect(anchor);
+            if (cr.bottom() < 0 || cr.top() > viewportH) {
+                lens.hitRect = QRect();
+                continue;
+            }
+
+            const int textW = fm.horizontalAdvance(lens.title);
+            const int indentX = lens.character > 0
+                ? fm.horizontalAdvance(QString(lens.character, ' '))
+                : 0;
+            const int x = cr.left() + indentX;
+            const int baselineY = cr.top() - 2;
+            if (baselineY - fm.ascent() < 0) {
+                // No room above this line in the viewport; skip.
+                lens.hitRect = QRect();
+                continue;
+            }
+            p.drawText(QPoint(x, baselineY), lens.title);
+            lens.hitRect = QRect(x, baselineY - fm.ascent(),
+                                 textW, fm.height());
+        }
+    }
+
+private:
+    EditorView          *m_editor;
+    LspClient           *m_client;
+    QVector<LspCodeLens> m_lenses;
+};
 
 LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
                                  const QString &filePath, QObject *parent)
@@ -37,9 +154,21 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
       m_symbolTimer(new QTimer(this)),
       m_hoverTimer(new QTimer(this)),
       m_inlayHintTimer(new QTimer(this)),
+      m_codeLensTimer(new QTimer(this)),
       m_completion(new CompletionPopup(editor)),
       m_hoverTooltip(new HoverTooltipWidget(editor))
 {
+    // Read code lens enabled flag from settings (default true)
+    {
+        QSettings s;
+        m_codeLensEnabled = s.value(QStringLiteral("editor/codeLens"), true).toBool();
+    }
+
+    // Code-lens overlay: only created when enabled (otherwise zero overhead).
+    if (m_codeLensEnabled) {
+        m_codeLensOverlay = new CodeLensOverlay(m_editor, m_client);
+    }
+
     // Debounce: fire didChange 300 ms after the last keystroke
     m_changeTimer->setSingleShot(true);
     m_changeTimer->setInterval(300);
@@ -63,6 +192,12 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
     m_inlayHintTimer->setInterval(500);
     connect(m_inlayHintTimer, &QTimer::timeout,
             this, &LspEditorBridge::requestInlayHints);
+
+    // Code lens: re-request 1500ms after the last change
+    m_codeLensTimer->setSingleShot(true);
+    m_codeLensTimer->setInterval(1500);
+    connect(m_codeLensTimer, &QTimer::timeout,
+            this, &LspEditorBridge::requestCodeLens);
 
     // Install event filter on editor viewport for mouse tracking hover
     m_editor->viewport()->setMouseTracking(true);
@@ -134,6 +269,8 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
             this, &LspEditorBridge::onInlayHintsResult);
     connect(m_client, &LspClient::typeDefinitionResult,
             this, &LspEditorBridge::onTypeDefinitionResult);
+    connect(m_client, &LspClient::codeLensResult,
+            this, &LspEditorBridge::onCodeLensResult);
 
     // Completion popup
     connect(m_completion, &CompletionPopup::itemAccepted,
@@ -246,6 +383,8 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
         m_inlayHintTimer->start();
         if (m_signaturePopup && m_signaturePopup->isVisible())
             positionSignaturePopup();
+        if (m_codeLensOverlay)
+            m_codeLensOverlay->update();
     });
 
     // Send initial open notification, then request symbols
@@ -255,6 +394,7 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
         m_opened = true;
         QTimer::singleShot(500, this, &LspEditorBridge::sendDocumentSymbols);
         QTimer::singleShot(800, this, &LspEditorBridge::requestInlayHints);
+        QTimer::singleShot(900, this, &LspEditorBridge::requestCodeLens);
     } else {
         connect(m_client, &LspClient::initialized, this, [this]() {
             m_client->didOpen(m_uri, m_languageId,
@@ -262,6 +402,7 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
             m_opened = true;
             QTimer::singleShot(500, this, &LspEditorBridge::sendDocumentSymbols);
             QTimer::singleShot(800, this, &LspEditorBridge::requestInlayHints);
+            QTimer::singleShot(900, this, &LspEditorBridge::requestCodeLens);
         }, Qt::SingleShotConnection);
     }
 }
@@ -271,6 +412,11 @@ LspEditorBridge::~LspEditorBridge()
     m_completion->dismiss();
     m_hoverTooltip->hideTooltip();
     if (m_signaturePopup) m_signaturePopup->hide();
+    if (m_codeLensOverlay) {
+        m_codeLensOverlay->hide();
+        m_codeLensOverlay->deleteLater();
+        m_codeLensOverlay = nullptr;
+    }
     m_client->didClose(m_uri);
 }
 
@@ -294,6 +440,24 @@ bool LspEditorBridge::eventFilter(QObject *obj, QEvent *event)
     }
 
     if (obj == m_editor->viewport()) {
+        // Click on a code-lens label → execute its command. We use the
+        // overlay's last-painted hit-rects rather than the bridge's copy
+        // since the overlay is what actually drew them in viewport coords.
+        if (event->type() == QEvent::MouseButtonPress
+            && m_codeLensEnabled && m_codeLensOverlay) {
+            auto *me = static_cast<QMouseEvent *>(event);
+            if (me->button() == Qt::LeftButton) {
+                for (const LspCodeLens &lens : m_codeLensOverlay->lenses()) {
+                    if (!lens.command.isEmpty()
+                        && lens.hitRect.isValid()
+                        && lens.hitRect.contains(me->pos())) {
+                        m_client->executeCommand(lens.command, lens.arguments);
+                        return true;  // swallow click
+                    }
+                }
+            }
+        }
+
         if (event->type() == QEvent::MouseMove) {
             auto *me = static_cast<QMouseEvent *>(event);
             const QTextCursor cur = m_editor->cursorForPosition(me->pos());
@@ -325,6 +489,7 @@ void LspEditorBridge::onDocumentChanged()
     m_changeTimer->start();  // restart debounce
     m_symbolTimer->start();  // restart symbol outline refresh
     m_inlayHintTimer->start(); // refresh inlay hints after edit
+    if (m_codeLensEnabled) m_codeLensTimer->start(); // refresh code lens after edit
     m_hoverTimer->stop();
     m_hoverTooltip->hideTooltip();
 
@@ -906,4 +1071,76 @@ void LspEditorBridge::onTypeDefinitionResult(const QString &uri,
 
     if (!filePath.isEmpty())
         emit navigateToLocation(filePath, line, character);
+}
+
+// ── Code Lens ────────────────────────────────────────────────────────────────
+
+void LspEditorBridge::requestCodeLens()
+{
+    if (!m_codeLensEnabled) return;
+    if (!m_client->isInitialized()) return;
+    if (!m_opened) return;
+    m_client->requestCodeLens(m_uri);
+}
+
+void LspEditorBridge::onCodeLensResult(const QString &uri,
+                                       const QJsonArray &lenses)
+{
+    if (uri != m_uri) return;
+    if (!m_codeLensEnabled) return;
+
+    // Group lenses by line — clangd often returns several lenses per
+    // function (references, implementations) on the same line, which we
+    // concatenate using " | " for a compact display.
+    struct Bucket {
+        int        line = 0;
+        int        character = 0;
+        QStringList titles;
+        QString    command;
+        QJsonArray arguments;
+    };
+    QMap<int, Bucket> byLine;
+
+    constexpr int kMaxLenses = 200;
+    int count = 0;
+
+    for (const QJsonValue &v : lenses) {
+        if (count >= kMaxLenses) break;
+        if (!v.isObject()) continue;
+        const QJsonObject lens = v.toObject();
+        const QJsonObject range = lens[QLatin1String("range")].toObject();
+        const QJsonObject startPos = range[QLatin1String("start")].toObject();
+        const int line = startPos[QLatin1String("line")].toInt(-1);
+        const int ch   = startPos[QLatin1String("character")].toInt(0);
+        if (line < 0) continue;
+
+        const QJsonObject cmd = lens[QLatin1String("command")].toObject();
+        const QString title = cmd[QLatin1String("title")].toString();
+        if (title.isEmpty()) continue;  // unresolved lens (no command yet)
+
+        Bucket &b = byLine[line];
+        b.line      = line;
+        if (b.titles.isEmpty()) {
+            b.character = ch;
+            b.command   = cmd[QLatin1String("command")].toString();
+            b.arguments = cmd[QLatin1String("arguments")].toArray();
+        }
+        b.titles.append(title);
+        ++count;
+    }
+
+    m_codeLenses.clear();
+    m_codeLenses.reserve(byLine.size());
+    for (const Bucket &b : std::as_const(byLine)) {
+        CodeLens cl;
+        cl.line      = b.line;
+        cl.character = b.character;
+        cl.title     = b.titles.join(QStringLiteral(" | "));
+        cl.command   = b.command;
+        cl.arguments = b.arguments;
+        m_codeLenses.append(cl);
+    }
+
+    if (m_codeLensOverlay)
+        m_codeLensOverlay->setLenses(m_codeLenses);
 }

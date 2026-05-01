@@ -85,6 +85,10 @@ public:
     // Go to type definition of the symbol at the given position.
     void requestTypeDefinition(const QString &uri, int line, int character);
 
+    // Request code lenses for a document (textDocument/codeLens). The server
+    // returns an array of CodeLens objects: { range, command?, data? }.
+    void requestCodeLens(const QString &uri);
+
     // Execute an LSP command (workspace/executeCommand). Used by code-action
     // results that ship a `command` rather than an `edit`.
     void executeCommand(const QString &command, const QJsonArray &arguments = {});
@@ -116,6 +120,7 @@ signals:
     void workspaceSymbolsResult(const QJsonArray &symbols);
     void inlayHintsResult(const QString &uri, const QJsonArray &hints);
     void typeDefinitionResult(const QString &uri, const QJsonArray &locations);
+    void codeLensResult(const QString &uri, const QJsonArray &lenses);
 
     // Push notifications from the server (no request needed)
     void diagnosticsPublished(const QString &uri, const QJsonArray &diagnostics);

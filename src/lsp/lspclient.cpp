@@ -115,6 +115,9 @@ void LspClient::initialize(const QString &workspaceRoot)
     textDocumentCaps["documentSymbol"] = QJsonObject{
         {"hierarchicalDocumentSymbolSupport", true},
     };
+    textDocumentCaps["codeLens"] = QJsonObject{
+        {"dynamicRegistration", false},
+    };
     textDocumentCaps["codeAction"] = QJsonObject{
         {"codeActionLiteralSupport", QJsonObject{
             {"codeActionKind", QJsonObject{
@@ -385,6 +388,15 @@ void LspClient::requestTypeDefinition(const QString &uri, int line, int characte
     m_pending[id] = {"textDocument/typeDefinition", uri, line, character};
 }
 
+void LspClient::requestCodeLens(const QString &uri)
+{
+    if (!m_initialized) return;
+    const int id = sendRequest("textDocument/codeLens", QJsonObject{
+        {"textDocument", QJsonObject{{"uri", uri}}},
+    });
+    m_pending[id] = {"textDocument/codeLens", uri, 0, 0};
+}
+
 void LspClient::executeCommand(const QString &command, const QJsonArray &arguments)
 {
     if (!m_initialized || command.isEmpty()) return;
@@ -527,6 +539,9 @@ void LspClient::handleResponse(int id, const QJsonValue &result,
             locations = QJsonArray{result.toObject()};
         }
         emit typeDefinitionResult(req.uri, locations);
+    }
+    else if (req.method == "textDocument/codeLens") {
+        emit codeLensResult(req.uri, result.toArray());
     }
 }
 
