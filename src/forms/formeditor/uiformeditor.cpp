@@ -1,10 +1,13 @@
 #include "uiformeditor.h"
 
 #include "formcanvas.h"
+#include "promotedialog.h"
 #include "propertyinspector.h"
 #include "signalsloteditor.h"
 #include "uixmlio.h"
 #include "widgetpalette.h"
+#include <QPointer>
+#include <QTimer>
 
 #include <QAction>
 #include <QApplication>
@@ -221,6 +224,27 @@ bool UiFormEditor::loadFromFile(const QString &path) {
     // Phase 2: rehydrate signal-slot connections from the .ui's <connections>.
     m_canvas->setConnections(UiXmlIO::loadConnections(path));
     if (m_signalSlot) m_signalSlot->rebuildFromCanvas();
+
+    // Phase 3: rehydrate <customwidgets> by joining the promoted-class
+    // table (className → entry) with the per-widget class declarations
+    // (objectName → declared class).  Whenever a live widget's declared
+    // class is in the promoted set, register a PromotionInfo for it.
+    const QHash<QString, UiCustomWidget> byClass = UiXmlIO::loadCustomWidgets(path);
+    if (!byClass.isEmpty()) {
+        const QHash<QString, QString> classByName = UiXmlIO::loadWidgetClassByName(path);
+        QHash<QString, FormCanvas::PromotionInfo> byName;
+        for (auto it = classByName.begin(); it != classByName.end(); ++it) {
+            auto cIt = byClass.find(it.value());
+            if (cIt == byClass.end()) continue;
+            FormCanvas::PromotionInfo info;
+            info.className     = cIt.value().promotedName;
+            info.headerFile    = cIt.value().headerFile;
+            info.globalInclude = cIt.value().globalInclude;
+            byName.insert(it.key(), info);
+        }
+        m_canvas->setPromotionsByName(byName);
+    }
+
     setModified(false);
     if (m_status) m_status->setText(tr("Loaded %1").arg(QFileInfo(path).fileName()));
     updateBreadcrumb();
@@ -230,8 +254,26 @@ bool UiFormEditor::loadFromFile(const QString &path) {
 bool UiFormEditor::saveToFile(const QString &path) {
     const QString target = path.isEmpty() ? m_path : path;
     if (target.isEmpty()) return false;
-    // Phase 2: pass the canvas's stored connections so <connections> is emitted.
-    if (!UiXmlIO::save(target, m_canvas->formRoot(), m_canvas->connections())) {
+
+    // Phase 3: build the (objectName → UiCustomWidget) promotion map the
+    // writer needs.  We derive baseClass from each promoted widget's live
+    // metaObject — that's the runtime base type, which is what Designer's
+    // <extends> tag should record.
+    UiPromotionMap promoMap;
+    const auto live = m_canvas->promotions();
+    for (auto it = live.begin(); it != live.end(); ++it) {
+        QWidget *w = it.key();
+        if (!w || w->objectName().isEmpty()) continue;
+        UiCustomWidget cw;
+        cw.promotedName   = it.value().className;
+        cw.baseClass      = QString::fromLatin1(w->metaObject()->className());
+        cw.headerFile     = it.value().headerFile;
+        cw.globalInclude  = it.value().globalInclude;
+        promoMap.insert(w->objectName(), cw);
+    }
+
+    if (!UiXmlIO::save(target, m_canvas->formRoot(),
+                       m_canvas->connections(), promoMap)) {
         if (m_status) m_status->setText(tr("Save failed: %1")
                                             .arg(QFileInfo(target).fileName()));
         return false;
@@ -390,12 +432,92 @@ void UiFormEditor::onCanvasContextMenu(QWidget *target, const QPoint &globalPos)
         if (target && m_signalSlot) m_signalSlot->presetSender(target);
     });
     menu.addSeparator();
+
+    // Phase 3: custom-widget promotion.  Show "Promote to Custom Widget…"
+    // when the target isn't promoted yet, "Demote" when it is — never both.
+    // Disabled when no widget was right-clicked (you can't promote the
+    // canvas itself).  Tooltip and status-bar message reinforce visibility
+    // (UX principle 9).
+    if (target) {
+        const bool already = m_canvas->isPromoted(target);
+        if (!already) {
+            auto *promoAct = menu.addAction(tr("Promote to Custom Widget..."));
+            promoAct->setToolTip(tr("Use a custom QWidget subclass at runtime "
+                                    "(writes <customwidgets> in the .ui)"));
+            QObject::connect(promoAct, &QAction::triggered, this,
+                             [this, target](){ promoteWidget(target); });
+        } else {
+            const auto info = m_canvas->promotionFor(target);
+            auto *demoteAct = menu.addAction(tr("Demote (currently: %1)")
+                                                 .arg(info.className));
+            demoteAct->setToolTip(tr("Remove the custom-class promotion and "
+                                     "restore the base widget type"));
+            QObject::connect(demoteAct, &QAction::triggered, this,
+                             [this, target](){ demoteWidget(target); });
+            // Re-promote to allow editing the existing entry.  Designer
+            // calls this "Promoted Widgets…"; we give it a clearer label.
+            auto *editPromoAct = menu.addAction(tr("Edit Promotion..."));
+            QObject::connect(editPromoAct, &QAction::triggered, this,
+                             [this, target](){ promoteWidget(target); });
+        }
+        menu.addSeparator();
+    }
+
     auto *delAct = menu.addAction(tr("Delete (Del)"));
     delAct->setEnabled(target != nullptr);
     QObject::connect(delAct, &QAction::triggered, this, [this](){
         m_canvas->deleteSelection();
     });
     menu.exec(globalPos);
+}
+
+// Phase 3: open the PromoteDialog for `target` (with current promotion as
+// initial values when re-editing) and apply the result.  We set the status
+// bar message and schedule a 3-second auto-dismiss to match the project's
+// UX principle for transient status updates.
+void UiFormEditor::promoteWidget(QWidget *target) {
+    if (!target || !m_canvas) return;
+    const QString base = QString::fromLatin1(target->metaObject()->className());
+    const auto current = m_canvas->promotionFor(target);
+
+    PromoteDialog dlg(base, current.className,
+                      current.headerFile, current.globalInclude, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    FormCanvas::PromotionInfo info;
+    info.className     = dlg.className();
+    info.headerFile    = dlg.headerFile();
+    info.globalInclude = dlg.globalInclude();
+    if (info.className.isEmpty() || info.headerFile.isEmpty()) return;
+
+    m_canvas->setPromotion(target, info);
+    setModified(true);
+    flashStatus(tr("Promoted to %1").arg(info.className));
+}
+
+void UiFormEditor::demoteWidget(QWidget *target) {
+    if (!target || !m_canvas) return;
+    if (!m_canvas->isPromoted(target)) return;
+    const QString prevName = m_canvas->promotionFor(target).className;
+    m_canvas->clearPromotion(target);
+    setModified(true);
+    flashStatus(tr("Demoted from %1").arg(prevName));
+}
+
+// Status-bar helper with 3-second auto-dismiss.  We track the last shown
+// message via a slot id on the QPointer so a fresh flash supersedes the
+// previous timer instead of clearing a newer message prematurely.
+void UiFormEditor::flashStatus(const QString &text) {
+    if (!m_status) return;
+    m_status->setText(text);
+    static int gen = 0;
+    const int my = ++gen;
+    QPointer<QLabel> label(m_status);
+    QTimer::singleShot(3000, this, [label, my](){
+        if (!label) return;
+        if (my != gen) return;     // a newer flash replaced us; leave it alone
+        label->setText(QString());
+    });
 }
 
 void UiFormEditor::setModified(bool m) {

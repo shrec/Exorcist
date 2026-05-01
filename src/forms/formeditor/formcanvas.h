@@ -135,6 +135,27 @@ public:
     void notifyExternalChange(QWidget *w);
     void emitModifiedSignal() { emit modified(); }
 
+    // Phase 3: custom-widget promotion.  PromotionInfo travels with the
+    // widget through save/load and changes how UiXmlIO emits the <widget
+    // class="..."> attribute and the <customwidgets> block.  The runtime
+    // widget itself stays whatever Qt class it was instantiated as (we
+    // don't dynamically swap base types — that would require dlopen +
+    // moc), only its on-disk identity is rewritten.  Designer's promotion
+    // mechanism works exactly this way.
+    struct PromotionInfo {
+        QString className;       // e.g. "MyButton"
+        QString headerFile;      // e.g. "mybutton.h"
+        bool    globalInclude = false;
+    };
+    bool                    isPromoted(QWidget *w) const;
+    PromotionInfo           promotionFor(QWidget *w) const;
+    QHash<QWidget *, PromotionInfo> promotions() const { return m_promotions; }
+    void                    setPromotion(QWidget *w, const PromotionInfo &info);
+    void                    clearPromotion(QWidget *w);
+    // Replace the entire promotion table (used on file load).  Keys are
+    // resolved by widget objectName from the live tree.
+    void                    setPromotionsByName(const QHash<QString, PromotionInfo> &byName);
+
     // Phase 2: a context menu requested → tells host editor to show the
     // signal-slot menu item, etc.
 signals:
@@ -166,6 +187,12 @@ private:
     void  paintSelectionOverlay(QWidget *w);
     void  paintLayoutCells();      // Phase 2: layout cell boundaries on hover/drag
     void  paintFlashOverlay();     // Phase 2: brief highlight pulse
+    void  paintPromotionBadges(); // Phase 3: purple chip on promoted widgets
+
+    // Map a widget rect into canvas-local coordinates by walking up the
+    // parent chain to m_root and translating.  Shared between selection
+    // overlay and the promotion badge so both stay perfectly aligned.
+    QRect mapToCanvas(QWidget *w) const;
 
     QWidget    *m_root    = nullptr;   // form root (re-parented child)
     QSet<QWidget *> m_selection;
@@ -191,6 +218,11 @@ private:
     QPointer<QWidget>              m_flashTarget;     // widget to flash-highlight
     int                            m_flashFrame = 0;
     QPointer<QWidget>              m_layoutHover;     // layout container under cursor
+
+    // Phase 3: per-widget promotion table.  QHash<QWidget*, …>; we wipe
+    // entries when widgets are deleted via clearPromotion() to keep the
+    // table from holding dangling pointers across undo/redo.
+    QHash<QWidget *, PromotionInfo> m_promotions;
 };
 
 } // namespace exo::forms

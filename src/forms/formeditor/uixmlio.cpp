@@ -109,11 +109,24 @@ void writeProperty(QXmlStreamWriter &xw, const QString &name, const QVariant &v)
     xw.writeEndElement(); // </property>
 }
 
-void writeWidget(QXmlStreamWriter &xw, QWidget *w) {
+void writeWidget(QXmlStreamWriter &xw, QWidget *w,
+                 const UiPromotionMap *promotions) {
     if (!w) return;
 
     xw.writeStartElement("widget");
-    xw.writeAttribute("class", QString::fromLatin1(w->metaObject()->className()));
+    // Phase 3: if this widget is promoted, the <widget> element advertises
+    // the promoted class name (e.g. "MyButton") instead of its Qt base
+    // class.  Designer does the same — that's what makes the customwidgets
+    // section meaningful: the loader on the other end (Designer or our
+    // own UiXmlIO::load) sees the promoted name, finds it in
+    // <customwidgets>, and knows what to extend.
+    QString classToWrite = QString::fromLatin1(w->metaObject()->className());
+    if (promotions && !w->objectName().isEmpty()) {
+        auto it = promotions->find(w->objectName());
+        if (it != promotions->end() && !it.value().promotedName.isEmpty())
+            classToWrite = it.value().promotedName;
+    }
+    xw.writeAttribute("class", classToWrite);
     if (!w->objectName().isEmpty())
         xw.writeAttribute("name", w->objectName());
 
@@ -142,10 +155,51 @@ void writeWidget(QXmlStreamWriter &xw, QWidget *w) {
         if (!cw) continue;
         if (cw->property("exo_isHandle").toBool()) continue;     // grip handles
         if (cw->property("exo_isOverlay").toBool()) continue;    // selection paint
-        writeWidget(xw, cw);
+        writeWidget(xw, cw, promotions);
     }
 
     xw.writeEndElement(); // </widget>
+}
+
+// Phase 3: Emit the <customwidgets> block.  Designer's exact format:
+//   <customwidgets>
+//     <customwidget>
+//       <class>MyButton</class>
+//       <extends>QPushButton</extends>
+//       <header>mybutton.h</header>
+//     </customwidget>
+//   </customwidgets>
+// When the include is global, the <header> element gets a location="global"
+// attribute (Designer convention).  We also dedupe by promoted class name
+// because the same custom type can be applied to many widgets in one form
+// but should appear in the list exactly once.
+void writeCustomWidgets(QXmlStreamWriter &xw, const UiPromotionMap &promotions) {
+    if (promotions.isEmpty()) return;
+
+    // Dedupe: collect unique promoted-class entries.  Different objectNames
+    // mapping to the same custom class collapse here.
+    QHash<QString, UiCustomWidget> unique;
+    for (auto it = promotions.begin(); it != promotions.end(); ++it) {
+        const UiCustomWidget &cw = it.value();
+        if (cw.promotedName.isEmpty()) continue;
+        unique.insert(cw.promotedName, cw);
+    }
+    if (unique.isEmpty()) return;
+
+    xw.writeStartElement("customwidgets");
+    for (auto it = unique.begin(); it != unique.end(); ++it) {
+        const UiCustomWidget &cw = it.value();
+        xw.writeStartElement("customwidget");
+        xw.writeTextElement("class", cw.promotedName);
+        xw.writeTextElement("extends",
+            cw.baseClass.isEmpty() ? QStringLiteral("QWidget") : cw.baseClass);
+        xw.writeStartElement("header");
+        if (cw.globalInclude) xw.writeAttribute("location", "global");
+        xw.writeCharacters(cw.headerFile);
+        xw.writeEndElement(); // </header>
+        xw.writeEndElement(); // </customwidget>
+    }
+    xw.writeEndElement(); // </customwidgets>
 }
 
 } // namespace
@@ -165,7 +219,8 @@ QWidget *UiXmlIO::load(const QString &path) {
 }
 
 bool UiXmlIO::save(const QString &path, QWidget *root,
-                   const QList<FormConnection> &connections) {
+                   const QList<FormConnection> &connections,
+                   const UiPromotionMap &promotions) {
     if (!root) return false;
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -181,7 +236,14 @@ bool UiXmlIO::save(const QString &path, QWidget *root,
     xw.writeTextElement("class", root->objectName().isEmpty()
                                      ? QStringLiteral("Form")
                                      : root->objectName());
-    writeWidget(xw, root);
+    writeWidget(xw, root, promotions.isEmpty() ? nullptr : &promotions);
+
+    // Phase 3: Designer places <customwidgets> after the form's <widget>
+    // tree and before <resources>/<connections>.  We follow that order so
+    // round-tripping through Designer leaves the file byte-for-byte
+    // sensible.
+    writeCustomWidgets(xw, promotions);
+
     xw.writeStartElement("resources"); xw.writeEndElement();
 
     // Phase 2: emit <connections> in Designer's exact format.  Each entry is
@@ -232,6 +294,67 @@ QList<FormConnection> UiXmlIO::loadConnections(const QString &path) {
                 }
             }
             if (!c.sender.isEmpty() && !c.receiver.isEmpty()) out << c;
+        }
+    }
+    f.close();
+    return out;
+}
+
+// Phase 3: read the <customwidgets> block back into a (className → entry)
+// map.  We scan the whole file so the order in which we encounter
+// <customwidgets> vs <widget> doesn't matter — Designer is consistent but
+// our writer evolves and we want to be tolerant.  Keys are promoted class
+// names; the editor loop matches them up to live widgets via the live
+// tree's <widget class="…"> attributes (which we read separately by
+// re-parsing the XML during the load path — see UiFormEditor).
+QHash<QString, UiCustomWidget> UiXmlIO::loadCustomWidgets(const QString &path) {
+    QHash<QString, UiCustomWidget> out;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return out;
+    QXmlStreamReader xr(&f);
+    while (!xr.atEnd()) {
+        xr.readNext();
+        if (xr.isStartElement() && xr.name() == QStringLiteral("customwidget")) {
+            UiCustomWidget cw;
+            while (!(xr.isEndElement() && xr.name() == QStringLiteral("customwidget"))
+                   && !xr.atEnd()) {
+                xr.readNext();
+                if (xr.isStartElement()) {
+                    const QString tag = xr.name().toString();
+                    if (tag == QStringLiteral("header")) {
+                        // Capture the location attribute BEFORE consuming text,
+                        // because readElementText() advances the reader past
+                        // the start-element's attributes.
+                        const QString loc = xr.attributes().value("location").toString();
+                        cw.globalInclude = (loc == QStringLiteral("global"));
+                        cw.headerFile = xr.readElementText();
+                    } else {
+                        const QString text = xr.readElementText();
+                        if      (tag == QStringLiteral("class"))   cw.promotedName = text;
+                        else if (tag == QStringLiteral("extends")) cw.baseClass    = text;
+                    }
+                }
+            }
+            if (!cw.promotedName.isEmpty())
+                out.insert(cw.promotedName, cw);
+        }
+    }
+    f.close();
+    return out;
+}
+
+QHash<QString, QString> UiXmlIO::loadWidgetClassByName(const QString &path) {
+    QHash<QString, QString> out;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return out;
+    QXmlStreamReader xr(&f);
+    while (!xr.atEnd()) {
+        xr.readNext();
+        if (xr.isStartElement() && xr.name() == QStringLiteral("widget")) {
+            const QString cls  = xr.attributes().value("class").toString();
+            const QString name = xr.attributes().value("name").toString();
+            if (!name.isEmpty() && !cls.isEmpty())
+                out.insert(name, cls);
         }
     }
     f.close();

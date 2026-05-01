@@ -598,6 +598,78 @@ void FormCanvas::notifyExternalChange(QWidget *) {
     emit selectionChanged();   // refresh inspector
 }
 
+// ── Phase 3: custom-widget promotion ────────────────────────────────────────
+
+bool FormCanvas::isPromoted(QWidget *w) const {
+    return w && m_promotions.contains(w);
+}
+
+FormCanvas::PromotionInfo FormCanvas::promotionFor(QWidget *w) const {
+    return w ? m_promotions.value(w) : PromotionInfo{};
+}
+
+void FormCanvas::setPromotion(QWidget *w, const PromotionInfo &info) {
+    if (!w) return;
+    if (info.className.isEmpty()) {
+        m_promotions.remove(w);
+    } else {
+        m_promotions.insert(w, info);
+        // Tag widget with a dynamic property too — keeps the info visible
+        // in property-browser tools and survives moc round-trips for
+        // future tests that introspect the widget.
+        w->setProperty("exo_promoted_class",  info.className);
+        w->setProperty("exo_promoted_header", info.headerFile);
+        w->setProperty("exo_promoted_global", info.globalInclude);
+        // Tooltip surfaces the header file so hovering the chip (or the
+        // widget itself) tells the user where the type lives — UX
+        // principle 9, visual feedback without clicking.
+        const QString quote = info.globalInclude ? QStringLiteral("&lt;%1&gt;")
+                                                 : QStringLiteral("\"%1\"");
+        w->setToolTip(QStringLiteral("Promoted: %1  —  #include %2")
+                          .arg(info.className, quote.arg(info.headerFile)));
+    }
+    update();
+    emit modified();
+    emit selectionChanged();   // inspector should refresh badge
+}
+
+void FormCanvas::clearPromotion(QWidget *w) {
+    if (!w) return;
+    if (!m_promotions.remove(w)) return;
+    w->setProperty("exo_promoted_class",  QVariant());
+    w->setProperty("exo_promoted_header", QVariant());
+    w->setProperty("exo_promoted_global", QVariant());
+    w->setToolTip(QString());
+    update();
+    emit modified();
+    emit selectionChanged();
+}
+
+void FormCanvas::setPromotionsByName(const QHash<QString, PromotionInfo> &byName) {
+    m_promotions.clear();
+    if (!m_root || byName.isEmpty()) { update(); return; }
+    // Walk every descendant of m_root and resolve names → live widgets.
+    // We use findChildren so this works regardless of layout depth.
+    const QList<QWidget *> all = m_root->findChildren<QWidget *>();
+    for (QWidget *w : all) {
+        const QString name = w->objectName();
+        if (name.isEmpty()) continue;
+        auto it = byName.find(name);
+        if (it == byName.end()) continue;
+        m_promotions.insert(w, it.value());
+        w->setProperty("exo_promoted_class",  it.value().className);
+        w->setProperty("exo_promoted_header", it.value().headerFile);
+        w->setProperty("exo_promoted_global", it.value().globalInclude);
+        const QString quote = it.value().globalInclude
+                                  ? QStringLiteral("&lt;%1&gt;")
+                                  : QStringLiteral("\"%1\"");
+        w->setToolTip(QStringLiteral("Promoted: %1  —  #include %2")
+                          .arg(it.value().className,
+                               quote.arg(it.value().headerFile)));
+    }
+    update();
+}
+
 // ── Painting ─────────────────────────────────────────────────────────────────
 
 void FormCanvas::paintEvent(QPaintEvent *ev) {
@@ -608,6 +680,10 @@ void FormCanvas::paintEvent(QPaintEvent *ev) {
     p.setRenderHint(QPainter::Antialiasing, false);
 
     paintLayoutCells();
+
+    // Phase 3: promotion badges paint underneath selection so the selection
+    // accent always wins on the active widget.
+    paintPromotionBadges();
 
     for (QWidget *w : m_selection) paintSelectionOverlay(w);
 
@@ -717,6 +793,73 @@ void FormCanvas::paintFlashOverlay() {
     p.setBrush(c);
     p.setPen(QPen(QColor("#ffd166"), 2));
     p.drawRect(r.adjusted(-2, -2, 2, 2));
+}
+
+QRect FormCanvas::mapToCanvas(QWidget *w) const {
+    if (!w || !m_root) return QRect();
+    QRect r = w->geometry();
+    QWidget *cur = w->parentWidget();
+    while (cur && cur != m_root) {
+        r.translate(cur->pos());
+        cur = cur->parentWidget();
+    }
+    r.translate(m_root->pos());
+    return r;
+}
+
+// Phase 3: paint a thin purple border + small chip with the promoted class
+// name in the top-right corner of every promoted widget.  The border colour
+// (#c586c0, the VS Code "type" purple) is unmistakably distinct from the
+// blue selection accent so the two states never get confused.
+void FormCanvas::paintPromotionBadges() {
+    if (m_promotions.isEmpty() || !m_root) return;
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setRenderHint(QPainter::TextAntialiasing, true);
+
+    const QColor purple("#c586c0");
+    QFont chipFont = font();
+    chipFont.setPointSize(qMax(7, chipFont.pointSize() - 1));
+    chipFont.setBold(true);
+    p.setFont(chipFont);
+    const QFontMetrics fm(chipFont);
+
+    for (auto it = m_promotions.begin(); it != m_promotions.end(); ++it) {
+        QWidget *w = it.key();
+        if (!w || !w->isVisible()) continue;
+        // Skip widgets that aren't actually parented under the form (could
+        // happen mid-undo — we keep the info around in case redo restores
+        // the widget, but we don't paint it dangling).
+        if (!w->parentWidget()) continue;
+        const QRect r = mapToCanvas(w);
+        if (r.isEmpty()) continue;
+
+        // Thin purple border, dashed to read clearly against the widget's
+        // own border (Qt widgets often paint their own 1px frame).
+        p.setBrush(Qt::NoBrush);
+        p.setPen(QPen(purple, 1, Qt::DashLine));
+        p.drawRect(r.adjusted(0, 0, -1, -1));
+
+        // Chip: top-right, slightly inset.  Width fits class name + 8px
+        // padding; height is fontHeight + 2px.  We position it inside the
+        // widget rect so it doesn't overflow when the widget sits flush
+        // against the canvas edge.
+        const QString text = it.value().className;
+        const int textW = fm.horizontalAdvance(text);
+        const int chipW = qMin(r.width() - 4, textW + 8);
+        if (chipW < 12) continue;       // too narrow to render meaningfully
+        const int chipH = fm.height() + 2;
+        QRect chip(r.right() - chipW - 2, r.top() + 2, chipW, chipH);
+
+        QPainterPath rounded;
+        rounded.addRoundedRect(chip, 2.0, 2.0);
+        p.setBrush(purple);
+        p.setPen(Qt::NoPen);
+        p.drawPath(rounded);
+
+        p.setPen(QColor("#1e1e1e"));
+        p.drawText(chip, Qt::AlignCenter, text);
+    }
 }
 
 // ── Mouse / keyboard ─────────────────────────────────────────────────────────

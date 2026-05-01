@@ -87,6 +87,14 @@ private:
     void setModified(bool m);
     void updateBreadcrumb();
 
+    // Phase 3: custom-widget promotion helpers used by the canvas context
+    // menu.  promoteWidget shows the modal PromoteDialog; demoteWidget
+    // strips an existing promotion.  flashStatus drops a transient (3s
+    // auto-dismiss) message into the bottom status row.
+    void promoteWidget(QWidget *target);
+    void demoteWidget(QWidget *target);
+    void flashStatus(const QString &text);
+
     QString            m_path;
     bool               m_modified = false;
 
