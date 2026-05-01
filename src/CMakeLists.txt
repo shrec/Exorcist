@@ -336,6 +336,8 @@ add_executable(exorcist WIN32
     ui/gotolinedialog.h
     ui/dockautohidemanager.cpp
     ui/dockautohidemanager.h
+    ui/thememanager.cpp
+    ui/thememanager.h
     ui/dock/DockTypes.h
     ui/dock/DockTabBar.h
     ui/dock/DockTabBar.cpp
