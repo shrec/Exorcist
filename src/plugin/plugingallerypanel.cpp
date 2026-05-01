@@ -1,8 +1,11 @@
 #include "plugingallerypanel.h"
 #include "../pluginmanager.h"
+#include "installpluginurldialog.h"
+#include "pluginmarketplaceservice.h"
 
 #include <QApplication>
 #include <QColor>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QFile>
 #include <QFileInfo>
@@ -20,6 +23,8 @@
 #include <QStackedWidget>
 #include <QStyle>
 #include <QTabWidget>
+#include <QTimer>
+#include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -120,6 +125,18 @@ QLabel#PluginGalleryEmpty {
     font-size: 13px;
     padding: 24px;
 }
+QToolButton#PluginGalleryInstallUrl {
+    background: #0e639c;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    font-size: 12px;
+    margin-right: 6px;
+}
+QToolButton#PluginGalleryInstallUrl:hover {
+    background: #1177bb;
+}
 )";
 
 namespace {
@@ -160,14 +177,32 @@ void PluginGalleryPanel::setupUi()
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
 
-    // Filter input
+    // Top toolbar row: search filter + Install-from-URL button
+    auto *topRow = new QHBoxLayout;
+    topRow->setContentsMargins(0, 0, 8, 0);
+    topRow->setSpacing(0);
+
     m_filterEdit = new QLineEdit(this);
     m_filterEdit->setObjectName(QStringLiteral("PluginGallerySearch"));
     m_filterEdit->setPlaceholderText(tr("Search plugins..."));
     m_filterEdit->setClearButtonEnabled(true);
-    mainLayout->addWidget(m_filterEdit);
+    topRow->addWidget(m_filterEdit, 1);
+
+    m_installUrlBtn = new QToolButton(this);
+    m_installUrlBtn->setObjectName(QStringLiteral("PluginGalleryInstallUrl"));
+    m_installUrlBtn->setText(tr("Install from URL..."));
+    m_installUrlBtn->setToolTip(
+        tr("Install a plugin from a Git URL or .zip URL (Ctrl+Shift+U)"));
+    m_installUrlBtn->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_U));
+    m_installUrlBtn->setCursor(Qt::PointingHandCursor);
+    m_installUrlBtn->setEnabled(false);  // enabled by setMarketplaceService()
+    topRow->addWidget(m_installUrlBtn);
+
+    mainLayout->addLayout(topRow);
     connect(m_filterEdit, &QLineEdit::textChanged,
             this, &PluginGalleryPanel::onFilterTextChanged);
+    connect(m_installUrlBtn, &QToolButton::clicked,
+            this, &PluginGalleryPanel::onInstallFromUrlClicked);
 
     // Splitter: left list | right detail
     auto *splitter = new QSplitter(Qt::Horizontal, this);
@@ -276,6 +311,43 @@ void PluginGalleryPanel::setPluginManager(PluginManager *manager)
     populateInstalled();
 }
 
+void PluginGalleryPanel::setMarketplaceService(PluginMarketplaceService *service)
+{
+    m_marketplaceService = service;
+    if (m_installUrlBtn)
+        m_installUrlBtn->setEnabled(service != nullptr);
+
+    if (service) {
+        connect(service, &PluginMarketplaceService::installFinished, this,
+                [this](bool ok, const QString &pluginId, const QString &) {
+            if (!ok || pluginId.isEmpty())
+                return;
+            m_recentlyInstalled.insert(pluginId);
+            m_recentlyInstalledAt.insert(
+                pluginId, QDateTime::currentMSecsSinceEpoch());
+            refreshInstalled();
+            // Drop the badge after 60 seconds.
+            QTimer::singleShot(60000, this, [this, pluginId]() {
+                m_recentlyInstalled.remove(pluginId);
+                m_recentlyInstalledAt.remove(pluginId);
+                refreshInstalled();
+            });
+        }, Qt::UniqueConnection);
+    }
+}
+
+void PluginGalleryPanel::onInstallFromUrlClicked()
+{
+    if (!m_marketplaceService) {
+        // Defensive: button should be disabled in this case, but never
+        // crash if a caller invokes the slot directly.
+        return;
+    }
+    auto *dlg = new InstallPluginUrlDialog(m_marketplaceService, this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->open();
+}
+
 void PluginGalleryPanel::refreshInstalled()
 {
     populateInstalled();
@@ -320,6 +392,8 @@ QWidget *PluginGalleryPanel::buildInstalledCard(const InstalledRow &row)
         nameText += QStringLiteral(" \xE2\x80\xA2 Lua"); // bullet + Lua tag
     if (row.disabled)
         nameText += tr("  (disabled)");
+    if (m_recentlyInstalled.contains(row.id))
+        nameText += tr("  (just installed)");
 
     auto *nameLabel = new QLabel(nameText, card);
     const QString nameColor = row.disabled ? QStringLiteral("#7a7a7a")

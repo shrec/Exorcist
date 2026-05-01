@@ -1,5 +1,8 @@
 #pragma once
 
+#include <QHash>
+#include <QSet>
+#include <QString>
 #include <QWidget>
 
 class QLineEdit;
@@ -8,7 +11,9 @@ class QListWidgetItem;
 class QLabel;
 class QStackedWidget;
 class QPushButton;
+class QToolButton;
 class PluginManager;
+class PluginMarketplaceService;
 
 /// Panel for browsing installed and available plugins.
 ///
@@ -25,6 +30,11 @@ public:
 
     /// Set the plugin manager to populate the Installed tab.
     void setPluginManager(PluginManager *manager);
+
+    /// Set the marketplace service used by the "Install from URL…" button.
+    /// When set, an extra toolbar action becomes available that opens the
+    /// InstallPluginUrlDialog and refreshes the gallery on success.
+    void setMarketplaceService(PluginMarketplaceService *service);
 
     /// Load available plugins from a JSON registry file.
     /// The file is an array of objects with: id, name, version, author,
@@ -48,6 +58,7 @@ private slots:
     void onInstalledItemClicked(QListWidgetItem *item);
     void onAvailableItemClicked(QListWidgetItem *item);
     void onFilterTextChanged(const QString &text);
+    void onInstallFromUrlClicked();
 
 private:
     void setupUi();
@@ -84,19 +95,26 @@ private:
     /// Available list.
     QWidget *buildAvailableCard(const RegistryEntry &entry, bool alreadyInstalled);
 
-    PluginManager  *m_pluginManager  = nullptr;
-    QLineEdit      *m_filterEdit     = nullptr;
-    QListWidget    *m_installedList  = nullptr;
-    QListWidget    *m_availableList  = nullptr;
-    QLabel         *m_installedEmpty = nullptr;
-    QLabel         *m_availableEmpty = nullptr;
-    QStackedWidget *m_detailStack    = nullptr;
-    QLabel         *m_detailName     = nullptr;
-    QLabel         *m_detailVersion  = nullptr;
-    QLabel         *m_detailAuthor   = nullptr;
-    QLabel         *m_detailDesc     = nullptr;
-    QLabel         *m_detailHomepage = nullptr;
-    QPushButton    *m_actionButton   = nullptr;
+    PluginManager            *m_pluginManager     = nullptr;
+    PluginMarketplaceService *m_marketplaceService = nullptr;
+    QLineEdit                *m_filterEdit         = nullptr;
+    QToolButton              *m_installUrlBtn      = nullptr;
+    QListWidget              *m_installedList      = nullptr;
+    QListWidget              *m_availableList      = nullptr;
+    QLabel                   *m_installedEmpty     = nullptr;
+    QLabel                   *m_availableEmpty     = nullptr;
+    QStackedWidget           *m_detailStack        = nullptr;
+    QLabel                   *m_detailName         = nullptr;
+    QLabel                   *m_detailVersion      = nullptr;
+    QLabel                   *m_detailAuthor       = nullptr;
+    QLabel                   *m_detailDesc         = nullptr;
+    QLabel                   *m_detailHomepage     = nullptr;
+    QPushButton              *m_actionButton       = nullptr;
+
+    /// Plugin IDs installed in the current session, used to render a
+    /// "(just installed)" badge for ~60 seconds after install.
+    QSet<QString>     m_recentlyInstalled;
+    QHash<QString, qint64> m_recentlyInstalledAt;
 
     QList<RegistryEntry> m_registryEntries;
 };
