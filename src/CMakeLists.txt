@@ -39,6 +39,8 @@ add_executable(exorcist WIN32
     editor/imagepreviewwidget.cpp
     editor/hexeditorwidget.h
     editor/hexeditorwidget.cpp
+    editor/qrceditorwidget.h
+    editor/qrceditorwidget.cpp
     # Language highlighting data moved to plugins/lang-pack (compiled there only)
     editor/textbuffer.h
     editor/piecetablebuffer.cpp
@@ -92,6 +94,8 @@ add_executable(exorcist WIN32
     project/newprojectwizard.h
     project/newpluginwizard.cpp
     project/newpluginwizard.h
+    project/newqtclasswizard.cpp
+    project/newqtclasswizard.h
     project/filetemplatedialog.cpp
     project/filetemplatedialog.h
     git/gitservice.cpp

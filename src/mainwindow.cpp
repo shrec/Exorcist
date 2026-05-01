@@ -158,6 +158,7 @@
 #include "project/projecttemplateregistry.h"
 #include "project/newprojectwizard.h"
 #include "project/newpluginwizard.h"
+#include "project/newqtclasswizard.h"
 #include "project/filetemplatedialog.h"
 #include "project/solutiontreemodel.h"
 #include "git/gitservice.h"
@@ -906,6 +907,7 @@ void MainWindow::setupMenus()
     newFromTemplateAction->setShortcut(QKeySequence::New);
 
     QAction *newPluginAction = fileMenu->addAction(tr("New &Plugin..."));
+    QAction *newQtClassAction = fileMenu->addAction(tr("New Qt &Class..."));
 
     QAction *openAction = fileMenu->addAction(tr("&Open File..."));
     openAction->setShortcut(QKeySequence::Open);
@@ -981,6 +983,14 @@ void MainWindow::setupMenus()
             const QString primary = dlg.primarySourceFile();
             if (!primary.isEmpty() && QFileInfo::exists(primary))
                 openFile(primary);
+        }
+    });
+    connect(newQtClassAction, &QAction::triggered, this, [this]() {
+        NewQtClassWizard dlg(this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const QString hdr = dlg.headerPath();
+            if (!hdr.isEmpty() && QFileInfo::exists(hdr))
+                openFile(hdr);
         }
     });
     connect(openAction, &QAction::triggered, this, [this]() {
