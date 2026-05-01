@@ -1,4 +1,5 @@
 #include "editorview.h"
+#include "breakpointconditiondialog.h"
 #include "codefoldingengine.h"
 #include "minimapwidget.h"
 #include "multicursorengine.h"
@@ -50,6 +51,11 @@ protected:
     void mousePressEvent(QMouseEvent *event) override
     {
         m_editor->lineNumberAreaMousePress(event);
+    }
+
+    void contextMenuEvent(QContextMenuEvent *event) override
+    {
+        m_editor->lineNumberAreaContextMenu(event);
     }
 
 private:
@@ -1877,6 +1883,127 @@ void EditorView::lineNumberAreaMousePress(QMouseEvent *event)
         top = bottom;
         bottom = top + qRound(blockBoundingRect(block).height());
     }
+}
+
+int EditorView::lineFromGutterY(int y) const
+{
+    QTextBlock block = firstVisibleBlock();
+    int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
+    int bottom = top + qRound(blockBoundingRect(block).height());
+    while (block.isValid()) {
+        if (y >= top && y < bottom)
+            return block.blockNumber() + 1; // 1-based
+        block = block.next();
+        top = bottom;
+        bottom = top + qRound(blockBoundingRect(block).height());
+    }
+    return 0; // below last block
+}
+
+void EditorView::lineNumberAreaContextMenu(QContextMenuEvent *event)
+{
+    const int line = lineFromGutterY(event->pos().y());
+    if (line <= 0) {
+        event->ignore();
+        return;
+    }
+    showBreakpointContextMenu(line, event->globalPos());
+    event->accept();
+}
+
+void EditorView::showBreakpointContextMenu(int line, const QPoint &globalPos)
+{
+    const bool hasBp = m_breakpointLines.contains(line);
+    const bool enabled = isBreakpointEnabled(line);
+    const QString existingCond = m_breakpointConditions.value(line);
+
+    QMenu menu(this);
+    // VS dark menu styling — keep consistent with rest of editor
+    menu.setStyleSheet(QStringLiteral(
+        "QMenu { background-color: #252526; color: #d4d4d4; "
+        "border: 1px solid #3c3c3c; }"
+        "QMenu::item { padding: 5px 22px; }"
+        "QMenu::item:selected { background-color: #094771; }"
+        "QMenu::item:disabled { color: #6d6d6d; }"
+        "QMenu::separator { height: 1px; background: #3c3c3c; margin: 4px 6px; }"
+    ));
+
+    QAction *toggleAct = menu.addAction(
+        hasBp ? tr("Toggle Breakpoint (remove)") : tr("Toggle Breakpoint (add)"));
+    QAction *editCondAct = menu.addAction(
+        existingCond.isEmpty() ? tr("Add Condition…") : tr("Edit Condition…"));
+    QAction *enableAct = menu.addAction(
+        enabled ? tr("Disable Breakpoint") : tr("Enable Breakpoint"));
+    menu.addSeparator();
+    QAction *removeAct = menu.addAction(tr("Remove Breakpoint"));
+
+    // If there's no breakpoint on this line, only "Toggle" makes sense.
+    editCondAct->setEnabled(hasBp);
+    enableAct->setEnabled(hasBp);
+    removeAct->setEnabled(hasBp);
+
+    QAction *chosen = menu.exec(globalPos);
+    if (!chosen) return;
+
+    if (chosen == toggleAct) {
+        toggleBreakpoint(line);
+    } else if (chosen == editCondAct) {
+        // If no breakpoint exists yet, adding a condition implies adding the bp.
+        if (!hasBp)
+            toggleBreakpoint(line);
+        editBreakpointCondition(line);
+    } else if (chosen == enableAct) {
+        setBreakpointEnabled(line, !enabled);
+    } else if (chosen == removeAct) {
+        if (hasBp) {
+            // Reuse toggleBreakpoint: it will remove and emit breakpointToggled(false)
+            toggleBreakpoint(line);
+        }
+    }
+}
+
+void EditorView::editBreakpointCondition(int line)
+{
+    const QString existing = m_breakpointConditions.value(line);
+    BreakpointConditionDialog dlg(this, existing, line);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const QString newCond = dlg.condition();
+    if (newCond == existing)
+        return;
+    setBreakpointCondition(line, newCond);
+}
+
+void EditorView::setBreakpointCondition(int line, const QString &condition)
+{
+    if (condition.isEmpty()) {
+        if (m_breakpointConditions.remove(line) == 0)
+            return;
+    } else {
+        if (m_breakpointConditions.value(line) == condition)
+            return;
+        m_breakpointConditions.insert(line, condition);
+    }
+    const QString fp = property("filePath").toString();
+    // TODO: full integration — PostPluginBootstrap should listen and re-add the
+    // breakpoint via IDebugAdapter so GDB picks up `-break-insert -c "<expr>"`.
+    emit breakpointConditionChanged(fp, line, condition);
+    m_lineNumberArea->update();
+}
+
+void EditorView::setBreakpointEnabled(int line, bool enabled)
+{
+    const bool wasEnabled = !m_disabledBreakpoints.contains(line);
+    if (wasEnabled == enabled)
+        return;
+    if (enabled)
+        m_disabledBreakpoints.remove(line);
+    else
+        m_disabledBreakpoints.insert(line);
+    const QString fp = property("filePath").toString();
+    // TODO: full integration — listener should call IDebugAdapter break-enable/disable.
+    emit breakpointEnabledChanged(fp, line, enabled);
+    m_lineNumberArea->update();
 }
 
 // ── Multi-cursor helpers ──────────────────────────────────────────────────────

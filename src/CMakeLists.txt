@@ -5,6 +5,8 @@ add_executable(exorcist WIN32
     bootstrap/agentcallbacksbootstrap.cpp
     editor/editorview.cpp
     editor/editorview.h
+    editor/breakpointconditiondialog.cpp
+    editor/breakpointconditiondialog.h
     editor/diffviewerpanel.cpp
     editor/diffviewerpanel.h
     editor/proposededitpanel.cpp

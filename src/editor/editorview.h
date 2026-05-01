@@ -171,6 +171,19 @@ signals:
     /// Emitted when user clicks the gutter to toggle a breakpoint (1-based line).
     void breakpointToggled(const QString &filePath, int line, bool added);
 
+    /// Emitted when the user changes a breakpoint's condition via the
+    /// gutter context menu. An empty `condition` means the condition was
+    /// cleared (the breakpoint becomes unconditional). Listeners (e.g.
+    /// PostPluginBootstrap) should re-add the breakpoint via the debug
+    /// adapter so GDB's `-break-insert -c "<expr>"` is updated.
+    void breakpointConditionChanged(const QString &filePath, int line,
+                                    const QString &condition);
+
+    /// Emitted when the user toggles the enabled state of a breakpoint via
+    /// the gutter context menu. Listeners should call into the debug
+    /// adapter (e.g. GDB `-break-enable` / `-break-disable`).
+    void breakpointEnabledChanged(const QString &filePath, int line, bool enabled);
+
 public:
     // ── Breakpoint gutter ─────────────────────────────────────────────────
 
@@ -183,12 +196,43 @@ public:
     /// Get current breakpoint lines (1-based).
     const QSet<int> &breakpointLines() const { return m_breakpointLines; }
 
+    /// Per-line breakpoint condition (1-based line). Empty/missing means
+    /// unconditional. Stored locally so the gutter context menu can
+    /// pre-fill the dialog with the existing expression.
+    QString breakpointCondition(int line) const { return m_breakpointConditions.value(line); }
+    void    setBreakpointCondition(int line, const QString &condition);
+    const QHash<int, QString> &breakpointConditions() const { return m_breakpointConditions; }
+
+    /// Per-line enabled flag. A breakpoint that exists in m_breakpointLines
+    /// but is "disabled" still shows in the gutter (greyed) but does not
+    /// trigger. Default = enabled.
+    bool isBreakpointEnabled(int line) const { return !m_disabledBreakpoints.contains(line); }
+    void setBreakpointEnabled(int line, bool enabled);
+
     /// Set the line where the debugger is currently stopped (1-based, 0=none).
     void setCurrentDebugLine(int line);
     int  currentDebugLine() const { return m_currentDebugLine; }
 
-    /// Called by LineNumberArea on mouse click.
+    /// Called by LineNumberArea on mouse press (left-click toggle).
     void lineNumberAreaMousePress(QMouseEvent *event);
+
+    /// Called by LineNumberArea on right-click — opens a context menu for
+    /// breakpoint management on the clicked gutter line.
+    void lineNumberAreaContextMenu(QContextMenuEvent *event);
+
+private:
+    /// Resolve a viewport-y coordinate (in the gutter widget's local frame)
+    /// to the 1-based document line, or 0 if the click is below the last block.
+    int  lineFromGutterY(int y) const;
+
+    /// Show the breakpoint context menu at globalPos for a given 1-based line.
+    void showBreakpointContextMenu(int line, const QPoint &globalPos);
+
+    /// Open the BreakpointConditionDialog for a given 1-based line and
+    /// commit the result (emit breakpointConditionChanged on change).
+    void editBreakpointCondition(int line);
+
+public:
 
     // ── Multi-cursor ──────────────────────────────────────────────────────
     MultiCursorEngine *multiCursorEngine() const;
@@ -259,8 +303,10 @@ private:
     bool                     m_showIndentGuides = true;
 
     // Breakpoints
-    QSet<int>                m_breakpointLines;   // 1-based lines
-    int                      m_currentDebugLine = 0; // 1-based (0=none)
+    QSet<int>                m_breakpointLines;       // 1-based lines
+    QHash<int, QString>      m_breakpointConditions;  // 1-based line → condition expr
+    QSet<int>                m_disabledBreakpoints;   // 1-based lines that are disabled
+    int                      m_currentDebugLine = 0;  // 1-based (0=none)
 
     // Bracket matching
     QList<QTextEdit::ExtraSelection> m_bracketSelections;
