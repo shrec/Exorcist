@@ -1360,6 +1360,73 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleMarkdownPreviewAction->setCheckable(true);
     toggleMarkdownPreviewAction->setChecked(false);
 
+    // ── Window ────────────────────────────────────────────────────────────
+    QMenu *windowMenu = menuBar()->addMenu(tr("&Window"));
+
+    QAction *closeTabAction = windowMenu->addAction(tr("&Close Tab"));
+    closeTabAction->setShortcut(QKeySequence::Close);
+    connect(closeTabAction, &QAction::triggered, this, [this]() {
+        if (m_editorMgr && m_editorMgr->tabs())
+            m_editorMgr->closeTab(m_editorMgr->tabs()->currentIndex());
+    });
+
+    QAction *closeAllAction = windowMenu->addAction(tr("Close &All Tabs"));
+    connect(closeAllAction, &QAction::triggered, this, [this]() {
+        if (m_editorMgr) m_editorMgr->closeAllTabs();
+    });
+
+    QAction *closeOthersAction = windowMenu->addAction(tr("Close &Other Tabs"));
+    connect(closeOthersAction, &QAction::triggered, this, [this]() {
+        if (m_editorMgr && m_editorMgr->tabs())
+            m_editorMgr->closeOtherTabs(m_editorMgr->tabs()->currentIndex());
+    });
+
+    windowMenu->addSeparator();
+
+    QAction *nextTab = windowMenu->addAction(tr("&Next Tab"));
+    nextTab->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Tab));
+    connect(nextTab, &QAction::triggered, this, [this]() {
+        if (!m_editorMgr || !m_editorMgr->tabs()) return;
+        auto *tabs = m_editorMgr->tabs();
+        if (tabs->count() == 0) return;
+        int next = (tabs->currentIndex() + 1) % tabs->count();
+        tabs->setCurrentIndex(next);
+    });
+
+    QAction *prevTab = windowMenu->addAction(tr("&Previous Tab"));
+    prevTab->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Tab));
+    connect(prevTab, &QAction::triggered, this, [this]() {
+        if (!m_editorMgr || !m_editorMgr->tabs()) return;
+        auto *tabs = m_editorMgr->tabs();
+        if (tabs->count() == 0) return;
+        int prev = (tabs->currentIndex() - 1 + tabs->count()) % tabs->count();
+        tabs->setCurrentIndex(prev);
+    });
+
+    windowMenu->addSeparator();
+
+    // Dynamic list of currently-open editor tabs. Rebuilt on each menu show.
+    connect(windowMenu, &QMenu::aboutToShow, this, [this, windowMenu]() {
+        // Remove dynamic actions added on previous show.
+        const auto actions = windowMenu->actions();
+        for (auto *a : actions) {
+            if (a->property("dynamic").toBool()) {
+                windowMenu->removeAction(a);
+                a->deleteLater();
+            }
+        }
+        if (!m_editorMgr || !m_editorMgr->tabs()) return;
+        auto *tabs = m_editorMgr->tabs();
+        for (int i = 0; i < tabs->count(); ++i) {
+            const QString title = tabs->tabText(i);
+            QAction *a = windowMenu->addAction(QStringLiteral("%1 %2").arg(i + 1).arg(title));
+            a->setProperty("dynamic", true);
+            a->setCheckable(true);
+            a->setChecked(i == tabs->currentIndex());
+            connect(a, &QAction::triggered, this, [tabs, i]() { tabs->setCurrentIndex(i); });
+        }
+    });
+
     // ── Help ──────────────────────────────────────────────────────────────
     QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
 
