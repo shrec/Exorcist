@@ -4,6 +4,10 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QSettings>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QStringList>
 
 GdbMiAdapter::GdbMiAdapter(QObject *parent)
     : IDebugAdapter(parent)
@@ -107,6 +111,49 @@ void GdbMiAdapter::onProcessStarted()
     sendCommand(QStringLiteral("-gdb-set print elements 200"));
     sendCommand(QStringLiteral("-gdb-set auto-load safe-path /"));
     sendCommand(QStringLiteral("-enable-pretty-printing"));
+
+    // ── Qt pretty-printers (qttypes.py) ──────────────────────────────────
+    // Source Qt Creator's bundled debugger script so QString/QList/QMap/QHash/
+    // QPoint/QSize/QRect/QVariant render with their semantic value instead of
+    // raw struct dumps. No-op if Qt installation isn't present.
+    {
+        const QStringList probeRoots = {
+            QStringLiteral("C:/Qt/Tools/QtCreator/share/qtcreator/debugger"),
+            QStringLiteral("C:/Qt/Tools/QtDesignStudio/share/qtcreator/debugger"),
+            QStringLiteral("/opt/Qt/Tools/QtCreator/share/qtcreator/debugger"),
+            QStringLiteral("/usr/share/qtcreator/debugger"),
+        };
+        QString debugger;
+        for (const QString &root : probeRoots) {
+            if (QFile::exists(root + QStringLiteral("/dumper/qttypes.py"))
+                || QFile::exists(root + QStringLiteral("/qttypes.py"))) {
+                debugger = root;
+                break;
+            }
+        }
+        if (!debugger.isEmpty()) {
+            // GDB Python expects forward slashes; Qt Creator's dumper.py loader
+            // pulls in qttypes + std/boost printers when sourced as a package.
+            const QString loader = QFile::exists(debugger + "/dumper/__init__.py")
+                                       ? debugger + "/dumper"
+                                       : debugger;
+            sendCommand(QStringLiteral(
+                "-interpreter-exec console \"python sys.path.insert(0, r'%1')\""
+            ).arg(loader));
+            // Qt Creator ships a full package; "dumper" exposes a module that
+            // installs all printers when imported.
+            sendCommand(QStringLiteral(
+                "-interpreter-exec console \"python import qttypes\""
+            ));
+            emit outputProduced(QStringLiteral("[GDB] Qt pretty-printers loaded from %1")
+                                    .arg(debugger),
+                                QStringLiteral("debug"));
+        } else {
+            emit outputProduced(QStringLiteral("[GDB] Qt pretty-printers not found "
+                                               "(install Qt Creator for richer Qt-type debug values)"),
+                                QStringLiteral("debug"));
+        }
+    }
 
     // ── Restore "stop on exceptions" preference ──────────────────────────
     // Persist via QSettings so the toggle survives across debug sessions.
