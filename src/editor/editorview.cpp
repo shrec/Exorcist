@@ -283,6 +283,18 @@ EditorView::EditorView(QWidget *parent)
 
     m_vimHandler = std::make_unique<VimHandler>(this, this);
 
+    // TODO/FIXME/HACK/NOTE marker scan — debounced 200ms on edits.
+    // Initial scan happens after the first content load via the
+    // debounced timer; rescan triggers on each contentsChange.
+    m_todoRescanTimer.setSingleShot(true);
+    m_todoRescanTimer.setInterval(200);
+    connect(&m_todoRescanTimer, &QTimer::timeout,
+            this, &EditorView::rescanTodoMarkers);
+    connect(document(), &QTextDocument::contentsChange,
+            this, [this](int, int, int) {
+                m_todoRescanTimer.start();
+            });
+
     updateLineNumberAreaWidth(0);
     highlightCurrentLine();
 
@@ -946,6 +958,28 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
                                  lineH, Qt::AlignLeft, blameTxt);
             }
 
+            // TODO/FIXME/HACK/NOTE marker dot — small colored circle placed
+            // just inside the right edge of the gutter, between the line
+            // number and the diagnostic bar / fold triangle. Uses 1-based
+            // line keys to match the rest of the marker storage scheme.
+            const int markerLine1 = blockNumber + 1;
+            if (m_todoMarkers.contains(markerLine1)) {
+                const QString &kw = m_todoMarkers[markerLine1];
+                QColor c;
+                if (kw == QLatin1String("TODO"))       c = QColor(0xDC, 0xDC, 0xAA);
+                else if (kw == QLatin1String("FIXME")) c = QColor(0xF4, 0x47, 0x47);
+                else if (kw == QLatin1String("HACK"))  c = QColor(0xCE, 0x91, 0x78);
+                else                                   c = QColor(0x75, 0xBF, 0xFF); // NOTE
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(c);
+                const int dotSize = 4;
+                // Place dot 10px from the right edge so it sits between the
+                // line number text and the fold/diagnostic strip on the right.
+                const int dx = m_lineNumberArea->width() - 10;
+                const int dy = top + (lineH - dotSize) / 2;
+                painter.drawEllipse(dx, dy, dotSize, dotSize);
+            }
+
             // Code folding indicators (▾ expanded / ▸ collapsed)
             if (m_foldingEngine && m_foldingEngine->isFoldable(blockNumber)) {
                 const int foldX = m_lineNumberArea->width() - 13;
@@ -975,6 +1009,35 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
         top    = bottom;
         bottom = top + qRound(blockBoundingRect(block).height());
         ++blockNumber;
+    }
+}
+
+// Scan the document for TODO/FIXME/HACK/NOTE markers. The regex requires the
+// keyword to be preceded by a non-alphanumeric (or start of line) so we don't
+// match inside identifiers like "MYTODO" or "fixmeup". Followed by ":" to
+// avoid matching the bare word inside string literals or prose. Matches are
+// stored in m_todoMarkers keyed by 1-based line number.
+void EditorView::rescanTodoMarkers()
+{
+    static const QRegularExpression re(
+        QStringLiteral("(^|[^A-Za-z0-9_])(TODO|FIXME|HACK|NOTE):"));
+
+    QHash<int, QString> next;
+    QTextBlock block = document()->firstBlock();
+    while (block.isValid()) {
+        const QString text = block.text();
+        QRegularExpressionMatch m = re.match(text);
+        if (m.hasMatch()) {
+            // 1-based line; capture group 2 is the keyword
+            next.insert(block.blockNumber() + 1, m.captured(2));
+        }
+        block = block.next();
+    }
+
+    if (next != m_todoMarkers) {
+        m_todoMarkers = std::move(next);
+        if (m_lineNumberArea)
+            m_lineNumberArea->update();
     }
 }
 

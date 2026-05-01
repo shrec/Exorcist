@@ -132,6 +132,12 @@ public:
     QString bufferText() const;
     QString bufferSlice(int start, int length) const;
 
+    // ── TODO/FIXME/HACK/NOTE markers ──────────────────────────────────────
+    /// Read-only access to the current marker map (1-based line → keyword).
+    /// Other UIs (e.g. minimap, problem panel) can iterate this to surface
+    /// scan results without re-parsing the document.
+    QHash<int, QString> todoMarkers() const { return m_todoMarkers; }
+
     // ── Debug variable hover tooltip ──────────────────────────────────────
     /// Snapshot of variable name → display value, populated by some external
     /// component (a debug bootstrap or similar) on every "stopped" event.
@@ -315,6 +321,11 @@ private:
     // Debug variable hover tooltip
     QHash<QString, QString> m_debugLocals;       // identifier → formatted value
     QString                 m_lastTooltipIdent;  // last-shown identifier (cache)
+
+    // TODO/FIXME/HACK/NOTE markers (1-based line → keyword)
+    QHash<int, QString>     m_todoMarkers;
+    QTimer                  m_todoRescanTimer;   // debounced rescan on edits
+    void                    rescanTodoMarkers();
 
     // Shadow buffer kept in sync with QTextDocument via contentsChanged
     std::unique_ptr<PieceTableBuffer> m_buffer;
