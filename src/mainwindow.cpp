@@ -783,10 +783,21 @@ void MainWindow::setupUi()
     // Per-editor wiring: called once each time a new file tab is created
     connect(m_editorMgr, &EditorManager::editorOpened, this,
             [this](EditorView *editor, const QString &path) {
-        // Recent files
+        // Recent files: tracked by RecentFilesManager (dedupe + persist via
+        // QSettings under "recentFiles"). After the manager saves, enforce a
+        // 10-entry cap on the persisted list (manager's internal cap is 15).
         if (auto *rfm = findChild<RecentFilesManager *>(
-                QStringLiteral("recentFilesManager")))
+                QStringLiteral("recentFilesManager"))) {
             rfm->addFile(path);
+            QSettings rs(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+            QStringList recent = rs.value(QStringLiteral("recentFiles")).toStringList();
+            constexpr int kRecentFilesCap = 10;
+            if (recent.size() > kRecentFilesCap) {
+                while (recent.size() > kRecentFilesCap)
+                    recent.removeLast();
+                rs.setValue(QStringLiteral("recentFiles"), recent);
+            }
+        }
 
         // Language-profile: activate language-specific plugin if profile is active
         if (m_pluginManager) {
