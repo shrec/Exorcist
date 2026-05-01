@@ -1,7 +1,74 @@
 # Exorcist — სამუშაო სია
 
-> ბოლო განახლება: 2026-03-12 (P0/P1 tasks completed)
+> ბოლო განახლება: 2026-04-30 (Phase 13 UX & IDE polish shipped)
 > წყარო: ტექნიკური აუდიტი (კოდის პირდაპირი ანალიზი + ვერიფიკაცია)
+
+---
+
+## Recently shipped (Q2 2026) — Phase 13 UX & IDE polish
+
+ყველა ქვემოთ ჩამოთვლილი feature **შესრულებულია** (verified by source grep).
+
+### Debug — feature-complete
+- [x] **Stack frame switching** Call Stack panel-დან (`IDebugAdapter::stackSelectFrame`)
+- [x] **Threads tab** click-to-switch
+- [x] **Conditional breakpoints** (`BreakpointConditionDialog`)
+- [x] **Hit-count breakpoints** (`-break-after`)
+- [x] **Data breakpoints (watchpoints)** — `WatchpointDialog`, `IDebugAdapter::addWatchpoint`/`removeWatchpoint`/`watchpointSet`/`watchpointRemoved`
+- [x] **Memory view dock** (`MemoryDock`, `plugins/debug/memoryviewpanel.cpp`) + real backend (`-data-read-memory-bytes`); `IDebugAdapter::readMemory`/`memoryReceived`
+- [x] **Disassembly view dock** (`DisassemblyDock`, `plugins/debug/disassemblypanel.cpp`) + real backend (`-data-disassemble`); `IDebugAdapter::disassemble`/`disassemblyReceived`; `DisasmLine` struct
+- [x] **Pretty-printers** STL types-ისთვის
+- [x] **Reverse debugging** (`record full` + `reverse-step`/`reverse-continue`)
+- [x] **Variable hover tooltip** debug-ისას
+- [x] **Locals lazy expansion** GDB var-objects-ით
+- [x] **Watch tab** add/remove expression
+- [x] **GDB locals parser** + F10/F11 `ApplicationShortcut`
+- [x] **DebugPanel embedded toolbar წაშლილი** — top toolbar (BuildToolbar) ფლობს
+- [x] **Locals/breakpoint race fixes** — debug arrow და Locals სტაბილურად მუშაობს
+
+### Editor
+- [x] **Bracket matching** highlight cursor adjacency-ზე
+- [x] **Indentation guides** (faint vertical lines)
+- [x] **Code folding** by braces with gutter triangles
+- [x] **TODO/FIXME/HACK/NOTE** gutter markers
+- [x] **Multi-cursor**: Ctrl+D add next match, Alt+Click add cursor
+- [x] **Inline color swatches** hex codes-ისთვის + click-to-pick
+- [x] **Image preview widget** (.png/.jpg/.svg/.bmp/.gif)
+- [x] **SnippetEngine** C++/Py builtins + `${N:default}` expansion
+- [x] **Whitespace toggle**
+- [x] **LSP diagnostic markers** breakpoints-ისგან გამოყოფილი
+
+### LSP
+- [x] **Format Document** (Ctrl+Shift+F) clangd-ით
+- [x] **Format on save** C/C++ ფაილებისთვის (`AutoSaveManager`)
+- [x] **Signature help popup** active-parameter highlight-ით
+- [x] **Quick Fix actions** (Ctrl+.) `textDocument/codeAction`-ით
+
+### UI / dialogs / docks
+- [x] **AboutDialog** (version, git, Qt, build info)
+- [x] **GotoLineDialog** (Ctrl+G)
+- [x] **WorkspaceSymbolsDialog** (Ctrl+T)
+- [x] **New From Template** dialog
+- [x] **Run/Debug Configurations** dialog
+- [x] **MarkdownPreviewPanel** dock
+- [x] **Recent Files** menu (`RecentFilesManager`, max 10)
+- [x] **Window** menu open-tab list-ით
+- [x] **Theme switcher** light/dark
+- [x] **NotificationToast** polish (fade animations, stacking, drop-shadow)
+- [x] **Plugin Gallery** card-style + search filter
+- [x] **WelcomeWidget** Recent folders section
+- [x] **6 dock panels polished**: Search (regex/case/word + include/exclude + grouped), Outline (search/expand/sort/icons), Problems (severity filter + search + group-by-file), Git (staged/unstaged + inline diff + branch switcher), Terminal (multi-tab + profile selector + zoom), Welcome
+- [x] **OutputPanel** category filter + search
+
+### System / cross-cutting
+- [x] **GlobalShortcutDispatcher** (`src/bootstrap/globalshortcutdispatcher.h/.cpp`) — qApp event filter, key→command dispatch
+- [x] **MenuManager dedup** — title-based adoption
+- [x] **Cross-DLL SIGNAL/SLOT pattern** ყველა SDK signal-ისთვის (PMF connect არ მუშაობს cross-DLL — string macros mandatory)
+- [x] **Sidebar repositioning + orphan widget fixes** (no widgets at `(0,0)` over menu bar; dock sidebars არ ფარავენ menu bar-ს)
+- [x] **DockToolBar height 36px** (იყო 32 — ღილაკები იჭრებოდა); `Qt::ToolButtonIconOnly`; unified QToolButton style
+- [x] **AutoSaveManager** — periodic save + format-on-save dispatch
+- [x] **StatusBar** build/debug state indicator VS color coding-ით
+- [x] **Heap corruption on exit** fixed; new search/terminal/git plugins
 
 ---
 
@@ -262,3 +329,10 @@
 - [x] **Text selection/copy** — Ultralight chat panel-ში ტექსტის მონიშვნა და კოპირება: added `::selection` CSS rule so highlights are visible; Ctrl+C and drag-to-select already wired through UltralightWidget + ChatJSBridge
 - [x] **Stream consolidation** — tool call-ები compact unified stream-ად (VS Code parity): wk-box groups tool calls per cycle, auto-collapses on finish; added streaming-step shimmer + spinning icon CSS; fixed wk-box reuse across reasoning cycles
 - [x] **Terminal tool hang fix** — replaced blocking `waitForFinished()` with `QEventLoop`, added `cancelForeground()` + `RunCommandTool::cancel()`
+
+---
+
+## Phase 13 — UX & IDE Polish (2026-Q2) ✅ Done
+
+ყველა Phase 13 task დასრულებულია. სრული ჩამონათვალი ზევით **"Recently shipped (Q2 2026)"** section-ში.
+დეტალები: [docs/roadmap.md](roadmap.md) → Phase 13.

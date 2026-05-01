@@ -497,3 +497,76 @@ See [docs/luajit.md](luajit.md)
 - [x] **5 concrete adapter/impl classes** — `DockManagerAdapter`, `MenuManagerImpl`, `ToolBarManagerAdapter`, `StatusBarManagerAdapter`, `WorkspaceManagerImpl` in `src/bootstrap/`
 - [x] **IHostServices expanded** — new accessors `docks()`, `menus()`, `toolbars()`, `statusBar()`, `workspaceManager()` so plugins can contribute UI at runtime
 - [x] **PermissionGuardedHostServices** — pass-through for all 5 new services (no permission gating needed)
+
+---
+
+## Phase 13 — UX & IDE Polish (2026-Q2) ✅ Done
+
+**Goal:** Close the gap between "feature exists" and "feature feels finished" — every panel polished, every common workflow keyboard-driven, debugger feature-complete with reverse-debug + memory + disassembly, and cross-DLL signal plumbing made robust.
+
+### Debug system — feature-complete
+- [x] **Stack frame switching** from Call Stack panel — `IDebugAdapter::stackSelectFrame(int)` promoted to mandatory virtual; subsequent inspection commands operate on the selected frame.
+- [x] **Threads tab** in DebugPanel with click-to-switch.
+- [x] **Conditional breakpoints** — gutter context menu + `BreakpointConditionDialog`.
+- [x] **Hit-count breakpoints** via `-break-after`; hit-count column in Breakpoints tab.
+- [x] **Data breakpoints (watchpoints)** — `WatchpointDialog`, `IDebugAdapter::addWatchpoint`/`removeWatchpoint` + `watchpointSet`/`watchpointRemoved` signals; `GdbMiAdapter` implements via `-break-watch`.
+- [x] **Memory view dock** (`MemoryDock`) — `plugins/debug/memoryviewpanel.cpp`, real backend via `-data-read-memory-bytes`. `IDebugAdapter::readMemory` + `memoryReceived` signal.
+- [x] **Disassembly view dock** (`DisassemblyDock`) — `plugins/debug/disassemblypanel.cpp`, real backend via `-data-disassemble`. `IDebugAdapter::disassemble` + `disassemblyReceived` signal. New `DisasmLine` struct.
+- [x] **Pretty-printers** enabled for STL types (`set print pretty on`).
+- [x] **Reverse debugging** via GDB `record full` — `IDebugAdapter::startRecording`/`stopRecording`/`reverseStepOver`/`reverseStepInto`/`reverseContinue` + UI toolbar buttons.
+- [x] **Variable hover tooltip** during a paused debug session.
+- [x] **Locals lazy expansion** — `var-objects` based tree expansion.
+- [x] **Watch tab** add/remove expression input.
+- [x] **GDB locals parser** + F10/F11 `ApplicationShortcut` context.
+- [x] **DebugPanel embedded toolbar removed** — top toolbar (BuildToolbar) is the single source of debug controls.
+- [x] **Locals/breakpoint race fixes** — debug arrow now appears reliably on stop; Locals panel populates from first `*stopped` event.
+
+### Editor — polish + power
+- [x] **Bracket matching** highlight on cursor-adjacent brackets.
+- [x] **Indentation guides** (faint vertical lines per indent level).
+- [x] **Code folding** by braces with gutter triangles.
+- [x] **TODO/FIXME/HACK/NOTE** markers in gutter.
+- [x] **Multi-cursor** — Ctrl+D add next match, Alt+Click add cursor.
+- [x] **Inline color swatches** for hex codes + click-to-pick.
+- [x] **Image preview widget** for `.png/.jpg/.svg/.bmp/.gif`.
+- [x] **SnippetEngine** (`src/editor/snippetengine.h/.cpp`) with C++/Py builtins + `${N:default}` placeholder expansion.
+- [x] **Whitespace toggle** (show/hide whitespace characters).
+- [x] **LSP diagnostic markers** distinguished from breakpoints in the gutter.
+
+### LSP — workflow features
+- [x] **Format Document** via clangd (Ctrl+Shift+F).
+- [x] **Format on save** for C/C++ files (`AutoSaveManager` integration).
+- [x] **Signature help** popup with active-parameter highlight.
+- [x] **Quick Fix actions** popup (Ctrl+.) via `textDocument/codeAction`.
+
+### UI / dialogs / docks
+- [x] **AboutDialog** with version, git, Qt, build info.
+- [x] **GotoLineDialog** (Ctrl+G).
+- [x] **WorkspaceSymbolsDialog** (Ctrl+T).
+- [x] **New From Template** dialog (C++/Py/MD/JSON/CMake templates).
+- [x] **Run/Debug Configurations** dialog (args, env, cwd).
+- [x] **MarkdownPreviewPanel** dock with simple MD→HTML converter.
+- [x] **Recent Files** menu in File menu (max 10, managed by `RecentFilesManager`).
+- [x] **Window** menu with open-tab list + tab navigation shortcuts.
+- [x] **Theme switcher** (light/dark toggle in `SettingsPanel`).
+- [x] **NotificationToast** polish — fade animations, stacking, drop shadow.
+- [x] **Plugin Gallery** card-style display + search filter.
+- [x] **Welcome widget** Recent folders section.
+- [x] **All 6 dock panels polished**:
+  - **Search**: regex/case/word toggles + include/exclude filters + grouped results.
+  - **Outline**: search filter, expand/collapse, sort, kind-aware icons.
+  - **Problems**: severity filter + search + group-by-file.
+  - **Git**: staged/unstaged sections, inline diff, branch switcher, commit UX.
+  - **Terminal**: multi-tab terminals, profile selector, zoom shortcuts.
+  - **Welcome**: recent folders, suggestion chips.
+- [x] **OutputPanel** category filter + search.
+
+### System / cross-cutting
+- [x] **GlobalShortcutDispatcher** (`src/bootstrap/globalshortcutdispatcher.h/.cpp`) — qApp-level event filter routing key sequences to commands. Replaces scattered `QShortcut`s; F10/F11/etc. registered via `registerShortcut(seq, cmdId)`.
+- [x] **MenuManager dedup** — adopts existing top-level menu by title instead of creating duplicates.
+- [x] **Cross-DLL SIGNAL/SLOT pattern** documented and applied across plugins. PMF `connect` silently fails across DLL boundaries when the SDK type lives in a different binary; string-based `SIGNAL/SLOT` macros are mandatory for SDK signals (`IDebugAdapter`, `IBuildSystem`, etc.).
+- [x] **Sidebar repositioning + orphan widget fixes** — no widgets render at MainWindow `(0,0)` over the menu bar; dock sidebars no longer overlap menu bar items.
+- [x] **Toolbar polish** — `DockToolBar` fixed height 36 px, `Qt::ToolButtonIconOnly` everywhere, unified QToolButton styling, vertical centering, breathing room.
+- [x] **AutoSaveManager** — periodic dirty-editor save + format-on-save for C/C++.
+- [x] **StatusBar** build/debug state indicator with VS color coding.
+- [x] **Heap corruption crash on exit** fixed; new search/terminal/git plugins.

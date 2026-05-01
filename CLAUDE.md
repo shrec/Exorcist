@@ -412,10 +412,78 @@ stays per-IDE-instance, NOT in ExoBridge.
 - Build dirs: `build/` (MSVC), `build-llvm/` (Clang/Ninja, active)
 - Active binary: `build-llvm/src/exorcist.exe`
 - Qt6 / C++17 / Windows 10 primary target
-- `src/mainwindow.cpp` — ~3390 lines God Object; always use `context` before reading
+- `src/mainwindow.cpp` — ~3980 lines (still large; container-only logic per architectural manifest)
+- `src/mainwindow.h` — ~21 members after Phase D god-object decomposition
 - Active chat panel: `ChatPanelWidget` (NOT `AgentChatPanel` — dead code)
 - 74 agent tools registered; see `memory/agent-tools.md`
 - Tests: `ctest --test-dir build-llvm`
 - Qt6 gotcha: `QProcess::flush()` removed → use `waitForBytesWritten(0)`
-- Source graph DB: 912 files, 6388 functions, 7539 call edges, 1302 classes, 53206 FTS entries
+- Source graph DB: 912 files, 6806 functions, 7539+ call edges, 1535 classes, 53206+ FTS entries
 - Source graph indexes: `src/`, `plugins/`, `tests/`, `tools/`, `docs/`, `profiles/`
+
+### Q2 2026 — Shipped feature facts (verify in source before changing)
+
+**Debug plugin (`plugins/debug/`):**
+- `MemoryDock` — `MemoryViewPanel` (`plugins/debug/memoryviewpanel.cpp`), real backend via `-data-read-memory-bytes`
+- `DisassemblyDock` — `DisassemblyPanel` (`plugins/debug/disassemblypanel.cpp`), real backend via `-data-disassemble`
+- Threads tab, Watch tab add/remove, Locals lazy expansion via GDB var-objects
+- Conditional + hit-count + data breakpoints (watchpoints) wired through `WatchpointDialog` + breakpoint context menu
+- Reverse debugging: `record full` → `reverse-step`/`reverse-next`/`reverse-continue`
+- Pretty-printers enabled for STL types
+- Stack frame switching from Call Stack panel
+- Variable hover tooltip during debug session
+- DebugPanel embedded toolbar removed — top toolbar (BuildToolbar) owns debug controls
+
+**`IDebugAdapter` SDK (`src/sdk/idebugadapter.h`) — new virtual methods:**
+- `readMemory(quint64 addr, int count)` + `memoryReceived` signal
+- `disassemble(quint64 startAddr, int instructionCount, int mode)` + `disassemblyReceived` signal
+- `addWatchpoint(const DebugWatchpoint&)` + `removeWatchpoint(int)` + `watchpointSet`/`watchpointRemoved` signals
+- `stackSelectFrame(int frameId)` (formerly nonexistent — now mandatory)
+- `startRecording`/`stopRecording`/`reverseStepOver`/`reverseStepInto`/`reverseContinue` (default no-op; GdbMiAdapter overrides)
+- New struct types: `DebugWatchpoint`, `DisasmLine` (`Q_DECLARE_METATYPE`'d for queued signals)
+
+**Editor (`src/editor/`):**
+- Bracket matching (highlight on cursor adjacency)
+- Indentation guides (faint vertical lines per indent level)
+- Code folding by braces with gutter triangles
+- TODO/FIXME/HACK/NOTE markers in gutter
+- Multi-cursor: Ctrl+D add next match, Alt+Click add cursor
+- Inline color swatches for hex codes + click-to-pick
+- Image preview widget for png/jpg/svg/bmp/gif (`imagepreviewwidget.h/.cpp`)
+- `SnippetEngine` (`src/editor/snippetengine.h/.cpp`) with C++/Py builtins + `${N:default}` expansion
+- Whitespace toggle, Workspace symbols (Ctrl+T), Goto Line (Ctrl+G)
+
+**LSP (`src/lsp/`, `plugins/cpp-language/`):**
+- Format Document (Ctrl+Shift+F) via clangd
+- Format-on-save (handled by `AutoSaveManager` for C/C++ files)
+- Signature help popup with active-parameter highlight
+- Quick Fix actions popup (Ctrl+.) via `textDocument/codeAction`
+
+**System / Bootstrap (`src/bootstrap/`):**
+- `GlobalShortcutDispatcher` (`globalshortcutdispatcher.h/.cpp`) — qApp event filter, key-sequence → command dispatch.
+  Replaces per-widget `QShortcut` for global hot-keys; F10/F11 etc. registered via `registerShortcut(seq, cmdId)`.
+- `MenuManagerImpl` — adopts existing menu by title instead of creating duplicates (dedup pass).
+- `AutoSaveManager` — periodic dirty-editor save + format-on-save dispatch.
+- `StatusBarManager` — line/col/encoding/indent indicators on right side, build/debug state indicator with VS color coding.
+
+**Cross-DLL signal pattern (MANDATORY for SDK signals between DLLs):**
+- PMF (pointer-to-member-function) `connect(obj, &T::sig, ...)` **silently fails** across DLL boundaries when the SDK type lives in a different binary.
+- Use string-based `SIGNAL(...)`/`SLOT(...)` macros for any signal whose declaring class is defined in the SDK (`src/sdk/`) and emitted from a plugin (`plugins/*`).
+- Examples: `IDebugAdapter::started/terminated/stopped`, `IBuildSystem::configureFinished`, etc.
+- See `plugins/build/buildtoolbar.cpp:348-351` and `plugins/cpp-language/cpplanguageplugin.cpp:956-957` for canonical usage.
+- Slots invoked via `SLOT(...)` MUST be declared in `private slots:` / `public slots:` (Qt moc requirement).
+
+**Toolbar / Status bar layout:**
+- `DockToolBar` height: **36 px fixed** (was 32 — buttons were clipped).
+- Toolbar style: `Qt::ToolButtonIconOnly` everywhere (BuildToolbar, plugin toolbars), with QToolButton unified styling.
+- Status bar: line/col, encoding, indent indicators on right; memory RSS + build/debug state on left.
+- Sidebar repositioning + orphan-widget fixes — no widgets render at MainWindow `(0,0)` over the menu bar; dock sidebars no longer overlap menu bar items.
+
+**UI shipped (in `src/ui/`):**
+- `AboutDialog`, `GotoLineDialog`, `WorkspaceSymbolsDialog`, New From Template dialog, Run/Debug Configurations dialog
+- `MarkdownPreviewPanel` dock (`src/ui/markdownpreviewpanel.h/.cpp`) — simple MD→HTML
+- Recent Files menu in File menu (managed by `RecentFilesManager`, max 10)
+- Window menu with open-tab list + tab navigation shortcuts
+- Theme: light/dark toggle infrastructure (`Theme` + `SettingsPanel` toggles)
+- Plugin Gallery card-style display + search filter
+- All 6 panels polished: Search (regex/case/word + include/exclude + grouped), Outline (search/expand/sort/icons), Problems (severity filter + search + group-by-file), Git (staged/unstaged sections, inline diff, branch switcher), Terminal (multi-tab, profile selector, zoom), Welcome (recent folders).

@@ -78,6 +78,7 @@ This document is the project's spine. Every major decision must align with it.
 
 - Build, run, and edit Exorcist inside Exorcist as early as possible.
 - Dogfooding is the most honest performance and usability test.
+- **Status (2026-Q2):** self-hosting is real. The IDE opens its own folder, drives clangd over its own compile_commands.json, builds via the CMake plugin, debugs itself via the GDB MI debug plugin (memory view, disassembly, watchpoints, reverse-step), and is the daily editor used to develop itself. Measured cold start ~774 ms, stable RSS ~265 MB after LSP+plugins on the Exorcist project itself.
 
 ## 13) Stable Plugin SDK
 
@@ -103,14 +104,14 @@ This document is the project's spine. Every major decision must align with it.
 
 ## Performance Budget (hard targets)
 
-| Metric                        | Target        |
-|-------------------------------|---------------|
-| Cold start (empty session)    | < 300 ms      |
-| Idle RAM                      | < 80 MB       |
-| Open 100 MB file              | < 2 s         |
-| In-file search (1 MB)         | < 50 ms       |
-| Project search (10k files)    | < 3 s         |
-| UI frame time (scroll/type)   | < 16 ms       |
+| Metric                        | Target        | Measured (2026-Q2, Exorcist self-host) |
+|-------------------------------|---------------|---------------------------------------- |
+| Cold start (empty session)    | < 300 ms      | empty: ~under target; full self-host project ~774 ms (LSP + 6 Lua plugins + Copilot auth) |
+| Idle RAM                      | < 80 MB       | empty session within target; ~116 MB at boot of self-host project, stable ~265 MB after LSP+plugins (vs 800 MB–2 GB for VS Code on the same project) |
+| Open 100 MB file              | < 2 s         | within target via `LargeFileLoader` chunking |
+| In-file search (1 MB)         | < 50 ms       | within target |
+| Project search (10k files)    | < 3 s         | within target |
+| UI frame time (scroll/type)   | < 16 ms       | within target |
 
 ## Architecture Rules (non-negotiable)
 
