@@ -7,6 +7,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QString>
+#include <QTimer>
 
 #include <memory>
 
@@ -321,6 +322,7 @@ private:
 
     // Code folding
     std::unique_ptr<CodeFoldingEngine> m_foldingEngine;
+    QTimer                             m_foldRecomputeTimer;  // debounced rebuild on contentsChange
 
     // Multi-cursor engine
     std::unique_ptr<MultiCursorEngine> m_multiCursor;

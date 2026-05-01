@@ -256,9 +256,23 @@ EditorView::EditorView(QWidget *parent)
     m_foldingEngine = std::make_unique<CodeFoldingEngine>(this);
     m_foldingEngine->setDocument(document());
 
+    // Debounced fold-region rebuild so we recompute on intra-line edits
+    // (e.g. typing `{` or `}` mid-line, which doesn't change blockCount)
+    // without thrashing on every keystroke.
+    m_foldRecomputeTimer.setSingleShot(true);
+    m_foldRecomputeTimer.setInterval(120);
+    connect(&m_foldRecomputeTimer, &QTimer::timeout,
+            this, &EditorView::updateFoldRegions);
+
     // Rebuild fold regions on document structure changes
     connect(this, &QPlainTextEdit::blockCountChanged,
             this, &EditorView::updateFoldRegions);
+    // Also rebuild on any content change (debounced) so adding/removing
+    // braces or rewriting a line refreshes the fold triangles.
+    connect(document(), &QTextDocument::contentsChange,
+            this, [this](int, int, int) {
+                m_foldRecomputeTimer.start();
+            });
     connect(m_foldingEngine.get(), &CodeFoldingEngine::foldStateChanged,
             this, [this]() {
                 document()->markContentsDirty(0, document()->characterCount());
@@ -937,7 +951,8 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent *event)
                 const int foldX = m_lineNumberArea->width() - 13;
                 const int foldY = top + (lineH - 8) / 2;
                 painter.setPen(Qt::NoPen);
-                painter.setBrush(QColor(180, 180, 180));
+                // VS Code dark-modern fold guide color
+                painter.setBrush(QColor(0x85, 0x85, 0x85));
                 QPolygon tri;
                 if (m_foldingEngine->isFolded(blockNumber)) {
                     // ▸ right-pointing triangle (collapsed)
