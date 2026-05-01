@@ -4,7 +4,8 @@
 
 class QTreeWidget;
 class QTreeWidgetItem;
-class QComboBox;
+class QToolButton;
+class QLineEdit;
 class QLabel;
 class IDiagnosticsService;
 class OutputPanel;
@@ -30,11 +31,15 @@ public:
     int problemCount() const;
 
 signals:
+    /// Existing signal retained for backward compatibility.
     void navigateToFile(const QString &file, int line, int column);
+    /// New canonical signal: emitted when user activates a problem entry.
+    void problemActivated(const QString &filePath, int line, int column);
 
 private slots:
-    void onFilterChanged(int index);
+    void onFilterChanged();
     void onItemDoubleClicked(QTreeWidgetItem *item, int column);
+    void onSearchTextChanged(const QString &text);
 
 private:
     void rebuildTree();
@@ -54,10 +59,14 @@ private:
     QIcon severityIcon(ProblemEntry::Severity sev) const;
     QString severityText(ProblemEntry::Severity sev) const;
     bool matchesFilter(const ProblemEntry &entry) const;
+    bool matchesSearch(const ProblemEntry &entry) const;
 
-    IDiagnosticsService *m_diagSvc    = nullptr;
-    OutputPanel         *m_outputPanel = nullptr;
-    QTreeWidget         *m_tree       = nullptr;
-    QComboBox           *m_filterCombo = nullptr;
-    QLabel              *m_countLabel  = nullptr;
+    IDiagnosticsService *m_diagSvc      = nullptr;
+    OutputPanel         *m_outputPanel  = nullptr;
+    QTreeWidget         *m_tree         = nullptr;
+    QToolButton         *m_btnErrors    = nullptr;
+    QToolButton         *m_btnWarnings  = nullptr;
+    QToolButton         *m_btnInfo      = nullptr;
+    QLineEdit           *m_searchEdit   = nullptr;
+    QLabel              *m_countLabel   = nullptr;
 };
