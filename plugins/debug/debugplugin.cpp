@@ -2,6 +2,7 @@
 
 #include "gdbmiadapter.h"
 #include "memoryviewpanel.h"
+#include "disassemblypanel.h"
 #include "debug/debugpanel.h"
 #include "ui/themeicons.h"
 
@@ -158,6 +159,10 @@ bool DebugPlugin::initializePlugin()
     m_memoryView = new MemoryViewPanel(nullptr);
     m_memoryView->setAdapter(m_adapter);
 
+    // Disassembly view dock — top-level QWidget reparented later via createView().
+    m_disassemblyView = new DisassemblyPanel(nullptr);
+    m_disassemblyView->setAdapter(m_adapter);
+
     // Create service bridge (replaces DebugBootstrap's signal wiring)
     m_debugService = new DebugServiceBridge(m_adapter, m_panel, this);
 
@@ -193,6 +198,10 @@ void DebugPlugin::shutdownPlugin()
         delete m_memoryView;
         m_memoryView = nullptr;
     }
+    if (m_disassemblyView && !m_disassemblyView->parent()) {
+        delete m_disassemblyView;
+        m_disassemblyView = nullptr;
+    }
 }
 
 QWidget *DebugPlugin::createView(const QString &viewId, QWidget *parent)
@@ -204,6 +213,10 @@ QWidget *DebugPlugin::createView(const QString &viewId, QWidget *parent)
     if (viewId == QLatin1String("MemoryDock") && m_memoryView) {
         m_memoryView->setParent(parent);
         return m_memoryView;
+    }
+    if (viewId == QLatin1String("DisassemblyDock") && m_disassemblyView) {
+        m_disassemblyView->setParent(parent);
+        return m_disassemblyView;
     }
     return nullptr;
 }
@@ -253,6 +266,10 @@ void DebugPlugin::registerCommands()
 
     cmds->registerCommand(QStringLiteral("debug.openMemoryView"), tr("Open Memory View"), [this]() {
         showPanel(QStringLiteral("MemoryDock"));
+    });
+
+    cmds->registerCommand(QStringLiteral("debug.openDisassembly"), tr("Open Disassembly"), [this]() {
+        showPanel(QStringLiteral("DisassemblyDock"));
     });
 }
 
@@ -315,6 +332,7 @@ void DebugPlugin::installMenusAndToolBar()
         {tr("Step &Into"), QStringLiteral("debug.stepInto"), QKeySequence(Qt::Key_F11)},
         {tr("Step O&ut"), QStringLiteral("debug.stepOut"), QKeySequence(Qt::SHIFT | Qt::Key_F11)},
         {tr("&Memory View"), QStringLiteral("debug.openMemoryView"), QKeySequence(), true},
+        {tr("&Disassembly"), QStringLiteral("debug.openDisassembly"), QKeySequence()},
     }, this);
 }
 
