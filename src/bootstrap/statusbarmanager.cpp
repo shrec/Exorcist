@@ -5,6 +5,9 @@
 #include <QStatusBar>
 #include <QTimer>
 
+#include "serviceregistry.h"
+#include "sdk/idebugadapter.h"  // DebugFrame, DebugStopReason
+
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <psapi.h>
@@ -35,6 +38,15 @@ double currentMemoryMB()
 #endif
     return -1.0;
 }
+
+// VS-style status colors for the build/debug indicator.
+constexpr const char *kColorReady    = "#9e9e9e";  // gray
+constexpr const char *kColorBuilding = "#75bfff";  // blue
+constexpr const char *kColorSuccess  = "#89d185";  // green
+constexpr const char *kColorFailed   = "#f44747";  // red
+constexpr const char *kColorPaused   = "#dcdcaa";  // yellow
+constexpr const char *kColorDebug    = "#89d185";  // green
+
 } // namespace
 
 StatusBarManager::StatusBarManager(QStatusBar *statusBar, QObject *parent)
@@ -48,14 +60,16 @@ void StatusBarManager::initialize()
     m_encodingLabel      = new QLabel(tr("UTF-8"), m_statusBar);
     m_backgroundLabel    = new QLabel(m_statusBar);
     m_branchLabel        = new QLabel(m_statusBar);
-    m_copilotStatusLabel = new QLabel(tr("\u2014 No AI"), m_statusBar);
+    m_copilotStatusLabel = new QLabel(tr("— No AI"), m_statusBar);
     m_indexLabel         = new QLabel(m_statusBar);
     m_memoryLabel        = new QLabel(m_statusBar);
+    m_buildDebugLabel    = new QLabel(tr("○ Ready"), m_statusBar);
 
     m_posLabel->setMinimumWidth(110);
     m_encodingLabel->setMinimumWidth(55);
     m_branchLabel->setMinimumWidth(80);
     m_copilotStatusLabel->setMinimumWidth(80);
+    m_buildDebugLabel->setMinimumWidth(90);
 
     const QString labelStyle = QStringLiteral("padding: 0 8px;");
     m_posLabel->setStyleSheet(labelStyle);
@@ -68,8 +82,14 @@ void StatusBarManager::initialize()
     m_memoryLabel->setToolTip(tr("Process memory (working set)"));
     m_copilotStatusLabel->setStyleSheet(labelStyle + QStringLiteral("color:#888;"));
     m_copilotStatusLabel->setCursor(Qt::PointingHandCursor);
-    m_copilotStatusLabel->setToolTip(tr("AI Assistant status \u2014 click to open AI panel"));
+    m_copilotStatusLabel->setToolTip(tr("AI Assistant status — click to open AI panel"));
     m_copilotStatusLabel->installEventFilter(this);
+
+    // Compact build/debug indicator -- VS-style, sits on the LEFT side.
+    m_buildDebugLabel->setToolTip(tr("Build / debug state"));
+    setBuildDebugStatus(QStringLiteral("○ ") + tr("Ready"),
+                        QString::fromUtf8(kColorReady));
+    m_statusBar->addWidget(m_buildDebugLabel);  // left-aligned
 
     m_statusBar->addPermanentWidget(m_copilotStatusLabel);
     m_statusBar->addPermanentWidget(m_indexLabel);
@@ -92,6 +112,16 @@ void StatusBarManager::initialize()
     const double mb = currentMemoryMB();
     if (mb >= 0.0)
         m_memoryLabel->setText(QStringLiteral("%1 MB").arg(mb, 0, 'f', 1));
+
+    // Single-shot auto-clear timer for transient build states
+    // (e.g. revert "Build succeeded" -> "Ready" after 5 s).
+    m_autoClearTimer = new QTimer(this);
+    m_autoClearTimer->setSingleShot(true);
+    connect(m_autoClearTimer, &QTimer::timeout, this, [this]() {
+        if (!m_debugActive)
+            setBuildDebugStatus(QStringLiteral("○ ") + tr("Ready"),
+                                QString::fromUtf8(kColorReady));
+    });
 }
 
 bool StatusBarManager::eventFilter(QObject *watched, QEvent *event)
@@ -101,4 +131,147 @@ bool StatusBarManager::eventFilter(QObject *watched, QEvent *event)
         return true;
     }
     return QObject::eventFilter(watched, event);
+}
+
+// ---- Build / debug status wiring ------------------------------------------
+
+void StatusBarManager::setBuildDebugStatus(const QString &text,
+                                           const QString &color,
+                                           int autoClearMs)
+{
+    if (!m_buildDebugLabel)
+        return;
+    m_buildDebugLabel->setText(text);
+    m_buildDebugLabel->setStyleSheet(
+        QStringLiteral("padding: 2px 8px; color: %1; font-size: 11px;").arg(color));
+    if (m_autoClearTimer) {
+        if (autoClearMs > 0)
+            m_autoClearTimer->start(autoClearMs);
+        else
+            m_autoClearTimer->stop();
+    }
+}
+
+void StatusBarManager::wireBuildDebugStatus(ServiceRegistry *services)
+{
+    if (!services || !m_buildDebugLabel)
+        return;
+
+    // SIGNAL/SLOT string-based connect -- required because IBuildSystem,
+    // IDebugService and IDebugAdapter live in plugin DLLs (libbuild.dll,
+    // libdebug.dll). PMF-based connect silently fails across DLL boundaries
+    // (MOC duplication).
+
+    if (QObject *buildSys = services->service(QStringLiteral("buildSystem"))) {
+        connect(buildSys, SIGNAL(buildOutput(QString,bool)),
+                this, SLOT(onBuildOutput(QString,bool)));
+        connect(buildSys, SIGNAL(configureFinished(bool,QString)),
+                this, SLOT(onConfigureFinished(bool,QString)));
+        connect(buildSys, SIGNAL(buildFinished(bool,int)),
+                this, SLOT(onBuildFinished(bool,int)));
+        connect(buildSys, SIGNAL(cleanFinished(bool)),
+                this, SLOT(onCleanFinished(bool)));
+    }
+
+    if (QObject *debugSvc = services->service(QStringLiteral("debugService"))) {
+        connect(debugSvc, SIGNAL(debugStopped(QList<DebugFrame>)),
+                this, SLOT(onDebugStopped(QList<DebugFrame>)));
+        connect(debugSvc, SIGNAL(debugTerminated()),
+                this, SLOT(onDebugTerminated()));
+    }
+
+    if (QObject *adapter = services->service(QStringLiteral("debugAdapter"))) {
+        connect(adapter, SIGNAL(started()),
+                this, SLOT(onDebugStarted()));
+        // The adapter also signals terminated() -- mirror to onDebugTerminated
+        // in case the IDebugService bridge isn't connected yet.
+        connect(adapter, SIGNAL(terminated()),
+                this, SLOT(onDebugTerminated()));
+    }
+}
+
+// ---- Build slots ----------------------------------------------------------
+
+void StatusBarManager::onBuildOutput(const QString &line, bool isError)
+{
+    Q_UNUSED(line);
+    Q_UNUSED(isError);
+    if (m_debugActive)
+        return;
+    if (!m_buildDebugLabel)
+        return;
+    // Switch into "Building..." on first output line; avoid restyling on every
+    // single line for performance.
+    const QString buildingText = QStringLiteral("▶ ") + tr("Building...");
+    if (m_buildDebugLabel->text() != buildingText)
+        setBuildDebugStatus(buildingText, QString::fromUtf8(kColorBuilding));
+}
+
+void StatusBarManager::onConfigureFinished(bool success, const QString &error)
+{
+    Q_UNUSED(error);
+    if (m_debugActive)
+        return;
+    if (success)
+        setBuildDebugStatus(QStringLiteral("○ ") + tr("Configured"),
+                            QString::fromUtf8(kColorReady), 5000);
+    else
+        setBuildDebugStatus(QStringLiteral("⚠ ") + tr("Configure failed"),
+                            QString::fromUtf8(kColorFailed), 5000);
+}
+
+void StatusBarManager::onBuildFinished(bool success, int exitCode)
+{
+    if (m_debugActive)
+        return;
+    if (success) {
+        setBuildDebugStatus(QStringLiteral("✓ ") + tr("Build succeeded"),
+                            QString::fromUtf8(kColorSuccess), 5000);
+    } else {
+        setBuildDebugStatus(
+            QStringLiteral("✗ ") + tr("Build failed (%1)").arg(exitCode),
+            QString::fromUtf8(kColorFailed), 5000);
+    }
+}
+
+void StatusBarManager::onCleanFinished(bool success)
+{
+    if (m_debugActive)
+        return;
+    if (success)
+        setBuildDebugStatus(QStringLiteral("○ ") + tr("Cleaned"),
+                            QString::fromUtf8(kColorReady), 5000);
+    else
+        setBuildDebugStatus(QStringLiteral("⚠ ") + tr("Clean failed"),
+                            QString::fromUtf8(kColorFailed), 5000);
+}
+
+// ---- Debug slots ----------------------------------------------------------
+
+void StatusBarManager::onDebugStarted()
+{
+    m_debugActive = true;
+    setBuildDebugStatus(QStringLiteral("▶ ") + tr("Debugging"),
+                        QString::fromUtf8(kColorDebug));
+}
+
+void StatusBarManager::onDebugStopped(const QList<DebugFrame> &frames)
+{
+    // The DebugStopReason is not delivered through IDebugService::debugStopped
+    // (only frames). Show a generic "Paused" with the function name of the
+    // top frame when available.
+    m_debugActive = true;
+    QString detail;
+    if (!frames.isEmpty() && !frames.first().name.isEmpty())
+        detail = QStringLiteral(" at %1").arg(frames.first().name);
+    setBuildDebugStatus(
+        QStringLiteral("⏸ ") + tr("Paused%1").arg(detail),
+        QString::fromUtf8(kColorPaused));
+}
+
+void StatusBarManager::onDebugTerminated()
+{
+    m_debugActive = false;
+    setBuildDebugStatus(QStringLiteral("○ ") + tr("Ready"),
+                        QString::fromUtf8(kColorReady));
 }

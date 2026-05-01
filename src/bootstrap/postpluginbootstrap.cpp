@@ -252,6 +252,13 @@ void PostPluginBootstrap::wire(const Deps &deps)
             }
         });
     }
+
+    // \u2500\u2500 Build / debug status indicator \u2500\u2500
+    // Subscribe to IBuildSystem + IDebugService/IDebugAdapter signals so the
+    // compact status label on the bottom-left shows current build/debug state
+    // (Ready / Building.../ Build failed / Debugging / Paused).
+    if (deps.statusBarMgr && services)
+        deps.statusBarMgr->wireBuildDebugStatus(services);
 }
 
 // ── Cross-DLL debug service slots ────────────────────────────────────────────
