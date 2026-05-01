@@ -148,6 +148,7 @@
 #include "bootstrap/workbenchcommandbootstrap.h"
 #include "bootstrap/workbenchstatebootstrap.h"
 #include "bootstrap/postpluginbootstrap.h"
+#include "bootstrap/autosavemanager.h"
 #include "editor/symboloutlinepanel.h"
 #include "sdk/iterminalservice.h"
 #include "project/projectmanager.h"
@@ -219,6 +220,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     // EditorManager owns tab/project/tree state
     m_editorMgr = new EditorManager(this);
+
+    // Periodic auto-save of dirty editors (configurable via QSettings).
+    auto *autoSave = new AutoSaveManager(m_editorMgr, this);
+    Q_UNUSED(autoSave);
 
     // Services that dock widgets depend on must exist before setupUi().
     m_agentOrchestrator = new AgentOrchestrator(this);

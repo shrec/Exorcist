@@ -3,6 +3,8 @@ add_executable(exorcist WIN32
     mainwindow.cpp
     mainwindow.h
     bootstrap/agentcallbacksbootstrap.cpp
+    bootstrap/autosavemanager.h
+    bootstrap/autosavemanager.cpp
     editor/editorview.cpp
     editor/editorview.h
     editor/breakpointconditiondialog.cpp
