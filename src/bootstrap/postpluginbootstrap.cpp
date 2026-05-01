@@ -56,9 +56,55 @@ void PostPluginBootstrap::wire(const Deps &deps)
         connect(debugSvc, SIGNAL(debugTerminated()),
                 this, SLOT(onDebugTerminated()));
 
-        // Sync all existing editor breakpoints into the adapter
+        // Sync all existing editor breakpoints into the adapter and wire
+        // condition/enabled change signals so GDB receives updates when the
+        // user edits a breakpoint via the gutter context menu.
         if (auto *adapter = services->service<IDebugAdapter>(
                 QStringLiteral("debugAdapter"))) {
+
+            // Helper: connect EditorView breakpoint-mutation signals to the
+            // adapter. On change we look up the existing adapter-side ID via
+            // IDebugService::breakpointIdForLocation(), remove it (if any),
+            // then re-add a fresh DebugBreakpoint carrying the new
+            // condition / enabled state. This works with the existing
+            // adapter API — no new MI commands required (GDB's `-break-insert
+            // -c <expr>` handles the condition on add).
+            auto wireEditorBreakpointSignals = [this, adapter, debugSvc](EditorView *ed) {
+                if (!ed) return;
+                connect(ed, &EditorView::breakpointConditionChanged, this,
+                        [adapter, debugSvc, ed](const QString &fp, int line,
+                                                const QString &condition) {
+                    if (fp.isEmpty()) return;
+                    if (debugSvc) {
+                        const int oldId = debugSvc->breakpointIdForLocation(fp, line);
+                        if (oldId >= 0)
+                            adapter->removeBreakpoint(oldId);
+                    }
+                    DebugBreakpoint bp;
+                    bp.filePath  = fp;
+                    bp.line      = line;
+                    bp.condition = condition;
+                    bp.enabled   = ed->isBreakpointEnabled(line);
+                    adapter->addBreakpoint(bp);
+                });
+                connect(ed, &EditorView::breakpointEnabledChanged, this,
+                        [adapter, debugSvc, ed](const QString &fp, int line,
+                                                bool enabled) {
+                    if (fp.isEmpty()) return;
+                    if (debugSvc) {
+                        const int oldId = debugSvc->breakpointIdForLocation(fp, line);
+                        if (oldId >= 0)
+                            adapter->removeBreakpoint(oldId);
+                    }
+                    DebugBreakpoint bp;
+                    bp.filePath  = fp;
+                    bp.line      = line;
+                    bp.condition = ed->breakpointCondition(line);
+                    bp.enabled   = enabled;
+                    adapter->addBreakpoint(bp);
+                });
+            };
+
             for (int i = 0; i < editorMgr->tabs()->count(); ++i) {
                 auto *ed = editorMgr->editorAt(i);
                 if (!ed) continue;
@@ -66,11 +112,22 @@ void PostPluginBootstrap::wire(const Deps &deps)
                 if (fp.isEmpty()) continue;
                 for (int ln : ed->breakpointLines()) {
                     DebugBreakpoint bp;
-                    bp.filePath = fp;
-                    bp.line = ln;
+                    bp.filePath  = fp;
+                    bp.line      = ln;
+                    bp.condition = ed->breakpointCondition(ln);
+                    bp.enabled   = ed->isBreakpointEnabled(ln);
                     adapter->addBreakpoint(bp);
                 }
+                wireEditorBreakpointSignals(ed);
             }
+
+            // Wire signals on editors opened later in the session so newly
+            // opened files also propagate condition/enabled changes to the
+            // adapter.
+            connect(editorMgr, &EditorManager::editorOpened, this,
+                    [wireEditorBreakpointSignals](EditorView *ed, const QString &) {
+                wireEditorBreakpointSignals(ed);
+            });
         }
     }
 
