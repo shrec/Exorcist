@@ -28,8 +28,12 @@
 
 #include "../editor/editorview.h"
 #include "completionpopup.h"
+#include "doxygengenerator.h"
 #include "hovertooltipwidget.h"
 #include "lspclient.h"
+
+#include <QMainWindow>
+#include <QStatusBar>
 
 // ── CodeLensOverlay ──────────────────────────────────────────────────────────
 //
@@ -376,6 +380,18 @@ LspEditorBridge::LspEditorBridge(EditorView *editor, LspClient *client,
                                         cur.positionInBlock());
     });
     editor->addAction(typeDefAction);
+
+    // Ctrl+Alt+D → generate Doxygen comment above the function under cursor.
+    // Per UX principles: keyboard-first, tooltip with shortcut, status feedback.
+    auto *doxygenAction = new QAction(tr("Generate Documentation Comment"),
+                                       editor);
+    doxygenAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_D));
+    doxygenAction->setShortcutContext(Qt::WidgetShortcut);
+    doxygenAction->setToolTip(tr("Generate Doxygen Comment (Ctrl+Alt+D)"));
+    doxygenAction->setObjectName(QStringLiteral("lsp.generateDoxygenComment"));
+    connect(doxygenAction, &QAction::triggered,
+            this, &LspEditorBridge::generateDoxygenComment);
+    editor->addAction(doxygenAction);
 
     // Re-request inlay hints on scroll; also keep signature popup glued
     connect(m_editor->verticalScrollBar(), &QScrollBar::valueChanged,
@@ -865,6 +881,108 @@ void LspEditorBridge::formatDocument()
     sendDidChange();
     m_formatReqVersion = m_version;
     m_client->requestFormatting(m_uri);
+}
+
+void LspEditorBridge::generateDoxygenComment()
+{
+    if (!m_editor) return;
+
+    // ── 1. Locate the function line ──────────────────────────────────────────
+    // The cursor may be sitting on a continuation line (e.g. one of several
+    // lines a parameter list is wrapped across) or on the line preceded by a
+    // template<...> declaration. We accept either:
+    //   - the cursor's current block, OR
+    //   - the next non-empty block (skip blank lines / template prefix)
+    QTextCursor cur = m_editor->textCursor();
+    QTextBlock  block = cur.block();
+
+    // If the current line is a `template<...>` line, slide down to the
+    // declaration line that follows.
+    auto isTemplateOnly = [](const QString &t) {
+        const QString s = t.trimmed();
+        return s.startsWith(QLatin1String("template"))
+               && (s.endsWith(QLatin1Char('>'))
+                   || s.contains(QLatin1Char('<')));
+    };
+
+    QTextBlock funcBlock = block;
+    if (isTemplateOnly(funcBlock.text()) && funcBlock.next().isValid())
+        funcBlock = funcBlock.next();
+
+    // Join continuation lines until we see a `;`, `{`, or end-of-block balance
+    // on parens. Cap at 8 lines to avoid runaway scans.
+    QString joined;
+    int parenDepth = 0;
+    QTextBlock walker = funcBlock;
+    for (int i = 0; i < 8 && walker.isValid(); ++i) {
+        const QString ltext = walker.text();
+        if (!joined.isEmpty()) joined += QLatin1Char(' ');
+        joined += ltext;
+        for (const QChar c : ltext) {
+            if (c == QLatin1Char('(')) ++parenDepth;
+            else if (c == QLatin1Char(')') && parenDepth > 0) --parenDepth;
+        }
+        const QString trimmed = ltext.trimmed();
+        if (parenDepth == 0
+            && (trimmed.endsWith(QLatin1Char(';'))
+                || trimmed.endsWith(QLatin1Char('{'))
+                || trimmed.endsWith(QLatin1Char(')')))) {
+            break;
+        }
+        walker = walker.next();
+    }
+
+    const DoxygenGenerator::ParsedSignature sig =
+        DoxygenGenerator::parseSignature(joined);
+
+    // ── 2. Determine indent from the function block's leading whitespace ─────
+    const QString funcLineText = funcBlock.text();
+    int indent = 0;
+    while (indent < funcLineText.size() && funcLineText.at(indent).isSpace())
+        ++indent;
+    // Tabs count as 1 space each for our indent string — we re-emit spaces so
+    // the comment block is consistent regardless of the source indentation
+    // style of that particular line.
+    const QString indentStr(indent, QLatin1Char(' '));
+
+    // ── 3. Build comment text ────────────────────────────────────────────────
+    QString commentText;
+    QString statusMsg;
+    if (!sig.valid) {
+        // Non-function line → single `///` marker on a new line above.
+        commentText = indentStr + QStringLiteral("/// \n");
+        statusMsg   = tr("No function detected on this line");
+    } else {
+        commentText = DoxygenGenerator::buildComment(sig, indent);
+        statusMsg   = tr("Doxygen comment inserted");
+    }
+
+    // ── 4. Insert above the function line, atomically ────────────────────────
+    QTextCursor insertCur(funcBlock);
+    insertCur.movePosition(QTextCursor::StartOfBlock);
+    insertCur.beginEditBlock();
+    insertCur.insertText(commentText);
+    insertCur.endEditBlock();
+
+    // ── 5. Move cursor to the @brief line so the user can immediately type ───
+    // The first inserted line is the `/// @brief ` line (or the lone `///` for
+    // non-functions). Position cursor at end of that line.
+    QTextBlock briefBlock = funcBlock.previous();
+    // Walk back to the first inserted line (commentText may be multi-line).
+    const int newlineCount = commentText.count(QLatin1Char('\n'));
+    for (int i = 1; i < newlineCount && briefBlock.previous().isValid(); ++i)
+        briefBlock = briefBlock.previous();
+    if (briefBlock.isValid()) {
+        QTextCursor briefCur(briefBlock);
+        briefCur.movePosition(QTextCursor::EndOfBlock);
+        m_editor->setTextCursor(briefCur);
+    }
+
+    // ── 6. Status feedback (3s auto-dismiss per UX principle 9) ──────────────
+    if (auto *mw = qobject_cast<QMainWindow *>(m_editor->window())) {
+        if (QStatusBar *sb = mw->statusBar())
+            sb->showMessage(statusMsg, 3000);
+    }
 }
 
 void LspEditorBridge::requestSymbols()

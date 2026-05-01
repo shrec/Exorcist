@@ -57,6 +57,12 @@ public:
     // Trigger a document-symbol request (called by MainWindow on tab switch)
     void requestSymbols();
 
+    // Generate a Doxygen `///`-style comment block above the function under
+    // the cursor (also bound to Ctrl+Alt+D). If the cursor is not on a
+    // parseable function, a single `///` line is inserted instead and the
+    // status bar shows "No function detected on this line".
+    void generateDoxygenComment();
+
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
 

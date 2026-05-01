@@ -74,6 +74,8 @@ add_executable(exorcist WIN32
     lsp/completionpopup.h
     lsp/lspeditorbridge.cpp
     lsp/lspeditorbridge.h
+    lsp/doxygengenerator.cpp
+    lsp/doxygengenerator.h
     lsp/hovertooltipwidget.cpp
     lsp/hovertooltipwidget.h
     lsp/referencespanel.cpp
@@ -406,6 +408,8 @@ add_executable(exorcist WIN32
     plugin/plugingallerypanel.h
     plugin/pluginmarketplaceservice.h
     plugin/pluginmarketplaceservice.cpp
+    plugin/installpluginurldialog.h
+    plugin/installpluginurldialog.cpp
     serviceregistry.cpp
     serviceregistry.h
     startupprofiler.h
@@ -633,6 +637,8 @@ add_executable(exorcist WIN32
     forms/formeditor/inlinelabeleditor.cpp
     forms/formeditor/signalsloteditor.h
     forms/formeditor/signalsloteditor.cpp
+    forms/formeditor/promotedialog.h
+    forms/formeditor/promotedialog.cpp
     forms/qmleditor/qmleditorwidget.h
     forms/qmleditor/qmleditorwidget.cpp
     forms/qmleditor/qmlpreviewpane.h
