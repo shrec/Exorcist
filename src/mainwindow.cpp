@@ -1401,6 +1401,29 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     toggleQtHelpAction->setCheckable(true);
     toggleQtHelpAction->setChecked(false);
 
+    // ── Focus / Zen Mode ──────────────────────────────────────────────────
+    // Hides toolbars + dock sidebars + status bar — distraction-free editing.
+    // Persisted via QSettings("Exorcist","Exorcist") key "focusMode".
+    viewMenu->addSeparator();
+    QAction *focusModeAction = viewMenu->addAction(tr("Toggle Focus &Mode"));
+    focusModeAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+K, Z")));
+    focusModeAction->setShortcutContext(Qt::ApplicationShortcut);
+    focusModeAction->setCheckable(true);
+    focusModeAction->setToolTip(tr("Toggle Focus Mode (Ctrl+K, Z) — hide all panels and toolbars"));
+    connect(focusModeAction, &QAction::triggered, this, [this, focusModeAction](bool checked) {
+        m_focusMode = checked;
+        if (statusBar()) statusBar()->setVisible(!m_focusMode);
+        for (QToolBar *tb : findChildren<QToolBar *>())
+            tb->setVisible(!m_focusMode);
+        if (m_dockManager) m_dockManager->setDockLayoutVisible(!m_focusMode);
+        QSettings(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"))
+            .setValue(QStringLiteral("focusMode"), m_focusMode);
+        if (statusBar())
+            statusBar()->showMessage(m_focusMode
+                ? tr("Focus Mode On — Ctrl+K Z to exit")
+                : tr("Focus Mode Off"), 3000);
+    });
+
     // ── Window ────────────────────────────────────────────────────────────
     QMenu *windowMenu = menuBar()->addMenu(tr("&Window"));
 

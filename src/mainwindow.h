@@ -140,6 +140,7 @@ private:
     WorkbenchServicesBootstrap *m_workbenchServices = nullptr;
     DockBootstrap            *m_dockBootstrap = nullptr;
     exdock::DockManager       *m_dockManager = nullptr;
+    bool                        m_focusMode = false;
     QStackedWidget             *m_centralStack = nullptr;
     WelcomeWidget              *m_welcome = nullptr;
 
