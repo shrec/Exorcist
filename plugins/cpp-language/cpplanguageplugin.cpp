@@ -436,15 +436,26 @@ void CppLanguagePlugin::registerCommands()
                 newName.trimmed());
         });
 
-    // Format Document — keyboard shortcut handled per-editor (Ctrl+Shift+F);
-    // command palette entry for discoverability.
+    // Format Document — sends LSP textDocument/formatting to clangd. The
+    // resulting TextEdits are applied by LspEditorBridge::onFormattingResult,
+    // which is wired per-editor when the bridge is constructed in MainWindow.
+    // Bound to Ctrl+Shift+F via the Edit and C/C++ menu entries, and also
+    // handled per-editor by LspEditorBridge for in-editor activation.
     cmds->registerCommand(
         QStringLiteral("cpp.formatDocument"),
         tr("Format Document"),
         [this, ed]() {
-            if (!ed || !m_lspClient->isInitialized()) return;
-            m_lspClient->requestFormatting(
-                LspClient::pathToUri(ed->activeFilePath()));
+            if (!ed) return;
+            if (!m_lspClient || !m_lspClient->isInitialized()) {
+                showStatusMessage(tr("clangd is not ready yet."), 3000);
+                return;
+            }
+            const QString filePath = ed->activeFilePath();
+            if (filePath.isEmpty()) {
+                showStatusMessage(tr("No active document to format."), 3000);
+                return;
+            }
+            m_lspClient->requestFormatting(LspClient::pathToUri(filePath));
         });
 
     // Go to Symbol in Workspace — shows a live-search dialog backed by workspace/symbol.
@@ -810,16 +821,24 @@ void CppLanguagePlugin::installMenus()
     addMenuCommand(QLatin1String(kCppMenuId), tr("Switch Header/&Source"),
                    QStringLiteral("cpp.switchHeaderSource"), this,
                    QKeySequence(Qt::ALT | Qt::Key_O));
+    // Note: Ctrl+Shift+F is reserved for Format Document (LSP textDocument/formatting).
+    // Find in Files keeps its menu entry but is invoked from the search panel
+    // or command palette to avoid clashing with the format shortcut.
     addMenuCommand(QLatin1String(kCppMenuId), tr("&Find in Files"),
-                   QStringLiteral("cpp.focusSearch"), this,
+                   QStringLiteral("cpp.focusSearch"), this);
+    // Promote Format Document into the standard Edit menu so it is discoverable
+    // independently of the C/C++ menu — Ctrl+Shift+F drives clangd formatting.
+    addMenuCommand(IMenuManager::Edit, tr("Format Document"),
+                   QStringLiteral("cpp.formatDocument"), this,
                    QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F));
     addMenuCommand(QLatin1String(kCppMenuId), tr("Open C++ &Workspace"),
                    QStringLiteral("cpp.showWorkspace"), this);
 
     addMenuSeparator(IMenuManager::Analyze);
+    // Find in Files is invoked from the search panel; Ctrl+Shift+F is owned by
+    // Format Document to match VS Code / clangd conventions.
     addMenuCommand(IMenuManager::Analyze, tr("&Find in Files"),
-                   QStringLiteral("cpp.focusSearch"), this,
-                   QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F));
+                   QStringLiteral("cpp.focusSearch"), this);
     addMenuCommand(IMenuManager::Analyze, tr("&Reindex Workspace"),
                    QStringLiteral("cpp.reindexWorkspace"), this);
 
