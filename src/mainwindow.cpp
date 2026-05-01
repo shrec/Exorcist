@@ -28,6 +28,7 @@
 #include <QTextEdit>
 #include <QTabWidget>
 #include <QToolBar>
+#include <QToolButton>
 #include <QTreeView>
 #include <QUuid>
 #include <QInputDialog>
@@ -1292,11 +1293,27 @@ QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     // ── Help ──────────────────────────────────────────────────────────────
     QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
 
-    QAction *aboutAction = helpMenu->addAction(tr("&About Exorcist..."));
-    connect(aboutAction, &QAction::triggered, this, [this]() {
+    auto showAboutDialog = [this]() {
         AboutDialog dlg(this);
         dlg.exec();
-    });
+    };
+
+    QAction *aboutAction = helpMenu->addAction(tr("&About Exorcist..."));
+    aboutAction->setMenuRole(QAction::AboutRole);
+    connect(aboutAction, &QAction::triggered, this, showAboutDialog);
+
+    // Status bar quick-access action: clickable "About" entry on the right side
+    // of the status bar, surfaces version + build info without opening the menu.
+    auto *aboutStatusBtn = new QToolButton(this);
+    aboutStatusBtn->setText(tr("About"));
+    aboutStatusBtn->setAutoRaise(true);
+    aboutStatusBtn->setCursor(Qt::PointingHandCursor);
+    aboutStatusBtn->setToolTip(tr("About Exorcist"));
+    aboutStatusBtn->setStyleSheet(QStringLiteral(
+        "QToolButton { color: #9cdcfe; border: none; padding: 0 8px; }"
+        "QToolButton:hover { color: #ffffff; }"));
+    connect(aboutStatusBtn, &QToolButton::clicked, this, showAboutDialog);
+    statusBar()->addPermanentWidget(aboutStatusBtn);
 
     // ── AI shortcuts ──────────────────────────────────────────────────────
     auto *focusChatAct = new QAction(tr("Focus AI Chat"), this);
