@@ -166,6 +166,7 @@
 #include "build/outputpanel.h"
 #include "problems/problemspanel.h"
 #include "settings/workspacesettings.h"
+#include "settings/scopedsettings.h"
 #include "settings/languageprofile.h"
 #include "git/diffexplorerpanel.h"
 #include "git/mergeeditor.h"
@@ -1019,6 +1020,7 @@ void MainWindow::setupMenus()
     connect(closeSolutionAction, &QAction::triggered, this, [this]() {
         m_editorMgr->projectManager()->closeSolution();
         m_editorMgr->setCurrentFolder(QString());
+        ScopedSettings::instance().setWorkspaceRoot({});
         if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
             lspSvc->stopServer();
         m_gitService->setWorkingDirectory({});
@@ -1032,6 +1034,7 @@ void MainWindow::setupMenus()
     connect(closeFolderAction, &QAction::triggered, this, [this]() {
         m_editorMgr->projectManager()->closeSolution();
         m_editorMgr->setCurrentFolder(QString());
+        ScopedSettings::instance().setWorkspaceRoot({});
         if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
             lspSvc->stopServer();
         m_gitService->setWorkingDirectory({});
@@ -2417,6 +2420,9 @@ void MainWindow::openFolder(const QString &path)
     // Apply workspace-level settings (.exorcist/settings.json)
     if (auto *wss = m_services->service<WorkspaceSettings>(QStringLiteral("workspaceSettings")))
         wss->setWorkspaceRoot(root);
+
+    // Activate workspace overlay for ScopedSettings (User vs Workspace scope).
+    ScopedSettings::instance().setWorkspaceRoot(root);
 
     // Activate plugins with workspaceContains activation events,
     // then notify all active plugins of the new workspace root.
