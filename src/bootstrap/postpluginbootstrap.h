@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QList>
 
+#include "sdk/idebugadapter.h"
+
 struct DebugFrame;
 class ServiceRegistry;
 class HostServices;
@@ -51,6 +53,7 @@ private slots:
     void onDebugNavigateToSource(const QString &filePath, int line);
     void onDebugStopped(const QList<DebugFrame> &frames);
     void onDebugTerminated();
+    void onAdapterVariablesReceived(int reference, const QList<DebugVariable> &vars);
 
 private:
     EditorManager *m_editorMgr = nullptr;

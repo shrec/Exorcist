@@ -489,8 +489,16 @@ void EditorView::keyPressEvent(QKeyEvent *event)
         return;
     }
 
-    // Ctrl+D — select next occurrence
+    // Ctrl+D — select next occurrence (VS Code style)
+    // If primary cursor has no selection, promote it to the word under cursor first;
+    // subsequent presses add the next match as a new cursor.
     if (event->key() == Qt::Key_D && event->modifiers() == Qt::ControlModifier) {
+        QTextCursor primary = textCursor();
+        if (!primary.hasSelection() && !m_multiCursor->hasMultipleCursors()) {
+            primary.select(QTextCursor::WordUnderCursor);
+            if (primary.hasSelection())
+                setTextCursor(primary);
+        }
         syncPrimaryCursorToEngine();
         if (m_multiCursor->addCursorAtNextOccurrence()) {
             // Show the last-added cursor by scrolling to it

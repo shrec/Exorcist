@@ -62,6 +62,14 @@ void PostPluginBootstrap::wire(const Deps &deps)
         if (auto *adapter = services->service<IDebugAdapter>(
                 QStringLiteral("debugAdapter"))) {
 
+            // Push variable snapshots into open editors so the editor's
+            // hover-tooltip can resolve identifiers under the cursor against
+            // the most recent locals/args list. Cross-DLL safe: adapter lives
+            // in libdebug.dll, this bootstrap is in the exe, so use the
+            // string-based SIGNAL/SLOT form.
+            connect(adapter, SIGNAL(variablesReceived(int,QList<DebugVariable>)),
+                    this, SLOT(onAdapterVariablesReceived(int,QList<DebugVariable>)));
+
             // Helper: connect EditorView breakpoint-mutation signals to the
             // adapter. On change we look up the existing adapter-side ID via
             // IDebugService::breakpointIdForLocation(), remove it (if any),
@@ -365,6 +373,26 @@ void PostPluginBootstrap::onDebugTerminated()
     if (!m_editorMgr) return;
     for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
         auto *ed = m_editorMgr->editorAt(i);
-        if (ed) ed->setCurrentDebugLine(0);
+        if (ed) {
+            ed->setCurrentDebugLine(0);
+            ed->clearLocalsSnapshot();
+        }
+    }
+}
+
+void PostPluginBootstrap::onAdapterVariablesReceived(
+    int /*reference*/, const QList<DebugVariable> &vars)
+{
+    QHash<QString, QString> snap;
+    for (const DebugVariable &v : vars) {
+        if (v.name.isEmpty()) continue;
+        snap.insert(v.name,
+                    v.type.isEmpty() ? v.value
+                                     : v.type + QStringLiteral(" = ") + v.value);
+    }
+    if (!m_editorMgr) return;
+    for (int i = 0; i < m_editorMgr->tabs()->count(); ++i) {
+        auto *ed = m_editorMgr->editorAt(i);
+        if (ed) ed->setLocalsSnapshot(snap);
     }
 }
