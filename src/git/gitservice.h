@@ -59,6 +59,27 @@ public:
     /// Run git blame on a file and return per-line entries.
     QList<BlameEntry> blame(const QString &absFilePath) const;
 
+    /// Per-line blame info enriched for inline annotations (GitLens-style).
+    struct BlameLineInfo {
+        QString commitHash;       // 40-char hash; empty when uncommitted
+        QString commitHashShort;  // first 8 chars
+        QString author;           // author name
+        qint64  authorTime = 0;   // unix epoch seconds (author-time)
+        QString summary;          // first line of commit message
+        int     line = 0;         // 1-based source line
+        bool    uncommitted = false;
+        bool    valid = false;
+    };
+    /// Async single-line blame for inline annotations.
+    /// Result delivered via blameLineReady signal. Cached per (filePath, line)
+    /// until the file is modified or HEAD changes.
+    void blameLineAsync(const QString &absFilePath, int line);
+    /// Query the cached blame info synchronously (fast path for paint).
+    /// Returns invalid BlameLineInfo when not yet cached.
+    BlameLineInfo cachedBlameLine(const QString &absFilePath, int line) const;
+    /// Invalidate cached blame data for a file (call on save / on HEAD change).
+    void invalidateBlameCache(const QString &absFilePath = QString());
+
     /// Return file contents at HEAD (empty on error/untracked).
     QString showAtHead(const QString &absFilePath) const;
 
@@ -115,6 +136,7 @@ signals:
     void statusRefreshed();
     void branchChanged(const QString &branch);
     void blameReady(const QString &filePath, const QList<BlameEntry> &entries);
+    void blameLineReady(const QString &filePath, int line, const GitService::BlameLineInfo &info);
     void diffReady(const QString &filePath, const QString &diff);
     void showAtHeadReady(const QString &filePath, const QString &content);
     void showAtRevisionReady(const QString &filePath, const QString &rev, const QString &content);
@@ -141,4 +163,9 @@ private:
     QTimer *m_refreshTimer;
     bool m_isRepo;
     BridgeClient *m_bridgeClient = nullptr;
+
+    // Inline blame cache (per file → per line → BlameLineInfo)
+    mutable QHash<QString, QHash<int, BlameLineInfo>> m_blameLineCache;
 };
+
+Q_DECLARE_METATYPE(GitService::BlameLineInfo)

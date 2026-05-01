@@ -17,7 +17,15 @@
       { "id": "git.stage",                "title": "Stage All Changes",      "category": "Git" },
       { "id": "git.commit",               "title": "Commit",                 "category": "Git" },
       { "id": "git.generateCommitMessage","title": "Generate Commit Message", "category": "Git" },
-      { "id": "git.resolveConflicts",     "title": "Resolve Merge Conflicts", "category": "Git" }
-    ]
+      { "id": "git.resolveConflicts",     "title": "Resolve Merge Conflicts", "category": "Git" },
+      { "id": "git.toggleInlineBlame",    "title": "Toggle Git Blame",        "category": "Git" }
+    ],
+    "settings": {
+      "git/inlineBlame": {
+        "type": "boolean",
+        "default": true,
+        "description": "Show inline git-blame annotations after the current line in the editor."
+      }
+    }
   }
 }

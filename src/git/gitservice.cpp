@@ -19,9 +19,18 @@ GitService::GitService(QObject *parent)
     m_refreshTimer->setSingleShot(true);
     m_refreshTimer->setInterval(200);
     connect(m_refreshTimer, &QTimer::timeout, this, &GitService::refreshAsync);
-    connect(m_watcher, &QFileSystemWatcher::fileChanged, this, [this]() {
+    connect(m_watcher, &QFileSystemWatcher::fileChanged, this,
+            [this](const QString &path) {
+        // Any tracked file change invalidates that file's blame cache;
+        // HEAD movement clears the entire cache.
+        if (path.endsWith(QLatin1String("HEAD"))
+            || path.contains(QLatin1String(".git/HEAD")))
+            m_blameLineCache.clear();
+        else
+            m_blameLineCache.remove(path);
         m_refreshTimer->start();
     });
+    qRegisterMetaType<GitService::BlameLineInfo>("GitService::BlameLineInfo");
 }
 
 void GitService::setWorkingDirectory(const QString &path)
@@ -792,6 +801,107 @@ void GitService::resetWatcher()
     if (!files.isEmpty()) {
         m_watcher->addPaths(files);
     }
+}
+
+// ── Inline blame (single line, async, cached) ────────────────────────────────
+
+GitService::BlameLineInfo GitService::cachedBlameLine(const QString &absFilePath,
+                                                      int line) const
+{
+    auto fileIt = m_blameLineCache.find(absFilePath);
+    if (fileIt == m_blameLineCache.end())
+        return {};
+    auto lineIt = fileIt.value().find(line);
+    if (lineIt == fileIt.value().end())
+        return {};
+    return lineIt.value();
+}
+
+void GitService::invalidateBlameCache(const QString &absFilePath)
+{
+    if (absFilePath.isEmpty())
+        m_blameLineCache.clear();
+    else
+        m_blameLineCache.remove(absFilePath);
+}
+
+void GitService::blameLineAsync(const QString &absFilePath, int line)
+{
+    if (line < 1 || !m_isRepo || m_gitRoot.isEmpty() || absFilePath.isEmpty()) {
+        BlameLineInfo bad;
+        bad.line = line;
+        emit blameLineReady(absFilePath, line, bad);
+        return;
+    }
+    // Fast path: cache hit.
+    {
+        const BlameLineInfo cached = cachedBlameLine(absFilePath, line);
+        if (cached.valid) {
+            emit blameLineReady(absFilePath, line, cached);
+            return;
+        }
+    }
+    const QString gitRoot = m_gitRoot;
+    const QString rel = QDir(gitRoot).relativeFilePath(absFilePath);
+    QtConcurrent::run([this, gitRoot, rel, absFilePath, line]() {
+        QProcess proc;
+        proc.setWorkingDirectory(gitRoot);
+        proc.start(QStringLiteral("git"),
+                   {QStringLiteral("blame"),
+                    QStringLiteral("-L"),
+                    QStringLiteral("%1,%1").arg(line),
+                    QStringLiteral("--porcelain"),
+                    rel});
+        proc.waitForFinished(15000);
+
+        BlameLineInfo info;
+        info.line = line;
+        if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
+            QMetaObject::invokeMethod(this, [this, absFilePath, line, info]() {
+                emit blameLineReady(absFilePath, line, info);
+            }, Qt::QueuedConnection);
+            return;
+        }
+        const QString out = QString::fromUtf8(proc.readAllStandardOutput());
+        const QStringList lines = out.split(QLatin1Char('\n'));
+        for (const QString &raw : lines) {
+            if (raw.isEmpty()) continue;
+            // First record line: "<hash> <origLine> <finalLine>[ <numLines>]"
+            if (info.commitHash.isEmpty()
+                && raw.size() >= 41
+                && raw.at(40) == QLatin1Char(' ')) {
+                static const QRegularExpression hashRx(
+                    QStringLiteral(R"(^([0-9a-f]{40}) )"));
+                auto m = hashRx.match(raw);
+                if (m.hasMatch()) {
+                    info.commitHash = m.captured(1);
+                    info.commitHashShort = info.commitHash.left(8);
+                    // All-zero hash means uncommitted (working tree changes).
+                    info.uncommitted =
+                        info.commitHash == QStringLiteral(
+                            "0000000000000000000000000000000000000000");
+                    continue;
+                }
+            }
+            if (raw.startsWith(QLatin1String("author "))) {
+                info.author = raw.mid(7);
+            } else if (raw.startsWith(QLatin1String("author-time "))) {
+                info.authorTime = raw.mid(12).trimmed().toLongLong();
+            } else if (raw.startsWith(QLatin1String("summary "))) {
+                info.summary = raw.mid(8);
+            } else if (raw.startsWith(QLatin1Char('\t'))) {
+                // Source line content — end of porcelain record.
+                break;
+            }
+        }
+        info.valid = !info.commitHash.isEmpty();
+        // Mutate cache and emit on the GUI thread.
+        QMetaObject::invokeMethod(this,
+                                  [this, absFilePath, line, info]() {
+            m_blameLineCache[absFilePath][line] = info;
+            emit blameLineReady(absFilePath, line, info);
+        }, Qt::QueuedConnection);
+    });
 }
 
 // ── Blame output parser (shared by sync and async) ───────────────────────────

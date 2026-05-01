@@ -4,19 +4,31 @@
 #include "git/gitpanel.h"
 #include "git/diffexplorerpanel.h"
 #include "git/mergeeditor.h"
+#include "inlineblameoverlay.h"
 
+#include "editor/editormanager.h"
+#include "editor/editorview.h"
 #include "sdk/icommandservice.h"
 #include "core/idockmanager.h"
+#include "core/imenumanager.h"
 #include "agent/agentorchestrator.h"
 #include "agent/chat/chatpanelwidget.h"
 #include "agent/tools/gitopstool.h"
 
+#include <QAction>
+#include <QApplication>
 #include <QEventLoop>
+#include <QKeySequence>
 #include <QLineEdit>
+#include <QMainWindow>
 #include <QObject>
+#include <QPlainTextEdit>
 #include <QPointer>
 #include <QProcess>
+#include <QSettings>
 #include <QTimer>
+#include <QVariant>
+#include <QWidget>
 
 // ── GitPlugin ────────────────────────────────────────────────────────────────
 
@@ -49,6 +61,7 @@ bool GitPlugin::initializePlugin()
 
     wireCommitMessageGeneration();
     wireConflictResolution();
+    wireInlineBlame();
 
     return true;
 }
@@ -399,4 +412,113 @@ void GitPlugin::onResolveConflictsRequested()
 
     // Show the AI dock so the user sees the pre-filled request
     showPanel(QStringLiteral("AIDock"));
+}
+
+// ── Inline blame annotations (GitLens-style) ──────────────────────────────────
+//
+// Discovery model: EditorManager is not registered as a service, so we locate
+// it via QApplication::topLevelWidgets() → QMainWindow → findChild<>. The
+// editorOpened signal is connected through SIGNAL/SLOT (string-matched) for
+// cross-DLL safety, even though EditorManager lives in the main binary.
+
+bool GitPlugin::inlineBlameEnabled() const
+{
+    QSettings s;
+    // Default ON per task spec; user can flip in QSettings.
+    return s.value(QStringLiteral("git/inlineBlame"), true).toBool();
+}
+
+void GitPlugin::wireInlineBlame()
+{
+    if (!m_git) return;
+
+    // Locate the EditorManager.
+    EditorManager *em = nullptr;
+    const auto tops = QApplication::topLevelWidgets();
+    for (QWidget *w : tops) {
+        if (auto *mw = qobject_cast<QMainWindow*>(w)) {
+            em = mw->findChild<EditorManager*>();
+            if (em) break;
+        }
+    }
+    if (!em) {
+        // EditorManager not present yet — the IDE may still be bootstrapping.
+        // Retry once after the current event loop pass finishes.
+        QTimer::singleShot(0, this, [this]() { wireInlineBlame(); });
+        return;
+    }
+
+    // Cross-DLL safe: SIGNAL/SLOT string-matched.
+    connect(em, SIGNAL(editorOpened(EditorView*,QString)),
+            this, SLOT(onEditorOpened(EditorView*,QString)));
+
+    // Wire any editors already open at plugin-init time.
+    if (auto *tabs = em->tabs()) {
+        const int n = tabs->count();
+        for (int i = 0; i < n; ++i) {
+            QWidget *w = tabs->widget(i);
+            if (!w) continue;
+            const QString path = w->property("filePath").toString();
+            if (path.isEmpty()) continue;
+            if (auto *ev = qobject_cast<EditorView*>(w))
+                installBlameOverlay(ev, path);
+        }
+    }
+
+    // View menu toggle + Ctrl+Shift+G shortcut.
+    if (auto *cmds = host() ? host()->commands() : nullptr) {
+        const QString cmdId = QStringLiteral("git.toggleInlineBlame");
+        cmds->registerCommand(cmdId,
+                              tr("Toggle Git Blame"),
+                              [this]() {
+            const bool now = !inlineBlameEnabled();
+            QSettings s;
+            s.setValue(QStringLiteral("git/inlineBlame"), now);
+            toggleInlineBlame(now);
+        });
+        addMenuCommand(IMenuManager::View,
+                       tr("Toggle Git Blame"),
+                       cmdId,
+                       this,
+                       QKeySequence(QStringLiteral("Ctrl+Shift+G")));
+    }
+}
+
+void GitPlugin::onEditorOpened(EditorView *editor, const QString &path)
+{
+    if (!editor || path.isEmpty()) return;
+    installBlameOverlay(editor, path);
+}
+
+void GitPlugin::installBlameOverlay(EditorView *editor, const QString &path)
+{
+    if (!editor || !m_git) return;
+    if (m_blameOverlays.contains(editor)) {
+        // Editor reused for a new file → just retarget existing overlay.
+        if (auto *existing = m_blameOverlays.value(editor)) {
+            existing->setFilePath(path);
+            existing->setEnabled(inlineBlameEnabled());
+        }
+        return;
+    }
+    auto *overlay = new InlineBlameOverlay(editor, m_git, editor->viewport());
+    overlay->setFilePath(path);
+    overlay->setEnabled(inlineBlameEnabled());
+    overlay->show();
+    m_blameOverlays.insert(editor, overlay);
+    connect(editor, &QObject::destroyed, this, [this, editor]() {
+        m_blameOverlays.remove(editor);
+    });
+}
+
+void GitPlugin::toggleInlineBlame(bool on)
+{
+    for (auto it = m_blameOverlays.begin(); it != m_blameOverlays.end(); ++it) {
+        if (it.value()) it.value()->setEnabled(on);
+    }
+}
+
+void GitPlugin::applyBlameEnabledFromSettings()
+{
+    toggleInlineBlame(inlineBlameEnabled());
 }

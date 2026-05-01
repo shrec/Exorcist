@@ -1,6 +1,8 @@
 add_library(git_plugin SHARED
     gitplugin.h
     gitplugin.cpp
+    inlineblameoverlay.h
+    inlineblameoverlay.cpp
     ${CMAKE_SOURCE_DIR}/src/git/gitpanel.h
     ${CMAKE_SOURCE_DIR}/src/git/gitpanel.cpp
     ${CMAKE_SOURCE_DIR}/src/git/diffexplorerpanel.h

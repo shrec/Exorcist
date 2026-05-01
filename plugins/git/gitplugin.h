@@ -7,6 +7,7 @@
 #include "agent/iagentplugin.h"
 #include "aiinterface.h"
 
+#include <QHash>
 #include <memory>
 #include <vector>
 
@@ -15,6 +16,9 @@ class GitService;
 class GitPanel;
 class DiffExplorerPanel;
 class MergeEditor;
+class InlineBlameOverlay;
+class EditorView;
+class QPlainTextEdit;
 
 class GitPlugin : public QObject,
                   public WorkbenchPluginBase,
@@ -47,6 +51,10 @@ private slots:
     void onAgentResponseFinished(const QString &requestId,
                                  const AgentResponse &response);
     void onResolveConflictsRequested();
+    // Inline blame wiring (cross-DLL via SIGNAL/SLOT). Receives the editor as a
+    // QPlainTextEdit*; we do not depend on EditorView's full type here.
+    void onEditorOpened(EditorView *editor, const QString &path);
+    void toggleInlineBlame(bool on);
 
 private:
     bool initializePlugin() override;
@@ -54,6 +62,10 @@ private:
 
     void wireCommitMessageGeneration();
     void wireConflictResolution();
+    void wireInlineBlame();
+    void installBlameOverlay(EditorView *editor, const QString &path);
+    void applyBlameEnabledFromSettings();
+    bool inlineBlameEnabled() const;
 
     GitService        *m_git          = nullptr;
     GitPanel          *m_gitPanel     = nullptr;
@@ -62,4 +74,7 @@ private:
 
     // One-shot connection for the next AgentOrchestrator response (commit msg)
     QMetaObject::Connection m_pendingCommitMsgConn;
+
+    // Inline blame: per-editor overlay (lifetime tied to editor via QPointer).
+    QHash<QObject*, InlineBlameOverlay*> m_blameOverlays;
 };
