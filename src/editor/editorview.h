@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QJsonArray>
 #include <QList>
 #include <QPlainTextEdit>
@@ -130,6 +131,19 @@ public:
     QString bufferText() const;
     QString bufferSlice(int start, int length) const;
 
+    // ── Debug variable hover tooltip ──────────────────────────────────────
+    /// Snapshot of variable name → display value, populated by some external
+    /// component (a debug bootstrap or similar) on every "stopped" event.
+    /// When non-empty, hovering an identifier in the editor will show a
+    /// tooltip with its current value, similar to VS Code.
+    /// TODO: a debug-aware bootstrap should call this from
+    /// IDebugAdapter::variablesUpdated (see src/bootstrap/* and
+    /// src/debug/idebugadapter.h). Kept self-contained here to avoid
+    /// cross-DLL coupling in this layer.
+    void setLocalsSnapshot(const QHash<QString, QString> &snapshot);
+    void clearLocalsSnapshot();
+    bool hasLocalsSnapshot() const { return !m_debugLocals.isEmpty(); }
+
 signals:
     void requestMoreData();
     void ghostTextAccepted();
@@ -189,6 +203,8 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     void contextMenuEvent(QContextMenuEvent *event) override;
+    bool event(QEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void updateLineNumberAreaWidth(int newBlockCount);
@@ -201,6 +217,8 @@ private:
     void acceptGhostText();
     void acceptNextWord();
     QString includePathUnderCursor() const;
+    QString identifierAt(const QPoint &viewportPos) const;
+    bool maybeShowDebugValueTooltip(const QPoint &viewportPos, const QPoint &globalPos);
     static QChar matchingBracket(QChar ch);
     int scanForMatchingBracket(int pos, QChar open, QChar close, bool forward) const;
     void paintMultiCursors(QPainter &painter);
@@ -246,6 +264,10 @@ private:
 
     // Bracket matching
     QList<QTextEdit::ExtraSelection> m_bracketSelections;
+
+    // Debug variable hover tooltip
+    QHash<QString, QString> m_debugLocals;       // identifier → formatted value
+    QString                 m_lastTooltipIdent;  // last-shown identifier (cache)
 
     // Shadow buffer kept in sync with QTextDocument via contentsChanged
     std::unique_ptr<PieceTableBuffer> m_buffer;

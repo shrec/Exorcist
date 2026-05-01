@@ -7,7 +7,9 @@
 
 #include <QCheckBox>
 #include <QContextMenuEvent>
+#include <QEvent>
 #include <QHBoxLayout>
+#include <QHelpEvent>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QKeyEvent>
@@ -21,6 +23,7 @@
 #include <QTextBlock>
 #include <QTextCharFormat>
 #include <QToolButton>
+#include <QToolTip>
 
 // ── LineNumberArea ──────────────────────────────────────────────────────────
 
@@ -265,6 +268,14 @@ EditorView::EditorView(QWidget *parent)
 
     // Minimap
     m_minimap = new MinimapWidget(this, this);
+
+    // Tooltip events for QAbstractScrollArea subclasses are delivered to the
+    // viewport, not to the EditorView itself. Filter the viewport so we can
+    // intercept QEvent::ToolTip and surface debug variable values on hover.
+    if (viewport()) {
+        viewport()->installEventFilter(this);
+        viewport()->setMouseTracking(true);
+    }
 }
 
 EditorView::~EditorView() = default;
@@ -1954,4 +1965,134 @@ void EditorView::paintMultiCursors(QPainter &painter)
         QRectF caretRect(xPos, blockGeo.top(), cursorWidth, blockGeo.height());
         painter.fillRect(caretRect, cursorColor);
     }
+}
+
+// ── Debug variable hover tooltip ────────────────────────────────────────────
+
+void EditorView::setLocalsSnapshot(const QHash<QString, QString> &snapshot)
+{
+    m_debugLocals = snapshot;
+    // Invalidate cached tooltip identifier so the next hover re-resolves.
+    m_lastTooltipIdent.clear();
+}
+
+void EditorView::clearLocalsSnapshot()
+{
+    m_debugLocals.clear();
+    m_lastTooltipIdent.clear();
+    QToolTip::hideText();
+}
+
+QString EditorView::identifierAt(const QPoint &viewportPos) const
+{
+    QTextCursor cur = cursorForPosition(viewportPos);
+    if (cur.isNull())
+        return {};
+
+    // Manually expand to a C-style identifier [A-Za-z_][A-Za-z0-9_]*.
+    // Doing it manually (rather than QTextCursor::WordUnderCursor) lets a
+    // future change support member-access expressions like a.b.c.
+    const QTextBlock block = cur.block();
+    const QString    text  = block.text();
+    int              col   = cur.positionInBlock();
+
+    if (text.isEmpty())
+        return {};
+    if (col >= text.size())
+        col = text.size() - 1;
+    if (col < 0)
+        return {};
+
+    auto isIdentChar = [](QChar ch) {
+        return ch.isLetterOrNumber() || ch == QLatin1Char('_');
+    };
+
+    // If we're not currently on an identifier char, try the char to the left
+    // so that hovering just past the end of a name still resolves.
+    if (!isIdentChar(text.at(col))) {
+        if (col > 0 && isIdentChar(text.at(col - 1))) {
+            --col;
+        } else {
+            return {};
+        }
+    }
+
+    int start = col;
+    while (start > 0 && isIdentChar(text.at(start - 1)))
+        --start;
+    int end = col;
+    while (end + 1 < text.size() && isIdentChar(text.at(end + 1)))
+        ++end;
+
+    QString ident = text.mid(start, end - start + 1);
+    if (ident.isEmpty())
+        return {};
+    // First char must not be a digit.
+    if (ident.at(0).isDigit())
+        return {};
+    return ident;
+}
+
+bool EditorView::maybeShowDebugValueTooltip(const QPoint &viewportPos,
+                                            const QPoint &globalPos)
+{
+    // No debug session active or no locals snapshot -> fall through to default
+    // Qt tooltip handling.
+    if (m_debugLocals.isEmpty())
+        return false;
+
+    const QString ident = identifierAt(viewportPos);
+    if (ident.isEmpty()) {
+        // Hovering over whitespace/punct -> drop any stale cached tooltip.
+        m_lastTooltipIdent.clear();
+        return false;
+    }
+
+    auto it = m_debugLocals.constFind(ident);
+    if (it == m_debugLocals.constEnd()) {
+        m_lastTooltipIdent.clear();
+        return false;
+    }
+
+    // Cache: don't re-show the exact same tooltip if it's already up.
+    if (ident == m_lastTooltipIdent && QToolTip::isVisible())
+        return true;
+
+    m_lastTooltipIdent = ident;
+    const QString body = QStringLiteral("%1 = %2").arg(ident, it.value());
+    QToolTip::showText(globalPos, body, viewport());
+    return true;
+}
+
+bool EditorView::event(QEvent *ev)
+{
+    // QPlainTextEdit forwards tooltip events from the viewport up here as
+    // ToolTip events too in some Qt versions; handle defensively.
+    if (ev && ev->type() == QEvent::ToolTip) {
+        auto *helpEvent = static_cast<QHelpEvent *>(ev);
+        const QPoint viewportPos = viewport()
+            ? viewport()->mapFromGlobal(helpEvent->globalPos())
+            : helpEvent->pos();
+        if (maybeShowDebugValueTooltip(viewportPos, helpEvent->globalPos())) {
+            ev->accept();
+            return true;
+        }
+    }
+    return QPlainTextEdit::event(ev);
+}
+
+bool EditorView::eventFilter(QObject *watched, QEvent *ev)
+{
+    if (watched == viewport() && ev && ev->type() == QEvent::ToolTip) {
+        auto *helpEvent = static_cast<QHelpEvent *>(ev);
+        if (maybeShowDebugValueTooltip(helpEvent->pos(), helpEvent->globalPos())) {
+            ev->accept();
+            return true;
+        }
+        // If we have a snapshot but identifier didn't match, suppress stale
+        // tooltips. Otherwise let Qt's default tooltip pipeline run.
+        if (!m_debugLocals.isEmpty())
+            QToolTip::hideText();
+    }
+    return QPlainTextEdit::eventFilter(watched, ev);
 }
