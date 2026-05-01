@@ -7,6 +7,7 @@
 class QLabel;
 class QStatusBar;
 class QTimer;
+class QToolButton;
 class ServiceRegistry;
 struct DebugFrame;
 
@@ -36,8 +37,34 @@ public:
     QLabel *memoryLabel()          const { return m_memoryLabel; }
     QLabel *buildDebugStatusLabel() const { return m_buildDebugLabel; }
 
+    /// VS-style right-aligned indicator buttons (clickable).
+    QToolButton *lineColButton()   const { return m_lineColButton; }
+    QToolButton *encodingButton()  const { return m_encodingButton; }
+    QToolButton *indentButton()    const { return m_indentButton; }
+
+    /// Update "Ln X, Col Y" indicator (right side).
+    void setLineColumn(int line, int col);
+
+    /// Update encoding indicator (right side). Default "UTF-8".
+    void setEncoding(const QString &encoding);
+
+    /// Update indent indicator. @p spaces=true → "Spaces: N", else "Tabs: N".
+    void setIndentInfo(bool spaces, int width);
+
 signals:
     void copilotStatusClicked();
+
+    /// Emitted when the user clicks the line/column indicator
+    /// (typically used to open a Go-To-Line dialog).
+    void gotoLineRequested();
+
+    /// Emitted when the user clicks the encoding indicator
+    /// (typically used to open an encoding selection menu).
+    void encodingMenuRequested();
+
+    /// Emitted when the user clicks the indent indicator
+    /// (typically used to open a Spaces/Tabs/width selection menu).
+    void indentMenuRequested();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -72,6 +99,11 @@ private:
     QLabel *m_indexLabel         = nullptr;
     QLabel *m_memoryLabel        = nullptr;
     QLabel *m_buildDebugLabel    = nullptr;
+
+    // VS-style right-aligned indicator buttons.
+    QToolButton *m_lineColButton  = nullptr;
+    QToolButton *m_encodingButton = nullptr;
+    QToolButton *m_indentButton   = nullptr;
 
     QTimer *m_autoClearTimer = nullptr;
 

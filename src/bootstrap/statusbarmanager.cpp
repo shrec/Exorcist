@@ -4,6 +4,7 @@
 #include <QLabel>
 #include <QStatusBar>
 #include <QTimer>
+#include <QToolButton>
 
 #include "serviceregistry.h"
 #include "sdk/idebugadapter.h"  // DebugFrame, DebugStopReason
@@ -91,13 +92,69 @@ void StatusBarManager::initialize()
                         QString::fromUtf8(kColorReady));
     m_statusBar->addWidget(m_buildDebugLabel);  // left-aligned
 
+    // ── VS-style right-aligned indicator buttons ─────────────────────
+    // Three clickable QToolButtons on the right edge: line/col, encoding,
+    // indent. addPermanentWidget() right-aligns them. Each emits a *Requested
+    // signal on click so external code (MainWindow / plugins) can open menus.
+    const QString buttonStyle = QStringLiteral(
+        "QToolButton {"
+        "  background: transparent;"
+        "  color: #d4d4d4;"
+        "  padding: 0 8px;"
+        "  border: none;"
+        "  font-size: 11px;"
+        "}"
+        "QToolButton:hover {"
+        "  background: #094771;"
+        "  color: white;"
+        "}");
+
+    m_lineColButton = new QToolButton(m_statusBar);
+    m_lineColButton->setText(tr("Ln 1, Col 1"));
+    m_lineColButton->setToolTip(tr("Go to Line/Column"));
+    m_lineColButton->setCursor(Qt::PointingHandCursor);
+    m_lineColButton->setAutoRaise(true);
+    m_lineColButton->setFocusPolicy(Qt::NoFocus);
+    m_lineColButton->setStyleSheet(buttonStyle);
+    connect(m_lineColButton, &QToolButton::clicked,
+            this, &StatusBarManager::gotoLineRequested);
+
+    m_encodingButton = new QToolButton(m_statusBar);
+    m_encodingButton->setText(tr("UTF-8"));
+    m_encodingButton->setToolTip(tr("Select Encoding"));
+    m_encodingButton->setCursor(Qt::PointingHandCursor);
+    m_encodingButton->setAutoRaise(true);
+    m_encodingButton->setFocusPolicy(Qt::NoFocus);
+    m_encodingButton->setStyleSheet(buttonStyle);
+    connect(m_encodingButton, &QToolButton::clicked,
+            this, &StatusBarManager::encodingMenuRequested);
+
+    m_indentButton = new QToolButton(m_statusBar);
+    m_indentButton->setText(tr("Spaces: 4"));
+    m_indentButton->setToolTip(tr("Select Indentation"));
+    m_indentButton->setCursor(Qt::PointingHandCursor);
+    m_indentButton->setAutoRaise(true);
+    m_indentButton->setFocusPolicy(Qt::NoFocus);
+    m_indentButton->setStyleSheet(buttonStyle);
+    connect(m_indentButton, &QToolButton::clicked,
+            this, &StatusBarManager::indentMenuRequested);
+
     m_statusBar->addPermanentWidget(m_copilotStatusLabel);
     m_statusBar->addPermanentWidget(m_indexLabel);
     m_statusBar->addPermanentWidget(m_memoryLabel);
     m_statusBar->addPermanentWidget(m_backgroundLabel);
     m_statusBar->addPermanentWidget(m_branchLabel);
-    m_statusBar->addPermanentWidget(m_encodingLabel);
-    m_statusBar->addPermanentWidget(m_posLabel);
+    m_statusBar->addPermanentWidget(m_indentButton);
+    m_statusBar->addPermanentWidget(m_encodingButton);
+    m_statusBar->addPermanentWidget(m_lineColButton);
+
+    // Legacy QLabels (m_posLabel, m_encodingLabel) are kept as hidden carriers
+    // for backward compatibility with existing MainWindow setText() callers,
+    // but the new QToolButtons are the visible indicators on the right side.
+    m_posLabel->setVisible(false);
+    m_encodingLabel->setVisible(false);
+    m_posLabel->setParent(m_statusBar);  // ownership only; not shown
+    m_encodingLabel->setParent(m_statusBar);
 
     // Periodic memory usage update (every 5 s)
     auto *memTimer = new QTimer(this);
@@ -274,4 +331,34 @@ void StatusBarManager::onDebugTerminated()
     m_debugActive = false;
     setBuildDebugStatus(QStringLiteral("○ ") + tr("Ready"),
                         QString::fromUtf8(kColorReady));
+}
+
+// ---- Right-side indicator setters -----------------------------------------
+
+void StatusBarManager::setLineColumn(int line, int col)
+{
+    const QString text = tr("Ln %1, Col %2").arg(line).arg(col);
+    if (m_lineColButton)
+        m_lineColButton->setText(text);
+    if (m_posLabel)  // mirror to legacy label for backward compat
+        m_posLabel->setText(text);
+}
+
+void StatusBarManager::setEncoding(const QString &encoding)
+{
+    const QString text = encoding.isEmpty() ? QStringLiteral("UTF-8") : encoding;
+    if (m_encodingButton)
+        m_encodingButton->setText(text);
+    if (m_encodingLabel)  // mirror to legacy label for backward compat
+        m_encodingLabel->setText(text);
+}
+
+void StatusBarManager::setIndentInfo(bool spaces, int width)
+{
+    if (!m_indentButton)
+        return;
+    const QString text = spaces
+        ? tr("Spaces: %1").arg(width)
+        : tr("Tabs: %1").arg(width);
+    m_indentButton->setText(text);
 }
