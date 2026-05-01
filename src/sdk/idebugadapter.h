@@ -130,6 +130,28 @@ public:
     virtual void stepOut(int threadId = 0) = 0;
     virtual void pause(int threadId = 0) = 0;
 
+    // ── Reverse execution (record/replay) ─────────────────────────────────
+    //
+    // Default no-op implementations — not all adapters support reverse
+    // debugging. Adapters that do (e.g. GdbMiAdapter via GDB's `record full`
+    // and --reverse flag) override these. Once recording is started, the
+    // reverse* methods step backwards through the recorded execution.
+
+    /// Start recording execution for reverse debugging.
+    virtual void startRecording() {}
+
+    /// Stop recording.
+    virtual void stopRecording() {}
+
+    /// Step backwards over the previous source line.
+    virtual void reverseStepOver(int threadId = 0) { Q_UNUSED(threadId) }
+
+    /// Step backwards into the previous call.
+    virtual void reverseStepInto(int threadId = 0) { Q_UNUSED(threadId) }
+
+    /// Continue execution backwards until previous breakpoint or start.
+    virtual void reverseContinue(int threadId = 0) { Q_UNUSED(threadId) }
+
     // ── Breakpoints ───────────────────────────────────────────────────────
 
     virtual void addBreakpoint(const DebugBreakpoint &bp) = 0;

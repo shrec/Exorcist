@@ -38,6 +38,13 @@ public:
     void stepOut(int threadId = 0) override;
     void pause(int threadId = 0) override;
 
+    // ── Reverse execution (GDB record/replay) ────────────────────────────
+    void startRecording() override;
+    void stopRecording() override;
+    void reverseStepOver(int threadId = 0) override;
+    void reverseStepInto(int threadId = 0) override;
+    void reverseContinue(int threadId = 0) override;
+
     void addBreakpoint(const DebugBreakpoint &bp) override;
     void removeBreakpoint(int breakpointId) override;
     void removeAllBreakpoints() override;

@@ -261,6 +261,51 @@ void GdbMiAdapter::pause(int threadId)
         sendCommand(QStringLiteral("-exec-interrupt"));
 }
 
+// ── Reverse execution (GDB record/replay) ─────────────────────────────────────
+//
+// GDB's `record full` builds an in-memory log of the target's execution, after
+// which `--reverse` variants of -exec-next/-exec-step/-exec-continue can step
+// backwards through that log. Async records (*running / *stopped) flow through
+// parseMiLine() exactly like forward stepping, so no special routing needed.
+
+void GdbMiAdapter::startRecording()
+{
+    sendCommand(QStringLiteral("-interpreter-exec console \"record full\""));
+    emit outputProduced(QStringLiteral("[GDB] Recording started"),
+                        QStringLiteral("debug"));
+}
+
+void GdbMiAdapter::stopRecording()
+{
+    sendCommand(QStringLiteral("-interpreter-exec console \"record stop\""));
+    emit outputProduced(QStringLiteral("[GDB] Recording stopped"),
+                        QStringLiteral("debug"));
+}
+
+void GdbMiAdapter::reverseStepOver(int threadId)
+{
+    if (threadId > 0)
+        sendCommand(QStringLiteral("-exec-next --reverse --thread %1").arg(threadId));
+    else
+        sendCommand(QStringLiteral("-exec-next --reverse"));
+}
+
+void GdbMiAdapter::reverseStepInto(int threadId)
+{
+    if (threadId > 0)
+        sendCommand(QStringLiteral("-exec-step --reverse --thread %1").arg(threadId));
+    else
+        sendCommand(QStringLiteral("-exec-step --reverse"));
+}
+
+void GdbMiAdapter::reverseContinue(int threadId)
+{
+    if (threadId > 0)
+        sendCommand(QStringLiteral("-exec-continue --reverse --thread %1").arg(threadId));
+    else
+        sendCommand(QStringLiteral("-exec-continue --reverse"));
+}
+
 // ── Breakpoints ───────────────────────────────────────────────────────────────
 
 void GdbMiAdapter::addBreakpoint(const DebugBreakpoint &bp)
