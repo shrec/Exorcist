@@ -1,16 +1,22 @@
 #include "settingspanel.h"
 #include "agent/chat/chatthemetokens.h"
+#include "settings/scopedsettings.h"
 #include "ui/thememanager.h"
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
+#include <QRadioButton>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 SettingsPanel::SettingsPanel(QWidget *parent)
@@ -53,6 +59,11 @@ SettingsPanel::SettingsPanel(QWidget *parent)
     auto *titleLabel = new QLabel(tr("<b>AI Settings</b>"), this);
     titleLabel->setStyleSheet(QStringLiteral("font-size:14px; padding:4px 0;"));
     root->addWidget(titleLabel);
+
+    buildScopeBar();
+    if (m_scopeBar)
+        root->addWidget(m_scopeBar);
+
     root->addWidget(m_tabs);
 
     auto *generalTab    = new QWidget;
@@ -74,6 +85,273 @@ SettingsPanel::SettingsPanel(QWidget *parent)
     m_tabs->addTab(contextTab,    tr("Context"));
 
     loadSettings();
+
+    // React to scope changes (workspace open/close, external file edits).
+    connect(&ScopedSettings::instance(), &ScopedSettings::valueChanged, this,
+            [this](const QString &) {
+                refreshWorkspaceState();
+                m_loading = true;
+                loadSettings();
+                m_loading = false;
+                refreshAllBadges();
+            });
+    refreshWorkspaceState();
+    refreshAllBadges();
+}
+
+// ── Scope bar ────────────────────────────────────────────────────────────────
+
+void SettingsPanel::buildScopeBar()
+{
+    m_scopeBar = new QWidget(this);
+    auto *lay = new QHBoxLayout(m_scopeBar);
+    lay->setContentsMargins(2, 2, 2, 6);
+    lay->setSpacing(8);
+
+    auto *lbl = new QLabel(tr("Scope:"), m_scopeBar);
+    m_scopeUser      = new QRadioButton(tr("User Settings"), m_scopeBar);
+    m_scopeWorkspace = new QRadioButton(tr("Workspace Settings"), m_scopeBar);
+    m_scopeUser->setChecked(true);
+    m_scopeUser->setToolTip(tr("Edit values that persist globally for all workspaces."));
+    m_scopeWorkspace->setToolTip(
+        tr("Edit values that override user settings for this workspace only."));
+
+    m_scopeStatus = new QLabel(m_scopeBar);
+    m_scopeStatus->setStyleSheet(QStringLiteral("color:%1; font-style:italic;")
+                                     .arg(ChatTheme::pick(ChatTheme::FgDimmed,
+                                                           ChatTheme::L_FgDimmed)));
+
+    lay->addWidget(lbl);
+    lay->addWidget(m_scopeUser);
+    lay->addWidget(m_scopeWorkspace);
+    lay->addStretch();
+    lay->addWidget(m_scopeStatus);
+
+    m_statusTimer = new QTimer(this);
+    m_statusTimer->setSingleShot(true);
+    m_statusTimer->setInterval(3000);
+    connect(m_statusTimer, &QTimer::timeout, this, [this]() {
+        if (m_scopeStatus) m_scopeStatus->clear();
+    });
+
+    connect(m_scopeUser,      &QRadioButton::toggled, this,
+            [this](bool on) { if (on) onScopeChanged(); });
+    connect(m_scopeWorkspace, &QRadioButton::toggled, this,
+            [this](bool on) { if (on) onScopeChanged(); });
+}
+
+void SettingsPanel::onScopeChanged()
+{
+    refreshAllBadges();
+}
+
+void SettingsPanel::refreshWorkspaceState()
+{
+    if (!m_scopeWorkspace) return;
+    const bool ws = ScopedSettings::instance().hasWorkspace();
+    m_scopeWorkspace->setEnabled(ws);
+    if (!ws) {
+        m_scopeWorkspace->setToolTip(
+            tr("Open a workspace to enable workspace settings."));
+        if (m_scopeWorkspace->isChecked() && m_scopeUser)
+            m_scopeUser->setChecked(true);
+    } else {
+        m_scopeWorkspace->setToolTip(
+            tr("Edit values that override user settings for this workspace only."));
+    }
+}
+
+void SettingsPanel::showStatus(const QString &msg)
+{
+    if (!m_scopeStatus) return;
+    m_scopeStatus->setText(msg);
+    if (m_statusTimer) m_statusTimer->start();
+}
+
+// ── Tracked controls (per-key badge + reset) ─────────────────────────────────
+
+void SettingsPanel::trackControl(const QString &key, QWidget *editor,
+                                 EditorKind kind, QLabel *labelToBadge)
+{
+    Tracked t;
+    t.key    = key;
+    t.editor = editor;
+
+    // Inject badge + reset button beside the label (when provided).
+    if (labelToBadge) {
+        // Wrap label text + badge + reset into a horizontal container.
+        // We can't easily replace the widget in its parent layout, so we use
+        // a child layout on the label itself when possible. Simpler: append
+        // badge text by repurposing the label, and place a reset button via
+        // a sibling widget. Here we adjust the label to host children.
+        if (!labelToBadge->layout()) {
+            auto *hl = new QHBoxLayout(labelToBadge);
+            hl->setContentsMargins(0, 0, 0, 0);
+            hl->setSpacing(6);
+            // Re-add label text via a child QLabel so we keep tr() semantics.
+            const QString original = labelToBadge->text();
+            labelToBadge->setText({});
+            auto *txt = new QLabel(original, labelToBadge);
+            hl->addWidget(txt);
+            t.badge = new QLabel(labelToBadge);
+            t.badge->setStyleSheet(QStringLiteral(
+                "padding:1px 5px; border-radius:6px;"
+                "font-size:9px; font-weight:bold;"));
+            hl->addWidget(t.badge);
+            t.reset = new QPushButton(QStringLiteral("↩"), labelToBadge);
+            t.reset->setToolTip(tr("Reset this key to user-scope value"));
+            t.reset->setFlat(true);
+            t.reset->setCursor(Qt::PointingHandCursor);
+            t.reset->setFixedSize(18, 18);
+            t.reset->setStyleSheet(QStringLiteral(
+                "QPushButton { color:%1; border:none; padding:0; }"
+                "QPushButton:hover { color:%2; }")
+                    .arg(ChatTheme::pick(ChatTheme::FgDimmed, ChatTheme::L_FgDimmed),
+                         ChatTheme::AccentFg));
+            t.reset->hide();
+            hl->addWidget(t.reset);
+            hl->addStretch();
+
+            connect(t.reset.data(), &QPushButton::clicked, this, [this, key]() {
+                ScopedSettings::instance().removeWorkspaceOverride(key);
+                showStatus(tr("Workspace override removed"));
+            });
+        }
+    }
+
+    m_tracked.append(t);
+    m_editorIdx.insert(editor, m_tracked.size() - 1);
+    m_kindByKey.insert(key, kind);
+}
+
+void SettingsPanel::applyValueToEditor(QWidget *editor, EditorKind kind, const QVariant &v)
+{
+    if (!editor) return;
+    QSignalBlocker block(editor);
+    switch (kind) {
+    case CheckBoxK: if (auto *cb = qobject_cast<QCheckBox*>(editor)) cb->setChecked(v.toBool()); break;
+    case SpinBoxK:  if (auto *sb = qobject_cast<QSpinBox*>(editor))  sb->setValue(v.toInt()); break;
+    case ComboBoxK: if (auto *cb = qobject_cast<QComboBox*>(editor)) cb->setCurrentIndex(v.toInt()); break;
+    case LineEditK: if (auto *le = qobject_cast<QLineEdit*>(editor)) le->setText(v.toString()); break;
+    }
+}
+
+QVariant SettingsPanel::editorValue(QWidget *editor, EditorKind kind) const
+{
+    if (!editor) return {};
+    switch (kind) {
+    case CheckBoxK: if (auto *cb = qobject_cast<QCheckBox*>(editor)) return cb->isChecked(); break;
+    case SpinBoxK:  if (auto *sb = qobject_cast<QSpinBox*>(editor))  return sb->value(); break;
+    case ComboBoxK: if (auto *cb = qobject_cast<QComboBox*>(editor)) return cb->currentIndex(); break;
+    case LineEditK: if (auto *le = qobject_cast<QLineEdit*>(editor)) return le->text(); break;
+    }
+    return {};
+}
+
+void SettingsPanel::writeFromEditor(const QString &key, QWidget *editor, EditorKind kind)
+{
+    if (m_loading) return;
+    const QVariant v = editorValue(editor, kind);
+    const auto scope = (m_scopeWorkspace && m_scopeWorkspace->isChecked()
+                        && ScopedSettings::instance().hasWorkspace())
+                       ? ScopedSettings::Workspace
+                       : ScopedSettings::User;
+    ScopedSettings::instance().setValue(key, v, scope);
+    // Also keep legacy QSettings in sync for the user scope so existing readers see it.
+    if (scope == ScopedSettings::User) {
+        QSettings s;
+        s.setValue(key, v);
+    }
+    showStatus(scope == ScopedSettings::Workspace
+               ? tr("Saved to workspace settings")
+               : tr("Saved to user settings"));
+    refreshAllBadges();
+}
+
+void SettingsPanel::updateBadge(const Tracked &t)
+{
+    if (!t.badge) return;
+    const bool overridden = ScopedSettings::instance().hasOverride(t.key);
+    if (overridden) {
+        t.badge->setText(tr("WORKSPACE"));
+        t.badge->setStyleSheet(QStringLiteral(
+            "padding:1px 5px; border-radius:6px; font-size:9px; font-weight:bold;"
+            "color:white; background:%1;").arg(ChatTheme::AccentFg));
+    } else {
+        t.badge->setText(tr("USER"));
+        t.badge->setStyleSheet(QStringLiteral(
+            "padding:1px 5px; border-radius:6px; font-size:9px; font-weight:bold;"
+            "color:%1; background:%2;")
+                .arg(ChatTheme::pick(ChatTheme::FgDimmed, ChatTheme::L_FgDimmed),
+                     ChatTheme::pick(ChatTheme::Border,   ChatTheme::L_Border)));
+    }
+    if (t.reset)
+        t.reset->setVisible(overridden);
+
+    // Italic blue when overridden — visual feedback per UX rules.
+    if (t.editor) {
+        const QString styleKey = QStringLiteral("__overrideStyled");
+        if (overridden) {
+            t.editor->setStyleSheet(
+                t.editor->property(styleKey.toUtf8().constData()).toString()
+                + QStringLiteral("font-style:italic; color:%1;").arg(ChatTheme::AccentFg));
+        } else {
+            // Restore: simplest is to clear inline style; surrounding QSS still applies.
+            t.editor->setStyleSheet({});
+        }
+    }
+}
+
+void SettingsPanel::refreshAllBadges()
+{
+    for (const auto &t : m_tracked)
+        updateBadge(t);
+}
+
+QWidget *SettingsPanel::wrapCheckBoxWithBadge(const QString &key, QCheckBox *cb)
+{
+    auto *wrap = new QWidget(cb->parentWidget());
+    auto *hl   = new QHBoxLayout(wrap);
+    hl->setContentsMargins(0, 0, 0, 0);
+    hl->setSpacing(6);
+
+    // Re-parent checkbox into wrapper.
+    cb->setParent(wrap);
+    hl->addWidget(cb);
+
+    auto *badge = new QLabel(wrap);
+    badge->setStyleSheet(QStringLiteral(
+        "padding:1px 5px; border-radius:6px; font-size:9px; font-weight:bold;"));
+    hl->addWidget(badge);
+
+    auto *reset = new QPushButton(QStringLiteral("↩"), wrap);
+    reset->setToolTip(tr("Reset this key to user-scope value"));
+    reset->setFlat(true);
+    reset->setCursor(Qt::PointingHandCursor);
+    reset->setFixedSize(18, 18);
+    reset->setStyleSheet(QStringLiteral(
+        "QPushButton { color:%1; border:none; padding:0; }"
+        "QPushButton:hover { color:%2; }")
+            .arg(ChatTheme::pick(ChatTheme::FgDimmed, ChatTheme::L_FgDimmed),
+                 ChatTheme::AccentFg));
+    reset->hide();
+    hl->addWidget(reset);
+    hl->addStretch();
+
+    connect(reset, &QPushButton::clicked, this, [this, key]() {
+        ScopedSettings::instance().removeWorkspaceOverride(key);
+        showStatus(tr("Workspace override removed"));
+    });
+
+    Tracked t;
+    t.key    = key;
+    t.editor = cb;
+    t.badge  = badge;
+    t.reset  = reset;
+    m_tracked.append(t);
+    m_editorIdx.insert(cb, m_tracked.size() - 1);
+    m_kindByKey.insert(key, CheckBoxK);
+    return wrap;
 }
 
 void SettingsPanel::buildGeneralTab(QWidget *tab)
@@ -88,10 +366,10 @@ void SettingsPanel::buildGeneralTab(QWidget *tab)
     m_enableMemory     = new QCheckBox(tr("Enable memory system"), features);
     m_enableReview     = new QCheckBox(tr("Enable code review features"), features);
 
-    flay->addWidget(m_enableInlineChat);
-    flay->addWidget(m_enableGhostText);
-    flay->addWidget(m_enableMemory);
-    flay->addWidget(m_enableReview);
+    flay->addWidget(wrapCheckBoxWithBadge(QStringLiteral("AI/enableInlineChat"), m_enableInlineChat));
+    flay->addWidget(wrapCheckBoxWithBadge(QStringLiteral("AI/enableGhostText"),  m_enableGhostText));
+    flay->addWidget(wrapCheckBoxWithBadge(QStringLiteral("AI/enableMemory"),     m_enableMemory));
+    flay->addWidget(wrapCheckBoxWithBadge(QStringLiteral("AI/enableReview"),     m_enableReview));
     lay->addWidget(features);
 
     // Language disable for completions
@@ -107,9 +385,25 @@ void SettingsPanel::buildGeneralTab(QWidget *tab)
 
     lay->addStretch();
 
-    for (auto *cb : {m_enableInlineChat, m_enableGhostText, m_enableMemory, m_enableReview})
-        connect(cb, &QCheckBox::toggled, this, [this]() { saveSettings(); emit settingsChanged(); });
-    connect(m_disabledLangs, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
+    auto wireCheck = [this](QCheckBox *cb, const QString &key) {
+        connect(cb, &QCheckBox::toggled, this, [this, cb, key]() {
+            writeFromEditor(key, cb, CheckBoxK);
+            emit settingsChanged();
+        });
+    };
+    wireCheck(m_enableInlineChat, QStringLiteral("AI/enableInlineChat"));
+    wireCheck(m_enableGhostText,  QStringLiteral("AI/enableGhostText"));
+    wireCheck(m_enableMemory,     QStringLiteral("AI/enableMemory"));
+    wireCheck(m_enableReview,     QStringLiteral("AI/enableReview"));
+    connect(m_disabledLangs, &QLineEdit::editingFinished, this, [this]() {
+        writeFromEditor(QStringLiteral("AI/disabledCompletionLangs"), m_disabledLangs, LineEditK);
+        emit settingsChanged();
+    });
+    // m_disabledLangs lives below langLabel — track it without label badge for now.
+    m_kindByKey.insert(QStringLiteral("AI/disabledCompletionLangs"), LineEditK);
+    Tracked tle; tle.key = QStringLiteral("AI/disabledCompletionLangs"); tle.editor = m_disabledLangs;
+    m_tracked.append(tle);
+    m_editorIdx.insert(m_disabledLangs, m_tracked.size() - 1);
 }
 
 void SettingsPanel::buildModelTab(QWidget *tab)
@@ -155,13 +449,24 @@ void SettingsPanel::buildModelTab(QWidget *tab)
     m_searxngUrl->setPlaceholderText(tr("http://localhost:8080"));
     lay->addRow(tr("SearXNG URL:"), m_searxngUrl);
 
-    connect(m_maxSteps, &QSpinBox::valueChanged, this, [this]() { saveSettings(); emit settingsChanged(); });
-    connect(m_maxTokens, &QSpinBox::valueChanged, this, [this]() { saveSettings(); emit settingsChanged(); });
-    connect(m_reasoningEffort, &QComboBox::currentIndexChanged, this, [this]() { saveSettings(); emit settingsChanged(); });
-    connect(m_customEndpoint, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
-    connect(m_customApiKey, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
-    connect(m_completionModel, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
-    connect(m_searxngUrl, &QLineEdit::editingFinished, this, [this]() { saveSettings(); emit settingsChanged(); });
+    auto labelOf = [lay](QWidget *w) {
+        return qobject_cast<QLabel*>(lay->labelForField(w));
+    };
+    trackControl(QStringLiteral("AI/maxSteps"),         m_maxSteps,         SpinBoxK,  labelOf(m_maxSteps));
+    trackControl(QStringLiteral("AI/maxTokens"),        m_maxTokens,        SpinBoxK,  labelOf(m_maxTokens));
+    trackControl(QStringLiteral("AI/reasoningEffort"),  m_reasoningEffort,  ComboBoxK, labelOf(m_reasoningEffort));
+    trackControl(QStringLiteral("AI/completionModel"),  m_completionModel,  LineEditK, labelOf(m_completionModel));
+    trackControl(QStringLiteral("AI/customEndpoint"),   m_customEndpoint,   LineEditK, labelOf(m_customEndpoint));
+    trackControl(QStringLiteral("AI/customApiKey"),     m_customApiKey,     LineEditK, labelOf(m_customApiKey));
+    trackControl(QStringLiteral("AI/searxngUrl"),       m_searxngUrl,       LineEditK, labelOf(m_searxngUrl));
+
+    connect(m_maxSteps,        &QSpinBox::valueChanged,         this, [this]() { writeFromEditor(QStringLiteral("AI/maxSteps"),        m_maxSteps,        SpinBoxK);  emit settingsChanged(); });
+    connect(m_maxTokens,       &QSpinBox::valueChanged,         this, [this]() { writeFromEditor(QStringLiteral("AI/maxTokens"),       m_maxTokens,       SpinBoxK);  emit settingsChanged(); });
+    connect(m_reasoningEffort, &QComboBox::currentIndexChanged, this, [this]() { writeFromEditor(QStringLiteral("AI/reasoningEffort"), m_reasoningEffort, ComboBoxK); emit settingsChanged(); });
+    connect(m_customEndpoint,  &QLineEdit::editingFinished,     this, [this]() { writeFromEditor(QStringLiteral("AI/customEndpoint"),  m_customEndpoint,  LineEditK); emit settingsChanged(); });
+    connect(m_customApiKey,    &QLineEdit::editingFinished,     this, [this]() { writeFromEditor(QStringLiteral("AI/customApiKey"),    m_customApiKey,    LineEditK); emit settingsChanged(); });
+    connect(m_completionModel, &QLineEdit::editingFinished,     this, [this]() { writeFromEditor(QStringLiteral("AI/completionModel"), m_completionModel, LineEditK); emit settingsChanged(); });
+    connect(m_searxngUrl,      &QLineEdit::editingFinished,     this, [this]() { writeFromEditor(QStringLiteral("AI/searxngUrl"),      m_searxngUrl,      LineEditK); emit settingsChanged(); });
 }
 
 void SettingsPanel::buildToolsTab(QWidget *tab)
@@ -189,10 +494,10 @@ void SettingsPanel::buildContextTab(QWidget *tab)
     m_includeDiagnostics = new QCheckBox(tr("Build diagnostics / errors"), group);
     m_includeGitDiff     = new QCheckBox(tr("Git diff (staged + unstaged)"), group);
 
-    glay->addWidget(m_includeOpenFiles);
-    glay->addWidget(m_includeTerminal);
-    glay->addWidget(m_includeDiagnostics);
-    glay->addWidget(m_includeGitDiff);
+    glay->addWidget(wrapCheckBoxWithBadge(QStringLiteral("AI/includeOpenFiles"),   m_includeOpenFiles));
+    glay->addWidget(wrapCheckBoxWithBadge(QStringLiteral("AI/includeTerminal"),    m_includeTerminal));
+    glay->addWidget(wrapCheckBoxWithBadge(QStringLiteral("AI/includeDiagnostics"), m_includeDiagnostics));
+    glay->addWidget(wrapCheckBoxWithBadge(QStringLiteral("AI/includeGitDiff"),     m_includeGitDiff));
     lay->addWidget(group);
 
     auto *tokenGroup = new QGroupBox(tr("Token Limits"), tab);
@@ -206,9 +511,23 @@ void SettingsPanel::buildContextTab(QWidget *tab)
 
     lay->addStretch();
 
-    for (auto *cb : {m_includeOpenFiles, m_includeTerminal, m_includeDiagnostics, m_includeGitDiff})
-        connect(cb, &QCheckBox::toggled, this, [this]() { saveSettings(); emit settingsChanged(); });
-    connect(m_contextTokenLimit, &QSpinBox::valueChanged, this, [this]() { saveSettings(); emit settingsChanged(); });
+    auto labelOf = [tlay](QWidget *w) { return qobject_cast<QLabel*>(tlay->labelForField(w)); };
+    trackControl(QStringLiteral("AI/contextTokenLimit"), m_contextTokenLimit, SpinBoxK, labelOf(m_contextTokenLimit));
+
+    auto wireCheck = [this](QCheckBox *cb, const QString &key) {
+        connect(cb, &QCheckBox::toggled, this, [this, cb, key]() {
+            writeFromEditor(key, cb, CheckBoxK);
+            emit settingsChanged();
+        });
+    };
+    wireCheck(m_includeOpenFiles,   QStringLiteral("AI/includeOpenFiles"));
+    wireCheck(m_includeTerminal,    QStringLiteral("AI/includeTerminal"));
+    wireCheck(m_includeDiagnostics, QStringLiteral("AI/includeDiagnostics"));
+    wireCheck(m_includeGitDiff,     QStringLiteral("AI/includeGitDiff"));
+    connect(m_contextTokenLimit, &QSpinBox::valueChanged, this, [this]() {
+        writeFromEditor(QStringLiteral("AI/contextTokenLimit"), m_contextTokenLimit, SpinBoxK);
+        emit settingsChanged();
+    });
 }
 
 void SettingsPanel::buildAppearanceTab(QWidget *tab)
@@ -220,7 +539,7 @@ void SettingsPanel::buildAppearanceTab(QWidget *tab)
     auto *alay = new QVBoxLayout(appearance);
 
     m_darkTheme = new QCheckBox(tr("Dark theme"), appearance);
-    alay->addWidget(m_darkTheme);
+    alay->addWidget(wrapCheckBoxWithBadge(QStringLiteral("theme/dark"), m_darkTheme));
     lay->addWidget(appearance);
 
     // Auto-save group
@@ -228,7 +547,7 @@ void SettingsPanel::buildAppearanceTab(QWidget *tab)
     auto *aslay = new QFormLayout(autosave);
 
     m_autoSaveEnabled = new QCheckBox(tr("Enable auto-save"), autosave);
-    aslay->addRow(m_autoSaveEnabled);
+    aslay->addRow(wrapCheckBoxWithBadge(QStringLiteral("autosave/enabled"), m_autoSaveEnabled));
 
     m_autoSaveInterval = new QSpinBox(autosave);
     m_autoSaveInterval->setRange(5, 600);
@@ -236,6 +555,8 @@ void SettingsPanel::buildAppearanceTab(QWidget *tab)
     m_autoSaveInterval->setSuffix(tr(" s"));
     m_autoSaveInterval->setValue(30);
     aslay->addRow(tr("Interval:"), m_autoSaveInterval);
+    trackControl(QStringLiteral("autosave/interval"), m_autoSaveInterval, SpinBoxK,
+                 qobject_cast<QLabel*>(aslay->labelForField(m_autoSaveInterval)));
 
     auto *hint = new QLabel(
         tr("<i>Note: auto-save changes apply on next IDE restart.</i>"), autosave);
@@ -251,7 +572,7 @@ void SettingsPanel::buildAppearanceTab(QWidget *tab)
     // Theme: apply live via ThemeManager free helper.
     connect(m_darkTheme, &QCheckBox::toggled, this, [this](bool checked) {
         Exorcist::setDarkTheme(checked);
-        saveSettings();
+        writeFromEditor(QStringLiteral("theme/dark"), m_darkTheme, CheckBoxK);
         emit settingsChanged();
     });
 
@@ -260,57 +581,65 @@ void SettingsPanel::buildAppearanceTab(QWidget *tab)
             [this](bool checked) {
                 if (m_autoSaveInterval)
                     m_autoSaveInterval->setEnabled(checked);
-                saveSettings();
+                writeFromEditor(QStringLiteral("autosave/enabled"), m_autoSaveEnabled, CheckBoxK);
                 emit settingsChanged();
             });
-    connect(m_autoSaveInterval, &QSpinBox::valueChanged, this,
-            [this]() { saveSettings(); emit settingsChanged(); });
+    connect(m_autoSaveInterval, &QSpinBox::valueChanged, this, [this]() {
+        writeFromEditor(QStringLiteral("autosave/interval"), m_autoSaveInterval, SpinBoxK);
+        emit settingsChanged();
+    });
 }
 
 void SettingsPanel::loadSettings()
 {
-    QSettings s;
-    s.beginGroup(QStringLiteral("AI"));
+    auto &S = ScopedSettings::instance();
+    auto setCheck = [](QCheckBox *cb, bool v) {
+        if (!cb) return;
+        QSignalBlocker b(cb);
+        cb->setChecked(v);
+    };
+    auto setText = [](QLineEdit *le, const QString &v) {
+        if (!le) return;
+        QSignalBlocker b(le);
+        le->setText(v);
+    };
+    auto setInt = [](QSpinBox *sb, int v) {
+        if (!sb) return;
+        QSignalBlocker b(sb);
+        sb->setValue(v);
+    };
+    auto setIdx = [](QComboBox *cb, int v) {
+        if (!cb) return;
+        QSignalBlocker b(cb);
+        cb->setCurrentIndex(v);
+    };
 
-    m_enableInlineChat->setChecked(s.value(QStringLiteral("enableInlineChat"), true).toBool());
-    m_enableGhostText->setChecked(s.value(QStringLiteral("enableGhostText"), true).toBool());
-    m_enableMemory->setChecked(s.value(QStringLiteral("enableMemory"), true).toBool());
-    m_enableReview->setChecked(s.value(QStringLiteral("enableReview"), true).toBool());
-    m_disabledLangs->setText(s.value(QStringLiteral("disabledCompletionLangs")).toString());
+    setCheck(m_enableInlineChat, S.value(QStringLiteral("AI/enableInlineChat"), true).toBool());
+    setCheck(m_enableGhostText,  S.value(QStringLiteral("AI/enableGhostText"),  true).toBool());
+    setCheck(m_enableMemory,     S.value(QStringLiteral("AI/enableMemory"),     true).toBool());
+    setCheck(m_enableReview,     S.value(QStringLiteral("AI/enableReview"),     true).toBool());
+    setText(m_disabledLangs,     S.value(QStringLiteral("AI/disabledCompletionLangs")).toString());
 
-    m_maxSteps->setValue(s.value(QStringLiteral("maxSteps"), 20).toInt());
-    m_maxTokens->setValue(s.value(QStringLiteral("maxTokens"), 16384).toInt());
-    m_reasoningEffort->setCurrentIndex(s.value(QStringLiteral("reasoningEffort"), 2).toInt());
-    m_customEndpoint->setText(s.value(QStringLiteral("customEndpoint")).toString());
-    m_customApiKey->setText(s.value(QStringLiteral("customApiKey")).toString());
-    m_completionModel->setText(s.value(QStringLiteral("completionModel")).toString());
-    m_searxngUrl->setText(s.value(QStringLiteral("searxngUrl")).toString());
+    setInt(m_maxSteps,           S.value(QStringLiteral("AI/maxSteps"), 20).toInt());
+    setInt(m_maxTokens,          S.value(QStringLiteral("AI/maxTokens"), 16384).toInt());
+    setIdx(m_reasoningEffort,    S.value(QStringLiteral("AI/reasoningEffort"), 2).toInt());
+    setText(m_customEndpoint,    S.value(QStringLiteral("AI/customEndpoint")).toString());
+    setText(m_customApiKey,      S.value(QStringLiteral("AI/customApiKey")).toString());
+    setText(m_completionModel,   S.value(QStringLiteral("AI/completionModel")).toString());
+    setText(m_searxngUrl,        S.value(QStringLiteral("AI/searxngUrl")).toString());
 
-    m_includeOpenFiles->setChecked(s.value(QStringLiteral("includeOpenFiles"), true).toBool());
-    m_includeTerminal->setChecked(s.value(QStringLiteral("includeTerminal"), true).toBool());
-    m_includeDiagnostics->setChecked(s.value(QStringLiteral("includeDiagnostics"), true).toBool());
-    m_includeGitDiff->setChecked(s.value(QStringLiteral("includeGitDiff"), true).toBool());
-    m_contextTokenLimit->setValue(s.value(QStringLiteral("contextTokenLimit"), 100000).toInt());
+    setCheck(m_includeOpenFiles,   S.value(QStringLiteral("AI/includeOpenFiles"),   true).toBool());
+    setCheck(m_includeTerminal,    S.value(QStringLiteral("AI/includeTerminal"),    true).toBool());
+    setCheck(m_includeDiagnostics, S.value(QStringLiteral("AI/includeDiagnostics"), true).toBool());
+    setCheck(m_includeGitDiff,     S.value(QStringLiteral("AI/includeGitDiff"),     true).toBool());
+    setInt(m_contextTokenLimit,    S.value(QStringLiteral("AI/contextTokenLimit"), 100000).toInt());
 
-    s.endGroup();
-
-    // Appearance & Editor — top-level keys (shared with ThemeManager / AutoSaveManager)
-    if (m_darkTheme) {
-        QSignalBlocker blockTheme(m_darkTheme);
-        m_darkTheme->setChecked(s.value(QStringLiteral("theme/dark"), true).toBool());
-    }
-    if (m_autoSaveEnabled) {
-        QSignalBlocker blockAs(m_autoSaveEnabled);
-        m_autoSaveEnabled->setChecked(
-            s.value(QStringLiteral("autosave/enabled"), true).toBool());
-    }
-    if (m_autoSaveInterval) {
-        QSignalBlocker blockInt(m_autoSaveInterval);
-        const int v = s.value(QStringLiteral("autosave/interval"), 30).toInt();
-        m_autoSaveInterval->setValue(qBound(5, v, 600));
-        m_autoSaveInterval->setEnabled(m_autoSaveEnabled
-                                       && m_autoSaveEnabled->isChecked());
-    }
+    // Appearance & Editor — top-level keys
+    setCheck(m_darkTheme,        S.value(QStringLiteral("theme/dark"),        true).toBool());
+    setCheck(m_autoSaveEnabled,  S.value(QStringLiteral("autosave/enabled"),  true).toBool());
+    setInt(m_autoSaveInterval,   qBound(5, S.value(QStringLiteral("autosave/interval"), 30).toInt(), 600));
+    if (m_autoSaveInterval && m_autoSaveEnabled)
+        m_autoSaveInterval->setEnabled(m_autoSaveEnabled->isChecked());
 }
 
 void SettingsPanel::saveSettings()

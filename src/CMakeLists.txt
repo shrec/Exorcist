@@ -623,6 +623,8 @@ add_executable(exorcist WIN32
     settings/workspacesettings.cpp
     settings/languageprofile.h
     settings/languageprofile.cpp
+    settings/scopedsettings.h
+    settings/scopedsettings.cpp
     forms/formeditor/uiformeditor.h
     forms/formeditor/uiformeditor.cpp
     forms/formeditor/widgetpalette.h
