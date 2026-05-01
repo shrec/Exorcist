@@ -1387,43 +1387,101 @@ void EditorView::paintEvent(QPaintEvent *event)
     QPlainTextEdit::paintEvent(event);
 
     // ── Indent guides ─────────────────────────────────────────────────────
+    // Faint vertical lines at every indent level less than the line's actual
+    // indentation (VS Code style). For empty/whitespace-only blocks we use
+    // the indent level of the closest non-empty neighbouring block so the
+    // guides remain visually continuous through blank-line gaps.
     if (m_showIndentGuides) {
         QPainter painter(viewport());
         painter.setRenderHint(QPainter::Antialiasing, false);
 
         const QFontMetrics fm(font());
-        const int spaceW = fm.horizontalAdvance(QLatin1Char(' '));
+        const int spaceW = qMax(1, fm.horizontalAdvance(QLatin1Char(' ')));
         const int tabW = qMax(1, qRound(tabStopDistance() / spaceW));
         const int guideStep = tabW * spaceW;  // pixel step per indent level
+        const qreal baseX = contentOffset().x();  // where text begins in viewport
 
-        QColor guideColor(128, 128, 128, 40);
+        const QColor guideColor(0x3e, 0x3e, 0x42);
         QPen guidePen(guideColor);
         guidePen.setStyle(Qt::SolidLine);
+        guidePen.setWidth(1);
         painter.setPen(guidePen);
 
+        // Lambda: count effective indent columns (tabs expand to next tab stop).
+        // Returns -1 for blocks that are entirely whitespace (or empty), so
+        // callers can fall back to a neighbouring block's indent level.
+        auto indentColumns = [tabW](const QString &text) -> int {
+            int spaces = 0;
+            for (int i = 0; i < text.length(); ++i) {
+                const QChar ch = text[i];
+                if (ch == QLatin1Char(' ')) {
+                    ++spaces;
+                } else if (ch == QLatin1Char('\t')) {
+                    spaces += tabW - (spaces % tabW);
+                } else {
+                    return spaces;
+                }
+            }
+            return -1;  // blank or whitespace-only
+        };
+
+        const int viewportH = viewport()->height();
         QTextBlock block = firstVisibleBlock();
         while (block.isValid()) {
             const QRectF geo = blockBoundingGeometry(block).translated(contentOffset());
-            if (geo.top() > viewport()->height())
+            if (geo.top() > viewportH)
                 break;
+            if (geo.bottom() < 0) {
+                block = block.next();
+                continue;
+            }
 
-            // Count leading whitespace to determine indent level
-            const QString text = block.text();
-            int spaces = 0;
-            for (int i = 0; i < text.length(); ++i) {
-                if (text[i] == QLatin1Char(' '))
-                    ++spaces;
-                else if (text[i] == QLatin1Char('\t'))
-                    spaces += tabW - (spaces % tabW);
-                else
-                    break;
+            int spaces = indentColumns(block.text());
+            if (spaces < 0) {
+                // Blank line: search forward then backward for the nearest
+                // non-empty block to inherit its indent. Cap the lookahead so
+                // a giant blank region doesn't make us walk the document.
+                constexpr int kMaxNeighbourScan = 200;
+                int forward = -1;
+                {
+                    QTextBlock fb = block.next();
+                    int steps = 0;
+                    while (fb.isValid() && steps < kMaxNeighbourScan) {
+                        const int s = indentColumns(fb.text());
+                        if (s >= 0) { forward = s; break; }
+                        fb = fb.next();
+                        ++steps;
+                    }
+                }
+                int backward = -1;
+                {
+                    QTextBlock bb = block.previous();
+                    int steps = 0;
+                    while (bb.isValid() && steps < kMaxNeighbourScan) {
+                        const int s = indentColumns(bb.text());
+                        if (s >= 0) { backward = s; break; }
+                        bb = bb.previous();
+                        ++steps;
+                    }
+                }
+                spaces = qMax(forward, backward);
+                if (spaces < 0)
+                    spaces = 0;
             }
 
             const int levels = spaces / tabW;
-            for (int lvl = 1; lvl <= levels; ++lvl) {
-                const int x = lvl * guideStep;
-                painter.drawLine(x, qRound(geo.top()),
-                                 x, qRound(geo.bottom()));
+            // Draw guides ONLY for indent levels strictly LESS THAN the
+            // block's own indentation — never at the same level the line
+            // is indented to.
+            const int top = qRound(geo.top());
+            const int bottom = qRound(geo.bottom());
+            for (int lvl = 1; lvl < levels; ++lvl) {
+                const int x = qRound(baseX + lvl * guideStep);
+                if (x < 0)
+                    continue;
+                if (x > viewport()->width())
+                    break;
+                painter.drawLine(x, top, x, bottom);
             }
 
             block = block.next();
