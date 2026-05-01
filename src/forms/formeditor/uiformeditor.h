@@ -72,6 +72,14 @@ private slots:
     void onAlign(int alignmentEnum);
     void onDistributeH();
     void onDistributeV();
+    // Phase 2
+    void onLayoutHorizontal();
+    void onLayoutVertical();
+    void onLayoutGrid();
+    void onLayoutForm();
+    void onBreakLayout();
+    void onOpenSignalSlotEditor();
+    void onCanvasContextMenu(QWidget *target, const QPoint &globalPos);
 
 private:
     void buildUi();
@@ -90,6 +98,7 @@ private:
     QLabel            *m_breadcrumb = nullptr;
     QLabel            *m_status     = nullptr;
     QUndoStack        *m_undo       = nullptr;
+    class SignalSlotEditor *m_signalSlot = nullptr;  // Phase 2; lazy-created
 };
 
 } // namespace exo::forms

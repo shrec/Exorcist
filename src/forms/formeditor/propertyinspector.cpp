@@ -14,6 +14,7 @@
 #include <QLineEdit>
 #include <QMetaEnum>
 #include <QMetaProperty>
+#include <QPointer>
 #include <QPushButton>
 #include <QRect>
 #include <QSize>
@@ -21,10 +22,65 @@
 #include <QString>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QUndoCommand>
+#include <QUndoStack>
 #include <QVBoxLayout>
 #include <QVariant>
 
 namespace exo::forms {
+
+// ── PropertyChangeCommand ────────────────────────────────────────────────────
+//
+// Phase 2 — fine-grained property undo.  Every editor commit pushes one of
+// these.  We hold a QPointer so we don't crash if the widget is deleted
+// (e.g. by another command rolling back) before the undo stack reaches us.
+namespace {
+
+class PropertyChangeCommand : public QUndoCommand {
+public:
+    PropertyChangeCommand(QPointer<QWidget> target,
+                          const QByteArray &propName,
+                          const QVariant &oldValue,
+                          const QVariant &newValue,
+                          PropertyInspector *inspector)
+        : QUndoCommand(QObject::tr("Change %1").arg(QString::fromLatin1(propName)))
+        , m_target(target), m_prop(propName)
+        , m_old(oldValue), m_new(newValue), m_inspector(inspector) {}
+
+    int  id() const override { return 0xC0DE0001; }
+
+    // Coalesce successive edits to the same property on the same widget
+    // within the same edit session — typing into a spin box should be one
+    // undo entry, not 30.
+    bool mergeWith(const QUndoCommand *other) override {
+        const auto *o = dynamic_cast<const PropertyChangeCommand *>(other);
+        if (!o) return false;
+        if (o->m_target != m_target || o->m_prop != m_prop) return false;
+        m_new = o->m_new;
+        return true;
+    }
+
+    void redo() override {
+        if (!m_target) return;
+        m_target->setProperty(m_prop.constData(), m_new);
+        m_target->setProperty(
+            (QByteArray("exo_modified_") + m_prop).constData(), true);
+        if (m_inspector) m_inspector->refreshFromTarget();
+    }
+    void undo() override {
+        if (!m_target) return;
+        m_target->setProperty(m_prop.constData(), m_old);
+        if (m_inspector) m_inspector->refreshFromTarget();
+    }
+
+private:
+    QPointer<QWidget>            m_target;
+    QByteArray                   m_prop;
+    QVariant                     m_old, m_new;
+    QPointer<PropertyInspector>  m_inspector;
+};
+
+} // namespace
 
 PropertyInspector::PropertyInspector(QWidget *parent) : QWidget(parent) {
     buildUi();
@@ -167,9 +223,20 @@ void PropertyInspector::applyFilter() {
 
 void PropertyInspector::writeProperty(const char *propName, const QVariant &value) {
     if (!m_target) return;
-    m_target->setProperty(propName, value);
-    m_target->setProperty((QByteArray("exo_modified_") + propName).constData(), true);
-    if (auto *l = m_table->item(0, 0)) Q_UNUSED(l);  // noop; refresh below
+    const QVariant oldValue = m_target->property(propName);
+    if (oldValue == value) return;   // no-op edits never enter the undo stack
+
+    if (m_undo) {
+        // Phase 2: fine-grained undo.  Push command — it sets the property +
+        // mark dynamic in redo(), which runs immediately.
+        m_undo->push(new PropertyChangeCommand(
+            m_target, QByteArray(propName), oldValue, value, this));
+    } else {
+        m_target->setProperty(propName, value);
+        m_target->setProperty(
+            (QByteArray("exo_modified_") + propName).constData(), true);
+    }
+
     // Bold the label row to reflect the new "modified" state.
     for (int r = 0; r < m_table->rowCount(); ++r) {
         if (auto *li = m_table->item(r, 0)) {
@@ -182,6 +249,11 @@ void PropertyInspector::writeProperty(const char *propName, const QVariant &valu
         }
     }
     emit propertyChanged(m_target, QString::fromLatin1(propName));
+}
+
+void PropertyInspector::refreshFromTarget() {
+    if (!m_target) return;
+    rebuild();
 }
 
 // ── Per-type editor factory ──────────────────────────────────────────────────

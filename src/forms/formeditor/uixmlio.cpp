@@ -13,6 +13,7 @@
 #include <QUiLoader>
 #include <QVariant>
 #include <QWidget>
+#include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 #include <QDebug>
 
@@ -163,7 +164,8 @@ QWidget *UiXmlIO::load(const QString &path) {
     return w;
 }
 
-bool UiXmlIO::save(const QString &path, QWidget *root) {
+bool UiXmlIO::save(const QString &path, QWidget *root,
+                   const QList<FormConnection> &connections) {
     if (!root) return false;
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -181,12 +183,59 @@ bool UiXmlIO::save(const QString &path, QWidget *root) {
                                      : root->objectName());
     writeWidget(xw, root);
     xw.writeStartElement("resources"); xw.writeEndElement();
-    xw.writeStartElement("connections"); xw.writeEndElement();
+
+    // Phase 2: emit <connections> in Designer's exact format.  Each entry is
+    //   <connection>
+    //     <sender>name</sender><signal>clicked()</signal>
+    //     <receiver>name</receiver><slot>close()</slot>
+    //   </connection>
+    xw.writeStartElement("connections");
+    for (const FormConnection &c : connections) {
+        if (c.sender.isEmpty() || c.receiver.isEmpty()) continue;
+        if (c.signal_.isEmpty() || c.slot_.isEmpty()) continue;
+        xw.writeStartElement("connection");
+        xw.writeTextElement("sender",   c.sender);
+        xw.writeTextElement("signal",   c.signal_);
+        xw.writeTextElement("receiver", c.receiver);
+        xw.writeTextElement("slot",     c.slot_);
+        xw.writeEndElement(); // </connection>
+    }
+    xw.writeEndElement();   // </connections>
+
     xw.writeEndElement(); // </ui>
     xw.writeEndDocument();
 
     f.close();
     return true;
+}
+
+QList<FormConnection> UiXmlIO::loadConnections(const QString &path) {
+    QList<FormConnection> out;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return out;
+    QXmlStreamReader xr(&f);
+    while (!xr.atEnd()) {
+        xr.readNext();
+        if (xr.isStartElement() && xr.name() == QStringLiteral("connection")) {
+            FormConnection c;
+            // Walk children.
+            while (!(xr.isEndElement() && xr.name() == QStringLiteral("connection"))
+                   && !xr.atEnd()) {
+                xr.readNext();
+                if (xr.isStartElement()) {
+                    const QString tag = xr.name().toString();
+                    const QString text = xr.readElementText();
+                    if      (tag == "sender")   c.sender   = text;
+                    else if (tag == "signal")   c.signal_  = text;
+                    else if (tag == "receiver") c.receiver = text;
+                    else if (tag == "slot")     c.slot_    = text;
+                }
+            }
+            if (!c.sender.isEmpty() && !c.receiver.isEmpty()) out << c;
+        }
+    }
+    f.close();
+    return out;
 }
 
 } // namespace exo::forms

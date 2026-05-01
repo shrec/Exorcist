@@ -2,6 +2,7 @@
 
 #include "formcanvas.h"
 #include "propertyinspector.h"
+#include "signalsloteditor.h"
 #include "uixmlio.h"
 #include "widgetpalette.h"
 
@@ -12,6 +13,7 @@
 #include <QIcon>
 #include <QKeySequence>
 #include <QLabel>
+#include <QMenu>
 #include <QMessageBox>
 #include <QShortcut>
 #include <QSplitter>
@@ -38,8 +40,13 @@ UiFormEditor::UiFormEditor(QWidget *parent) : QWidget(parent) {
             this,     &UiFormEditor::onCanvasModified);
     connect(m_canvas, &FormCanvas::selectionChanged,
             this,     &UiFormEditor::onSelectionChanged);
+    connect(m_canvas, &FormCanvas::contextMenuOnWidget,
+            this,     &UiFormEditor::onCanvasContextMenu);
     connect(m_inspector, &PropertyInspector::propertyChanged, this,
             [this](QWidget *, const QString &){ setModified(true); });
+
+    // Phase 2: pass undo stack to inspector for fine-grained property undo.
+    m_inspector->setUndoStack(m_undo);
 
     onSelectionChanged();    // initial breadcrumb / inspector state
 }
@@ -149,8 +156,51 @@ void UiFormEditor::buildToolbar(QToolBar *bar) {
 
     bar->addSeparator();
 
+    // ── Phase 2: layout commands ────────────────────────────────────────────
+    // Tooltips include the keyboard shortcut (Principle 1: Keyboard-first).
+    auto addLayoutAction = [&](const QString &text, const QString &tip,
+                               const QKeySequence &keys, auto slot) {
+        auto *act = bar->addAction(text);
+        act->setToolTip(tip + QStringLiteral(" (")
+                            + keys.toString(QKeySequence::NativeText)
+                            + QStringLiteral(")"));
+        act->setShortcut(keys);
+        act->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        addAction(act);
+        connect(act, &QAction::triggered, this, slot);
+    };
+    addLayoutAction(QStringLiteral("⮃H"),  tr("Lay Out Horizontally"),
+                    QKeySequence(Qt::CTRL | Qt::Key_1),
+                    &UiFormEditor::onLayoutHorizontal);
+    addLayoutAction(QStringLiteral("⮃V"),  tr("Lay Out Vertically"),
+                    QKeySequence(Qt::CTRL | Qt::Key_2),
+                    &UiFormEditor::onLayoutVertical);
+    addLayoutAction(QStringLiteral("▦"),   tr("Lay Out in Grid"),
+                    QKeySequence(Qt::CTRL | Qt::Key_3),
+                    &UiFormEditor::onLayoutGrid);
+    addLayoutAction(QStringLiteral("⊟"),   tr("Lay Out in Form"),
+                    QKeySequence(Qt::CTRL | Qt::Key_4),
+                    &UiFormEditor::onLayoutForm);
+    addLayoutAction(QStringLiteral("⊘"),   tr("Break Layout"),
+                    QKeySequence(Qt::CTRL | Qt::Key_0),
+                    &UiFormEditor::onBreakLayout);
+
+    bar->addSeparator();
+
+    // Phase 2: signal/slot editor (Ctrl+Alt+S, modeless dialog)
+    auto *sigSlot = bar->addAction(tr("⚡ Signals"));
+    sigSlot->setToolTip(tr("Edit signal-slot connections (Ctrl+Alt+S)"));
+    sigSlot->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_S));
+    sigSlot->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    addAction(sigSlot);
+    connect(sigSlot, &QAction::triggered, this,
+            &UiFormEditor::onOpenSignalSlotEditor);
+
+    bar->addSeparator();
+
     // Save (Ctrl+S, widget-scoped so we don't hijack other editors)
     auto *saveAct = bar->addAction(tr("Save"));
+    saveAct->setToolTip(tr("Save form (Ctrl+S)"));
     saveAct->setShortcut(QKeySequence::Save);
     saveAct->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     addAction(saveAct);
@@ -168,6 +218,9 @@ bool UiFormEditor::loadFromFile(const QString &path) {
     }
     m_path = path;
     m_canvas->setRoot(tree);
+    // Phase 2: rehydrate signal-slot connections from the .ui's <connections>.
+    m_canvas->setConnections(UiXmlIO::loadConnections(path));
+    if (m_signalSlot) m_signalSlot->rebuildFromCanvas();
     setModified(false);
     if (m_status) m_status->setText(tr("Loaded %1").arg(QFileInfo(path).fileName()));
     updateBreadcrumb();
@@ -177,7 +230,8 @@ bool UiFormEditor::loadFromFile(const QString &path) {
 bool UiFormEditor::saveToFile(const QString &path) {
     const QString target = path.isEmpty() ? m_path : path;
     if (target.isEmpty()) return false;
-    if (!UiXmlIO::save(target, m_canvas->formRoot())) {
+    // Phase 2: pass the canvas's stored connections so <connections> is emitted.
+    if (!UiXmlIO::save(target, m_canvas->formRoot(), m_canvas->connections())) {
         if (m_status) m_status->setText(tr("Save failed: %1")
                                             .arg(QFileInfo(target).fileName()));
         return false;
@@ -274,6 +328,74 @@ void UiFormEditor::onDistributeV() {
     }
     setModified(true);
     m_canvas->update();
+}
+
+// ── Phase 2: layout command slots ────────────────────────────────────────────
+
+void UiFormEditor::onLayoutHorizontal() {
+    m_canvas->applyLayoutToSelection(FormCanvas::LayoutHorizontal);
+    if (m_status) m_status->setText(tr("Laid out horizontally"));
+}
+void UiFormEditor::onLayoutVertical() {
+    m_canvas->applyLayoutToSelection(FormCanvas::LayoutVertical);
+    if (m_status) m_status->setText(tr("Laid out vertically"));
+}
+void UiFormEditor::onLayoutGrid() {
+    m_canvas->applyLayoutToSelection(FormCanvas::LayoutGrid);
+    if (m_status) m_status->setText(tr("Laid out in grid"));
+}
+void UiFormEditor::onLayoutForm() {
+    m_canvas->applyLayoutToSelection(FormCanvas::LayoutForm);
+    if (m_status) m_status->setText(tr("Laid out in form"));
+}
+void UiFormEditor::onBreakLayout() {
+    m_canvas->applyLayoutToSelection(FormCanvas::LayoutBreak);
+    if (m_status) m_status->setText(tr("Layout broken"));
+}
+
+// ── Phase 2: signal-slot editor ──────────────────────────────────────────────
+
+void UiFormEditor::onOpenSignalSlotEditor() {
+    if (!m_signalSlot) {
+        m_signalSlot = new SignalSlotEditor(m_canvas, this);
+    } else {
+        // Refresh in case the form was reloaded or new widgets were added.
+        m_signalSlot->rebuildFromCanvas();
+    }
+    m_signalSlot->show();
+    m_signalSlot->raise();
+    m_signalSlot->activateWindow();
+}
+
+// Right-click on canvas → small context menu with shortcuts shown alongside.
+// One entry: "Add Signal-Slot Connection..." which opens the editor with the
+// clicked widget pre-selected as the sender.
+void UiFormEditor::onCanvasContextMenu(QWidget *target, const QPoint &globalPos) {
+    QMenu menu(this);
+    menu.setStyleSheet(
+        "QMenu{background:#252526;color:#d4d4d4;border:1px solid #3c3c3c;}"
+        "QMenu::item{padding:4px 24px 4px 12px;}"
+        "QMenu::item:selected{background:#094771;}"
+        "QMenu::separator{background:#3c3c3c;height:1px;margin:4px 8px;}");
+
+    auto *editTextAct = menu.addAction(tr("Edit Text (F2)"));
+    editTextAct->setEnabled(target != nullptr);
+    QObject::connect(editTextAct, &QAction::triggered, this, [this, target](){
+        if (target) m_canvas->beginInlineEdit(target);
+    });
+    menu.addSeparator();
+    auto *sigSlotAct = menu.addAction(tr("Add Signal-Slot Connection..."));
+    QObject::connect(sigSlotAct, &QAction::triggered, this, [this, target](){
+        onOpenSignalSlotEditor();
+        if (target && m_signalSlot) m_signalSlot->presetSender(target);
+    });
+    menu.addSeparator();
+    auto *delAct = menu.addAction(tr("Delete (Del)"));
+    delAct->setEnabled(target != nullptr);
+    QObject::connect(delAct, &QAction::triggered, this, [this](){
+        m_canvas->deleteSelection();
+    });
+    menu.exec(globalPos);
 }
 
 void UiFormEditor::setModified(bool m) {

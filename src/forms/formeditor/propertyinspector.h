@@ -10,20 +10,21 @@
 // editor commits, we call QMetaProperty::write() on the live widget AND mark
 // "exo_modified_<name>" as a dynamic property so uixmlio knows to emit it.
 //
-// We deliberately don't push every property edit onto the undo stack in
-// Phase 1: the granularity for property edits is coarse (per commit, not per
-// keystroke) and the bookkeeping for "delete this widget then undo" already
-// snapshots geometry.  Phase 2 will introduce a SetPropertyCommand.
+// Phase 2: every property edit pushes its own PropertyChangeCommand onto the
+// shared QUndoStack — fine-grained undo for typed values, color picks, etc.
+// The command captures (widget, property name, old value, new value).
 #pragma once
 
 #include <QPointer>
 #include <QString>
+#include <QVariant>
 #include <QWidget>
 
 class QLineEdit;
 class QPushButton;
 class QTableWidget;
 class QTableWidgetItem;
+class QUndoStack;
 
 namespace exo::forms {
 
@@ -35,6 +36,14 @@ public:
     // Bind to a target widget (the canvas selection's primary).  Pass nullptr
     // to clear.  Re-binding rebuilds the table.
     void setTarget(QWidget *target);
+
+    // Phase 2: bind to the editor's QUndoStack so property edits become
+    // proper undoable commands.
+    void setUndoStack(QUndoStack *stack) { m_undo = stack; }
+
+    // Phase 2: external callers (e.g. PropertyChangeCommand from the canvas)
+    // can request a refresh after they mutate the target.
+    void refreshFromTarget();
 
 signals:
     // Emitted whenever a property is committed by the user, so the editor
@@ -57,6 +66,7 @@ private:
     QPushButton  *m_btnAll   = nullptr;
     QPushButton  *m_btnMod   = nullptr;
     QTableWidget *m_table    = nullptr;
+    QUndoStack   *m_undo     = nullptr;   // Phase 2: fine-grained undo
 
     QPointer<QWidget> m_target;
     FilterMode        m_filter = ShowAll;

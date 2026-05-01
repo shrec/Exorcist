@@ -6,10 +6,18 @@
 // switch-statement), tracks selection, paints selection grips, and routes
 // keyboard / mouse interaction to mutate position and size.
 //
-// Layout philosophy for Phase 1: absolute positioning.  Children are laid out
-// at their setGeometry() — the same way Qt Designer's "Break Layout" mode
-// works.  Layouts (HBox/VBox/Grid/Form) are Phase 2 and live as commands on
-// the toolbar.
+// Phase 2 additions:
+//   - Layout management commands (HBox/VBox/Grid/Form/Break) — push undo,
+//     create a container QWidget with the chosen layout, reparent selected
+//     children into it.
+//   - Inline label edit overlay — double-clicking a widget with a "text" or
+//     "title" property pops a child QLineEdit/QPlainTextEdit overlay.
+//   - Connection storage — list of FormConnection records used by the
+//     SignalSlotEditor and serialized via uixmlio.
+//   - Fine-grained PropertyChangeCommand — every property edit pushes its
+//     own undo entry.
+//   - Layout cell visualization — when dragging over a layout container, we
+//     paint the cell boundaries to give spatial feedback (Principle 4).
 //
 // Selection model
 //   m_selection is a small QSet<QWidget*> updated by mousePressEvent.
@@ -30,12 +38,16 @@
 // Undo
 //   All mutations are pushed onto a QUndoStack owned by UiFormEditor and
 //   passed in via setUndoStack().  Each command is intentionally fine-grained
-//   (one drag = one MoveWidgetsCommand, not N).
+//   (one drag = one MoveWidgetsCommand, one property edit = one
+//   PropertyChangeCommand).
 #pragma once
+
+#include "signalsloteditor.h"   // FormConnection
 
 #include <QHash>
 #include <QList>
 #include <QPoint>
+#include <QPointer>
 #include <QRect>
 #include <QSet>
 #include <QString>
@@ -51,9 +63,19 @@ class QUndoStack;
 
 namespace exo::forms {
 
+class InlineLabelEditor;
+
 class FormCanvas : public QWidget {
     Q_OBJECT
 public:
+    enum LayoutKind {
+        LayoutHorizontal,   // QHBoxLayout
+        LayoutVertical,     // QVBoxLayout
+        LayoutGrid,         // QGridLayout
+        LayoutForm,         // QFormLayout
+        LayoutBreak,        // remove parent layout, free-position children
+    };
+
     explicit FormCanvas(QWidget *parent = nullptr);
 
     // Replace the form root with a freshly loaded tree (e.g. after .ui load).
@@ -73,7 +95,8 @@ public:
     void             selectAll();
 
     // Bind to a shared QUndoStack so all canvas mutations are undoable.
-    void setUndoStack(QUndoStack *stack) { m_undo = stack; }
+    void setUndoStack(QUndoStack *stack);
+    QUndoStack *undoStack() const { return m_undo; }
 
     // Toggle preview / edit mode.  In preview mode we hide grips, ignore
     // selection clicks, and make widgets respond to user events normally.
@@ -89,9 +112,35 @@ public:
     void duplicateSelection();
     void nudgeSelection(int dx, int dy);
 
+    // Phase 2: layout commands.  Wrap selection in a new container that
+    // owns the requested layout, reparenting the selected widgets.  Break
+    // removes the parent layout of `primary` and restores absolute pos.
+    void applyLayoutToSelection(LayoutKind kind);
+
+    // Phase 2: inline label editing — invoked on double-click for widgets
+    // exposing a "text" or "title" QMetaProperty.
+    void beginInlineEdit(QWidget *target);
+
+    // Phase 2: signal-slot connection storage (serialized in uixmlio.cpp).
+    QList<FormConnection> connections() const { return m_connections; }
+    void                  setConnections(const QList<FormConnection> &c);
+    QWidget              *findNamedWidget(const QString &name) const;
+
+    // Phase 2: brief flash highlight (used by SignalSlotEditor when sender
+    // or receiver is changed — gives spatial feedback per Principle 9).
+    void flashHighlight(QWidget *w);
+
+    // Phase 2: hook called by external commands (PropertyChangeCommand) so
+    // the canvas can repaint and the inspector can be re-targeted.
+    void notifyExternalChange(QWidget *w);
+    void emitModifiedSignal() { emit modified(); }
+
+    // Phase 2: a context menu requested → tells host editor to show the
+    // signal-slot menu item, etc.
 signals:
     void selectionChanged();
     void modified();
+    void contextMenuOnWidget(QWidget *w, const QPoint &globalPos);
 
 protected:
     void paintEvent(QPaintEvent *ev) override;
@@ -99,23 +148,24 @@ protected:
     void mouseMoveEvent(QMouseEvent *ev) override;
     void mouseReleaseEvent(QMouseEvent *ev) override;
     void mouseDoubleClickEvent(QMouseEvent *ev) override;
+    void contextMenuEvent(QContextMenuEvent *ev) override;
     void keyPressEvent(QKeyEvent *ev) override;
     void dragEnterEvent(QDragEnterEvent *ev) override;
     void dragMoveEvent(QDragMoveEvent *ev) override;
     void dropEvent(QDropEvent *ev) override;
+    void resizeEvent(QResizeEvent *ev) override;
 
 private:
     // Hit testing — returns the deepest direct child of m_root under p.
-    // (We deliberately don't recurse into containers in Phase 1; nested
-    // selection is Phase 2 once we have a proper Object Inspector.)
     QWidget *hitTest(const QPoint &p) const;
 
     // Smart-guide snap.  Returns the snapped top-left for `target` (in m_root
     // coords) given a desired top-left, and updates m_guideLines.
     QPoint snapTo(QWidget *target, const QPoint &desiredTopLeft);
 
-    // Paint helpers — kept in cpp to avoid pulling QPainter into the header.
     void  paintSelectionOverlay(QWidget *w);
+    void  paintLayoutCells();      // Phase 2: layout cell boundaries on hover/drag
+    void  paintFlashOverlay();     // Phase 2: brief highlight pulse
 
     QWidget    *m_root    = nullptr;   // form root (re-parented child)
     QSet<QWidget *> m_selection;
@@ -123,20 +173,24 @@ private:
     QUndoStack *m_undo    = nullptr;
     bool        m_preview = false;
 
-    // Drag state
     bool       m_dragging      = false;
-    QPoint     m_dragStartPos;             // cursor pos at press (canvas coords)
-    QHash<QWidget *, QPoint> m_dragOrigin; // per-widget original top-left
+    QPoint     m_dragStartPos;
+    QHash<QWidget *, QPoint> m_dragOrigin;
 
-    // Marquee state
     bool       m_marquee  = false;
     QPoint     m_marqueeStart;
     QPoint     m_marqueeEnd;
     bool       m_marqueeAdditive = false;
 
-    // Smart-guide state — list of (orientation, position) lines to paint.
     struct Guide { bool vertical; int pos; };
     QList<Guide> m_guideLines;
+
+    // Phase 2 state
+    InlineLabelEditor             *m_inlineEditor    = nullptr;
+    QList<FormConnection>          m_connections;
+    QPointer<QWidget>              m_flashTarget;     // widget to flash-highlight
+    int                            m_flashFrame = 0;
+    QPointer<QWidget>              m_layoutHover;     // layout container under cursor
 };
 
 } // namespace exo::forms

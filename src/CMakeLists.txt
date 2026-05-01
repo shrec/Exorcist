@@ -629,6 +629,10 @@ add_executable(exorcist WIN32
     forms/formeditor/propertyinspector.cpp
     forms/formeditor/uixmlio.h
     forms/formeditor/uixmlio.cpp
+    forms/formeditor/inlinelabeleditor.h
+    forms/formeditor/inlinelabeleditor.cpp
+    forms/formeditor/signalsloteditor.h
+    forms/formeditor/signalsloteditor.cpp
     forms/qmleditor/qmleditorwidget.h
     forms/qmleditor/qmleditorwidget.cpp
     forms/qmleditor/qmlpreviewpane.h
