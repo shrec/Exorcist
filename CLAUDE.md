@@ -411,6 +411,115 @@ stays per-IDE-instance, NOT in ExoBridge.
 
 ---
 
+## CONTAINER vs PLUGIN — STRICT PLACEMENT RULES (zero tolerance)
+
+These rules are **MANDATORY** before creating ANY new file or feature. Violation is a manifesto breach and must be reverted.
+
+### Rule 1 — BEFORE writing any new code, answer this question
+
+> *"Is this CONTAINER infrastructure, or is this a FEATURE for a specific technology/language/tool?"*
+
+If the feature is for a specific **technology, language, build system, debugger, framework, file format, or external tool** → it goes to a **plugin DLL**. Period.
+
+Examples:
+- Qt class wizard, .ui editor, QML preview, Linguist, QSS editor → `plugins/qt-tools/`
+- C++ LSP config, clangd integration → `plugins/cpp-language/`
+- CMake/Ninja/MSBuild integration → `plugins/build/`
+- GDB/LLDB debugger UI → `plugins/debug/`
+- Git operations → `plugins/git/`
+- Anthropic/OpenAI/Ollama providers → `plugins/<provider>/`
+
+### Rule 2 — `src/` is the CONTAINER. Strictly limited to:
+
+| Allowed in `src/` | Reason |
+|---|---|
+| `src/core/` | Pure abstractions (IFileSystem, IProcess, ITerminal) |
+| `src/sdk/` | Plugin-facing SDK (IHostServices, IDebugAdapter, IBuildSystem) |
+| `src/editor/` | Generic code editor component (no language code) |
+| `src/lsp/` | LSP framework only — NOT language-specific configs |
+| `src/agent/` | AI/agent orchestration (provider-agnostic) |
+| `src/settings/` | Generic settings (User/Workspace scope) |
+| `src/bootstrap/` | Lifecycle plumbing (services, managers) |
+| `src/ui/` | Container chrome ONLY: menubar, toolbar rails, statusbar, welcome page, command palette |
+| `src/project/` | Generic project/solution model (no language-specific wizards) |
+| `src/search/` | Generic workspace search |
+| `src/git/` | Generic VCS framework only (concrete git ops live in `plugins/git/`) |
+| `src/forms/` | **FORBIDDEN.** Forms = Qt-specific = plugin |
+
+Anything else → **plugin**.
+
+### Rule 3 — FORBIDDEN file paths in `src/`
+
+Adding a new file matching ANY of these patterns is a **violation** and must be placed in a plugin instead:
+
+```
+src/forms/**                       ← Qt forms = plugin
+src/project/new*wizard.{cpp,h}     ← language/tech wizards = plugin
+src/project/*template*.{cpp,h}     ← project templates = plugin (except generic provider interface)
+src/ui/qt*.{cpp,h}                 ← Qt-specific dialogs = plugin
+src/ui/kit*.{cpp,h}                ← Qt kits = plugin
+src/ui/*helpdock*.{cpp,h}          ← feature docks = plugin
+src/<language>/**                  ← anything language-specific = plugin
+src/<vendor>/**                    ← anything vendor-specific (gdb/clang/cmake) = plugin
+```
+
+If you find yourself typing `src/forms/qt...` or `src/project/newqtclass...` — **STOP**. Move to `plugins/<technology>/`.
+
+### Rule 4 — BEFORE creating any new feature
+
+```bash
+# 1. Does a plugin already exist for this technology?
+ls plugins/<technology>/  # qt-tools/, cpp-language/, debug/, build/, git/, etc.
+
+# 2. If yes → ADD to existing plugin. Do not create a parallel structure in src/.
+# 3. If no → CREATE new plugin in plugins/<technology>/ via plugin scaffold.
+# 4. NEVER add to src/ unless it is CONTAINER infrastructure (see Rule 2).
+```
+
+### Rule 5 — MainWindow may NEVER
+
+Concrete prohibitions enforced in code review:
+
+- ❌ `#include` a feature concrete header (e.g. `qthelpdock.h`, `formeditor.h`, `kitmanagerdialog.h`, `newqtclasswizard.h`)
+- ❌ Construct a feature widget directly (e.g. `new QtHelpDock(this)`, `KitManagerDialog dlg(this)`)
+- ❌ Reference a plugin's classes by type
+- ❌ Know about specific file extensions, build systems, debuggers, languages, or external tools
+- ❌ Have menu actions for tech-specific features (those are added by plugins via `IHostServices`)
+
+If MainWindow needs to invoke a feature, the ONLY allowed mechanisms are:
+- ✅ `ICommandService::executeCommand("plugin.command.id")` for actions
+- ✅ `IDockService::registerDock(...)` for plugin-provided docks (plugin registers, container hosts)
+- ✅ `IEditorRegistry::openEditor(path)` for file-type-specific editors (plugin registers factory)
+
+### Rule 6 — Detection checklist (run on every MainWindow / `src/` edit)
+
+Before committing any change to `src/mainwindow.{cpp,h}`:
+
+```bash
+# Show all includes — must contain ONLY container-level headers
+grep -n '^#include' src/mainwindow.cpp | head -200
+```
+
+✅ Allowed includes: `pluginmanager.h`, `serviceregistry.h`, `sdk/hostservices.h`, `core/*.h`, `editor/editormanager.h`, `agent/*` (orchestrator only), `commandpalette.h`, `bootstrap/*.h`, `settings/scopedsettings.h`
+
+❌ Forbidden includes (any of these = violation): `*helpdock.h`, `*formeditor*.h`, `*wizard.h` (except generic project wizards), `kit*.h`, `qt<feature>.h` for any concrete Qt feature
+
+If you see ❌, **revert and move to plugin** before proceeding with any other work.
+
+### Rule 7 — Sub-agent enforcement
+
+When spawning sub-agents (`Agent` tool), the prompt MUST specify the target plugin path. Spawning a sub-agent to "add Qt help dock" without specifying *plugin location* is itself a violation.
+
+✅ Correct: *"Add Qt help dock widget to `plugins/qt-tools/qthelpdock.cpp`. Plugin registers it via `IHostServices` dock API. Do not modify `src/mainwindow.cpp`."*
+
+❌ Wrong: *"Add Qt help dock to the IDE."* (vague — sub-agent will likely put it in `src/ui/`)
+
+### Rule 8 — When in doubt: PLUGIN
+
+If unsure whether something is container or feature, **default to plugin**. The container is small, stable, and finished. New growth happens in plugins.
+
+---
+
 ## UI/UX MANIFEST (mandatory for plugins)
 
 All plugin and feature UI MUST follow [`docs/ux-principles.md`](docs/ux-principles.md) — the project-wide developer-friendly UX charter. Read it before writing or modifying any visual component. This is a **hard requirement**, not a guideline.
