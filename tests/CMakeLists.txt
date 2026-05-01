@@ -850,6 +850,25 @@ if(TARGET Qt6::Quick AND TARGET Qt6::Qml AND TARGET Qt6::QuickWidgets)
     add_test(NAME QmlPreviewPane COMMAND test_qmlpreviewpane)
 endif()
 
+# ── Theme regression tests ───────────────────────────────────────────────────
+# Guard against the "white windows on dark theme" class of bugs (plain
+# QWidget subclasses that need Qt::WA_StyledBackground for their type-selector
+# QSS background to actually paint).
+add_executable(test_themeregression
+    test_themeregression.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/welcomewidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/welcomewidget.h
+    ${CMAKE_SOURCE_DIR}/src/editor/imagepreviewwidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor/imagepreviewwidget.h
+)
+target_link_libraries(test_themeregression PRIVATE
+    Qt6::Test Qt6::Widgets Qt6::Svg)
+target_include_directories(test_themeregression PRIVATE
+    ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ThemeRegression COMMAND test_themeregression)
+
 # Deploy Qt DLLs so tests can run (Windows)
 if(WIN32 AND EXORCIST_DEPLOY_QT)
     find_program(WINDEPLOYQT windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")
