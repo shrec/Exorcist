@@ -639,6 +639,15 @@ void GdbMiAdapter::handleBreakInsertResult(int token, const QHash<QString, QStri
         if (line > 0) bp.line = line;
     }
 
+    // Apply hit-count gate, if any. -break-after <bp> <count> tells GDB to
+    // ignore the next <count> hits before actually stopping. We only send it
+    // once GDB has confirmed the breakpoint and assigned a real id.
+    if (bp.id > 0 && bp.hitCount > 0) {
+        sendCommand(QStringLiteral("-break-after %1 %2")
+                        .arg(bp.id)
+                        .arg(bp.hitCount));
+    }
+
     m_breakpoints.insert(bp.id, bp);
     emit breakpointSet(bp);
 }

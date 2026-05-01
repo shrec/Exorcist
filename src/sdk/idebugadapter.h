@@ -14,6 +14,7 @@ struct DebugBreakpoint
     QString filePath;
     int     line = 0;           // 1-based
     QString condition;          // optional conditional expression
+    int     hitCount = 0;       // 0 = always break; N = break after N hits
     bool    enabled = true;
     bool    verified = false;   // confirmed by debugger backend
 };
