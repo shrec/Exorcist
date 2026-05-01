@@ -15,6 +15,8 @@ add_library(build_plugin SHARED
     buildsystemservice.cpp
     kitmanager.h
     kitmanager.cpp
+    runconfigdialog.h
+    runconfigdialog.cpp
 )
 
 target_link_libraries(build_plugin PRIVATE

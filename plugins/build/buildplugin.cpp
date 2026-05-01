@@ -7,6 +7,7 @@
 #include "kitmanager.h"
 #include "build/outputpanel.h"
 #include "build/runlaunchpanel.h"
+#include "runconfigdialog.h"
 #include "toolchainmanager.h"
 
 #include "sdk/idebugadapter.h"
@@ -21,6 +22,7 @@
 
 #include <QAction>
 #include <QFileInfo>
+#include <QSettings>
 
 // ── LaunchServiceAdapter ─────────────────────────────────────────────────────
 // Adapts DebugLaunchController to the stable ILaunchService SDK interface.
@@ -353,6 +355,38 @@ void BuildPlugin::registerCommands()
         if (m_launcher)
             m_launcher->stopDebugging();
     });
+
+    // ── Edit Run Configuration ──────────────────────────────────────────
+    // Per-target persistence of program args, environment block, and cwd.
+    // Persisted via QSettings under "runConfig/<target>". The actual launch
+    // flow is not modified yet — values are stored for future use.
+    // TODO: read these values back in the run/debug launch path
+    //       (BuildToolbar::runRequested / debugRequested handlers above) so
+    //       the configured args/env/cwd are applied to DebugLaunchConfig.
+    cmds->registerCommand(QStringLiteral("build.editRunConfig"),
+                          tr("Edit Run Configuration..."), [this]() {
+        const QString target = m_toolbar ? m_toolbar->selectedTarget() : QString();
+        if (target.isEmpty()) {
+            showInfo(tr("No target selected"));
+            return;
+        }
+        QSettings s(QStringLiteral("Exorcist"), QStringLiteral("Exorcist"));
+        s.beginGroup(QStringLiteral("runConfig/") + target);
+        const QString args = s.value(QStringLiteral("args")).toString();
+        const QString env  = s.value(QStringLiteral("env")).toString();
+        const QString cwd  = s.value(QStringLiteral("cwd")).toString();
+        s.endGroup();
+
+        RunConfigDialog dlg(args, env, cwd);
+        if (dlg.exec() == QDialog::Accepted) {
+            s.beginGroup(QStringLiteral("runConfig/") + target);
+            s.setValue(QStringLiteral("args"), dlg.args());
+            s.setValue(QStringLiteral("env"),  dlg.envBlock());
+            s.setValue(QStringLiteral("cwd"),  dlg.workingDir());
+            s.setValue(QStringLiteral("externalTerminal"), dlg.useExternalTerminal());
+            s.endGroup();
+        }
+    });
 }
 
 void BuildPlugin::installMenus()
@@ -369,6 +403,11 @@ void BuildPlugin::installMenus()
                    QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B));
     addMenuCommand(IMenuManager::Build, tr("C&lean"),
                    QStringLiteral("build.clean"), this);
+
+    addMenuSeparator(IMenuManager::Build);
+
+    addMenuCommand(IMenuManager::Build, tr("Edit Run Configuration..."),
+                   QStringLiteral("build.editRunConfig"), this);
 
     addMenuSeparator(IMenuManager::Build);
 
@@ -408,7 +447,7 @@ void BuildPlugin::wireDebugAdapter()
 void BuildPlugin::onAdapterOutput(const QString &text, const QString &category)
 {
     if (category == QStringLiteral("debug") || category == QStringLiteral("stderr")
-            || category == QStringLiteral("console"))
+            || category == QStringLiteral("console") || category == QStringLiteral("command"))
         m_output->appendBuildLine(text.trimmed(), category == QStringLiteral("stderr"));
 }
 
