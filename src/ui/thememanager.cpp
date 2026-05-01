@@ -99,6 +99,21 @@ QPalette lightPalette()
 QString darkStylesheet()
 {
     return QStringLiteral(
+        /* ── Top-level windows ──────────────────────────────── */
+        // Without these explicit rules, newly opened QDialog instances
+        // (NewQtClassWizard, KitManagerDialog, AboutDialog, plugin wizards)
+        // fall back to a Fusion default white background even when the
+        // qApp palette is dark, because the global stylesheet bypasses
+        // the palette for un-named widgets.
+        "QDialog {"
+        "  background-color: #1e1e1e;"
+        "  color: #d4d4d4;"
+        "}"
+        "QMainWindow {"
+        "  background-color: #1e1e1e;"
+        "  color: #d4d4d4;"
+        "}"
+
         /* ── Scrollbars ─────────────────────────────────────── */
         "QScrollBar:vertical {"
         "  background: #1e1e1e; width: 12px; margin: 0; }"
@@ -351,6 +366,16 @@ QString lightStylesheet()
     //   scrollbar handle #5a5a5a -> #c0c0c0 (hover #a0a0a0)
     //   tab unselected text #9d9d9d -> #6a6a6a
     return QStringLiteral(
+        /* ── Top-level windows ──────────────────────────────── */
+        "QDialog {"
+        "  background-color: #ffffff;"
+        "  color: #1f1f1f;"
+        "}"
+        "QMainWindow {"
+        "  background-color: #ffffff;"
+        "  color: #1f1f1f;"
+        "}"
+
         /* ── Scrollbars ─────────────────────────────────────── */
         "QScrollBar:vertical {"
         "  background: #f5f5f5; width: 12px; margin: 0; }"
