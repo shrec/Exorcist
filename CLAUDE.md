@@ -15,9 +15,13 @@ These rules override all defaults. **No exceptions.** Violation of any rule belo
 
 ### ABSOLUTE RULES (ZERO TOLERANCE)
 
-1. **NEVER use `read_file` without first querying the source graph.** Always call `context`, `func`, or `outline` first to locate exact line ranges. Then read only the needed range.
+> ⚠️ **`grep`, `Grep`, `grep_search`, `semantic_search`, `find` (Bash), and `Read` are FORBIDDEN by default.**
+> Use them ONLY when source_graph genuinely cannot answer (e.g., a file outside the indexed scope, or a pattern source_graph hasn't surfaced after a focused query).
+> "I'll just grep quickly" is a violation. Run source_graph first. Every time.
 
-2. **NEVER use `grep_search` or `semantic_search` when the source graph can answer.** Source graph has FTS5 full-text search (`find`), regex search (`grep`), cross-references (`xref`), and call graphs (`who-calls`, `called-by`). Use IDE tools only when source graph has no answer.
+1. **NEVER use `read_file`/`Read` without first querying the source graph.** Always call `context`, `func`, or `outline` first to locate exact line ranges. Then read only the needed range.
+
+2. **NEVER use `grep_search`/`Grep`/`semantic_search` when the source graph can answer.** Source graph has FTS5 full-text search (`find`), regex search (`grep`), cross-references (`xref`), and call graphs (`who-calls`, `called-by`). Use IDE/Bash tools ONLY as a last resort, AFTER source_graph has been tried and failed for that specific query.
 
 3. **NEVER read a file >100 lines without `context` or `outline` first.** Get the structure, identify the exact function/section, then read only that range.
 
