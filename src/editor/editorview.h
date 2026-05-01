@@ -127,6 +127,14 @@ public:
     void setIndentGuidesVisible(bool visible);
     bool isIndentGuidesVisible() const { return m_showIndentGuides; }
 
+    // ── Whitespace markers (Render Whitespace: all) ───────────────────────
+    /// Toggle visualization of spaces (·) and tabs (→) as dim-gray glyph
+    /// overlays. Does NOT modify document text — purely a viewport
+    /// decoration painted after the base paint pass, so it does not
+    /// interfere with selection, cursor, or LSP operations.
+    void setWhitespaceVisible(bool visible);
+    bool isWhitespaceVisible() const { return m_showWhitespace; }
+
     // ── PieceTableBuffer (shadow backing store) ───────────────────────────
     PieceTableBuffer *buffer() const;
     QString bufferText() const;
@@ -308,6 +316,7 @@ private:
     class MinimapWidget     *m_minimap = nullptr;
     bool                     m_minimapVisible = true;
     bool                     m_showIndentGuides = true;
+    bool                     m_showWhitespace = false;
 
     // Breakpoints
     QSet<int>                m_breakpointLines;       // 1-based lines

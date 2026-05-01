@@ -326,6 +326,14 @@ void EditorView::setIndentGuidesVisible(bool visible)
     viewport()->update();
 }
 
+void EditorView::setWhitespaceVisible(bool visible)
+{
+    if (m_showWhitespace == visible)
+        return;
+    m_showWhitespace = visible;
+    viewport()->update();
+}
+
 // ── Code folding ──────────────────────────────────────────────────────────────
 
 CodeFoldingEngine *EditorView::foldingEngine() const
@@ -1560,6 +1568,68 @@ void EditorView::paintEvent(QPaintEvent *event)
                 if (x > viewport()->width())
                     break;
                 painter.drawLine(x, top, x, bottom);
+            }
+
+            block = block.next();
+        }
+    }
+
+    // ── Whitespace markers (Render Whitespace: all) ──────────────────────
+    // Overlay dim-gray glyphs on top of spaces (·) and tabs (→). This is a
+    // pure decoration: text in the document is unchanged, selection still
+    // works exactly as before because we draw AFTER the base paint pass
+    // and never replace the original characters.
+    if (m_showWhitespace) {
+        QPainter painter(viewport());
+        painter.setRenderHint(QPainter::Antialiasing, false);
+        painter.setFont(font());
+
+        const QFontMetrics fm(font());
+        const QColor wsColor(0x3e, 0x3e, 0x42);
+        painter.setPen(wsColor);
+
+        const QString spaceGlyph = QString(QChar(0x00B7)); // middle dot ·
+        const QString tabGlyph   = QString(QChar(0x2192)); // right arrow →
+
+        // Pre-compute centering offset so the · glyph sits in the middle of
+        // a space cell instead of left-aligned.
+        const int spaceCellW = qMax(1, fm.horizontalAdvance(QLatin1Char(' ')));
+        const int dotW = fm.horizontalAdvance(spaceGlyph);
+        const int dotOffsetX = qMax(0, (spaceCellW - dotW) / 2);
+
+        const qreal baseX = contentOffset().x();
+        const int viewportH = viewport()->height();
+        const int ascent = fm.ascent();
+
+        QTextBlock block = firstVisibleBlock();
+        while (block.isValid()) {
+            const QRectF geo = blockBoundingGeometry(block).translated(contentOffset());
+            if (geo.top() > viewportH)
+                break;
+            if (geo.bottom() < 0) {
+                block = block.next();
+                continue;
+            }
+
+            const QString text = block.text();
+            if (text.isEmpty()) {
+                block = block.next();
+                continue;
+            }
+
+            const qreal y = geo.top() + ascent;
+            // Use horizontalAdvance(text.left(i)) to obtain accurate X for
+            // each character, honouring tab stops, kerning, and proportional
+            // glyph widths if the editor font happens to be non-monospaced.
+            for (int i = 0; i < text.length(); ++i) {
+                const QChar ch = text.at(i);
+                if (ch == QLatin1Char(' ')) {
+                    const int x = qRound(baseX + fm.horizontalAdvance(text.left(i)));
+                    painter.drawText(QPointF(x + dotOffsetX, y), spaceGlyph);
+                } else if (ch == QLatin1Char('\t')) {
+                    const int x = qRound(baseX + fm.horizontalAdvance(text.left(i)));
+                    painter.drawText(QPointF(x + 2, y), tabGlyph);
+                }
             }
 
             block = block.next();
