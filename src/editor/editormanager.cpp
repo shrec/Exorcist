@@ -6,6 +6,7 @@
 #include "imagepreviewwidget.h"
 #include "largefileloader.h"
 #include "qrceditorwidget.h"
+#include "../forms/formeditor/uiformeditor.h"
 
 #include "../core/ifilesystem.h"
 #include "../lsp/lspclient.h"
@@ -83,6 +84,39 @@ void EditorManager::openFile(const QString &path)
             const int index = m_tabs->addTab(preview, title);
             m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
             m_tabs->setCurrentIndex(index);
+            return;
+        }
+    }
+
+    // ── Qt Designer .ui path: open in our custom UiFormEditor instead of
+    //    the text editor.  UiFormEditor is a plain QWidget so the existing
+    //    qobject_cast<EditorView*> guards in editorAt()/currentEditor() will
+    //    safely return nullptr for these tabs.
+    {
+        const QString ext = QFileInfo(path).suffix().toLower();
+        if (ext == QStringLiteral("ui")) {
+            auto *form = new exo::forms::UiFormEditor();
+            const bool ok = form->loadFromFile(path);
+            if (!ok)
+                emit statusMessage(tr("Failed to parse .ui: %1").arg(path), 4000);
+            form->setProperty("filePath", path);
+
+            const QString title = QFileInfo(path).fileName();
+            const int index = m_tabs->addTab(form, title);
+            m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
+            m_tabs->setCurrentIndex(index);
+
+            // Reflect "modified" via tab-title asterisk, mirroring the .qrc
+            // editor's pattern below.
+            QTabWidget *tabsRef = m_tabs;
+            connect(form, &exo::forms::UiFormEditor::modificationChanged, tabsRef,
+                    [tabsRef, form, title](bool modified) {
+                        const int idx = tabsRef->indexOf(form);
+                        if (idx < 0) return;
+                        tabsRef->setTabText(idx, modified
+                                            ? title + QStringLiteral(" *")
+                                            : title);
+                    });
             return;
         }
     }

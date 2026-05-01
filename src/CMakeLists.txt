@@ -619,6 +619,16 @@ add_executable(exorcist WIN32
     settings/workspacesettings.cpp
     settings/languageprofile.h
     settings/languageprofile.cpp
+    forms/formeditor/uiformeditor.h
+    forms/formeditor/uiformeditor.cpp
+    forms/formeditor/widgetpalette.h
+    forms/formeditor/widgetpalette.cpp
+    forms/formeditor/formcanvas.h
+    forms/formeditor/formcanvas.cpp
+    forms/formeditor/propertyinspector.h
+    forms/formeditor/propertyinspector.cpp
+    forms/formeditor/uixmlio.h
+    forms/formeditor/uixmlio.cpp
 )
 
 # ── Chat renderer: Ultralight (HTML/JS) vs Qt widgets ────────────────────────
@@ -652,7 +662,10 @@ else()
     )
 endif()
 
-target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent Qt6::Sql Qt6::Svg libluajit)
+# Qt6::UiTools — required by the custom .ui form editor (QUiLoader).
+find_package(Qt6 REQUIRED COMPONENTS UiTools)
+
+target_link_libraries(exorcist PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent Qt6::Sql Qt6::Svg Qt6::UiTools libluajit)
 if(WIN32)
     target_link_libraries(exorcist PRIVATE dbghelp)
 endif()
