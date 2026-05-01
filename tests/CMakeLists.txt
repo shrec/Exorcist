@@ -402,6 +402,7 @@ add_executable(test_pluginmarketplace
     test_pluginmarketplace.cpp
     ${CMAKE_SOURCE_DIR}/src/plugin/pluginmarketplaceservice.cpp
     ${CMAKE_SOURCE_DIR}/src/plugin/pluginmarketplaceservice.h
+    stubs/pluginmanager_stub.cpp
 )
 target_link_libraries(test_pluginmarketplace PRIVATE Qt6::Test Qt6::Widgets Qt6::Network)
 target_include_directories(test_pluginmarketplace PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -676,6 +677,7 @@ add_executable(test_marketplacesafety
     ${CMAKE_SOURCE_DIR}/src/plugin/pluginmarketplaceservice.h
     ${CMAKE_SOURCE_DIR}/src/plugin/pluginmanifest.cpp
     ${CMAKE_SOURCE_DIR}/src/plugin/pluginmanifest.h
+    stubs/pluginmanager_stub.cpp
 )
 target_link_libraries(test_marketplacesafety PRIVATE Qt6::Test Qt6::Widgets Qt6::Network)
 target_include_directories(test_marketplacesafety PRIVATE ${CMAKE_SOURCE_DIR}/src)
