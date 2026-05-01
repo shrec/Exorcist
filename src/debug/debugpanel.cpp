@@ -50,6 +50,7 @@ DebugPanel::DebugPanel(QWidget *parent)
     root->addWidget(m_tabs, 1);
 
     setupCallStackTab();
+    setupThreadsTab();
     setupLocalsTab();
     setupBreakpointsTab();
     setupWatchTab();
@@ -139,6 +140,38 @@ void DebugPanel::setupCallStackTab()
 
     lay->addWidget(m_callStackTable);
     m_tabs->addTab(w, tr("Call Stack"));
+}
+
+// ── Threads Tab ───────────────────────────────────────────────────────────────
+
+void DebugPanel::setupThreadsTab()
+{
+    auto *w = new QWidget(this);
+    auto *lay = new QVBoxLayout(w);
+    lay->setContentsMargins(0, 0, 0, 0);
+
+    m_threadsTable = new QTableWidget(0, 3, w);
+    m_threadsTable->setHorizontalHeaderLabels({tr("ID"), tr("Name"), tr("State")});
+    m_threadsTable->horizontalHeader()->setStretchLastSection(true);
+    m_threadsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_threadsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_threadsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_threadsTable->verticalHeader()->hide();
+    m_threadsTable->setAlternatingRowColors(true);
+    m_threadsTable->setColumnWidth(0, 50);
+    m_threadsTable->setColumnWidth(1, 220);
+    m_threadsTable->setStyleSheet(QLatin1String(kDebugTableStyle));
+
+    // Single click switches the active thread — matches Call Stack behaviour
+    // and avoids the user needing to double-click for what is conceptually a
+    // navigation gesture.
+    connect(m_threadsTable, &QTableWidget::cellClicked,
+            this, &DebugPanel::onThreadClicked);
+    connect(m_threadsTable, &QTableWidget::cellDoubleClicked,
+            this, &DebugPanel::onThreadClicked);
+
+    lay->addWidget(m_threadsTable);
+    m_tabs->addTab(w, tr("Threads"));
 }
 
 // ── Locals Tab ────────────────────────────────────────────────────────────────
@@ -415,6 +448,7 @@ void DebugPanel::onAdapterTerminated()
     m_outputText->appendPlainText(tr("--- Debug session ended ---"));
     m_watchInput->setEnabled(false);
     m_watchRemoveBtn->setEnabled(false);
+    m_threadsTable->setRowCount(0);
 }
 
 void DebugPanel::onAdapterError(const QString &msg)
@@ -453,9 +487,31 @@ void DebugPanel::onAdapterContinued(int /*threadId*/)
     m_localsModel->clearAll();
 }
 
-void DebugPanel::onThreadsReceived(const QList<DebugThread> &/*threads*/)
+void DebugPanel::onThreadsReceived(const QList<DebugThread> &threads)
 {
-    // Could show in a threads sub-tab; for now we focus on the stopped thread
+    m_threadsTable->setRowCount(threads.size());
+    int activeRow = -1;
+    for (int i = 0; i < threads.size(); ++i) {
+        const auto &t = threads[i];
+
+        auto *idItem    = new QTableWidgetItem(QString::number(t.id));
+        auto *nameItem  = new QTableWidgetItem(t.name);
+        auto *stateItem = new QTableWidgetItem(t.stopped ? tr("Stopped") : tr("Running"));
+
+        // Stash the thread id on the row so the click handler does not have
+        // to re-parse the displayed text (which is locale-formatted).
+        idItem->setData(Qt::UserRole, t.id);
+
+        m_threadsTable->setItem(i, 0, idItem);
+        m_threadsTable->setItem(i, 1, nameItem);
+        m_threadsTable->setItem(i, 2, stateItem);
+
+        if (t.id == m_currentThread)
+            activeRow = i;
+    }
+
+    if (activeRow >= 0)
+        m_threadsTable->selectRow(activeRow);
 }
 
 void DebugPanel::onStackTraceReceived(int /*threadId*/, const QList<DebugFrame> &frames)
@@ -551,6 +607,30 @@ void DebugPanel::onCallStackClicked(int row, int /*col*/)
     const int line = locItem->data(Qt::UserRole + 1).toInt();
     if (!filePath.isEmpty() && line > 0)
         emit navigateToSource(filePath, line);
+}
+
+void DebugPanel::onThreadClicked(int row, int /*col*/)
+{
+    if (row < 0 || row >= m_threadsTable->rowCount()) return;
+
+    auto *idItem = m_threadsTable->item(row, 0);
+    if (!idItem) return;
+
+    bool ok = false;
+    // Prefer the int stashed in UserRole; fall back to the displayed text.
+    int threadId = idItem->data(Qt::UserRole).toInt(&ok);
+    if (!ok || threadId == 0)
+        threadId = idItem->text().toInt(&ok);
+    if (!ok) return;
+
+    m_threadsTable->selectRow(row);
+    m_currentThread = threadId;
+
+    // Re-issue the stack trace for the newly selected thread; the resulting
+    // onStackTraceReceived() will populate the Call Stack tab and navigate
+    // the editor to the top frame.
+    if (m_adapter)
+        m_adapter->requestStackTrace(threadId);
 }
 
 // ── Breakpoint entries ────────────────────────────────────────────────────────

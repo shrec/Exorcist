@@ -80,12 +80,14 @@ private slots:
 
     void onCallStackDoubleClicked(int row, int col);
     void onCallStackClicked(int row, int col);
+    void onThreadClicked(int row, int col);
     void onLocalsContextMenu(const QPoint &pos);
     void onWatchContextMenu(const QPoint &pos);
 
 private:
     void setupToolBar();
     void setupCallStackTab();
+    void setupThreadsTab();
     void setupLocalsTab();
     void setupBreakpointsTab();
     void setupOutputTab();
@@ -113,6 +115,9 @@ private:
 
     // Call Stack tab
     QTableWidget     *m_callStackTable;
+
+    // Threads tab
+    QTableWidget     *m_threadsTable;
 
     // Last thread the adapter reported via *stopped — used so frame
     // selections re-issue stack/locals queries on the right thread.
