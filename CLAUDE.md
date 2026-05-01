@@ -411,6 +411,24 @@ stays per-IDE-instance, NOT in ExoBridge.
 
 ---
 
+## UI/UX MANIFEST (mandatory for plugins)
+
+All plugin and feature UI MUST follow [`docs/ux-principles.md`](docs/ux-principles.md) — the project-wide developer-friendly UX charter. Read it before writing or modifying any visual component. This is a **hard requirement**, not a guideline.
+
+The 5 most important rules (the rest are in the doc):
+
+1. **Keyboard-first** — every common action has a shortcut; mouse never required. Ctrl+Shift+P Command Palette is the universal escape hatch.
+2. **Search-everywhere** — every list/tree with >10 items has a top search filter; property panels and settings are searchable.
+3. **Inline > Modal** — modal dialogs only for destructive ops, multi-step wizards, or auth. All trivial edits are in-place (double-click text, popover for color, drag handles).
+4. **Flat property inspectors** — flat sortable list with a search box and a "Modified / All" toggle. **No two-level category trees.** Type-aware inline editors only.
+5. **Always undoable** — every state-mutating action goes through `QUndoStack` with a meaningful description; Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z all work.
+
+**Subagents (Agent tool) MUST follow these principles when writing or refactoring any UI code.** Before adding a button, dialog, list, or panel: re-read `docs/ux-principles.md`. Before approving UI work, check it against the plugin author checklist in that document. Forbidden patterns (e.g., modal dialogs for trivial property changes, lists without search, buttons without tooltips) are documented there and must not be introduced.
+
+Visual reference (colors, layout density, dock placement) is still governed by [`docs/reference/ui-ux-reference.md`](docs/reference/ui-ux-reference.md) and `vs-ui-reference.png`. The two documents are complementary: ux-principles.md = behavior, ui-ux-reference.md = visual style.
+
+---
+
 ## Project Facts
 
 - Build dirs: `build/` (MSVC), `build-llvm/` (Clang/Ninja, active)
