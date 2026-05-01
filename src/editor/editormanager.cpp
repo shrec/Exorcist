@@ -9,6 +9,7 @@
 #include "../forms/formeditor/uiformeditor.h"
 #include "../forms/linguist/linguisteditor.h"
 #include "../forms/qmleditor/qmleditorwidget.h"
+#include "../forms/qsseditor/qsseditorwidget.h"
 
 #include "../core/ifilesystem.h"
 #include "../lsp/lspclient.h"
@@ -60,6 +61,43 @@ void EditorManager::openFile(const QString &path)
     for (int i = 0; i < m_tabs->count(); ++i) {
         if (m_tabs->widget(i)->property("filePath").toString() == path) {
             m_tabs->setCurrentIndex(i);
+            return;
+        }
+    }
+
+    // ── QSS path: open .qss files in our split-view QssEditorWidget (text
+    //    editor on the left, live-styled sample-widget gallery on the right).
+    //    Same pattern as .qml / .ui / .qrc above — plain QWidget, not an
+    //    EditorView, so editorAt()/currentEditor() qobject_cast<EditorView*>
+    //    guards safely return nullptr for these tabs.
+    {
+        const QString ext = QFileInfo(path).suffix().toLower();
+        if (ext == QStringLiteral("qss")) {
+            auto *qss = new exo::forms::QssEditorWidget();
+            const bool ok = qss->loadFromFile(path);
+            if (!ok)
+                emit statusMessage(tr("Failed to open .qss: %1").arg(path), 4000);
+            qss->setProperty("filePath", path);
+
+            const QString title = QFileInfo(path).fileName();
+            const int index = m_tabs->addTab(qss, title);
+            m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
+            m_tabs->setCurrentIndex(index);
+
+            // Mirror modified flag in tab title (asterisk suffix), same as
+            // .qml / .ui / .qrc editors.
+            QTabWidget *tabsRef = m_tabs;
+            connect(qss, &exo::forms::QssEditorWidget::modificationChanged, tabsRef,
+                    [tabsRef, qss, title](bool modified) {
+                        const int idx = tabsRef->indexOf(qss);
+                        if (idx < 0) return;
+                        tabsRef->setTabText(idx, modified
+                                            ? title + QStringLiteral(" *")
+                                            : title);
+                    });
+            // Forward QSS editor status messages out to MainWindow's status bar.
+            connect(qss, &exo::forms::QssEditorWidget::statusMessage,
+                    this, &EditorManager::statusMessage);
             return;
         }
     }

@@ -637,6 +637,10 @@ add_executable(exorcist WIN32
     forms/qmleditor/qmleditorwidget.cpp
     forms/qmleditor/qmlpreviewpane.h
     forms/qmleditor/qmlpreviewpane.cpp
+    forms/qsseditor/qsseditorwidget.h
+    forms/qsseditor/qsseditorwidget.cpp
+    forms/qsseditor/qsspreviewpane.h
+    forms/qsseditor/qsspreviewpane.cpp
     forms/linguist/linguisteditor.h
     forms/linguist/linguisteditor.cpp
     forms/linguist/tsxmlio.h
