@@ -6,6 +6,7 @@
 
 class GdbMiAdapter;
 class DebugPanel;
+class MemoryViewPanel;
 class IDebugService;
 
 class DebugPlugin : public QObject, public WorkbenchPluginBase, public IViewContributor
@@ -34,7 +35,8 @@ private:
     void registerCommands();
     void installMenusAndToolBar();
 
-    GdbMiAdapter   *m_adapter        = nullptr;
-    DebugPanel     *m_panel          = nullptr;
-    IDebugService  *m_debugService   = nullptr;
+    GdbMiAdapter    *m_adapter        = nullptr;
+    DebugPanel      *m_panel          = nullptr;
+    MemoryViewPanel *m_memoryView     = nullptr;
+    IDebugService   *m_debugService   = nullptr;
 };

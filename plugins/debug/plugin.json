@@ -19,15 +19,21 @@
                 "id": "DebugDock",
                 "title": "Debug",
                 "location": "bottom"
+            },
+            {
+                "id": "MemoryDock",
+                "title": "Memory",
+                "location": "bottom"
             }
         ],
         "commands": [
-            { "id": "debug.launch",    "title": "Launch Debugger", "category": "Debug" },
-            { "id": "debug.continue",  "title": "Continue Execution", "category": "Debug" },
-            { "id": "debug.stepOver",  "title": "Step Over", "category": "Debug" },
-            { "id": "debug.stepInto",  "title": "Step Into", "category": "Debug" },
-            { "id": "debug.stepOut",   "title": "Step Out", "category": "Debug" },
-            { "id": "debug.terminate", "title": "Terminate Debug Session", "category": "Debug" }
+            { "id": "debug.launch",         "title": "Launch Debugger", "category": "Debug" },
+            { "id": "debug.continue",       "title": "Continue Execution", "category": "Debug" },
+            { "id": "debug.stepOver",       "title": "Step Over", "category": "Debug" },
+            { "id": "debug.stepInto",       "title": "Step Into", "category": "Debug" },
+            { "id": "debug.stepOut",        "title": "Step Out", "category": "Debug" },
+            { "id": "debug.terminate",      "title": "Terminate Debug Session", "category": "Debug" },
+            { "id": "debug.openMemoryView", "title": "Open Memory View", "category": "Debug" }
         ]
     }
 }

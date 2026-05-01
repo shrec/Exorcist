@@ -3,6 +3,8 @@ add_library(debug_plugin SHARED
     debugplugin.cpp
     gdbmiadapter.h
     gdbmiadapter.cpp
+    memoryviewpanel.h
+    memoryviewpanel.cpp
     ${CMAKE_SOURCE_DIR}/src/debug/debugpanel.h
     ${CMAKE_SOURCE_DIR}/src/debug/debugpanel.cpp
     ${CMAKE_SOURCE_DIR}/src/debug/watchtreemodel.h

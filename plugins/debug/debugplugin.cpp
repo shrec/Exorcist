@@ -1,6 +1,7 @@
 #include "debugplugin.h"
 
 #include "gdbmiadapter.h"
+#include "memoryviewpanel.h"
 #include "debug/debugpanel.h"
 #include "ui/themeicons.h"
 
@@ -153,6 +154,10 @@ bool DebugPlugin::initializePlugin()
     m_panel   = new DebugPanel(nullptr);
     m_panel->setAdapter(m_adapter);
 
+    // Memory view dock — top-level QWidget reparented later via createView().
+    m_memoryView = new MemoryViewPanel(nullptr);
+    m_memoryView->setAdapter(m_adapter);
+
     // Create service bridge (replaces DebugBootstrap's signal wiring)
     m_debugService = new DebugServiceBridge(m_adapter, m_panel, this);
 
@@ -177,6 +182,17 @@ bool DebugPlugin::initializePlugin()
 
 void DebugPlugin::shutdownPlugin()
 {
+    // m_panel and m_memoryView are reparented into the dock when the view
+    // is created via createView(), so the dock owns them. If a view was
+    // never created the panel still belongs to the plugin — delete here.
+    if (m_panel && !m_panel->parent()) {
+        delete m_panel;
+        m_panel = nullptr;
+    }
+    if (m_memoryView && !m_memoryView->parent()) {
+        delete m_memoryView;
+        m_memoryView = nullptr;
+    }
 }
 
 QWidget *DebugPlugin::createView(const QString &viewId, QWidget *parent)
@@ -184,6 +200,10 @@ QWidget *DebugPlugin::createView(const QString &viewId, QWidget *parent)
     if (viewId == QLatin1String("DebugDock") && m_panel) {
         m_panel->setParent(parent);
         return m_panel;
+    }
+    if (viewId == QLatin1String("MemoryDock") && m_memoryView) {
+        m_memoryView->setParent(parent);
+        return m_memoryView;
     }
     return nullptr;
 }
@@ -203,29 +223,36 @@ void DebugPlugin::registerCommands()
             m_adapter->continueExecution();
     });
 
-    cmds->registerCommand(QStringLiteral("debug.continue"), tr("Continue Execution"), [this]() {
-        if (m_adapter && m_adapter->isRunning())
-            m_adapter->continueExecution();
-    });
+    auto debugCmd = [this](const char *name, void (IDebugAdapter::*fn)(int), int tid) {
+        const bool hasAdapter = (m_adapter != nullptr);
+        const bool isRunning  = hasAdapter && m_adapter->isRunning();
+        if (m_adapter) {
+            emit m_adapter->outputProduced(
+                QStringLiteral("[CMD] debug.%1 — adapter=%2 isRunning=%3")
+                    .arg(QString::fromLatin1(name))
+                    .arg(hasAdapter).arg(isRunning),
+                QStringLiteral("debug"));
+        }
+        if (hasAdapter && isRunning)
+            (m_adapter->*fn)(tid);
+    };
 
-    cmds->registerCommand(QStringLiteral("debug.stepOver"), tr("Step Over"), [this]() {
-        if (m_adapter && m_adapter->isRunning())
-            m_adapter->stepOver();
-    });
-
-    cmds->registerCommand(QStringLiteral("debug.stepInto"), tr("Step Into"), [this]() {
-        if (m_adapter && m_adapter->isRunning())
-            m_adapter->stepInto();
-    });
-
-    cmds->registerCommand(QStringLiteral("debug.stepOut"), tr("Step Out"), [this]() {
-        if (m_adapter && m_adapter->isRunning())
-            m_adapter->stepOut();
-    });
+    cmds->registerCommand(QStringLiteral("debug.continue"), tr("Continue Execution"),
+                          [debugCmd]() { debugCmd("continue",  &IDebugAdapter::continueExecution, 0); });
+    cmds->registerCommand(QStringLiteral("debug.stepOver"), tr("Step Over"),
+                          [debugCmd]() { debugCmd("stepOver",  &IDebugAdapter::stepOver, 0); });
+    cmds->registerCommand(QStringLiteral("debug.stepInto"), tr("Step Into"),
+                          [debugCmd]() { debugCmd("stepInto",  &IDebugAdapter::stepInto, 0); });
+    cmds->registerCommand(QStringLiteral("debug.stepOut"), tr("Step Out"),
+                          [debugCmd]() { debugCmd("stepOut",   &IDebugAdapter::stepOut, 0); });
 
     cmds->registerCommand(QStringLiteral("debug.terminate"), tr("Terminate Debug Session"), [this]() {
         if (m_adapter && m_adapter->isRunning())
             m_adapter->terminate();
+    });
+
+    cmds->registerCommand(QStringLiteral("debug.openMemoryView"), tr("Open Memory View"), [this]() {
+        showPanel(QStringLiteral("MemoryDock"));
     });
 }
 
@@ -287,6 +314,7 @@ void DebugPlugin::installMenusAndToolBar()
         {tr("Step &Over"), QStringLiteral("debug.stepOver"), QKeySequence(Qt::Key_F10), true},
         {tr("Step &Into"), QStringLiteral("debug.stepInto"), QKeySequence(Qt::Key_F11)},
         {tr("Step O&ut"), QStringLiteral("debug.stepOut"), QKeySequence(Qt::SHIFT | Qt::Key_F11)},
+        {tr("&Memory View"), QStringLiteral("debug.openMemoryView"), QKeySequence(), true},
     }, this);
 }
 
