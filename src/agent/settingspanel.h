@@ -42,6 +42,7 @@ private:
     void buildModelTab(QWidget *tab);
     void buildToolsTab(QWidget *tab);
     void buildContextTab(QWidget *tab);
+    void buildAppearanceTab(QWidget *tab);
 
     QTabWidget *m_tabs;
 
@@ -51,6 +52,11 @@ private:
     QCheckBox *m_enableMemory;
     QCheckBox *m_enableReview;
     QLineEdit *m_disabledLangs;
+
+    // Appearance & Editor
+    QCheckBox *m_darkTheme       = nullptr;
+    QCheckBox *m_autoSaveEnabled = nullptr;
+    QSpinBox  *m_autoSaveInterval = nullptr;
 
     // Model
     QSpinBox  *m_maxSteps;

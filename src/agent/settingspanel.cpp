@@ -1,5 +1,6 @@
 #include "settingspanel.h"
 #include "agent/chat/chatthemetokens.h"
+#include "ui/thememanager.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -54,20 +55,23 @@ SettingsPanel::SettingsPanel(QWidget *parent)
     root->addWidget(titleLabel);
     root->addWidget(m_tabs);
 
-    auto *generalTab = new QWidget;
-    auto *modelTab   = new QWidget;
-    auto *toolsTab   = new QWidget;
-    auto *contextTab = new QWidget;
+    auto *generalTab    = new QWidget;
+    auto *modelTab      = new QWidget;
+    auto *toolsTab      = new QWidget;
+    auto *contextTab    = new QWidget;
+    auto *appearanceTab = new QWidget;
 
     buildGeneralTab(generalTab);
     buildModelTab(modelTab);
     buildToolsTab(toolsTab);
     buildContextTab(contextTab);
+    buildAppearanceTab(appearanceTab);
 
-    m_tabs->addTab(generalTab, tr("General"));
-    m_tabs->addTab(modelTab,   tr("Model"));
-    m_tabs->addTab(toolsTab,   tr("Tools"));
-    m_tabs->addTab(contextTab, tr("Context"));
+    m_tabs->addTab(generalTab,    tr("General"));
+    m_tabs->addTab(appearanceTab, tr("Appearance & Editor"));
+    m_tabs->addTab(modelTab,      tr("Model"));
+    m_tabs->addTab(toolsTab,      tr("Tools"));
+    m_tabs->addTab(contextTab,    tr("Context"));
 
     loadSettings();
 }
@@ -207,6 +211,62 @@ void SettingsPanel::buildContextTab(QWidget *tab)
     connect(m_contextTokenLimit, &QSpinBox::valueChanged, this, [this]() { saveSettings(); emit settingsChanged(); });
 }
 
+void SettingsPanel::buildAppearanceTab(QWidget *tab)
+{
+    auto *lay = new QVBoxLayout(tab);
+
+    // Appearance group
+    auto *appearance = new QGroupBox(tr("Appearance"), tab);
+    auto *alay = new QVBoxLayout(appearance);
+
+    m_darkTheme = new QCheckBox(tr("Dark theme"), appearance);
+    alay->addWidget(m_darkTheme);
+    lay->addWidget(appearance);
+
+    // Auto-save group
+    auto *autosave = new QGroupBox(tr("Auto-save"), tab);
+    auto *aslay = new QFormLayout(autosave);
+
+    m_autoSaveEnabled = new QCheckBox(tr("Enable auto-save"), autosave);
+    aslay->addRow(m_autoSaveEnabled);
+
+    m_autoSaveInterval = new QSpinBox(autosave);
+    m_autoSaveInterval->setRange(5, 600);
+    m_autoSaveInterval->setSingleStep(5);
+    m_autoSaveInterval->setSuffix(tr(" s"));
+    m_autoSaveInterval->setValue(30);
+    aslay->addRow(tr("Interval:"), m_autoSaveInterval);
+
+    auto *hint = new QLabel(
+        tr("<i>Note: auto-save changes apply on next IDE restart.</i>"), autosave);
+    hint->setWordWrap(true);
+    hint->setStyleSheet(QStringLiteral("color:%1;")
+                            .arg(ChatTheme::pick(ChatTheme::FgDimmed,
+                                                  ChatTheme::L_FgDimmed)));
+    aslay->addRow(hint);
+
+    lay->addWidget(autosave);
+    lay->addStretch();
+
+    // Theme: apply live via ThemeManager free helper.
+    connect(m_darkTheme, &QCheckBox::toggled, this, [this](bool checked) {
+        Exorcist::setDarkTheme(checked);
+        saveSettings();
+        emit settingsChanged();
+    });
+
+    // Auto-save: persist; AutoSaveManager picks up on next construction.
+    connect(m_autoSaveEnabled, &QCheckBox::toggled, this,
+            [this](bool checked) {
+                if (m_autoSaveInterval)
+                    m_autoSaveInterval->setEnabled(checked);
+                saveSettings();
+                emit settingsChanged();
+            });
+    connect(m_autoSaveInterval, &QSpinBox::valueChanged, this,
+            [this]() { saveSettings(); emit settingsChanged(); });
+}
+
 void SettingsPanel::loadSettings()
 {
     QSettings s;
@@ -233,6 +293,24 @@ void SettingsPanel::loadSettings()
     m_contextTokenLimit->setValue(s.value(QStringLiteral("contextTokenLimit"), 100000).toInt());
 
     s.endGroup();
+
+    // Appearance & Editor — top-level keys (shared with ThemeManager / AutoSaveManager)
+    if (m_darkTheme) {
+        QSignalBlocker blockTheme(m_darkTheme);
+        m_darkTheme->setChecked(s.value(QStringLiteral("theme/dark"), true).toBool());
+    }
+    if (m_autoSaveEnabled) {
+        QSignalBlocker blockAs(m_autoSaveEnabled);
+        m_autoSaveEnabled->setChecked(
+            s.value(QStringLiteral("autosave/enabled"), true).toBool());
+    }
+    if (m_autoSaveInterval) {
+        QSignalBlocker blockInt(m_autoSaveInterval);
+        const int v = s.value(QStringLiteral("autosave/interval"), 30).toInt();
+        m_autoSaveInterval->setValue(qBound(5, v, 600));
+        m_autoSaveInterval->setEnabled(m_autoSaveEnabled
+                                       && m_autoSaveEnabled->isChecked());
+    }
 }
 
 void SettingsPanel::saveSettings()
@@ -262,6 +340,16 @@ void SettingsPanel::saveSettings()
     s.setValue(QStringLiteral("disabledTools"), disabledTools());
 
     s.endGroup();
+
+    // Appearance & Editor — top-level keys (shared with ThemeManager / AutoSaveManager)
+    if (m_darkTheme)
+        s.setValue(QStringLiteral("theme/dark"), m_darkTheme->isChecked());
+    if (m_autoSaveEnabled)
+        s.setValue(QStringLiteral("autosave/enabled"),
+                   m_autoSaveEnabled->isChecked());
+    if (m_autoSaveInterval)
+        s.setValue(QStringLiteral("autosave/interval"),
+                   m_autoSaveInterval->value());
 }
 
 int SettingsPanel::contextTokenLimit() const
