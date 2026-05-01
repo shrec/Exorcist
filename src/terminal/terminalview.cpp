@@ -481,6 +481,12 @@ void TerminalView::contextMenuEvent(QContextMenuEvent *event)
 
     menu.addSeparator();
 
+    auto *closeAction = menu.addAction(tr("Close Terminal"));
+    connect(closeAction, &QAction::triggered,
+            this, &TerminalView::closeRequested);
+
+    menu.addSeparator();
+
     auto *zoomInAction = menu.addAction(tr("Zoom In\tCtrl++"));
     connect(zoomInAction, &QAction::triggered, this, [this]() {
         setFontSize(m_fontSize + 1);
@@ -500,6 +506,16 @@ void TerminalView::contextMenuEvent(QContextMenuEvent *event)
 }
 
 // ── Font Size ─────────────────────────────────────────────────────────────────
+
+void TerminalView::zoomIn()      { setFontSize(m_fontSize + 1); }
+void TerminalView::zoomOut()     { setFontSize(m_fontSize - 1); }
+void TerminalView::resetZoom()   { setFontSize(10); }
+
+void TerminalView::clearScreen()
+{
+    m_screen->feed("\x1B[2J\x1B[H");
+    viewport()->update();
+}
 
 void TerminalView::setFontSize(int pointSize)
 {

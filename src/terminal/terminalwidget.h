@@ -43,6 +43,19 @@ public:
     // Get the currently selected text in the terminal view.
     QString selectedText() const;
 
+    // Font-size controls (forwarded to TerminalView).  Used by TerminalPanel's
+    // per-terminal QShortcuts (Ctrl+Shift+= / Ctrl+Shift+-) and by the
+    // right-click context menu.
+    void zoomIn();
+    void zoomOut();
+    void resetZoom();
+    int  fontSize() const;
+
+signals:
+    // Emitted when the user picks "Close" in the right-click context menu.
+    // The owning TerminalPanel listens to remove the corresponding tab.
+    void closeRequested();
+
 protected:
     void showEvent(QShowEvent *event) override;
 

@@ -26,9 +26,21 @@ public:
     void scrollToBottom();
     QString selectedText() const;
 
+    // Public font-size API (also reachable via Ctrl+= / Ctrl+- in keyPressEvent
+    // and via the context menu).  TerminalWidget forwards Ctrl+Shift+=/-
+    // shortcuts here.
+    void zoomIn();
+    void zoomOut();
+    void resetZoom();
+    int  fontSize() const { return m_fontSize; }
+    // Clear the screen + scrollback (mirrors `\x1B[2J\x1B[H` behaviour
+    // exposed in the context menu).
+    void clearScreen();
+
 signals:
     void inputData(const QByteArray &data);   // keyboard / paste → PTY
     void sizeChanged(int cols, int rows);      // pixel resize → cell grid
+    void closeRequested();                     // user picked "Close" in context menu
 
 protected:
     void paintEvent(QPaintEvent *event) override;

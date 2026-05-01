@@ -41,6 +41,11 @@ TerminalWidget::TerminalWidget(QWidget *parent)
     // Shell exit → status message + option to restart
     connect(m_backend, &PtyBackend::finished,
             this, &TerminalWidget::onShellFinished);
+
+    // Right-click → "Close Terminal" surfaces as a TerminalWidget signal so
+    // the owning TerminalPanel can remove the corresponding tab.
+    connect(m_view, &TerminalView::closeRequested,
+            this,   &TerminalWidget::closeRequested);
 }
 
 TerminalWidget::~TerminalWidget()
@@ -159,6 +164,13 @@ QString TerminalWidget::selectedText() const
 {
     return m_view ? m_view->selectedText() : QString();
 }
+
+// ── Font size forwarders ──────────────────────────────────────────────────────
+
+void TerminalWidget::zoomIn()    { if (m_view) m_view->zoomIn(); }
+void TerminalWidget::zoomOut()   { if (m_view) m_view->zoomOut(); }
+void TerminalWidget::resetZoom() { if (m_view) m_view->resetZoom(); }
+int  TerminalWidget::fontSize() const { return m_view ? m_view->fontSize() : 0; }
 
 // ── Show event ────────────────────────────────────────────────────────────────
 
