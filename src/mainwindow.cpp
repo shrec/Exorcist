@@ -122,6 +122,7 @@
 #include "ui/keymapdialog.h"
 #include "ui/workspacesymbolsdialog.h"
 #include "ui/gotolinedialog.h"
+#include "ui/quickopendialog.h"
 #include "ui/dock/DockManager.h"
 #include "ui/dock/ExDockWidget.h"
 #include "pluginmanager.h"
@@ -909,6 +910,17 @@ void MainWindow::setupMenus()
     QAction *openFolderAction = fileMenu->addAction(tr("Open &Folder..."));
     openFolderAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
 
+    QAction *quickOpenAction = fileMenu->addAction(tr("Quick &Open File..."));
+    quickOpenAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_P));
+    connect(quickOpenAction, &QAction::triggered, this, [this]() {
+        const QString root = m_editorMgr ? m_editorMgr->currentFolder() : QString();
+        if (root.isEmpty()) return;
+        QuickOpenDialog dlg(root, this);
+        connect(&dlg, &QuickOpenDialog::fileSelected,
+                this, &MainWindow::openFile);
+        dlg.exec();
+    });
+
     QAction *saveAction = fileMenu->addAction(tr("&Save"));
     saveAction->setShortcut(QKeySequence::Save);
 
@@ -1211,8 +1223,10 @@ void MainWindow::setupMenus()
     QAction *cmdPaletteAction = viewMenu->addAction(tr("&Command Palette"));
     cmdPaletteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P));
 
-    QAction *filePaletteAction = viewMenu->addAction(tr("&Go to File..."));
-    filePaletteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_P));
+    // Note: Ctrl+P is now bound to the new "Quick Open File..." action under
+    // File menu (QuickOpenDialog). The legacy palette stays accessible from
+    // the View menu without a shortcut.
+    QAction *filePaletteAction = viewMenu->addAction(tr("&Go to File (legacy)..."));
 QAction *symbolPaletteAction = viewMenu->addAction(tr("Go to &Symbol..."));
     symbolPaletteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_T));
 

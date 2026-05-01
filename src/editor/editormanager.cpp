@@ -1,6 +1,7 @@
 #include "editormanager.h"
 
 #include "editorview.h"
+#include "hexeditorwidget.h"
 #include "highlighterfactory.h"
 #include "imagepreviewwidget.h"
 #include "largefileloader.h"
@@ -11,6 +12,7 @@
 
 #include <QAction>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QFont>
 #include <QFontMetricsF>
@@ -78,6 +80,52 @@ void EditorManager::openFile(const QString &path)
 
             const QString title = QFileInfo(path).fileName();
             const int index = m_tabs->addTab(preview, title);
+            m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
+            m_tabs->setCurrentIndex(index);
+            return;
+        }
+    }
+
+    // ── Binary path: detect by extension or null-byte sniff and route to a
+    //    read-only HexEditorWidget instead of trying to render the bytes as
+    //    text.  This protects the editor from huge binary blobs and gives
+    //    the user a useful view (offset / hex / ASCII).  Like the image
+    //    preview widget above, HexEditorWidget is a plain QWidget so the
+    //    editorAt()/currentEditor() qobject_cast<EditorView*> path safely
+    //    returns nullptr for these tabs.
+    {
+        const QString ext = QFileInfo(path).suffix().toLower();
+        static const QStringList kBinaryExts = {
+            QStringLiteral("bin"),  QStringLiteral("exe"),
+            QStringLiteral("dll"),  QStringLiteral("so"),
+            QStringLiteral("dylib"), QStringLiteral("obj"),
+            QStringLiteral("o"),    QStringLiteral("a"),
+            QStringLiteral("lib"),
+            QStringLiteral("zip"),  QStringLiteral("tar"),
+            QStringLiteral("gz"),   QStringLiteral("7z"),
+            QStringLiteral("rar"),  QStringLiteral("ico")
+        };
+        bool isBinary = kBinaryExts.contains(ext);
+        if (!isBinary) {
+            // Sniff first 4KB for a NUL byte — text files almost never have
+            // them.  Cheap heuristic, good enough to catch unknown binaries
+            // (firmware images, .pak, .dat, etc.).
+            QFile f(path);
+            if (f.open(QIODevice::ReadOnly)) {
+                const QByteArray sample = f.read(4096);
+                f.close();
+                for (int i = 0; i < sample.size(); ++i) {
+                    if (sample.at(i) == '\0') { isBinary = true; break; }
+                }
+            }
+        }
+        if (isBinary) {
+            auto *hex = new HexEditorWidget();
+            hex->loadFile(path);
+            hex->setProperty("filePath", path);
+
+            const QString title = QFileInfo(path).fileName();
+            const int index = m_tabs->addTab(hex, title);
             m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
             m_tabs->setCurrentIndex(index);
             return;

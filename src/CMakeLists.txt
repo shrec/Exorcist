@@ -37,6 +37,8 @@ add_executable(exorcist WIN32
     editor/editormanager.cpp
     editor/imagepreviewwidget.h
     editor/imagepreviewwidget.cpp
+    editor/hexeditorwidget.h
+    editor/hexeditorwidget.cpp
     # Language highlighting data moved to plugins/lang-pack (compiled there only)
     editor/textbuffer.h
     editor/piecetablebuffer.cpp
@@ -344,6 +346,8 @@ add_executable(exorcist WIN32
     ui/workspacesymbolsdialog.h
     ui/gotolinedialog.cpp
     ui/gotolinedialog.h
+    ui/quickopendialog.cpp
+    ui/quickopendialog.h
     ui/dockautohidemanager.cpp
     ui/dockautohidemanager.h
     ui/thememanager.cpp
