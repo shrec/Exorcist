@@ -1101,6 +1101,10 @@ void EditorView::refreshDiagnosticSelections()
     // Review annotations (yellow-tinted background with tooltip)
     selections.append(m_reviewSelections);
 
+    // Bracket-match highlights (kept stable across diagnostic refreshes so
+    // the highlight does not disappear when the LSP pushes new diagnostics)
+    selections.append(m_bracketSelections);
+
     setExtraSelections(selections);
 }
 
@@ -1719,6 +1723,61 @@ QChar EditorView::matchingBracket(QChar ch)
     }
 }
 
+// Scan limit (in characters) so very large files do not freeze the UI.
+static constexpr int kBracketScanLimit = 10000;
+
+namespace {
+// Lightweight forward classifier for "is position `i` inside a string/char
+// literal or comment relative to the surrounding line?"  We rebuild state from
+// the start of the current block (cheap for typical line lengths) and walk to
+// `i`.  This is intentionally simple — no preprocessor-aware logic — and it is
+// good enough for skipping bracket matches inside obvious literals.
+bool isInsideLiteralOrComment(const QTextDocument *doc, int absPos)
+{
+    if (absPos < 0 || absPos >= doc->characterCount())
+        return false;
+    const QTextBlock block = doc->findBlock(absPos);
+    if (!block.isValid())
+        return false;
+
+    const int blockStart = block.position();
+    const QString line   = block.text();
+    const int col        = absPos - blockStart;
+    if (col < 0 || col > line.size())
+        return false;
+
+    enum class S { Code, SLine, SBlock, SStr, SChar };
+    S st = S::Code;
+    for (int i = 0; i < col; ++i) {
+        const QChar c  = line.at(i);
+        const QChar nx = (i + 1 < line.size()) ? line.at(i + 1) : QChar();
+        switch (st) {
+        case S::Code:
+            if (c == QLatin1Char('/') && nx == QLatin1Char('/')) { st = S::SLine; ++i; }
+            else if (c == QLatin1Char('/') && nx == QLatin1Char('*')) { st = S::SBlock; ++i; }
+            else if (c == QLatin1Char('"'))  st = S::SStr;
+            else if (c == QLatin1Char('\'')) st = S::SChar;
+            break;
+        case S::SBlock:
+            if (c == QLatin1Char('*') && nx == QLatin1Char('/')) { st = S::Code; ++i; }
+            break;
+        case S::SStr:
+            if (c == QLatin1Char('\\')) { ++i; }
+            else if (c == QLatin1Char('"')) st = S::Code;
+            break;
+        case S::SChar:
+            if (c == QLatin1Char('\\')) { ++i; }
+            else if (c == QLatin1Char('\'')) st = S::Code;
+            break;
+        case S::SLine:
+            // line comment runs to EOL; we only ever scan within one line here
+            break;
+        }
+    }
+    return st != S::Code;
+}
+}
+
 int EditorView::scanForMatchingBracket(int pos, QChar open, QChar close,
                                        bool forward) const
 {
@@ -1727,14 +1786,20 @@ int EditorView::scanForMatchingBracket(int pos, QChar open, QChar close,
     int depth = 1;
 
     if (forward) {
-        for (int i = pos + 1; i < len && depth > 0; ++i) {
+        const int stop = qMin(len, pos + 1 + kBracketScanLimit);
+        for (int i = pos + 1; i < stop && depth > 0; ++i) {
+            if (isInsideLiteralOrComment(doc, i))
+                continue;
             const QChar c = doc->characterAt(i);
             if (c == open) ++depth;
             else if (c == close) --depth;
             if (depth == 0) return i;
         }
     } else {
-        for (int i = pos - 1; i >= 0 && depth > 0; --i) {
+        const int stop = qMax(-1, pos - 1 - kBracketScanLimit);
+        for (int i = pos - 1; i > stop && depth > 0; --i) {
+            if (isInsideLiteralOrComment(doc, i))
+                continue;
             const QChar c = doc->characterAt(i);
             if (c == close) ++depth;
             else if (c == open) --depth;
@@ -1769,11 +1834,14 @@ void EditorView::highlightMatchingBrackets()
         if (matchPos < 0)
             return false;
 
-        const QColor hlColor(0x44, 0x44, 0x00);  // subtle yellow background
-        const QColor borderColor(0x88, 0x88, 0x00);
+        // Subtle green-tinted background per UI/UX spec, with bold weight so
+        // the bracket pair pops without distracting from surrounding code.
+        const QColor hlColor(0x26, 0x4f, 0x4d);
+        const QColor borderColor(0x3a, 0x6e, 0x6b);
 
         QTextEdit::ExtraSelection sel1;
         sel1.format.setBackground(hlColor);
+        sel1.format.setFontWeight(QFont::Bold);
         sel1.format.setProperty(QTextFormat::OutlinePen,
                                 QVariant::fromValue(QPen(borderColor)));
         sel1.cursor = QTextCursor(doc->findBlock(checkPos));
@@ -1782,6 +1850,7 @@ void EditorView::highlightMatchingBrackets()
 
         QTextEdit::ExtraSelection sel2;
         sel2.format.setBackground(hlColor);
+        sel2.format.setFontWeight(QFont::Bold);
         sel2.format.setProperty(QTextFormat::OutlinePen,
                                 QVariant::fromValue(QPen(borderColor)));
         sel2.cursor = QTextCursor(doc->findBlock(matchPos));
