@@ -737,36 +737,93 @@ void LspEditorBridge::onCodeActionResult(const QString &uri, int /*line*/,
                                          int /*character*/,
                                          const QJsonArray &actions)
 {
-    if (uri != m_uri || actions.isEmpty()) return;
+    if (uri != m_uri) return;
 
+    // Build a Quick Fix popup styled like VS Code's dark theme.
     auto *menu = new QMenu(m_editor);
     menu->setAttribute(Qt::WA_DeleteOnClose);
+    menu->setObjectName("LspQuickFixMenu");
+    menu->setStyleSheet(
+        "QMenu#LspQuickFixMenu {"
+        "  background: #252526;"
+        "  color: #d4d4d4;"
+        "  border: 1px solid #454545;"
+        "  padding: 4px 0;"
+        "  font-family: 'Segoe UI', Arial, sans-serif;"
+        "  font-size: 9pt;"
+        "}"
+        "QMenu#LspQuickFixMenu::item {"
+        "  padding: 4px 22px 4px 22px;"
+        "  background: transparent;"
+        "}"
+        "QMenu#LspQuickFixMenu::item:selected {"
+        "  background: #094771;"
+        "  color: #ffffff;"
+        "}"
+        "QMenu#LspQuickFixMenu::item:disabled {"
+        "  color: #808080;"
+        "}"
+        "QMenu#LspQuickFixMenu::separator {"
+        "  height: 1px;"
+        "  background: #3c3c3c;"
+        "  margin: 4px 0;"
+        "}");
 
     for (const QJsonValue &v : actions) {
-        const QJsonObject action = v.isObject() ? v.toObject()
-                                                : v.toObject(); // Command or CodeAction
+        if (!v.isObject()) continue;
+        const QJsonObject action = v.toObject();
         const QString title = action["title"].toString();
         if (title.isEmpty()) continue;
 
-        QAction *item = menu->addAction(title);
+        // Prefix the menu entry with the action kind for context (e.g.
+        // "quickfix", "refactor", "source"). Some servers (clangd) return
+        // a Command directly rather than a CodeAction — those have no kind.
+        const QString kind = action["kind"].toString();
+        QString display = title;
+        if (!kind.isEmpty()) {
+            QString shortKind = kind;
+            const int dot = shortKind.indexOf('.');
+            if (dot > 0) shortKind = shortKind.left(dot);
+            display = QStringLiteral("[%1] %2").arg(shortKind, title);
+        }
 
-        // Capture the edit or command for this action
+        QAction *item = menu->addAction(display);
+
+        // CodeAction:  { title, kind, edit?, command?, diagnostics? }
+        // Command:     { title, command, arguments? }   (legacy form)
         const QJsonObject edit    = action["edit"].toObject();
-        const QJsonObject command = action["command"].toObject();
 
-        connect(item, &QAction::triggered, this, [this, edit, command]() {
-            if (!edit.isEmpty()) {
+        // `command` may be either an object (CodeAction.command) or the
+        // outer object itself (legacy Command form: action["command"] is
+        // the command id string).
+        QJsonObject command;
+        QString commandId;
+        QJsonArray commandArgs;
+        if (action["command"].isObject()) {
+            command     = action["command"].toObject();
+            commandId   = command["command"].toString();
+            commandArgs = command["arguments"].toArray();
+        } else if (action["command"].isString()) {
+            commandId   = action["command"].toString();
+            commandArgs = action["arguments"].toArray();
+        }
+
+        connect(item, &QAction::triggered, this,
+                [this, edit, commandId, commandArgs]() {
+            // Per LSP spec: if both edit and command exist, apply edit first,
+            // then send the command (servers occasionally return both, e.g.
+            // "apply this textEdit AND notify the server").
+            if (!edit.isEmpty())
                 emit workspaceEditReady(edit);
-            } else if (!command.isEmpty()) {
-                // Fallback: re-request with command execution not yet supported
-                qWarning("LspEditorBridge: code action command execution not yet supported");
-            }
+            if (!commandId.isEmpty())
+                m_client->executeCommand(commandId, commandArgs);
         });
     }
 
     if (menu->isEmpty()) {
-        menu->deleteLater();
-        return;
+        // Show a disabled "no quick fixes" hint so the user gets feedback.
+        QAction *empty = menu->addAction(tr("No quick fixes available"));
+        empty->setEnabled(false);
     }
 
     // Show just below the cursor

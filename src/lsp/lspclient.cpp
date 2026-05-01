@@ -385,6 +385,19 @@ void LspClient::requestTypeDefinition(const QString &uri, int line, int characte
     m_pending[id] = {"textDocument/typeDefinition", uri, line, character};
 }
 
+void LspClient::executeCommand(const QString &command, const QJsonArray &arguments)
+{
+    if (!m_initialized || command.isEmpty()) return;
+    const int id = sendRequest("workspace/executeCommand", QJsonObject{
+        {"command", command},
+        {"arguments", arguments},
+    });
+    // We do not currently consume the result — many servers reply via
+    // workspace/applyEdit (a server→client request) which is handled
+    // elsewhere. Track the request so logging stays clean.
+    m_pending[id] = {"workspace/executeCommand", {}, 0, 0};
+}
+
 // ── Message dispatch ──────────────────────────────────────────────────────────
 
 void LspClient::onMessageReceived(const LspMessage &msg)

@@ -85,6 +85,10 @@ public:
     // Go to type definition of the symbol at the given position.
     void requestTypeDefinition(const QString &uri, int line, int character);
 
+    // Execute an LSP command (workspace/executeCommand). Used by code-action
+    // results that ship a `command` rather than an `edit`.
+    void executeCommand(const QString &command, const QJsonArray &arguments = {});
+
     // ── Helpers ───────────────────────────────────────────────────────────
     // Convert a local file path to a LSP URI: file:///C:/...
     static QString pathToUri(const QString &path);
