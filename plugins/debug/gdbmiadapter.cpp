@@ -83,6 +83,30 @@ void GdbMiAdapter::onProcessStarted()
     emit outputProduced(QStringLiteral("[GDB] started OK, pid=%1").arg(m_process.processId()),
                         QStringLiteral("debug"));
 
+    // ── Pretty-printer / value-formatting setup ──────────────────────────
+    // Configure GDB so STL types (std::string, std::vector, std::map, ...) and
+    // user types render as human-readable values rather than raw struct dumps.
+    //
+    //   -gdb-set print pretty on        Multi-line, indented struct/array output
+    //   -gdb-set print object on        Show actual derived type for polymorphic ptrs/refs
+    //   -gdb-set print static-members off  Hide static members in struct dumps (cleaner)
+    //   -gdb-set print elements 200     Cap printed array/string length at 200 elements
+    //   -gdb-set auto-load safe-path /  Permit loading libstdc++ Python printer scripts
+    //                                   that ship next to the runtime libraries
+    //   -enable-pretty-printing         Tell the GDB/MI variable-object subsystem to
+    //                                   actually invoke registered pretty-printers when
+    //                                   formatting values for -var-create, -var-update,
+    //                                   and -data-evaluate-expression results
+    //
+    // These must be sent before breakpoints / -exec-run so that subsequent value
+    // queries (locals, watches, evaluate) come back already pretty-formatted.
+    sendCommand(QStringLiteral("-gdb-set print pretty on"));
+    sendCommand(QStringLiteral("-gdb-set print object on"));
+    sendCommand(QStringLiteral("-gdb-set print static-members off"));
+    sendCommand(QStringLiteral("-gdb-set print elements 200"));
+    sendCommand(QStringLiteral("-gdb-set auto-load safe-path /"));
+    sendCommand(QStringLiteral("-enable-pretty-printing"));
+
     // ── Attach flow ───────────────────────────────────────────────────────
     if (m_pendingExe == QLatin1String("__attach__")) {
         const int pid = m_pendingArgs.value(0).toInt();
