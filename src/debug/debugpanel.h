@@ -4,6 +4,7 @@
 
 class QTabWidget;
 class QToolBar;
+class QToolButton;
 class QAction;
 class QTableWidget;
 class QTreeWidget;
@@ -60,6 +61,7 @@ private slots:
     void onPauseClicked();
     void onStopClicked();
     void onWatchInputSubmit();
+    void onWatchRemoveSelected();
     void onQuickWatch();
 
     // Adapter signal handlers
@@ -122,7 +124,11 @@ private:
     QPlainTextEdit   *m_outputText;
 
     // Watch tab — tree view backed by WatchTreeModel
+    // NOTE: m_watchModel and m_localsModel are intentionally separate
+    // WatchTreeModel instances so that frame-locals don't pollute the
+    // user-curated watch list and vice-versa.
     QTreeView        *m_watchView;
     WatchTreeModel   *m_watchModel;
     QLineEdit        *m_watchInput;
+    QToolButton      *m_watchRemoveBtn;
 };

@@ -16,6 +16,7 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QToolBar>
+#include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
 
@@ -55,6 +56,12 @@ DebugPanel::DebugPanel(QWidget *parent)
     setupOutputTab();
 
     setRunning(false);
+
+    // Watch input is disabled until a debug session is active.
+    // (WatchTreeModel::addWatch already no-ops without an adapter, but
+    //  disabling provides clearer UI feedback.)
+    m_watchInput->setEnabled(false);
+    m_watchRemoveBtn->setEnabled(false);
 }
 
 // ── Toolbar ───────────────────────────────────────────────────────────────────
@@ -199,17 +206,35 @@ void DebugPanel::setupWatchTab()
     lay->setContentsMargins(4, 4, 4, 4);
     lay->setSpacing(4);
 
-    // Input row
+    // Input row: line edit + remove button
     auto *inputLay = new QHBoxLayout;
+    inputLay->setContentsMargins(0, 0, 0, 0);
+    inputLay->setSpacing(4);
+
     m_watchInput = new QLineEdit(w);
-    m_watchInput->setPlaceholderText(tr("Add watch expression..."));
+    m_watchInput->setPlaceholderText(tr("Add expression to watch (Enter)..."));
     m_watchInput->setStyleSheet(QStringLiteral(
         "QLineEdit { background: #2b2b2b; color: #d4d4d4; border: 1px solid #3c3c3c; "
-        "padding: 4px; font-family: 'Consolas','Courier New',monospace; }"));
-    inputLay->addWidget(m_watchInput);
+        "padding: 4px; font-family: 'Consolas','Courier New',monospace; }"
+        "QLineEdit:focus { border: 1px solid #007acc; }"
+        "QLineEdit:disabled { color: #6e6e6e; background: #252526; }"));
+    inputLay->addWidget(m_watchInput, 1);
+
+    m_watchRemoveBtn = new QToolButton(w);
+    m_watchRemoveBtn->setText(QStringLiteral("✕")); // ✕
+    m_watchRemoveBtn->setToolTip(tr("Remove selected watch"));
+    m_watchRemoveBtn->setStyleSheet(QStringLiteral(
+        "QToolButton { color: #d4d4d4; background: #2b2b2b; "
+        "border: 1px solid #3c3c3c; padding: 3px 8px; }"
+        "QToolButton:hover { background: #3e3e42; }"
+        "QToolButton:pressed { background: #094771; }"
+        "QToolButton:disabled { color: #6e6e6e; background: #252526; }"));
+    inputLay->addWidget(m_watchRemoveBtn);
 
     connect(m_watchInput, &QLineEdit::returnPressed,
             this, &DebugPanel::onWatchInputSubmit);
+    connect(m_watchRemoveBtn, &QToolButton::clicked,
+            this, &DebugPanel::onWatchRemoveSelected);
 
     lay->addLayout(inputLay);
 
@@ -349,6 +374,22 @@ void DebugPanel::onWatchInputSubmit()
     m_watchInput->clear();
 }
 
+void DebugPanel::onWatchRemoveSelected()
+{
+    const QModelIndex idx = m_watchView->currentIndex();
+    if (!idx.isValid()) return;
+
+    // Only top-level rows correspond to user-added watch expressions;
+    // children are sub-fields populated via GDB var-object children.
+    QModelIndex top = idx;
+    while (top.parent().isValid())
+        top = top.parent();
+
+    const QString expr = top.sibling(top.row(), 0).data().toString();
+    if (expr.isEmpty()) return;
+    m_watchModel->removeWatch(expr);
+}
+
 // ── Adapter signal handlers ───────────────────────────────────────────────────
 
 void DebugPanel::onAdapterStarted()
@@ -359,6 +400,8 @@ void DebugPanel::onAdapterStarted()
         "padding: 2px 8px; color: #89d185; font-size: 11px;"));
     m_outputText->clear();
     m_outputText->appendPlainText(tr("--- Debug session started ---"));
+    m_watchInput->setEnabled(true);
+    m_watchRemoveBtn->setEnabled(true);
 }
 
 void DebugPanel::onAdapterTerminated()
@@ -368,6 +411,8 @@ void DebugPanel::onAdapterTerminated()
     m_statusLabel->setStyleSheet(QStringLiteral(
         "padding: 2px 8px; color: #808080; font-size: 11px;"));
     m_outputText->appendPlainText(tr("--- Debug session ended ---"));
+    m_watchInput->setEnabled(false);
+    m_watchRemoveBtn->setEnabled(false);
 }
 
 void DebugPanel::onAdapterError(const QString &msg)
