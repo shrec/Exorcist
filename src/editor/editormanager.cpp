@@ -7,6 +7,8 @@
 #include "largefileloader.h"
 #include "qrceditorwidget.h"
 #include "../forms/formeditor/uiformeditor.h"
+#include "../forms/linguist/linguisteditor.h"
+#include "../forms/qmleditor/qmleditorwidget.h"
 
 #include "../core/ifilesystem.h"
 #include "../lsp/lspclient.h"
@@ -88,6 +90,44 @@ void EditorManager::openFile(const QString &path)
         }
     }
 
+    // ── QML path: open in our split-view QmlEditorWidget (text editor on
+    //    the left, live QQuickWidget preview on the right).  The widget is a
+    //    plain QWidget — not an EditorView — so editorAt()/currentEditor()
+    //    qobject_cast<EditorView*> guards safely return nullptr for these
+    //    tabs, mirroring the pattern used by ImagePreviewWidget / UiFormEditor
+    //    above.
+    {
+        const QString ext = QFileInfo(path).suffix().toLower();
+        if (ext == QStringLiteral("qml")) {
+            auto *qml = new exo::forms::QmlEditorWidget();
+            const bool ok = qml->loadFromFile(path);
+            if (!ok)
+                emit statusMessage(tr("Failed to open .qml: %1").arg(path), 4000);
+            qml->setProperty("filePath", path);
+
+            const QString title = QFileInfo(path).fileName();
+            const int index = m_tabs->addTab(qml, title);
+            m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
+            m_tabs->setCurrentIndex(index);
+
+            // Mirror modified flag in tab title (asterisk suffix), same as
+            // .qrc / .ui editors above.
+            QTabWidget *tabsRef = m_tabs;
+            connect(qml, &exo::forms::QmlEditorWidget::modificationChanged, tabsRef,
+                    [tabsRef, qml, title](bool modified) {
+                        const int idx = tabsRef->indexOf(qml);
+                        if (idx < 0) return;
+                        tabsRef->setTabText(idx, modified
+                                            ? title + QStringLiteral(" *")
+                                            : title);
+                    });
+            // Forward QML editor status messages out to MainWindow's status bar.
+            connect(qml, &exo::forms::QmlEditorWidget::statusMessage,
+                    this, &EditorManager::statusMessage);
+            return;
+        }
+    }
+
     // ── Qt Designer .ui path: open in our custom UiFormEditor instead of
     //    the text editor.  UiFormEditor is a plain QWidget so the existing
     //    qobject_cast<EditorView*> guards in editorAt()/currentEditor() will
@@ -116,6 +156,36 @@ void EditorManager::openFile(const QString &path)
                         tabsRef->setTabText(idx, modified
                                             ? title + QStringLiteral(" *")
                                             : title);
+                    });
+            return;
+        }
+    }
+
+    // ── Qt Linguist (.ts) path: route to LinguistEditor instead of the raw
+    //    XML text editor.  Mirrors the .qrc / .ui pattern: plain QWidget so
+    //    editorAt()/currentEditor() qobject_cast<EditorView*> guards safely
+    //    return nullptr for these tabs.
+    {
+        const QString ext = QFileInfo(path).suffix().toLower();
+        if (ext == QStringLiteral("ts")) {
+            auto *ling = new exo::forms::linguist::LinguistEditor();
+            const bool ok = ling->loadFromFile(path);
+            if (!ok)
+                emit statusMessage(tr("Failed to parse .ts: %1").arg(path), 4000);
+            ling->setProperty("filePath", path);
+
+            const QString title = QFileInfo(path).fileName();
+            const int index = m_tabs->addTab(ling, title);
+            m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
+            m_tabs->setCurrentIndex(index);
+
+            // Mirror modified flag in tab title (asterisk suffix).
+            QTabWidget *tabsRef = m_tabs;
+            connect(ling, &exo::forms::linguist::LinguistEditor::modificationChanged, tabsRef,
+                    [tabsRef, ling, title](bool modified) {
+                        const int idx = tabsRef->indexOf(ling);
+                        if (idx < 0) return;
+                        tabsRef->setTabText(idx, modified ? title + QStringLiteral(" *") : title);
                     });
             return;
         }
