@@ -157,7 +157,25 @@ QMenu *MenuManagerImpl::ensureMenu(MenuLocation location)
     if (it != m_standardMenus.end())
         return it.value();
 
-    auto *m = new QMenu(menuTitle(location), m_menuBar);
+    // Adopt an existing menu in the menu bar if one with the matching title
+    // already exists (e.g. MainWindow added File/Edit/View/Help directly via
+    // menuBar()->addMenu() without going through us). Without this, asking
+    // for IMenuManager::Edit would create a SECOND "Edit" menu and the user
+    // would see both side-by-side.
+    const QString wantedTitle = menuTitle(location);
+    const QString wantedClean = QString(wantedTitle).remove(QLatin1Char('&'));
+    for (QAction *act : m_menuBar->actions()) {
+        if (!act) continue;
+        QMenu *existing = act->menu();
+        if (!existing) continue;
+        const QString clean = QString(existing->title()).remove(QLatin1Char('&'));
+        if (clean.compare(wantedClean, Qt::CaseInsensitive) == 0) {
+            m_standardMenus.insert(location, existing);
+            return existing;
+        }
+    }
+
+    auto *m = new QMenu(wantedTitle, m_menuBar);
 
     QAction *before = nullptr;
     const int order = menuOrder(location);
