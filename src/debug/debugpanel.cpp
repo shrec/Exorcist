@@ -4,7 +4,6 @@
 #include "quickwatchdialog.h"
 #include "watchpointdialog.h"
 
-#include <QAction>
 #include <QApplication>
 #include <QClipboard>
 #include <QHBoxLayout>
@@ -17,7 +16,6 @@
 #include <QSplitter>
 #include <QTabWidget>
 #include <QTableWidget>
-#include <QToolBar>
 #include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
@@ -28,9 +26,6 @@ DebugPanel::DebugPanel(QWidget *parent)
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
-
-    setupToolBar();
-    root->addWidget(m_toolbar);
 
     // Status label
     m_statusLabel = new QLabel(tr("Not running"), this);
@@ -65,39 +60,6 @@ DebugPanel::DebugPanel(QWidget *parent)
     //  disabling provides clearer UI feedback.)
     m_watchInput->setEnabled(false);
     m_watchRemoveBtn->setEnabled(false);
-}
-
-// ── Toolbar ───────────────────────────────────────────────────────────────────
-
-void DebugPanel::setupToolBar()
-{
-    m_toolbar = new QToolBar(this);
-    m_toolbar->setIconSize(QSize(16, 16));
-    m_toolbar->setMovable(false);
-    m_toolbar->setStyleSheet(QStringLiteral(
-        "QToolBar { background: #2d2d30; border-bottom: 1px solid #3e3e42; "
-        "spacing: 2px; padding: 2px; }"
-        "QToolButton { color: #d4d4d4; padding: 3px 8px; border: none; "
-        "border-radius: 2px; font-size: 13px; }"
-        "QToolButton:hover { background: #3e3e42; }"
-        "QToolButton:pressed { background: #094771; }"
-        "QToolButton:disabled { color: #555558; }"));
-
-    m_actLaunch   = m_toolbar->addAction(tr("\u25B6 Launch"));
-    m_actContinue = m_toolbar->addAction(tr("\u25B6 Continue"));
-    m_actStepOver = m_toolbar->addAction(tr("\u23ED Step Over"));
-    m_actStepInto = m_toolbar->addAction(tr("\u2B07 Step Into"));
-    m_actStepOut  = m_toolbar->addAction(tr("\u2B06 Step Out"));
-    m_actPause    = m_toolbar->addAction(tr("\u23F8 Pause"));
-    m_actStop     = m_toolbar->addAction(tr("\u25A0 Stop"));
-
-    connect(m_actLaunch,   &QAction::triggered, this, &DebugPanel::onLaunchClicked);
-    connect(m_actContinue, &QAction::triggered, this, &DebugPanel::onContinueClicked);
-    connect(m_actStepOver, &QAction::triggered, this, &DebugPanel::onStepOverClicked);
-    connect(m_actStepInto, &QAction::triggered, this, &DebugPanel::onStepIntoClicked);
-    connect(m_actStepOut,  &QAction::triggered, this, &DebugPanel::onStepOutClicked);
-    connect(m_actPause,    &QAction::triggered, this, &DebugPanel::onPauseClicked);
-    connect(m_actStop,     &QAction::triggered, this, &DebugPanel::onStopClicked);
 }
 
 // ── Shared stylesheet for debug table views ───────────────────────────────────
@@ -439,42 +401,7 @@ void DebugPanel::setAdapter(IDebugAdapter *adapter)
             this, SLOT(onWatchpointRemoved(int)));
 }
 
-// ── Toolbar actions ───────────────────────────────────────────────────────────
-
-void DebugPanel::onLaunchClicked()
-{
-    emit launchRequested();
-}
-
-void DebugPanel::onContinueClicked()
-{
-    if (m_adapter) m_adapter->continueExecution();
-}
-
-void DebugPanel::onStepOverClicked()
-{
-    if (m_adapter) m_adapter->stepOver();
-}
-
-void DebugPanel::onStepIntoClicked()
-{
-    if (m_adapter) m_adapter->stepInto();
-}
-
-void DebugPanel::onStepOutClicked()
-{
-    if (m_adapter) m_adapter->stepOut();
-}
-
-void DebugPanel::onPauseClicked()
-{
-    if (m_adapter) m_adapter->pause();
-}
-
-void DebugPanel::onStopClicked()
-{
-    if (m_adapter) m_adapter->terminate();
-}
+// ── Watch input handlers ──────────────────────────────────────────────────────
 
 void DebugPanel::onWatchInputSubmit()
 {
@@ -810,13 +737,12 @@ void DebugPanel::removeBreakpointEntry(const QString &filePath, int line)
 
 void DebugPanel::setRunning(bool running, bool stopped)
 {
-    m_actLaunch->setEnabled(!running);
-    m_actContinue->setEnabled(running && stopped);
-    m_actStepOver->setEnabled(running && stopped);
-    m_actStepInto->setEnabled(running && stopped);
-    m_actStepOut->setEnabled(running && stopped);
-    m_actPause->setEnabled(running && !stopped);
-    m_actStop->setEnabled(running);
+    // The embedded toolbar (with Launch/Continue/Step/Pause/Stop) was removed;
+    // those controls now live exclusively on the main window's debug toolbar,
+    // which manages its own enabled-state via the build/debug plugin. The
+    // dock-internal status label is updated by the adapter signal handlers.
+    Q_UNUSED(running);
+    Q_UNUSED(stopped);
 }
 
 void DebugPanel::onQuickWatch()

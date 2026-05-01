@@ -3,9 +3,7 @@
 #include <QWidget>
 
 class QTabWidget;
-class QToolBar;
 class QToolButton;
-class QAction;
 class QTableWidget;
 class QTreeWidget;
 class QTreeView;
@@ -23,8 +21,10 @@ struct DebugThread;
 struct DebugWatchpoint;
 enum class DebugStopReason;
 
-/// Main debug panel containing control bar + tabs for
-/// call stack, locals, breakpoints, and output.
+/// Main debug panel containing a status row + tabs for call stack,
+/// threads, locals, breakpoints, watch, and debug output. The
+/// Launch/Continue/Step/Pause/Stop controls live on the main window
+/// toolbar (BuildToolbar) — this dock no longer hosts a duplicate.
 class DebugPanel : public QWidget
 {
     Q_OBJECT
@@ -55,13 +55,6 @@ public slots:
     void removeBreakpointEntry(const QString &filePath, int line);
 
 private slots:
-    void onLaunchClicked();
-    void onContinueClicked();
-    void onStepOverClicked();
-    void onStepIntoClicked();
-    void onStepOutClicked();
-    void onPauseClicked();
-    void onStopClicked();
     void onWatchInputSubmit();
     void onWatchRemoveSelected();
     void onQuickWatch();
@@ -92,7 +85,6 @@ private slots:
     void onBreakpointHitCountChanged();
 
 private:
-    void setupToolBar();
     void setupCallStackTab();
     void setupThreadsTab();
     void setupLocalsTab();
@@ -103,16 +95,6 @@ private:
     void setRunning(bool running, bool stopped = false);
 
     IDebugAdapter    *m_adapter = nullptr;
-
-    // Toolbar
-    QToolBar         *m_toolbar;
-    QAction          *m_actLaunch;
-    QAction          *m_actContinue;
-    QAction          *m_actStepOver;
-    QAction          *m_actStepInto;
-    QAction          *m_actStepOut;
-    QAction          *m_actPause;
-    QAction          *m_actStop;
 
     // Status
     QLabel           *m_statusLabel;
