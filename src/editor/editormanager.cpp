@@ -5,6 +5,7 @@
 #include "highlighterfactory.h"
 #include "imagepreviewwidget.h"
 #include "largefileloader.h"
+#include "qrceditorwidget.h"
 
 #include "../core/ifilesystem.h"
 #include "../lsp/lspclient.h"
@@ -82,6 +83,36 @@ void EditorManager::openFile(const QString &path)
             const int index = m_tabs->addTab(preview, title);
             m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
             m_tabs->setCurrentIndex(index);
+            return;
+        }
+    }
+
+    // ── Qt Resource Collection (.qrc) path: route to a structured tree-based
+    //    editor instead of a raw XML view.  QrcEditorWidget is a plain QWidget
+    //    (not an EditorView), so editorAt() / currentEditor() qobject_cast<>
+    //    safely returns nullptr for these tabs and existing flows are preserved.
+    {
+        const QString ext = QFileInfo(path).suffix().toLower();
+        if (ext == QStringLiteral("qrc")) {
+            auto *qrc = new QrcEditorWidget();
+            const bool ok = qrc->loadFromFile(path);
+            if (!ok)
+                emit statusMessage(tr("Failed to parse .qrc: %1").arg(path), 4000);
+            qrc->setProperty("filePath", path);
+
+            const QString title = QFileInfo(path).fileName();
+            const int index = m_tabs->addTab(qrc, title);
+            m_tabs->setTabToolTip(index, QDir::toNativeSeparators(path));
+            m_tabs->setCurrentIndex(index);
+
+            // Reflect the modified flag in the tab title (asterisk suffix).
+            QTabWidget *tabsRef = m_tabs;
+            connect(qrc, &QrcEditorWidget::modificationChanged, tabsRef,
+                    [tabsRef, qrc, title](bool modified) {
+                        const int idx = tabsRef->indexOf(qrc);
+                        if (idx < 0) return;
+                        tabsRef->setTabText(idx, modified ? title + QStringLiteral(" *") : title);
+                    });
             return;
         }
     }
