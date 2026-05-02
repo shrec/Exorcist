@@ -338,14 +338,19 @@ void DebugPlugin::installMenusAndToolBar()
         }
     }
 
-    // F5 and Shift+F5 are registered by BuildPlugin (build.debug / build.stop).
-    // Only register step commands here to avoid Qt "ambiguous shortcut" errors.
-    // F5 is owned by BuildPlugin (build.debug handles both start + continue).
-    // Only register step/continue commands unique to debug plugin.
+    // F5/Shift+F5 are registered by BuildPlugin (build.debug / build.stop).
+    // F10/F11/Shift+F11 are registered as command shortcuts by
+    // GlobalShortcutDispatcher in MainWindow::deferredInit() — installing
+    // the SAME key here as a QAction shortcut creates an ambiguous-shortcut
+    // overload that Qt silently refuses to fire (the visible "F10 doesn't
+    // step" regression).  We pass empty QKeySequences here so the menu
+    // shows "Step Over" without a competing accelerator; the dispatcher
+    // remains the sole owner of those keys.  The "F10" text hint is added
+    // manually below so the menu still tells the user what to press.
     addMenuCommands(IMenuManager::Debug, {
-        {tr("Step &Over"), QStringLiteral("debug.stepOver"), QKeySequence(Qt::Key_F10), true},
-        {tr("Step &Into"), QStringLiteral("debug.stepInto"), QKeySequence(Qt::Key_F11)},
-        {tr("Step O&ut"), QStringLiteral("debug.stepOut"), QKeySequence(Qt::SHIFT | Qt::Key_F11)},
+        {tr("Step &Over\tF10"), QStringLiteral("debug.stepOver"), QKeySequence(), true},
+        {tr("Step &Into\tF11"), QStringLiteral("debug.stepInto"), QKeySequence()},
+        {tr("Step O&ut\tShift+F11"), QStringLiteral("debug.stepOut"), QKeySequence()},
         {tr("&Memory View"), QStringLiteral("debug.openMemoryView"), QKeySequence(), true},
         {tr("&Disassembly"), QStringLiteral("debug.openDisassembly"), QKeySequence()},
     }, this);
