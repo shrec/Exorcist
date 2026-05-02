@@ -40,6 +40,7 @@ public:
 private slots:
     void onAdapterOutput(const QString &text, const QString &category);
     void onAdapterError(const QString &msg);
+    void onBuildOutputShowDock(const QString &line, bool isError);
 
 private:
     void setWorkingDir(const QString &dir);

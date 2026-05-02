@@ -244,10 +244,11 @@ bool BuildPlugin::initializePlugin()
     registerCommands();
     installMenus();
 
-    // Show Output dock when any build/configure output arrives
-    connect(m_buildSvc, &IBuildSystem::buildOutput, this, [this](const QString &, bool) {
-        showPanel(QStringLiteral("OutputDock"));
-    });
+    // Show Output dock when any build/configure output arrives.
+    // String-based SIGNAL/SLOT — IBuildSystem is an SDK type whose MOC may
+    // be duplicated across DLLs; PMF connect silently fails in that case.
+    connect(m_buildSvc, SIGNAL(buildOutput(QString,bool)),
+            this, SLOT(onBuildOutputShowDock(QString,bool)));
 
     // Show Run dock when a non-debug process starts
     connect(m_launcher, &DebugLaunchController::processStarted,
@@ -442,6 +443,11 @@ void BuildPlugin::wireDebugAdapter()
             this, SLOT(onAdapterError(QString)));
     connect(adapter, SIGNAL(outputProduced(QString,QString)),
             this, SLOT(onAdapterOutput(QString,QString)));
+}
+
+void BuildPlugin::onBuildOutputShowDock(const QString & /*line*/, bool /*isError*/)
+{
+    showPanel(QStringLiteral("OutputDock"));
 }
 
 void BuildPlugin::onAdapterOutput(const QString &text, const QString &category)

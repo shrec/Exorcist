@@ -45,78 +45,22 @@ public:
     LspServiceBridge(ClangdManager *clangd, LspClient *lspClient, QObject *parent)
         : ILspService(parent), m_clangd(clangd), m_lspClient(lspClient)
     {
-        connect(m_clangd, &ClangdManager::serverReady, this, [this]() {
-            // Plugin self-initializes the LSP handshake so it works
-            // regardless of whether MainWindow has wired serverReady.
-            // This is essential for deferred plugins that activate after
-            // loadPlugins() post-wiring has already run.
-            qWarning() << "[LSP-DIAG] serverReady fired, calling lspClient->initialize()" 
-                       << "workspaceRoot=" << m_clangd->workspaceRoot();
-            m_lspClient->initialize(m_clangd->workspaceRoot());
-            emit serverReady();
-        });
-
-        // Go-to-Definition (F12) — also triggered from cpp.goToDefinition command
-        connect(m_lspClient, &LspClient::definitionResult, this,
-                [this](const QString & /*uri*/, const QJsonArray &locations) {
-            if (locations.isEmpty()) {
-                emit statusMessage(tr("No definition found"), 3000);
-                return;
-            }
-            const QJsonObject loc = locations.first().toObject();
-            const QString targetUri = loc.contains(QStringLiteral("targetUri"))
-                ? loc.value(QStringLiteral("targetUri")).toString()
-                : loc.value(QStringLiteral("uri")).toString();
-            const QJsonObject range = loc.contains(QStringLiteral("targetSelectionRange"))
-                ? loc.value(QStringLiteral("targetSelectionRange")).toObject()
-                : loc.value(QStringLiteral("range")).toObject();
-            const QJsonObject start = range.value(QStringLiteral("start")).toObject();
-            const int line      = start.value(QStringLiteral("line")).toInt();
-            const int character = start.value(QStringLiteral("character")).toInt();
-
-            QString path = QUrl(targetUri).toLocalFile();
-            if (path.isEmpty()) path = targetUri;
-            emit navigateToLocation(path, line, character);
-        });
-
-        // Go-to-Declaration — same navigation path as definition
-        connect(m_lspClient, &LspClient::declarationResult, this,
-                [this](const QString & /*uri*/, const QJsonArray &locations) {
-            if (locations.isEmpty()) {
-                emit statusMessage(tr("No declaration found"), 3000);
-                return;
-            }
-            const QJsonObject loc = locations.first().toObject();
-            const QString targetUri = loc.contains(QStringLiteral("targetUri"))
-                ? loc.value(QStringLiteral("targetUri")).toString()
-                : loc.value(QStringLiteral("uri")).toString();
-            const QJsonObject range = loc.contains(QStringLiteral("targetSelectionRange"))
-                ? loc.value(QStringLiteral("targetSelectionRange")).toObject()
-                : loc.value(QStringLiteral("range")).toObject();
-            const QJsonObject start = range.value(QStringLiteral("start")).toObject();
-            const int line      = start.value(QStringLiteral("line")).toInt();
-            const int character = start.value(QStringLiteral("character")).toInt();
-
-            QString path = QUrl(targetUri).toLocalFile();
-            if (path.isEmpty()) path = targetUri;
-            emit navigateToLocation(path, line, character);
-        });
-
-        // Find References
-        connect(m_lspClient, &LspClient::referencesResult, this,
-                [this](const QString & /*uri*/, const QJsonArray &locations) {
-            if (locations.isEmpty()) {
-                emit statusMessage(tr("No references found"), 3000);
-                return;
-            }
-            emit referencesReady(locations);
-        });
-
-        // Rename Symbol
-        connect(m_lspClient, &LspClient::renameResult, this,
-                [this](const QString & /*uri*/, const QJsonObject &workspaceEdit) {
-            emit workspaceEditRequested(workspaceEdit);
-        });
+        // Use SIGNAL/SLOT (string-based) for cross-DLL connections.
+        // ClangdManager + LspClient live in src/lsp/ (exorcist binary); this
+        // bridge lives in plugins/cpp-language/ (DLL).  PMF connect across
+        // that boundary fails silently when the SDK MOC is duplicated, which
+        // produced "QObject::connect(...): signal not found" warnings and
+        // broken LSP responses (no completion, no go-to, no rename).
+        connect(m_clangd, SIGNAL(serverReady()),
+                this, SLOT(onClangdServerReady()));
+        connect(m_lspClient, SIGNAL(definitionResult(QString,QJsonArray)),
+                this, SLOT(onDefinitionResult(QString,QJsonArray)));
+        connect(m_lspClient, SIGNAL(declarationResult(QString,QJsonArray)),
+                this, SLOT(onDeclarationResult(QString,QJsonArray)));
+        connect(m_lspClient, SIGNAL(referencesResult(QString,QJsonArray)),
+                this, SLOT(onReferencesResult(QString,QJsonArray)));
+        connect(m_lspClient, SIGNAL(renameResult(QString,QJsonObject)),
+                this, SLOT(onRenameResult(QString,QJsonObject)));
     }
 
     void startServer(const QString &workspaceRoot,
@@ -130,7 +74,70 @@ public:
         m_clangd->stop();
     }
 
+private slots:
+    void onClangdServerReady()
+    {
+        // Plugin self-initializes the LSP handshake so it works regardless of
+        // whether MainWindow has wired serverReady.  This is essential for
+        // deferred plugins that activate after loadPlugins() post-wiring has
+        // already run.
+        qWarning() << "[LSP-DIAG] serverReady fired, calling lspClient->initialize()"
+                   << "workspaceRoot=" << m_clangd->workspaceRoot();
+        m_lspClient->initialize(m_clangd->workspaceRoot());
+        emit serverReady();
+    }
+
+    void onDefinitionResult(const QString & /*uri*/, const QJsonArray &locations)
+    {
+        if (locations.isEmpty()) {
+            emit statusMessage(tr("No definition found"), 3000);
+            return;
+        }
+        emitNavigateFromLocations(locations);
+    }
+
+    void onDeclarationResult(const QString & /*uri*/, const QJsonArray &locations)
+    {
+        if (locations.isEmpty()) {
+            emit statusMessage(tr("No declaration found"), 3000);
+            return;
+        }
+        emitNavigateFromLocations(locations);
+    }
+
+    void onReferencesResult(const QString & /*uri*/, const QJsonArray &locations)
+    {
+        if (locations.isEmpty()) {
+            emit statusMessage(tr("No references found"), 3000);
+            return;
+        }
+        emit referencesReady(locations);
+    }
+
+    void onRenameResult(const QString & /*uri*/, const QJsonObject &workspaceEdit)
+    {
+        emit workspaceEditRequested(workspaceEdit);
+    }
+
 private:
+    void emitNavigateFromLocations(const QJsonArray &locations)
+    {
+        const QJsonObject loc = locations.first().toObject();
+        const QString targetUri = loc.contains(QStringLiteral("targetUri"))
+            ? loc.value(QStringLiteral("targetUri")).toString()
+            : loc.value(QStringLiteral("uri")).toString();
+        const QJsonObject range = loc.contains(QStringLiteral("targetSelectionRange"))
+            ? loc.value(QStringLiteral("targetSelectionRange")).toObject()
+            : loc.value(QStringLiteral("range")).toObject();
+        const QJsonObject start = range.value(QStringLiteral("start")).toObject();
+        const int line      = start.value(QStringLiteral("line")).toInt();
+        const int character = start.value(QStringLiteral("character")).toInt();
+
+        QString path = QUrl(targetUri).toLocalFile();
+        if (path.isEmpty()) path = targetUri;
+        emit navigateToLocation(path, line, character);
+    }
+
     ClangdManager *m_clangd;
     LspClient     *m_lspClient;
 };
