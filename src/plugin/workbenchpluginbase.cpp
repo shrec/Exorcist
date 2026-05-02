@@ -21,6 +21,7 @@
 #include "ui/themeicons.h"
 
 #include <QAction>
+#include <QDebug>
 #include <QMenu>
 #include <QObject>
 #include <QWidget>
@@ -232,6 +233,7 @@ QAction *WorkbenchPluginBase::makeCommandAction(const QString &text,
     }
 
     QObject::connect(action, &QAction::triggered, owner, [commandService, commandId]() {
+        qDebug() << "[QAction] triggered → executeCommand:" << commandId;
         commandService->executeCommand(commandId);
     });
     return action;

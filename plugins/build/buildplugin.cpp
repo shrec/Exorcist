@@ -21,6 +21,7 @@
 #include "sdk/ibuildsystem.h"
 
 #include <QAction>
+#include <QDebug>
 #include <QFileInfo>
 #include <QSettings>
 
@@ -429,7 +430,11 @@ void BuildPlugin::installMenus()
 void BuildPlugin::wireDebugAdapter()
 {
     if (m_debugAdapter) return;  // already wired
-    auto *adapter = qobject_cast<IDebugAdapter *>(queryService(QStringLiteral("debugAdapter")));
+    QObject *raw = queryService(QStringLiteral("debugAdapter"));
+    auto *adapter = qobject_cast<IDebugAdapter *>(raw);
+    qDebug() << "[BuildPlugin::wireDebugAdapter] raw=" << raw
+             << "qobject_cast<IDebugAdapter>=" << adapter
+             << "(if raw is non-null but cast yields null, dual-MOC of IDebugAdapter — qobject_cast fails across DLL boundary)";
     if (!adapter) return;
 
     m_debugAdapter = adapter;

@@ -3,6 +3,7 @@
 #include "sdk/icommandservice.h"
 
 #include <QCoreApplication>
+#include <QDebug>
 #include <QEvent>
 #include <QKeyEvent>
 
@@ -98,13 +99,20 @@ bool GlobalShortcutDispatcher::eventFilter(QObject *watched, QEvent *event)
     // promotes it to a normal KeyPress that we handle below — this lets us
     // beat any focused widget that wanted to claim the key as plain input.
     if (t == QEvent::ShortcutOverride) {
+        qDebug() << "[GSD] ShortcutOverride accepted for"
+                 << seq.toString() << "→" << it.value()
+                 << "(target:" << (watched ? watched->metaObject()->className() : "null") << ")";
         ke->accept();
         return true;
     }
 
     // KeyPress: dispatch through ICommandService and consume.
+    qDebug() << "[GSD] KeyPress dispatching"
+             << seq.toString() << "→" << it.value()
+             << "cmds=" << (m_cmds ? "yes" : "NULL");
     if (m_cmds) {
-        m_cmds->executeCommand(it.value());
+        const bool ok = m_cmds->executeCommand(it.value());
+        qDebug() << "[GSD]   executeCommand result=" << ok;
     }
     return true;
 }

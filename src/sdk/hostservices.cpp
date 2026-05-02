@@ -1,5 +1,7 @@
 #include "hostservices.h"
 
+#include <QDebug>
+
 #include "../mainwindow.h"
 #include "../bootstrap/dockmanageradapter.h"
 #include "../bootstrap/menumanagerimpl.h"
@@ -48,8 +50,11 @@ void CommandServiceImpl::unregisterCommand(const QString &id)
 bool CommandServiceImpl::executeCommand(const QString &id)
 {
     auto it = m_commands.find(id);
-    if (it == m_commands.end())
+    if (it == m_commands.end()) {
+        qDebug() << "[CMD] executeCommand:" << id << "→ NOT REGISTERED";
         return false;
+    }
+    qDebug() << "[CMD] executeCommand:" << id << "→ firing handler";
     it->handler();
     return true;
 }

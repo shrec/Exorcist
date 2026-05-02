@@ -28,8 +28,11 @@ ClangdManager::ClangdManager(QObject *parent)
     // String-based SIGNAL/SLOT for cross-DLL connect: LspTransport's MOC
     // lives in src/lsp/ (exorcist binary), this plugin DLL has its own copy
     // when statically linked.  PMF connect silently fails in that case.
-    connect(m_transport, SIGNAL(messageReceived(QJsonObject)),
-            this, SIGNAL(messageReceived(QJsonObject)));
+    // Signal type is LspMessage, NOT QJsonObject — getting this wrong yields
+    // "QObject::connect: No such signal ProcessLspTransport::messageReceived"
+    // at runtime (silent broken LSP).
+    connect(m_transport, SIGNAL(messageReceived(LspMessage)),
+            this, SIGNAL(messageReceived(LspMessage)));
 }
 
 ClangdManager::~ClangdManager()
