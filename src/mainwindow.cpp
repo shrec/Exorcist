@@ -1012,8 +1012,9 @@ void MainWindow::setupMenus()
     connect(saveSolutionAction, &QAction::triggered, this, [this]() {
         m_editorMgr->projectManager()->saveSolution();
     });
-    connect(closeSolutionAction, &QAction::triggered, this, [this]() {
+    auto closeWorkspace = [this](const QString &statusText, bool unwatchFiles) {
         m_editorMgr->projectManager()->closeSolution();
+        m_editorMgr->closeAllTabs();
         m_editorMgr->setCurrentFolder(QString());
         ScopedSettings::instance().setWorkspaceRoot({});
         if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
@@ -1023,24 +1024,21 @@ void MainWindow::setupMenus()
             srch->setRootPath({});
         if (auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService"))))
             ts->setWorkingDirectory({});
-        setWindowTitle(tr("Exorcist"));
-        statusBar()->showMessage(tr("Solution closed"), 3000);
-    });
-    connect(closeFolderAction, &QAction::triggered, this, [this]() {
-        m_editorMgr->projectManager()->closeSolution();
-        m_editorMgr->setCurrentFolder(QString());
-        ScopedSettings::instance().setWorkspaceRoot({});
-        if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
-            lspSvc->stopServer();
-        m_gitService->setWorkingDirectory({});
-        if (auto *srch = dynamic_cast<ISearchService *>(m_services->service(QStringLiteral("searchService"))))
-            srch->setRootPath({});
-        if (auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService"))))
-            ts->setWorkingDirectory({});
-        if (m_workbenchServices && m_workbenchServices->fileWatcher())
+        if (unwatchFiles && m_workbenchServices && m_workbenchServices->fileWatcher())
             m_workbenchServices->fileWatcher()->unwatchAll();
+        // Switch back to the welcome page (index 0) and refresh recent list.
+        if (m_centralStack)
+            m_centralStack->setCurrentIndex(0);
+        if (m_welcome)
+            m_welcome->refreshRecent();
         setWindowTitle(tr("Exorcist"));
-        statusBar()->showMessage(tr("Folder closed"), 3000);
+        statusBar()->showMessage(statusText, 3000);
+    };
+    connect(closeSolutionAction, &QAction::triggered, this, [closeWorkspace]() {
+        closeWorkspace(tr("Solution closed"), false);
+    });
+    connect(closeFolderAction, &QAction::triggered, this, [closeWorkspace]() {
+        closeWorkspace(tr("Folder closed"), true);
     });
     connect(quitAction, &QAction::triggered, this, &MainWindow::close);
 
