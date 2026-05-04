@@ -152,6 +152,8 @@ private:
     void updateDiffRanges(EditorView *editor);
     AgentPlatformBootstrap::Callbacks buildAgentCallbacks();
     void onLspInitialized();
+    void onLspReferencesReady(const QJsonArray &locations);
+    void onLspStatusMessage(const QString &msg, int timeoutMs);
     void showInlineChat(EditorView *editor, const QString &selectedText,
                         const QString &filePath, const QString &languageId);
     void createLspBridge(EditorView *editor, const QString &path);

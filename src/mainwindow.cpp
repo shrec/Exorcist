@@ -2404,19 +2404,16 @@ void MainWindow::openFolder(const QString &path)
         }
         connect(lspSvc, &ILspService::navigateToLocation,
                 this, &MainWindow::navigateToLocation, Qt::UniqueConnection);
+        // Qt::UniqueConnection requires a pointer-to-member-function slot
+        // (lambdas can't be deduplicated and Qt asserts at runtime — fatal
+        // on the second openFolder call).  Route these through dedicated
+        // member methods instead.
         connect(lspSvc, &ILspService::referencesReady,
-                this, [this](const QJsonArray &locations) {
-            if (m_referencesPanel)
-                m_referencesPanel->showReferences(tr("Symbol"), locations);
-            if (dock(QStringLiteral("ReferencesDock")))
-                m_dockManager->showDock(dock(QStringLiteral("ReferencesDock")), exdock::SideBarArea::Bottom);
-        }, Qt::UniqueConnection);
+                this, &MainWindow::onLspReferencesReady, Qt::UniqueConnection);
         connect(lspSvc, &ILspService::workspaceEditRequested,
                 this, &MainWindow::applyWorkspaceEdit, Qt::UniqueConnection);
         connect(lspSvc, &ILspService::statusMessage,
-                this, [this](const QString &msg, int timeout) {
-            statusBar()->showMessage(msg, timeout);
-        }, Qt::UniqueConnection);
+                this, &MainWindow::onLspStatusMessage, Qt::UniqueConnection);
         if (lspClient && m_agentPlatform) {
             if (auto *notifier = m_agentPlatform->diagnosticsNotifier()) {
                 connect(lspClient, &LspClient::diagnosticsPublished,
@@ -3531,6 +3528,20 @@ void MainWindow::onLspInitialized()
         if (editor->findChild<LspEditorBridge *>()) continue;
         createLspBridge(editor, path);
     }
+}
+
+void MainWindow::onLspReferencesReady(const QJsonArray &locations)
+{
+    if (m_referencesPanel)
+        m_referencesPanel->showReferences(tr("Symbol"), locations);
+    if (auto *d = dock(QStringLiteral("ReferencesDock")))
+        m_dockManager->showDock(d, exdock::SideBarArea::Bottom);
+}
+
+void MainWindow::onLspStatusMessage(const QString &msg, int timeoutMs)
+{
+    if (statusBar())
+        statusBar()->showMessage(msg, timeoutMs);
 }
 
 void MainWindow::applyWorkspaceEdit(const QJsonObject &workspaceEdit)
