@@ -520,6 +520,104 @@ If unsure whether something is container or feature, **default to plugin**. The 
 
 ---
 
+## PLUGIN LIFECYCLE — STRICT RULES (zero tolerance)
+
+These rules govern **WHO** owns UI state and **WHEN** that state gets cleaned up. They are mandatory for every plugin and every container code path. Violations are an architectural breach — revert and fix before merging.
+
+### Rule L1 — Plugins own every UI artifact they create
+
+Every dock, toolbar, menu item, panel, status-bar widget, shortcut, command, and signal connection a plugin creates is **owned by that plugin**. The plugin is responsible for:
+
+1. Constructing these artifacts in `initializePlugin()`
+2. Tracking them on its own member fields (or via WorkbenchPluginBase auto-tracking)
+3. Removing them in `shutdownPlugin()` — closeDock / removeAction / unregisterCommand
+
+Container code (MainWindow, bootstrap classes, ServiceRegistry consumers) MUST NEVER iterate `dockWidgets()`, toolbar actions, or menu items to "clean up" plugin state. That is a Rule L1 violation.
+
+### Rule L2 — Workspace lifecycle is plugin-broadcast
+
+Workspace open / close events are broadcast to all active plugins through:
+
+```cpp
+class IPlugin {
+    virtual void onWorkspaceOpened(const QString &root) {}
+    virtual void onWorkspaceClosed() {}
+};
+```
+
+`PluginManager::notifyWorkspaceChanged(root)` and `PluginManager::notifyWorkspaceClosed()` fire these on every active plugin. Plugins react in their handlers — set project root, clear caches, stop child processes.
+
+MainWindow MUST NEVER:
+- ❌ `lspService->stopServer()` directly on close
+- ❌ `gitService->setWorkingDirectory({})` directly
+- ❌ `m_dockManager->closeDock(d)` in a loop
+- ❌ Touch a plugin-owned service to reset state
+
+That state belongs to the plugin and only the plugin manages its own teardown.
+
+### Rule L3 — Welcome / Start page is a plugin
+
+The "no workspace" UI (welcome page, recent folders, getting-started cards) lives in `plugins/start-page/`, NOT in `src/ui/`. It activates on workspace closure, deactivates on workspace open. MainWindow has:
+
+- ❌ no `WelcomeWidget` field
+- ❌ no `m_centralStack` switch logic between welcome and editor
+- ❌ no recent folders refresh code
+
+Instead, StartPagePlugin contributes a Center-area dock and listens for workspace lifecycle events.
+
+### Rule L4 — Dispatchers route to the active plugin
+
+`GlobalShortcutDispatcher` and `CommandServiceImpl` are pure routing infrastructure. They never embed plugin-specific dispatch logic. When F5 fires, the dispatcher executes the registered command id (`build.debug`); whatever plugin owns that id at that moment handles it.
+
+❌ No hardcoded "if debug session active, do X" anywhere in the dispatcher.
+❌ No `if (commandId == "debug.stepOver") ...` switch statements in the container.
+
+If a key sequence has no current owner (no plugin registered the command id), the press is silently dropped — that is correct behavior.
+
+### Rule L5 — Container is small and finished
+
+`src/mainwindow.cpp` is a container shell. Its only allowed responsibilities:
+
+| Responsibility | Example |
+|---|---|
+| Construct application chrome | `new QMainWindow`, install menu/toolbar rails |
+| Boot infrastructure | `PluginManager`, `HostServices`, `ServiceRegistry` |
+| Forward workspace open/close as broadcast events | `m_pluginManager->notifyWorkspaceChanged(root)` |
+| Window-level lifecycle | `closeEvent`, save/restore geometry, `QSettings` |
+
+Anything else — git, build, debug, welcome, language, theme — belongs in a plugin.
+
+### Rule L6 — Detection (run before every MainWindow / bootstrap edit)
+
+```bash
+# These calls in mainwindow.cpp / bootstrap files are red flags:
+python tools/source_graph_kit/source_graph.py grep \
+    "closeDock\|dockWidgets\(\)\|stopServer\(\)\|setWorkingDirectory" src/mainwindow.cpp
+```
+
+✅ Empty results = container is clean
+❌ Any match = a plugin lifecycle responsibility leaked into the container; move it to the plugin's `onWorkspaceClosed` / `shutdownPlugin`.
+
+### Rule L7 — `WorkbenchPluginBase` enforces ownership tracking
+
+The base class auto-tracks artifacts created via its convenience helpers:
+
+- `addPanel(...)`, `addMenuCommand(...)`, `addToolBarCommand(...)` — track owned ids
+- `commands()->registerCommand(id, ...)` via `WorkbenchPluginBase::registerCommand` — tracked
+- `shutdownPlugin()` base impl iterates owned ids and unregisters them
+
+Plugins that bypass these helpers MUST track ownership themselves and clean up in `shutdownPlugin()`. Any plugin that calls `m_dockManager->addPanel(...)` directly without tracking is a Rule L1 violation.
+
+### Rule L8 — Sub-agent prompts must specify lifecycle ownership
+
+When spawning sub-agents to add UI to a plugin, the prompt MUST include:
+
+> "The plugin owns this artifact's lifecycle. Track it on a member field and remove it in `shutdownPlugin()`. Do not modify MainWindow or any container code to manage it."
+
+Vague prompts produce sub-agent code that "just works" by adding to MainWindow — a Rule L1 / L5 violation.
+
+---
+
 ## UI/UX MANIFEST (mandatory for plugins)
 
 All plugin and feature UI MUST follow [`docs/ux-principles.md`](docs/ux-principles.md) — the project-wide developer-friendly UX charter. Read it before writing or modifying any visual component. This is a **hard requirement**, not a guideline.
