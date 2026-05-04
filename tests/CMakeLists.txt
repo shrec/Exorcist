@@ -569,12 +569,12 @@ add_test(NAME DiagnosticsNotifier COMMAND test_diagnosticsnotifier)
 # ── BuildTestServices tests ───────────────────────────────────────────────────
 add_executable(test_buildtestservices
     test_buildtestservices.cpp
-    ${CMAKE_SOURCE_DIR}/src/build/buildsystemservice.cpp
-    ${CMAKE_SOURCE_DIR}/src/build/buildsystemservice.h
-    ${CMAKE_SOURCE_DIR}/src/build/cmakeintegration.cpp
-    ${CMAKE_SOURCE_DIR}/src/build/cmakeintegration.h
-    ${CMAKE_SOURCE_DIR}/src/build/toolchainmanager.cpp
-    ${CMAKE_SOURCE_DIR}/src/build/toolchainmanager.h
+    ${CMAKE_SOURCE_DIR}/plugins/build/buildsystemservice.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/build/buildsystemservice.h
+    ${CMAKE_SOURCE_DIR}/plugins/build/cmakeintegration.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/build/cmakeintegration.h
+    ${CMAKE_SOURCE_DIR}/plugins/build/toolchainmanager.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/build/toolchainmanager.h
     ${CMAKE_SOURCE_DIR}/src/testing/testrunnerservice.cpp
     ${CMAKE_SOURCE_DIR}/src/testing/testrunnerservice.h
     ${CMAKE_SOURCE_DIR}/src/testing/testdiscoveryservice.cpp
@@ -583,7 +583,9 @@ add_executable(test_buildtestservices
     ${CMAKE_SOURCE_DIR}/src/sdk/itestrunner.h
 )
 target_link_libraries(test_buildtestservices PRIVATE Qt6::Test Qt6::Widgets Qt6::Concurrent)
-target_include_directories(test_buildtestservices PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(test_buildtestservices PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/plugins)
 add_test(NAME BuildTestServices COMMAND test_buildtestservices)
 
 # ── ContributionRegistry tests ────────────────────────────────────────────────
