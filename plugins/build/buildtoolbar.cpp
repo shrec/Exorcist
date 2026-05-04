@@ -1,7 +1,7 @@
 #include "buildtoolbar.h"
 #include "cmakeintegration.h"
 #include "toolchainmanager.h"
-#include "debug/idebugadapter.h"
+#include "sdk/idebugadapter.h"
 #include "ui/themeicons.h"
 
 #include <QComboBox>
