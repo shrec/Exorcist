@@ -371,6 +371,13 @@ void PluginManager::notifyWorkspaceChanged(const QString &root)
             continue;
         try {
             lp.instance->onWorkspaceChanged(root);
+            // Phase 3: also fire the explicit open/close hooks (rule L2).
+            // Default impls forward to onWorkspaceChanged so backward
+            // compatibility is preserved for plugins that haven't migrated.
+            if (root.isEmpty())
+                lp.instance->onWorkspaceClosed();
+            else
+                lp.instance->onWorkspaceOpened(root);
         } catch (...) {
         }
     }
