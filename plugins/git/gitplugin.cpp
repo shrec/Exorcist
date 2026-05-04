@@ -70,6 +70,14 @@ void GitPlugin::shutdownPlugin()
 {
 }
 
+void GitPlugin::onWorkspaceClosed()
+{
+    // Rule L2: plugin owns its workspace teardown.  Clear the git working
+    // directory + cached panels so the next workspace starts fresh.
+    if (m_git)
+        m_git->setWorkingDirectory(QString());
+}
+
 QWidget *GitPlugin::createView(const QString &viewId, QWidget *parent)
 {
     if (viewId == QLatin1String("GitDock") && m_gitPanel) {

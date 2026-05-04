@@ -101,6 +101,18 @@ void SearchPlugin::shutdownPlugin()
     m_symbolIndex = nullptr;
 }
 
+void SearchPlugin::onWorkspaceOpened(const QString &root)
+{
+    if (auto *svc = service<ISearchService>(QStringLiteral("searchService")))
+        svc->setRootPath(root);
+}
+
+void SearchPlugin::onWorkspaceClosed()
+{
+    if (auto *svc = service<ISearchService>(QStringLiteral("searchService")))
+        svc->setRootPath(QString());
+}
+
 QWidget *SearchPlugin::createView(const QString &viewId, QWidget *parent)
 {
     if (viewId == QLatin1String("SearchDock") && m_panel) {

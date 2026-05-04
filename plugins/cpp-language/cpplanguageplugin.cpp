@@ -379,6 +379,19 @@ void CppLanguagePlugin::shutdownPlugin()
     m_workspacePanel = nullptr;
 }
 
+void CppLanguagePlugin::onWorkspaceClosed()
+{
+    // Workspace teardown — rule L2: the plugin owns its LSP lifecycle, the
+    // container no longer calls lspService->stopServer() externally.  This
+    // mirrors shutdownPlugin's clangd/LSP teardown but keeps the plugin
+    // loaded (just dormant) so the next workspace open can re-spin clangd.
+    if (m_lspClient && m_lspClient->isInitialized())
+        m_lspClient->shutdown();
+    if (m_clangd)
+        m_clangd->stop();
+    m_workspaceRefreshTimer.stop();
+}
+
 // ── Command registration ──────────────────────────────────────────────────────
 
 void CppLanguagePlugin::registerCommands()

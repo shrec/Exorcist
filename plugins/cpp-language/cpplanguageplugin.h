@@ -34,6 +34,11 @@ public:
     PluginInfo info() const override;
     QWidget *createView(const QString &viewId, QWidget *parent) override;
 
+    /// Workspace lifecycle hook: stop clangd when the workspace closes so
+    /// the user is not left with a dangling LSP process.  Rule L2 — plugin
+    /// owns its own teardown, MainWindow no longer pokes at lspService.
+    void onWorkspaceClosed() override;
+
 private:
     bool initializePlugin() override;
     void shutdownPlugin() override;

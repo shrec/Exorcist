@@ -37,6 +37,10 @@ public:
     // IViewContributor
     QWidget *createView(const QString &viewId, QWidget *parent) override;
 
+    /// Workspace lifecycle: clear git working directory + cached state on
+    /// close so the next open starts clean.  Rule L2.
+    void onWorkspaceClosed() override;
+
     // IAgentToolPlugin
     QString toolPluginName() const override { return QStringLiteral("Git"); }
     QStringList contexts() const override { return {QStringLiteral("git")}; }

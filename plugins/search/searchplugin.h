@@ -22,6 +22,10 @@ public:
     // IViewContributor
     QWidget *createView(const QString &viewId, QWidget *parent) override;
 
+    /// Workspace lifecycle hooks (rule L2).
+    void onWorkspaceOpened(const QString &root) override;
+    void onWorkspaceClosed() override;
+
 private:
     bool initializePlugin() override;
     void shutdownPlugin() override;

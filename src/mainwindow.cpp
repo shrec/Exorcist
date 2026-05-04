@@ -1013,33 +1013,31 @@ void MainWindow::setupMenus()
         m_editorMgr->projectManager()->saveSolution();
     });
     auto closeWorkspace = [this](const QString &statusText, bool unwatchFiles) {
+        // Container concerns: project manager + editor tabs + scoped settings.
         m_editorMgr->projectManager()->closeSolution();
         m_editorMgr->closeAllTabs();
         m_editorMgr->setCurrentFolder(QString());
         ScopedSettings::instance().setWorkspaceRoot({});
-        if (auto *lspSvc = m_services->service<ILspService>(QStringLiteral("lspService")))
-            lspSvc->stopServer();
-        m_gitService->setWorkingDirectory({});
-        if (auto *srch = dynamic_cast<ISearchService *>(m_services->service(QStringLiteral("searchService"))))
-            srch->setRootPath({});
-        if (auto *ts = dynamic_cast<ITerminalService *>(m_services->service(QStringLiteral("terminalService"))))
-            ts->setWorkingDirectory({});
+
+        // Workspace teardown beyond container concerns is the plugins'
+        // responsibility — broadcast the close event and each plugin
+        // (cpp-language stops clangd, git resets working dir, search clears
+        // root, terminal resets cwd, build clears project root, etc.) reacts
+        // in its own onWorkspaceClosed() handler.  Rule L2.
+        if (m_pluginManager)
+            m_pluginManager->notifyWorkspaceChanged(QString());
+
+        // File watcher is workbench infrastructure (container-level service,
+        // not a plugin), so it stays here.
         if (unwatchFiles && m_workbenchServices && m_workbenchServices->fileWatcher())
             m_workbenchServices->fileWatcher()->unwatchAll();
-        // Close every open dock panel so the welcome page is not framed by
-        // leftover sidebars.  setDockLayoutVisible(false) moves the side
-        // bars off-screen but the previously-pinned panels stay visible
-        // until each panel widget is explicitly closed.
-        if (m_dockManager) {
-            const auto docks = m_dockManager->dockWidgets();
-            for (auto *d : docks)
-                m_dockManager->closeDock(d);
-        }
-        // Switch back to the welcome page (index 0) and refresh recent list.
+
+        // Welcome page (transitional — Phase 2 will move this to StartPagePlugin).
         if (m_centralStack)
             m_centralStack->setCurrentIndex(0);
         if (m_welcome)
             m_welcome->refreshRecent();
+
         setWindowTitle(tr("Exorcist"));
         statusBar()->showMessage(statusText, 3000);
     };
