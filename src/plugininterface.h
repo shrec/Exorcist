@@ -49,6 +49,20 @@ public:
     /// Default: no-op (backward compatible).
     virtual void onWorkspaceChanged(const QString &root) { Q_UNUSED(root); }
 
+    /// Called when a workspace becomes active.  Default forwards to
+    /// onWorkspaceChanged(root) so existing plugins keep working without
+    /// changes.  New plugins should override this for the open path.
+    virtual void onWorkspaceOpened(const QString &root) { onWorkspaceChanged(root); }
+
+    /// Called when the workspace is closed (Close Folder / Close Solution).
+    /// Plugins must dismantle workspace-dependent state here — stop child
+    /// processes, clear caches, hide workspace-only UI, reset working
+    /// directories.  See CLAUDE.md rule L2: workspace lifecycle is plugin-
+    /// broadcast, never poked at by MainWindow.
+    /// Default: forward to onWorkspaceChanged({}) so existing plugins that
+    /// react to "empty root means closed" still work.
+    virtual void onWorkspaceClosed() { onWorkspaceChanged(QString()); }
+
     virtual void shutdown() = 0;
 };
 

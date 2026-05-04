@@ -34,8 +34,104 @@ bool WorkbenchPluginBase::initialize(IHostServices *host)
 
 void WorkbenchPluginBase::shutdown()
 {
+    // Phase 1 ownership cleanup: tear down every UI artifact the plugin
+    // registered via the convenience helpers (rule L1, L7).  This runs
+    // BEFORE shutdownPlugin() so the plugin still has access to host
+    // services if it needs to do additional cleanup of un-tracked state.
+    cleanupOwnedArtifacts();
     shutdownPlugin();
     m_host = nullptr;
+}
+
+void WorkbenchPluginBase::cleanupOwnedArtifacts()
+{
+    if (!m_host) return;
+
+    // Order matters: actions first (so menus/toolbars don't hold dangling
+    // pointers), then menus/toolbars/docks, then commands.
+    if (auto *menuMgr = m_host->menus()) {
+        for (auto &actPtr : m_ownedActions) {
+            if (actPtr) menuMgr->removeAction(actPtr.data());
+        }
+    }
+    m_ownedActions.clear();
+
+    if (auto *toolMgr = m_host->toolbars()) {
+        for (const QString &id : m_ownedToolbarIds)
+            toolMgr->removeToolBar(id);
+    }
+    m_ownedToolbarIds.clear();
+
+    if (auto *menuMgr = m_host->menus()) {
+        for (const QString &id : m_ownedMenuIds)
+            menuMgr->removeMenu(id);
+    }
+    m_ownedMenuIds.clear();
+
+    if (auto *dockMgr = m_host->docks()) {
+        for (const QString &id : m_ownedDockIds)
+            dockMgr->removePanel(id);
+    }
+    m_ownedDockIds.clear();
+
+    if (auto *cmdSvc = m_host->commands()) {
+        for (const QString &id : m_ownedCommandIds)
+            cmdSvc->unregisterCommand(id);
+    }
+    m_ownedCommandIds.clear();
+}
+
+void WorkbenchPluginBase::trackOwnedDock(const QString &id) const
+{
+    if (!id.isEmpty() && !m_ownedDockIds.contains(id))
+        m_ownedDockIds.append(id);
+}
+
+void WorkbenchPluginBase::trackOwnedToolbar(const QString &id) const
+{
+    if (!id.isEmpty() && !m_ownedToolbarIds.contains(id))
+        m_ownedToolbarIds.append(id);
+}
+
+void WorkbenchPluginBase::trackOwnedCommand(const QString &id) const
+{
+    if (!id.isEmpty() && !m_ownedCommandIds.contains(id))
+        m_ownedCommandIds.append(id);
+}
+
+void WorkbenchPluginBase::trackOwnedMenu(const QString &id) const
+{
+    if (!id.isEmpty() && !m_ownedMenuIds.contains(id))
+        m_ownedMenuIds.append(id);
+}
+
+void WorkbenchPluginBase::trackOwnedAction(QAction *action) const
+{
+    if (action)
+        m_ownedActions.append(QPointer<QAction>(action));
+}
+
+bool WorkbenchPluginBase::addPanel(const QString &id,
+                                   const QString &title,
+                                   QWidget *widget,
+                                   IDockManager::Area area,
+                                   bool startVisible) const
+{
+    auto *dockMgr = docks();
+    if (!dockMgr) return false;
+    const bool ok = dockMgr->addPanel(id, title, widget, area, startVisible);
+    if (ok) trackOwnedDock(id);
+    return ok;
+}
+
+void WorkbenchPluginBase::registerCommand(const QString &id,
+                                          const QString &title,
+                                          std::function<void()> handler) const
+{
+    auto *cmdSvc = commands();
+    if (!cmdSvc) return;
+    cmdSvc->registerCommand(id, title, std::move(handler));
+    trackOwnedCommand(id);
 }
 
 ICommandService *WorkbenchPluginBase::commands() const
@@ -247,8 +343,10 @@ QAction *WorkbenchPluginBase::addMenuCommand(IMenuManager::MenuLocation location
 {
     auto *action = makeCommandAction(text, commandId, owner, shortcut);
     auto *menuManager = menus();
-    if (action && menuManager)
+    if (action && menuManager) {
         menuManager->addAction(location, action);
+        trackOwnedAction(action);  // auto-cleanup on shutdown (rule L7)
+    }
     return action;
 }
 
@@ -260,8 +358,10 @@ QAction *WorkbenchPluginBase::addMenuCommand(const QString &menuId,
 {
     auto *action = makeCommandAction(text, commandId, owner, shortcut);
     auto *menuManager = menus();
-    if (action && menuManager)
+    if (action && menuManager) {
         menuManager->addAction(menuId, action);
+        trackOwnedAction(action);
+    }
     return action;
 }
 
@@ -275,7 +375,10 @@ void WorkbenchPluginBase::addMenuSeparator(IMenuManager::MenuLocation location) 
 QMenu *WorkbenchPluginBase::ensureMenu(const QString &menuId, const QString &title) const
 {
     auto *menuManager = menus();
-    return menuManager ? menuManager->createMenu(menuId, title) : nullptr;
+    if (!menuManager) return nullptr;
+    auto *menu = menuManager->createMenu(menuId, title);
+    if (menu) trackOwnedMenu(menuId);
+    return menu;
 }
 
 bool WorkbenchPluginBase::createToolBar(const QString &id,
@@ -283,7 +386,10 @@ bool WorkbenchPluginBase::createToolBar(const QString &id,
                                         IToolBarManager::Edge edge) const
 {
     auto *toolBarManager = toolbars();
-    return toolBarManager ? toolBarManager->createToolBar(id, title, edge) : false;
+    if (!toolBarManager) return false;
+    const bool ok = toolBarManager->createToolBar(id, title, edge);
+    if (ok) trackOwnedToolbar(id);
+    return ok;
 }
 
 QAction *WorkbenchPluginBase::addToolBarCommand(const QString &toolBarId,
@@ -294,8 +400,10 @@ QAction *WorkbenchPluginBase::addToolBarCommand(const QString &toolBarId,
 {
     auto *action = makeCommandAction(text, commandId, owner, shortcut);
     auto *toolBarManager = toolbars();
-    if (action && toolBarManager)
+    if (action && toolBarManager) {
         toolBarManager->addAction(toolBarId, action);
+        trackOwnedAction(action);
+    }
     return action;
 }
 
