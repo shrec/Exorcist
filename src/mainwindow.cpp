@@ -1026,6 +1026,15 @@ void MainWindow::setupMenus()
             ts->setWorkingDirectory({});
         if (unwatchFiles && m_workbenchServices && m_workbenchServices->fileWatcher())
             m_workbenchServices->fileWatcher()->unwatchAll();
+        // Close every open dock panel so the welcome page is not framed by
+        // leftover sidebars.  setDockLayoutVisible(false) moves the side
+        // bars off-screen but the previously-pinned panels stay visible
+        // until each panel widget is explicitly closed.
+        if (m_dockManager) {
+            const auto docks = m_dockManager->dockWidgets();
+            for (auto *d : docks)
+                m_dockManager->closeDock(d);
+        }
         // Switch back to the welcome page (index 0) and refresh recent list.
         if (m_centralStack)
             m_centralStack->setCurrentIndex(0);
