@@ -5,8 +5,8 @@
 #include "cmakeintegration.h"
 #include "debuglaunchcontroller.h"
 #include "kitmanager.h"
-#include "build/outputpanel.h"
-#include "build/runlaunchpanel.h"
+#include "component/outputpanel.h"
+#include "component/runlaunchpanel.h"
 #include "runconfigdialog.h"
 #include "toolchainmanager.h"
 

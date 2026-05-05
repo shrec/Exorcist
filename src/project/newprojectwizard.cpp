@@ -1,7 +1,7 @@
 #include "newprojectwizard.h"
 #include "projecttemplateregistry.h"
 #include "iprojecttemplateprovider.h"
-#include "build/kit.h"
+#include "sdk/kit.h"
 
 #include <QComboBox>
 #include <QDir>

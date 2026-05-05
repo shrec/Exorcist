@@ -140,7 +140,7 @@
 #include "sdk/ilspservice.h"
 #include "sdk/ibuildsystem.h"
 #include "sdk/ilaunchservice.h"
-#include "build/kit.h"
+#include "sdk/kit.h"
 #include "bootstrap/bridgebootstrap.h"
 #include "bootstrap/sharedservicesbootstrap.h"
 #include "bootstrap/templateservicesbootstrap.h"
@@ -163,7 +163,7 @@
 #include "project/filetemplatedialog.h"
 #include "project/solutiontreemodel.h"
 #include "git/gitservice.h"
-#include "build/outputpanel.h"
+#include "component/outputpanel.h"
 #include "problems/problemspanel.h"
 #include "settings/workspacesettings.h"
 #include "settings/scopedsettings.h"
@@ -171,7 +171,7 @@
 // DiffExplorerPanel + MergeEditor are owned by plugins/git/ (Rule 3).
 // MainWindow no longer needs to include their headers — the panels are
 // constructed and registered as docks by GitPlugin::initializePlugin().
-#include "build/runlaunchpanel.h"
+#include "component/runlaunchpanel.h"
 #include "agent/authmanager.h"
 #include "agent/securekeystorage.h"
 #include "agent/tools/websearchtool.h"

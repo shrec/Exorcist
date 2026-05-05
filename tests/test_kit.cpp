@@ -1,7 +1,7 @@
 #include <QTest>
 #include <QSignalSpy>
 #include <QSettings>
-#include "build/kit.h"
+#include "sdk/kit.h"
 #include "../plugins/build/kitmanager.h"
 
 // ── Kit struct tests + KitManager CRUD tests ─────────────────────────────────

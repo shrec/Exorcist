@@ -2,7 +2,7 @@
 #include <QTreeWidget>
 
 #include "problems/problemspanel.h"
-#include "build/outputpanel.h"
+#include "component/outputpanel.h"
 #include "sdk/idiagnosticsservice.h"
 
 // ── Mock IDiagnosticsService ──────────────────────────────────────────────────

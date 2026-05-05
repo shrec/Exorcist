@@ -20,7 +20,7 @@
 #include "editor/editorview.h"
 #include "lsp/lspclient.h"
 #include "problems/problemspanel.h"
-#include "build/outputpanel.h"
+#include "component/outputpanel.h"
 #include "pluginmanager.h"
 
 PostPluginBootstrap::PostPluginBootstrap(QObject *parent)

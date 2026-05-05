@@ -144,8 +144,8 @@ add_test(NAME SearchWorker COMMAND test_searchworker)
 # ── OutputPanel tests ──────────────────────────────────────────────────────────
 add_executable(test_outputpanel
     test_outputpanel.cpp
-    ${CMAKE_SOURCE_DIR}/src/build/outputpanel.cpp
-    ${CMAKE_SOURCE_DIR}/src/build/outputpanel.h
+    ${CMAKE_SOURCE_DIR}/src/component/outputpanel.cpp
+    ${CMAKE_SOURCE_DIR}/src/component/outputpanel.h
 )
 target_link_libraries(test_outputpanel PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_outputpanel PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -337,8 +337,8 @@ add_executable(test_problemspanel
     test_problemspanel.cpp
     ${CMAKE_SOURCE_DIR}/src/problems/problemspanel.cpp
     ${CMAKE_SOURCE_DIR}/src/problems/problemspanel.h
-    ${CMAKE_SOURCE_DIR}/src/build/outputpanel.cpp
-    ${CMAKE_SOURCE_DIR}/src/build/outputpanel.h
+    ${CMAKE_SOURCE_DIR}/src/component/outputpanel.cpp
+    ${CMAKE_SOURCE_DIR}/src/component/outputpanel.h
 )
 target_link_libraries(test_problemspanel PRIVATE Qt6::Test Qt6::Widgets)
 target_include_directories(test_problemspanel PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -758,8 +758,8 @@ add_test(NAME TaskService COMMAND test_taskservice)
 # ── Kit tests ──────────────────────────────────────────────────────────────────
 add_executable(test_kit
     test_kit.cpp
-    ${CMAKE_SOURCE_DIR}/src/build/kit.cpp
-    ${CMAKE_SOURCE_DIR}/src/build/kit.h
+    ${CMAKE_SOURCE_DIR}/src/sdk/kit.cpp
+    ${CMAKE_SOURCE_DIR}/src/sdk/kit.h
     ${CMAKE_SOURCE_DIR}/plugins/build/kitmanager.cpp
     ${CMAKE_SOURCE_DIR}/plugins/build/kitmanager.h
     ${CMAKE_SOURCE_DIR}/plugins/build/toolchainmanager.cpp

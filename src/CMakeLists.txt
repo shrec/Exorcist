@@ -432,12 +432,12 @@ add_executable(exorcist WIN32
     core/qtterminal.h
     core/nullnetwork.cpp
     core/nullnetwork.h
-    build/outputpanel.cpp
-    build/outputpanel.h
-    build/runlaunchpanel.cpp
-    build/runlaunchpanel.h
-    build/kit.cpp
-    build/kit.h
+    component/outputpanel.cpp
+    component/outputpanel.h
+    component/runlaunchpanel.cpp
+    component/runlaunchpanel.h
+    sdk/kit.cpp
+    sdk/kit.h
     problems/problemspanel.h
     problems/problemspanel.cpp
     editor/filewatchservice.cpp

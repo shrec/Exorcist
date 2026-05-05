@@ -3,7 +3,7 @@
 #include <QTemporaryDir>
 #include <QFile>
 
-#include "build/outputpanel.h"
+#include "component/outputpanel.h"
 
 class TestOutputPanel : public QObject
 {

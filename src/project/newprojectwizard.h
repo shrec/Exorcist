@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QDialog>
-#include "build/kit.h"
+#include "sdk/kit.h"
 
 class QComboBox;
 class QLabel;

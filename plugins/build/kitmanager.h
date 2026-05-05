@@ -1,6 +1,6 @@
 #pragma once
 
-#include "build/kit.h"
+#include "sdk/kit.h"
 
 class ToolchainManager;
 class QSettings;

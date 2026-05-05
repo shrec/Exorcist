@@ -1,6 +1,6 @@
 #include "problemspanel.h"
 #include "../sdk/idiagnosticsservice.h"
-#include "../build/outputpanel.h"
+#include "../component/outputpanel.h"
 
 #include <QTreeWidget>
 #include <QHeaderView>
