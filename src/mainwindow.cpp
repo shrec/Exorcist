@@ -188,7 +188,9 @@
 #include "agent/trajectoryreplaywidget.h"
 #include "agent/promptarchiveexporter.h"
 #include "agent/memoryfileeditor.h"
-#include "ui/welcomewidget.h"
+// WelcomeWidget moved to plugins/start-page/ (rule L3).  MainWindow no
+// longer references its concrete type — it queries the "welcomeWidget"
+// service to obtain the QWidget* during deferredInit.
 #include "ui/keymapmanager.h"
 #include "ui/markdownpreviewpanel.h"
 // qthelpdock moved to plugins/qt-tools/ — registered as dock by qt-tools plugin
@@ -725,9 +727,28 @@ void MainWindow::deferredInit()
             m_dockManager->closeDock(dw);
     }
 
-    // Refresh the welcome page's recent list after plugins have loaded.
-    if (m_welcome)
-        m_welcome->refreshRecent();
+    // ── Wire the start-page plugin's WelcomeWidget into the central stack ──
+    // The plugin (plugins/start-page/) constructed the widget during its
+    // initializePlugin() and registered it under "welcomeWidget".  Swap
+    // it into m_centralStack page 0, replacing the empty placeholder.
+    if (auto *welcome = m_services->service<QWidget>(QStringLiteral("welcomeWidget"))) {
+        if (m_centralStack && m_centralStack->count() > 0) {
+            QWidget *placeholder = m_centralStack->widget(0);
+            if (placeholder && placeholder->objectName() == QStringLiteral("welcomePlaceholder")) {
+                m_centralStack->removeWidget(placeholder);
+                placeholder->deleteLater();
+            }
+            m_centralStack->insertWidget(0, welcome);
+            // Keep current index — if we were already on the welcome page,
+            // the new widget is now visible at the same slot.
+            if (!m_centralStack->currentWidget())
+                m_centralStack->setCurrentIndex(0);
+        }
+        m_welcome = welcome;
+        // Refresh the recent list now that plugins have loaded.
+        QMetaObject::invokeMethod(welcome, "refreshRecent");
+    }
+
     StartupProfiler::instance().mark(QStringLiteral("deferred init done"));
 }
 
@@ -1033,11 +1054,12 @@ void MainWindow::setupMenus()
         if (unwatchFiles && m_workbenchServices && m_workbenchServices->fileWatcher())
             m_workbenchServices->fileWatcher()->unwatchAll();
 
-        // Welcome page (transitional — Phase 2 will move this to StartPagePlugin).
+        // Switch the central stack back to the welcome page (page 0).
+        // The actual refresh of recent folders is fired via a command —
+        // start-page plugin owns the welcome widget and handles refresh
+        // itself in onWorkspaceClosed (rule L1, L3).
         if (m_centralStack)
             m_centralStack->setCurrentIndex(0);
-        if (m_welcome)
-            m_welcome->refreshRecent();
 
         setWindowTitle(tr("Exorcist"));
         statusBar()->showMessage(statusText, 3000);
@@ -1760,13 +1782,18 @@ void MainWindow::createDockWidgets()
     // (ThemeManager→dockManager signal wired in createDockWidgets once dockManager exists.)
 
     // Build the central area as a QStackedWidget:
-    //   page 0 = WelcomeWidget   (shown when no project is open)
+    //   page 0 = welcome page    (shown when no project is open)
     //   page 1 = editor container (breadcrumb + tab widget)
+    //
+    // The welcome page is owned by the start-page plugin (rule L3).  We
+    // start with an empty placeholder; deferredInit() queries the
+    // "welcomeWidget" service after plugins load and swaps it into page 0.
     m_centralStack = new QStackedWidget(this);
     m_editorMgr->setCentralStack(m_centralStack);
 
-    m_welcome = new WelcomeWidget(this);
-    m_centralStack->addWidget(m_welcome);  // page 0
+    auto *welcomePlaceholder = new QWidget(this);
+    welcomePlaceholder->setObjectName(QStringLiteral("welcomePlaceholder"));
+    m_centralStack->addWidget(welcomePlaceholder);  // page 0
 
     auto *editorContainer = new QWidget(this);
     auto *editorLayout = new QVBoxLayout(editorContainer);
@@ -1796,20 +1823,36 @@ void MainWindow::createDockWidgets()
         });
     });
 
-    // Wire welcome signals
-    connect(m_welcome, &WelcomeWidget::openFolderBrowseRequested,
-            this, [this]() { openFolder(); });
-    connect(m_welcome, &WelcomeWidget::openFolderRequested,
-            this, &MainWindow::openFolder);
-    connect(m_welcome, &WelcomeWidget::newProjectRequested,
-            this, &MainWindow::newSolution);
-    connect(m_welcome, &WelcomeWidget::newFileRequested,
-            this, [this]() { openNewTab(); });
-    connect(m_welcome, &WelcomeWidget::openFileRequested,
-            this, [this]() {
-        const QString path = QFileDialog::getOpenFileName(this, tr("Open File"));
-        if (!path.isEmpty()) openFile(path);
-    });
+    // Welcome widget signals are routed via the command service by the
+    // start-page plugin.  Here we register the matching command handlers
+    // (rule L4 — dispatcher infra is plugin-agnostic, command handlers
+    // route into MainWindow's existing methods).
+    if (auto *cmdSvc = m_hostServices ? m_hostServices->commands() : nullptr) {
+        cmdSvc->registerCommand(QStringLiteral("file.openFolder"),
+                                tr("Open Folder..."),
+                                [this]() { openFolder(); });
+        cmdSvc->registerCommand(QStringLiteral("file.openFolderPath"),
+                                tr("Open Recent Folder"),
+                                [this]() {
+            const QString path = QSettings(QStringLiteral("Exorcist"),
+                                           QStringLiteral("Exorcist"))
+                                     .value(QStringLiteral("startPage/openFolderPath"))
+                                     .toString();
+            if (!path.isEmpty()) openFolder(path);
+        });
+        cmdSvc->registerCommand(QStringLiteral("file.newProject"),
+                                tr("New Project..."),
+                                [this]() { newSolution(); });
+        cmdSvc->registerCommand(QStringLiteral("file.newTab"),
+                                tr("New Tab"),
+                                [this]() { openNewTab(); });
+        cmdSvc->registerCommand(QStringLiteral("file.openFile"),
+                                tr("Open File..."),
+                                [this]() {
+            const QString path = QFileDialog::getOpenFileName(this, tr("Open File"));
+            if (!path.isEmpty()) openFile(path);
+        });
+    }
 
     m_dockManager->setCentralContent(m_centralStack);
 

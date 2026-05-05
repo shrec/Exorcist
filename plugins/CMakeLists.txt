@@ -1,6 +1,7 @@
 find_package(Qt6 REQUIRED COMPONENTS Network)
 
 add_subdirectory(common)
+add_subdirectory(start-page)
 add_subdirectory(lang-pack)
 add_subdirectory(copilot)
 add_subdirectory(git)

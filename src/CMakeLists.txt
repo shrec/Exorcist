@@ -338,8 +338,6 @@ add_executable(exorcist WIN32
     ui/aboutdialog.h
     ui/recentfilesmanager.cpp
     ui/recentfilesmanager.h
-    ui/welcomewidget.cpp
-    ui/welcomewidget.h
     ui/themegallerypanel.cpp
     ui/themegallerypanel.h
     ui/themeicons.cpp

@@ -338,13 +338,20 @@ void BuildPlugin::registerCommands()
         if (!m_debugAdapter)
             wireDebugAdapter();
 
-        if (m_debugAdapter && m_debugAdapter->isRunning()) {
+        const bool hasAdapter = (m_debugAdapter != nullptr);
+        const bool isRunning  = hasAdapter && m_debugAdapter->isRunning();
+        qDebug() << "[BuildPlugin] build.debug fired — adapter=" << hasAdapter
+                 << "isRunning=" << isRunning
+                 << "launcher=" << (m_launcher ? "yes" : "NULL");
+
+        if (hasAdapter && isRunning) {
+            qDebug() << "[BuildPlugin]   → continueExecution";
             m_debugAdapter->continueExecution();
             return;
         }
 
         const QString exe = m_toolbar ? m_toolbar->selectedTarget() : QString();
-        // exe may be empty; DebugLaunchController auto-discovers after build
+        qDebug() << "[BuildPlugin]   → startDebugging exe=" << exe << "wd=" << m_workingDir;
         DebugLaunchConfig cfg;
         cfg.executable = exe;
         cfg.workingDir = m_workingDir;

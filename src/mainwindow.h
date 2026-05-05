@@ -5,6 +5,7 @@
 #include <QMainWindow>
 #include <QMetaObject>
 #include <QModelIndex>
+#include <QPointer>
 #include <memory>
 
 #include "core/ifilesystem.h"
@@ -58,7 +59,8 @@ class StatusBarManager;
 class AIServicesBootstrap;
 class DockBootstrap;
 class PostPluginBootstrap;
-class WelcomeWidget;
+// WelcomeWidget moved to plugins/start-page/ (rule L3).  MainWindow holds
+// only a QPointer<QWidget> to it via the "welcomeWidget" service.
 class QStackedWidget;
 
 class MainWindow : public QMainWindow
@@ -142,7 +144,9 @@ private:
     exdock::DockManager       *m_dockManager = nullptr;
     bool                        m_focusMode = false;
     QStackedWidget             *m_centralStack = nullptr;
-    WelcomeWidget              *m_welcome = nullptr;
+    // QPointer because the widget is owned by the start-page plugin DLL;
+    // when the plugin unloads, the pointer auto-clears.
+    QPointer<QWidget>           m_welcome;
 
     RunTestsTool::TestResult  m_lastTestResult;  // cached from last run_tests invocation
 

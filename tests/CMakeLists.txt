@@ -862,15 +862,16 @@ add_executable(test_themeregression
     test_themeregression.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/thememanager.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/thememanager.h
-    ${CMAKE_SOURCE_DIR}/src/ui/welcomewidget.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/welcomewidget.h
+    ${CMAKE_SOURCE_DIR}/plugins/start-page/welcomewidget.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/start-page/welcomewidget.h
     ${CMAKE_SOURCE_DIR}/src/editor/imagepreviewwidget.cpp
     ${CMAKE_SOURCE_DIR}/src/editor/imagepreviewwidget.h
 )
 target_link_libraries(test_themeregression PRIVATE
     Qt6::Test Qt6::Widgets Qt6::Svg)
 target_include_directories(test_themeregression PRIVATE
-    ${CMAKE_SOURCE_DIR}/src)
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/plugins/start-page)
 add_test(NAME ThemeRegression COMMAND test_themeregression)
 
 # Deploy Qt DLLs so tests can run (Windows)

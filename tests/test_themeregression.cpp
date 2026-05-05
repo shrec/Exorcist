@@ -19,7 +19,7 @@
 
 #include "editor/imagepreviewwidget.h"
 #include "ui/thememanager.h"
-#include "ui/welcomewidget.h"
+#include "welcomewidget.h"
 
 class TestThemeRegression : public QObject
 {

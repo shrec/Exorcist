@@ -1,0 +1,16 @@
+{
+  "id": "org.exorcist.start-page",
+  "name": "Start Page",
+  "version": "1.0.0",
+  "description": "Welcome page shown when no workspace is open: recent folders, new-project shortcuts, getting-started cards.",
+  "author": "Exorcist",
+  "license": "MIT",
+  "layer": "cpp-sdk",
+  "category": "core",
+  "contributions": {
+    "commands": [
+      { "id": "startPage.show",    "title": "Show Start Page",    "category": "View" },
+      { "id": "startPage.refresh", "title": "Refresh Recent Folders", "category": "View" }
+    ]
+  }
+}
