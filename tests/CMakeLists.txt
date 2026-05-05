@@ -359,16 +359,18 @@ add_executable(test_diffmerge
     test_diffmerge.cpp
     ${CMAKE_SOURCE_DIR}/src/git/gitservice.cpp
     ${CMAKE_SOURCE_DIR}/src/git/gitservice.h
-    ${CMAKE_SOURCE_DIR}/src/git/diffexplorerpanel.cpp
-    ${CMAKE_SOURCE_DIR}/src/git/diffexplorerpanel.h
-    ${CMAKE_SOURCE_DIR}/src/git/mergeeditor.cpp
-    ${CMAKE_SOURCE_DIR}/src/git/mergeeditor.h
+    ${CMAKE_SOURCE_DIR}/plugins/git/diffexplorerpanel.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/git/diffexplorerpanel.h
+    ${CMAKE_SOURCE_DIR}/plugins/git/mergeeditor.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/git/mergeeditor.h
     ${CMAKE_SOURCE_DIR}/src/process/bridgeclient.h
     ${CMAKE_SOURCE_DIR}/src/process/bridgeclient.cpp
     ${CMAKE_SOURCE_DIR}/src/process/ipcprotocol.cpp
 )
 target_link_libraries(test_diffmerge PRIVATE Qt6::Test Qt6::Widgets Qt6::Concurrent Qt6::Network)
-target_include_directories(test_diffmerge PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(test_diffmerge PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/plugins/git)
 add_test(NAME DiffMerge COMMAND test_diffmerge)
 
 # ── VimHandler ────────────────────────────────────────────────────────────────

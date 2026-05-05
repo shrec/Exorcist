@@ -6,8 +6,8 @@
 #include <QSignalSpy>
 
 #include "git/gitservice.h"
-#include "git/diffexplorerpanel.h"
-#include "git/mergeeditor.h"
+#include "diffexplorerpanel.h"
+#include "mergeeditor.h"
 
 class TestDiffMerge : public QObject
 {

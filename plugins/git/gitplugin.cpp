@@ -1,9 +1,9 @@
 #include "gitplugin.h"
 
 #include "git/gitservice.h"
-#include "git/gitpanel.h"
-#include "git/diffexplorerpanel.h"
-#include "git/mergeeditor.h"
+#include "gitpanel.h"
+#include "diffexplorerpanel.h"
+#include "mergeeditor.h"
 #include "inlineblameoverlay.h"
 
 #include "editor/editormanager.h"

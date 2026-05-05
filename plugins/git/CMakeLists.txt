@@ -3,12 +3,12 @@ add_library(git_plugin SHARED
     gitplugin.cpp
     inlineblameoverlay.h
     inlineblameoverlay.cpp
-    ${CMAKE_SOURCE_DIR}/src/git/gitpanel.h
-    ${CMAKE_SOURCE_DIR}/src/git/gitpanel.cpp
-    ${CMAKE_SOURCE_DIR}/src/git/diffexplorerpanel.h
-    ${CMAKE_SOURCE_DIR}/src/git/diffexplorerpanel.cpp
-    ${CMAKE_SOURCE_DIR}/src/git/mergeeditor.h
-    ${CMAKE_SOURCE_DIR}/src/git/mergeeditor.cpp
+    gitpanel.h
+    gitpanel.cpp
+    diffexplorerpanel.h
+    diffexplorerpanel.cpp
+    mergeeditor.h
+    mergeeditor.cpp
 )
 
 target_link_libraries(git_plugin PRIVATE Qt6::Widgets Qt6::Concurrent plugin_common exorcist)
@@ -16,6 +16,7 @@ target_link_libraries(git_plugin PRIVATE Qt6::Widgets Qt6::Concurrent plugin_com
 target_include_directories(git_plugin PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/plugins/common
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 set_target_properties(git_plugin PROPERTIES

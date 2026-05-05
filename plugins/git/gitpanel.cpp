@@ -1,6 +1,6 @@
 #include "gitpanel.h"
 
-#include "gitservice.h"
+#include "git/gitservice.h"
 
 #include <QAction>
 #include <QApplication>

@@ -1,5 +1,5 @@
 #include "mergeeditor.h"
-#include "gitservice.h"
+#include "git/gitservice.h"
 
 #include <QDir>
 #include <QFile>

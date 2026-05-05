@@ -1,5 +1,5 @@
 #include "diffexplorerpanel.h"
-#include "gitservice.h"
+#include "git/gitservice.h"
 
 #include <QComboBox>
 #include <QHBoxLayout>

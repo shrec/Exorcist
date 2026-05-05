@@ -168,8 +168,9 @@
 #include "settings/workspacesettings.h"
 #include "settings/scopedsettings.h"
 #include "settings/languageprofile.h"
-#include "git/diffexplorerpanel.h"
-#include "git/mergeeditor.h"
+// DiffExplorerPanel + MergeEditor are owned by plugins/git/ (Rule 3).
+// MainWindow no longer needs to include their headers — the panels are
+// constructed and registered as docks by GitPlugin::initializePlugin().
 #include "build/runlaunchpanel.h"
 #include "agent/authmanager.h"
 #include "agent/securekeystorage.h"
