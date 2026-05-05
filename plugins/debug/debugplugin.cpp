@@ -3,7 +3,7 @@
 #include "gdbmiadapter.h"
 #include "memoryviewpanel.h"
 #include "disassemblypanel.h"
-#include "debug/debugpanel.h"
+#include "debugpanel.h"
 #include "ui/themeicons.h"
 
 #include "sdk/idebugadapter.h"
@@ -14,6 +14,7 @@
 #include "core/itoolbarmanager.h"
 
 #include <QAction>
+#include <QDebug>
 #include <QHash>
 #include <QSettings>
 
@@ -240,6 +241,9 @@ void DebugPlugin::registerCommands()
     auto debugCmd = [this](const char *name, void (IDebugAdapter::*fn)(int), int tid) {
         const bool hasAdapter = (m_adapter != nullptr);
         const bool isRunning  = hasAdapter && m_adapter->isRunning();
+        qDebug() << "[DebugPlugin] debugCmd(" << name << ") adapter=" << hasAdapter
+                 << "isRunning=" << isRunning
+                 << "→" << (hasAdapter && isRunning ? "fire" : "SKIP");
         if (m_adapter) {
             emit m_adapter->outputProduced(
                 QStringLiteral("[CMD] debug.%1 — adapter=%2 isRunning=%3")

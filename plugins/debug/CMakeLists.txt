@@ -7,14 +7,14 @@ add_library(debug_plugin SHARED
     memoryviewpanel.cpp
     disassemblypanel.h
     disassemblypanel.cpp
-    ${CMAKE_SOURCE_DIR}/src/debug/debugpanel.h
-    ${CMAKE_SOURCE_DIR}/src/debug/debugpanel.cpp
-    ${CMAKE_SOURCE_DIR}/src/debug/watchtreemodel.h
-    ${CMAKE_SOURCE_DIR}/src/debug/watchtreemodel.cpp
-    ${CMAKE_SOURCE_DIR}/src/debug/quickwatchdialog.h
-    ${CMAKE_SOURCE_DIR}/src/debug/quickwatchdialog.cpp
-    ${CMAKE_SOURCE_DIR}/src/debug/watchpointdialog.h
-    ${CMAKE_SOURCE_DIR}/src/debug/watchpointdialog.cpp
+    debugpanel.h
+    debugpanel.cpp
+    watchtreemodel.h
+    watchtreemodel.cpp
+    quickwatchdialog.h
+    quickwatchdialog.cpp
+    watchpointdialog.h
+    watchpointdialog.cpp
 )
 
 target_link_libraries(debug_plugin PRIVATE Qt6::Widgets Qt6::Svg plugin_common exorcist)
@@ -22,6 +22,7 @@ target_link_libraries(debug_plugin PRIVATE Qt6::Widgets Qt6::Svg plugin_common e
 target_include_directories(debug_plugin PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/plugins/common
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 set_target_properties(debug_plugin PROPERTIES
