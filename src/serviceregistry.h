@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDebug>
 #include <QObject>
 #include <QHash>
 #include <QString>
@@ -40,10 +41,27 @@ public:
     bool hasService(const QString &name) const;
 
     /// Typed convenience — returns nullptr if not found or wrong type.
+    ///
+    /// qobject_cast is the primary path (fast meta-object lookup) but it
+    /// fails silently when an SDK interface's MOC is duplicated across DLL
+    /// boundaries (multiple Q_OBJECT-generated metaobject identities for
+    /// the same class).  When that happens we fall back to dynamic_cast,
+    /// which uses C++ RTTI and ignores Qt's metaobject identity — so it
+    /// works regardless of MOC duplication.  We log a warning when the
+    /// fallback succeeds so future regressions surface in the log instead
+    /// of silently null-returning into "F5 doesn't step" territory.
     template<typename T>
     T *service(const QString &name) const
     {
-        return qobject_cast<T *>(service(name));
+        QObject *raw = service(name);
+        if (!raw) return nullptr;
+        if (T *typed = qobject_cast<T *>(raw)) return typed;
+        if (T *typed = dynamic_cast<T *>(raw)) {
+            qWarning().noquote() << "[ServiceRegistry] qobject_cast failed for"
+                                 << name << "(MOC duplication?), dynamic_cast succeeded";
+            return typed;
+        }
+        return nullptr;
     }
 
     // ── Version / contract ────────────────────────────────────────────────
