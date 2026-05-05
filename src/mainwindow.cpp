@@ -878,32 +878,8 @@ void MainWindow::setupUi()
             if (m_inlineEngine) m_inlineEngine->triggerCompletion();
         });
 
-        // Breakpoint gutter → debug service
-        connect(editor, &EditorView::breakpointToggled, this,
-                [this](const QString &fp, int ln, bool added) {
-            auto *debugSvc = m_services->service<IDebugService>(
-                QStringLiteral("debugService"));
-            auto *adapter = m_services->service<IDebugAdapter>(
-                QStringLiteral("debugAdapter"));
-            if (added) {
-                if (debugSvc) debugSvc->addBreakpointEntry(fp, ln);
-                // Always send to adapter — if not yet launched, it queues for next run
-                if (adapter) {
-                    DebugBreakpoint bp;
-                    bp.filePath = fp;
-                    bp.line = ln;
-                    adapter->addBreakpoint(bp);
-                }
-            } else {
-                if (debugSvc) {
-                    // Remove from adapter using the confirmed breakpoint ID
-                    const int bpId = debugSvc->breakpointIdForLocation(fp, ln);
-                    if (adapter && adapter->isRunning() && bpId >= 0)
-                        adapter->removeBreakpoint(bpId);
-                    debugSvc->removeBreakpointEntry(fp, ln);
-                }
-            }
-        });
+        // Breakpoint gutter → debug adapter is wired by the debug plugin
+        // (rule L1, L5).  MainWindow no longer owns this signal route.
 
         // LSP bridge — sets up completions, hover, go-to-def, symbols, etc.
         createLspBridge(editor, path);
