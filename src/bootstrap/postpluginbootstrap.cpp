@@ -77,35 +77,38 @@ void PostPluginBootstrap::wire(const Deps &deps)
     }
 
     // ── LSP service → editor integration ──
+    //
+    // The serverReady → lspClient->initialize() handler that previously
+    // lived here was REDUNDANT — the cpp-language plugin's
+    // LspServiceBridge::onClangdServerReady() already does the same thing
+    // (and was added to be the single source of truth for that init).
+    // Keeping both fired the LSP initialize() handshake twice on workspace
+    // open, which produced the "LSP error for id N: server not initialized"
+    // warnings in exorcist.log (the second handshake races the first).
+    // Removed here per rules L1+L4 — plugin owns its own LSP lifecycle.
     if (auto *lspSvc = services->service<ILspService>(
             QStringLiteral("lspService"))) {
-        auto *lspClient = services->service<LspClient>(
-            QStringLiteral("lspClient"));
-
-        // Server ready → initialize LSP client with workspace root
-        connect(lspSvc, &ILspService::serverReady,
-                this, [editorMgr, lspClient]() {
-            if (lspClient)
-                lspClient->initialize(editorMgr->currentFolder());
-        });
-
-        // Go-to-Definition (F12)
+        // Go-to-Definition (F12) — bridge into MainWindow's navigation
+        // method.  This is a genuine cross-plugin bridge (LSP plugin →
+        // container navigation) so it stays here.
         connect(lspSvc, &ILspService::navigateToLocation,
                 this, &PostPluginBootstrap::navigateToSource);
 
-        // Wire LSP diagnostics push to agent
-        if (lspClient && deps.agentPlatform) {
-            if (auto *notifier = deps.agentPlatform->diagnosticsNotifier()) {
-                connect(lspClient, &LspClient::diagnosticsPublished,
-                        notifier, &DiagnosticsNotifier::onDiagnosticsPublished);
+        // Diagnostics push to agent + SDK DiagnosticsService.  Both
+        // receivers are container-side, so wiring stays here.
+        if (auto *lspClient = services->service<LspClient>(
+                QStringLiteral("lspClient"))) {
+            if (deps.agentPlatform) {
+                if (auto *notifier = deps.agentPlatform->diagnosticsNotifier()) {
+                    connect(lspClient, &LspClient::diagnosticsPublished,
+                            notifier, &DiagnosticsNotifier::onDiagnosticsPublished);
+                }
             }
-        }
-
-        // Wire LSP diagnostics into the SDK DiagnosticsService
-        if (lspClient && deps.hostServices) {
-            connect(lspClient, &LspClient::diagnosticsPublished,
-                    deps.hostServices->diagnosticsService(),
-                    &DiagnosticsServiceImpl::onDiagnosticsPublished);
+            if (deps.hostServices) {
+                connect(lspClient, &LspClient::diagnosticsPublished,
+                        deps.hostServices->diagnosticsService(),
+                        &DiagnosticsServiceImpl::onDiagnosticsPublished);
+            }
         }
     }
 
