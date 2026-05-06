@@ -4,6 +4,7 @@ add_executable(exorcist WIN32
     mainwindow.h
     mainwindow_menus.cpp
     mainwindow_workspace.cpp
+    mainwindow_docks.cpp
     bootstrap/agentcallbacksbootstrap.cpp
     bootstrap/autosavemanager.h
     bootstrap/autosavemanager.cpp
