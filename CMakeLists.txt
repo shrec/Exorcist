@@ -173,6 +173,34 @@ add_subdirectory(cmake/luajit)
 if(EXORCIST_USE_ULTRALIGHT)
     add_subdirectory(cmake/ultralight)
 endif()
+
+# ── JavaScriptCore provider ──────────────────────────────────────────────────
+# The headless JS plugin runtime (jspluginruntime/jshostapi) only needs the
+# JavaScriptCore C API. When Ultralight is enabled it comes from the bundled
+# SDK; otherwise fall back to a system JavaScriptCore (WebKitGTK) if present.
+# This keeps the Ultralight path untouched while letting the headless runtime
+# and its tests build without Ultralight.
+if(EXORCIST_USE_ULTRALIGHT)
+    add_library(javascriptcore INTERFACE)
+    target_link_libraries(javascriptcore INTERFACE ultralight-sdk)
+    set(EXORCIST_HAS_JAVASCRIPTCORE ON)
+    message(STATUS "JavaScriptCore provider: Ultralight SDK")
+else()
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(JSC QUIET IMPORTED_TARGET javascriptcoregtk-4.1)
+    endif()
+    if(JSC_FOUND)
+        add_library(javascriptcore INTERFACE)
+        target_link_libraries(javascriptcore INTERFACE PkgConfig::JSC)
+        set(EXORCIST_HAS_JAVASCRIPTCORE ON)
+        message(STATUS "JavaScriptCore provider: system (javascriptcoregtk-4.1)")
+    else()
+        set(EXORCIST_HAS_JAVASCRIPTCORE OFF)
+        message(STATUS "JavaScriptCore provider: none (headless JS plugin runtime disabled)")
+    endif()
+endif()
+
 add_subdirectory(src)
 add_subdirectory(server)
 add_subdirectory(plugins)

@@ -1,4 +1,10 @@
 #include "chatthinkingwidget.h"
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QScrollArea>
+#include <QTimer>
+#include <QToolButton>
+#include <QVBoxLayout>
 
 #include <QPainter>
 #include <QScrollArea>

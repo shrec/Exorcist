@@ -1,6 +1,8 @@
 #include "jspluginsdkplugin.h"
 #include "jspluginruntime.h"
+#ifdef EXORCIST_HAS_ULTRALIGHT
 #include "ultralightpluginview.h"
+#endif
 
 #include "sdk/ihostservices.h"
 #include "sdk/iviewservice.h"
@@ -64,6 +66,7 @@ void JsPluginSdkPlugin::shutdown()
 
 void JsPluginSdkPlugin::registerHtmlPluginViews()
 {
+#ifdef EXORCIST_HAS_ULTRALIGHT
     if (!m_host || !m_host->views() || !m_runtime)
         return;
 
@@ -81,4 +84,9 @@ void JsPluginSdkPlugin::registerHtmlPluginViews()
                   qUtf8Printable(vc.id), qUtf8Printable(vc.title));
         }
     }
+#else
+    // HTML plugin views require the Ultralight renderer; headless JS plugins
+    // still load and run without it.
+    Q_UNUSED(m_host);
+#endif
 }

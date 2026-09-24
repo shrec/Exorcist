@@ -1,5 +1,7 @@
 #include <QTest>
 #include <QSignalSpy>
+#include <QSettings>
+#include <QTemporaryDir>
 
 #include "agent/featureflags.h"
 
@@ -8,6 +10,7 @@ class TestFeatureFlags : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase();
     void testDefaultFlagsEnabled();
     void testTelemetryDefaultDisabled();
     void testSetAndGetFlag();
@@ -16,7 +19,20 @@ private slots:
     void testGenericFlagAccess();
     void testCustomFlag();
     void testAllFlags();
+
+private:
+    QTemporaryDir m_settingsDir;
 };
+
+// Isolate QSettings from the user's real configuration so the suite is
+// hermetic and repeatable (FeatureFlags persists to QSettings on every set).
+void TestFeatureFlags::initTestCase()
+{
+    QVERIFY(m_settingsDir.isValid());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                       m_settingsDir.path());
+}
 
 void TestFeatureFlags::testDefaultFlagsEnabled()
 {

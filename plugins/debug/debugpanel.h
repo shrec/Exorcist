@@ -2,6 +2,8 @@
 
 #include <QWidget>
 
+#include "sdk/idebugadapter.h"
+
 class QTabWidget;
 class QToolButton;
 class QTableWidget;
@@ -14,12 +16,6 @@ class IDebugAdapter;
 class WatchTreeModel;
 class QuickWatchDialog;
 class QSpinBox;
-struct DebugBreakpoint;
-struct DebugFrame;
-struct DebugVariable;
-struct DebugThread;
-struct DebugWatchpoint;
-enum class DebugStopReason;
 
 /// Main debug panel containing a status row + tabs for call stack,
 /// threads, locals, breakpoints, watch, and debug output. The

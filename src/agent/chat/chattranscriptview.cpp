@@ -1,5 +1,13 @@
 #include "chattranscriptview.h"
 
+#include "chatturnwidget.h"
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QScrollArea>
+#include <QTimer>
+#include <QToolButton>
+#include <QVBoxLayout>
+
 #include <QScrollBar>
 
 ChatTranscriptView::ChatTranscriptView(ChatSessionModel *model, QWidget *parent)

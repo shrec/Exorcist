@@ -1,4 +1,10 @@
 #include "chattoolinvocationwidget.h"
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QScrollArea>
+#include <QTimer>
+#include <QToolButton>
+#include <QVBoxLayout>
 
 #include <QJsonArray>
 #include <QJsonDocument>

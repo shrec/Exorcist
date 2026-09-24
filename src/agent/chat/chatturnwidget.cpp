@@ -1,5 +1,17 @@
 #include "chatturnwidget.h"
 
+#include "chatfollowupswidget.h"
+#include "chatmarkdownwidget.h"
+#include "chatthinkingwidget.h"
+#include "chattoolinvocationwidget.h"
+#include "chatworkspaceeditwidget.h"
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QScrollArea>
+#include <QTimer>
+#include <QToolButton>
+#include <QVBoxLayout>
+
 #include <QClipboard>
 #include <QGuiApplication>
 

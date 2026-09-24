@@ -159,12 +159,12 @@ private:
     exorcist::UltralightWidget *m_ultralightView = nullptr;
     exorcist::ChatJSBridge     *m_jsBridge       = nullptr;
     bool                        m_thinkingEnabled = false;
-    QStringList                 m_pendingFileAttachments;
 #else
     QStackedWidget        *m_stack            = nullptr;
     ChatWelcomeWidget     *m_welcome          = nullptr;
     ChatTranscriptView    *m_transcript       = nullptr;
 #endif
+    QStringList           m_pendingFileAttachments;
     ChatInputWidget       *m_inputWidget      = nullptr;
 
     // Changes bar

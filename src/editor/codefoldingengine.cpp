@@ -181,11 +181,11 @@ void CodeFoldingEngine::detectBraceRegions()
             }
 
             if (ch == QLatin1Char('{')) {
-                stack.append({block.blockNumber()});
+                stack.append(OpenBrace{block.blockNumber()});
             } else if (ch == QLatin1Char('}') && !stack.isEmpty()) {
                 const auto open = stack.takeLast();
                 if (block.blockNumber() > open.blockNumber) {
-                    m_regions.append({open.blockNumber, block.blockNumber()});
+                    m_regions.append(FoldRegion{open.blockNumber, block.blockNumber()});
                 }
             }
         }
@@ -266,6 +266,6 @@ void CodeFoldingEngine::detectIndentRegions()
         }
 
         if (endBlock > i)
-            m_regions.append({i, endBlock});
+            m_regions.append(FoldRegion{i, endBlock});
     }
 }
